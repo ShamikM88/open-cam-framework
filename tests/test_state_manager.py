@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime
 
 from deal_export import export_deal
 from state_manager import read_state, state_path, write_state
@@ -7,6 +8,13 @@ from state_manager import read_state, state_path, write_state
 
 def test_read_state_returns_none_when_no_file_exists(tmp_path):
     assert read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path)) is None
+
+
+def test_read_state_returns_none_when_no_dated_folder_exists_at_all(tmp_path):
+    """No date_str given and nothing on disk -- must not fall back to creating anything."""
+    base = str(tmp_path)
+    assert read_state("Acme Corp", "Fleet Loan", base_dir=base) is None
+    assert not os.path.exists(os.path.join(base, "deals"))
 
 
 def test_write_state_creates_file_and_directory(tmp_path):
@@ -77,3 +85,56 @@ def test_resolved_directory_matches_deal_exports_output_directory(tmp_path):
     path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
 
     assert os.path.dirname(path) == output_dir
+
+
+# ---------------------------------------------------------------------------
+# Date auto-discovery: a deal resumed on a later calendar day must still
+# find its original state.json without the caller having to remember or
+# pass the date it was first created on.
+# ---------------------------------------------------------------------------
+
+def test_write_state_without_date_str_reuses_an_existing_dated_folder(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", base_dir=base, deal_type="asset_finance")
+
+    # No date_str at all this time -- must find and update 2026-01-10's
+    # folder, not create a new one dated "today".
+    write_state("Acme Corp", "Fleet Loan", base_dir=base, steps_completed=["triage"])
+
+    original_path = os.path.join(base, "deals", "Acme Corp", "Fleet Loan_2026-01-10", "state.json")
+    with open(original_path, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["deal_type"] == "asset_finance"
+    assert data["steps_completed"] == ["triage"]
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    if today != "2026-01-10":
+        assert not os.path.exists(os.path.join(base, "deals", "Acme Corp", f"Fleet Loan_{today}"))
+
+
+def test_read_state_without_date_str_finds_an_existing_dated_folder(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", base_dir=base, deal_type="asset_finance")
+
+    state = read_state("Acme Corp", "Fleet Loan", base_dir=base)
+    assert state is not None
+    assert state["deal_type"] == "asset_finance"
+
+
+def test_prefers_the_most_recent_dated_folder_when_more_than_one_exists(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-05", base_dir=base, note="older")
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-20", base_dir=base, note="newer")
+
+    state = read_state("Acme Corp", "Fleet Loan", base_dir=base)
+    assert state["note"] == "newer"
+    assert state["date"] == "2026-01-20"
+
+
+def test_auto_discovery_is_scoped_to_the_matching_company_and_proposal(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", base_dir=base, note="acme's deal")
+    write_state("Other Corp", "Fleet Loan", date_str="2026-06-01", base_dir=base, note="unrelated, later date")
+
+    state = read_state("Acme Corp", "Fleet Loan", base_dir=base)
+    assert state["note"] == "acme's deal"

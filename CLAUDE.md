@@ -179,12 +179,15 @@ environments don't, and the Read-tool approach works everywhere regardless of sh
   is always the write target for a new override or auto-saved template.
 - **`scripts/state_manager.py`** — no `anthropic` dependency, same testability pattern as
   `template_resolver.py`. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
-  `deals/<Company>/<Proposal>_<Date>/state.json` (defaulting `date_str` to today, exactly like
-  `deal_export.export_deal`'s own date handling -- see the module docstring for the known
-  cross-day limitation this implies for headless use). `read_state(company, proposal)` returns
-  the parsed dict or `None`. `write_state(company, proposal, **fields)` shallow-merges `fields`
-  into the existing state (if any), always keeps `company`/`proposal`/`date` in sync, creates the
-  deal directory if needed, and returns the full merged state.
+  `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
+  an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
+  today, so a deal resumed on a later calendar day still finds its original file. (This is
+  deliberately different from `deal_export.export_deal`'s own date handling, which always
+  defaults to today -- a one-shot export never needs to be found again later, so today is always
+  correct there.) `read_state(company, proposal)` returns the parsed dict or `None`.
+  `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
+  any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
+  (reusing an existing one per the auto-discovery above), and returns the full merged state.
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.

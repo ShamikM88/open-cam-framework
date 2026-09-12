@@ -10,16 +10,15 @@ full rationale: every step of a deal checkpoints its results here, so a
 multi-step deal survives context compaction or a resumed session instead of
 relying on the conversation itself to remember figures.
 
-Known limitation: like deal_export.py's export_deal(), the date used to
-resolve a deal's folder defaults to *today* when not given explicitly. Two
-write_state() calls for the same company/proposal on different calendar
-days will resolve to two different files unless the caller passes the same
-explicit date_str both times. Within a single orchestrator.py run (both
-checkpoints happen seconds apart, same process) this is a non-issue; the
-interactive slash-command path handles it by globbing for an existing
-`deals/<company>/<proposal>_*/state.json` first (see .claude/commands/) so a
-deal resumed on a later day still finds its original file.
+Date resolution: when `date_str` isn't given, an existing
+deals/<company>/<proposal>_<date>/ folder for this company/proposal is found
+automatically (most recent wins, if somehow more than one exists) rather
+than always defaulting to today -- unlike deal_export.py's export_deal(),
+whose job (a one-shot export) never needs to be found again later, so
+today is always correct there. This is what lets a deal resumed on a later
+calendar day still find its original state.json.
 """
+import glob
 import json
 import os
 from datetime import datetime
@@ -27,13 +26,42 @@ from datetime import datetime
 DEALS_DIR = "deals"
 
 
+def _deals_root(base_dir):
+    return os.path.join(base_dir, DEALS_DIR) if base_dir else DEALS_DIR
+
+
+def _existing_date_str(company, proposal, base_dir=None):
+    """Date suffix of the most recent existing deals/<company>/<proposal>_<date>/
+    folder for this company/proposal, or None if there isn't one yet.
+
+    Date suffixes are ISO-8601 (YYYY-MM-DD), so sorting them as plain
+    strings also sorts them chronologically -- the lexicographic max is
+    the most recent.
+    """
+    prefix = f"{proposal}_"
+    pattern = os.path.join(_deals_root(base_dir), company, f"{prefix}*")
+    dates = [
+        os.path.basename(p)[len(prefix):]
+        for p in glob.glob(pattern)
+        if os.path.isdir(p) and os.path.basename(p).startswith(prefix)
+    ]
+    return max(dates) if dates else None
+
+
+def _resolve_date_str(company, proposal, date_str=None, base_dir=None):
+    if date_str:
+        return date_str
+    return _existing_date_str(company, proposal, base_dir=base_dir) or datetime.now().strftime("%Y-%m-%d")
+
+
 def state_path(company, proposal, date_str=None, base_dir=None):
     """Path to this deal's state.json, resolved the same way deal_export.py
-    resolves its output directory: deals/<Company>/<Proposal>_<Date>/.
+    resolves its output directory: deals/<Company>/<Proposal>_<Date>/ --
+    except that an explicit `date_str` isn't required to find an existing
+    file; see the module docstring.
     """
-    date_str = date_str or datetime.now().strftime("%Y-%m-%d")
-    deals_root = os.path.join(base_dir, DEALS_DIR) if base_dir else DEALS_DIR
-    return os.path.join(deals_root, company, f"{proposal}_{date_str}", "state.json")
+    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
+    return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
 
 
 def read_state(company, proposal, date_str=None, base_dir=None):
@@ -48,8 +76,11 @@ def read_state(company, proposal, date_str=None, base_dir=None):
 def write_state(company, proposal, date_str=None, base_dir=None, **fields):
     """Merge `fields` into this deal's state.json (if any) and write it back.
 
-    Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet.
-    `company`, `proposal`, and `date` are always kept in sync automatically.
+    Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
+    reusing an existing dated folder for this company/proposal when
+    `date_str` isn't given, rather than always creating a new one dated
+    today. `company`, `proposal`, and `date` are always kept in sync
+    automatically.
 
     The merge is a shallow dict.update(): a fresh `financials={...}` replaces
     the whole financials dict rather than merging inside it, and a fresh
@@ -59,7 +90,7 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
 
     Returns the full state dict that was written.
     """
-    date_str = date_str or datetime.now().strftime("%Y-%m-%d")
+    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
 

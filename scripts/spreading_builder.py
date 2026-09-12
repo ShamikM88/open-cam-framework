@@ -1,5 +1,9 @@
+import re
+
 import openpyxl
 from openpyxl.styles import Font
+
+CELL_REF_RE = re.compile(r"[A-Z]+(\d+)")
 
 PERIOD_HEADERS = ["Metric", "FY-2", "FY-1", "FY-Current"]
 PERIOD_COLS = ["B", "C", "D"]
@@ -91,6 +95,63 @@ COLLATERAL_HEADERS = [
 ]
 
 
+def _row_layout(sections):
+    """Yield (row_number, label, formula_template) in exactly the order and
+    position _write_financial_spreading() writes them: row 1 is the header,
+    then each section contributes one title row followed by one row per
+    (label, formula_template) entry.
+    """
+    row = 1  # header row
+    for section_title, rows in sections:
+        row += 1  # section title row
+        for label, formula_template in rows:
+            row += 1
+            yield row, label, formula_template
+
+
+def _referenced_rows(formula_template):
+    """Row numbers a formula template references, e.g. '={col}5-{col}4' -> [5, 4].
+
+    Substitutes a concrete column letter for {col} first so the regex is a
+    plain, ordinary cell reference (e.g. B5) rather than needing to know
+    about the {col} placeholder itself.
+    """
+    formatted = formula_template.format(col="B")
+    return [int(n) for n in CELL_REF_RE.findall(formatted)]
+
+
+def validate_row_formulas(sections=None):
+    """Confirm every formula in `sections` only references an already-written
+    row -- never itself or a row that comes later -- matching the ordering
+    and row numbers _write_financial_spreading() will actually produce.
+
+    This is a runtime version of what the hand-maintained '# row N' comments
+    next to each SECTIONS entry are meant to guarantee: that a formula's
+    cell references still point at the row they were written for. Those
+    comments (and tests/test_spreading_builder.py's formula-correctness
+    tests) can drift silently if a row is inserted, removed, or reordered
+    without updating every formula below it -- this check catches that at
+    export time too, not just in CI, by deriving each row's real position
+    from `sections` itself rather than trusting the comments.
+
+    Raises ValueError naming the offending row/label on the first invalid
+    reference found. `sections` defaults to the module-level SECTIONS;
+    tests pass a deliberately broken list to exercise the failure path.
+    """
+    sections = SECTIONS if sections is None else sections
+    for row, label, formula_template in _row_layout(sections):
+        if not formula_template:
+            continue
+        for ref_row in _referenced_rows(formula_template):
+            if ref_row >= row:
+                raise ValueError(
+                    f"spreading_builder: formula for '{label}' (row {row}) references "
+                    f"row {ref_row}, which is not an already-written row (must be < {row}). "
+                    "A row was likely inserted, removed, or reordered in SECTIONS without "
+                    "updating this formula's cell references."
+                )
+
+
 def _write_financial_spreading(wb):
     ws = wb.active
     ws.title = "Financial Spreading"
@@ -130,6 +191,7 @@ def _write_collateral_sheet(wb):
 
 
 def export_to_xlsx(company, output_path):
+    validate_row_formulas()
     wb = openpyxl.Workbook()
     _write_financial_spreading(wb)
     _write_collateral_sheet(wb)

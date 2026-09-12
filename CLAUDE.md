@@ -84,6 +84,20 @@ sharing its reasoning, so avoid merging them or having one import the other's co
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.
 
+## Confidentiality rule for new features
+
+Before adding any feature where the user provides or the framework derives real reference
+material from their business (calibration sample CAMs, a derived template, a future
+user-supplied Excel spreading template, etc.), its storage location must already be listed in
+`.gitignore` — never add it under a git-tracked path like `templates/cam/` or
+`templates/spreading/`. This repo is public and forkable; the shipped defaults must stay generic
+and shareable, while anything derived from one user's real documents stays local to their fork.
+Current gitignored locations: `inputs/`, `config/style_guide.md`, `templates/local/`, `deals/`.
+
+Don't copy a user-shared reference document into the repo at all unless asked — even into an
+already-gitignored folder — since that creates a new persistent copy of sensitive data they
+didn't explicitly request.
+
 ## Git workflow
 
 - **Auto-commit core changes**: whenever a change is made to a core file — anything under

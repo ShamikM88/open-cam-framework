@@ -180,6 +180,12 @@ Only the framework itself (agent prompts, scripts, blank templates, config, docs
 be committed. If you're contributing a template change, make sure every field is a generic
 `[bracketed placeholder]` — never a real company name, person's name, or figure.
 
+**Adding a new feature that touches real reference material?** Put its storage location in
+`.gitignore` *before* writing anything there — never under a git-tracked path like
+`templates/cam/` or `templates/spreading/`. The shipped defaults must stay generic and safe to
+share across every fork; anything derived from one user's real documents belongs only in that
+fork.
+
 ## Roadmap
 
 - [x] Derive a base CAM template shape from calibration samples, not just tone/style — done via

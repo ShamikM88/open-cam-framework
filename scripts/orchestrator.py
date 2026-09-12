@@ -2,6 +2,7 @@ import os
 import argparse
 from anthropic import Anthropic
 from deal_export import export_deal
+from state_manager import write_state
 from template_resolver import cam_template_path
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -33,6 +34,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type):
         max_tokens=4000,
         messages=[{"role": "user", "content": f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}Company: {company}\nProposal: {proposal}\nPD: {pd_score}\nLGD: {lgd_score}"}]
     ).content[0].text
+    # Checkpoint after the draft: never rely on conversation/process memory
+    # alone for a figure that already exists on disk (see CLAUDE.md's
+    # "Context Window & State Management Protocol").
+    write_state(company, proposal, deal_type=deal_type,
+                inputs={"pd": pd_score, "lgd": lgd_score},
+                steps_completed=["draft"])
 
     print(f"[2/3] Risk Reviewer Agent auditing draft...")
     audit = client.messages.create(
@@ -40,9 +47,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type):
         max_tokens=2000,
         messages=[{"role": "user", "content": f"{checker_prompt}\nDraft to review:\n{draft}"}]
     ).content[0].text
+    write_state(company, proposal, deal_type=deal_type,
+                review_verdict=audit, steps_completed=["draft", "audit"])
 
     print(f"[3/3] Exporting .docx and .xlsx files...")
     output_dir = export_deal(company, proposal, deal_type, draft)
+    write_state(company, proposal, deal_type=deal_type,
+                draft_path=os.path.join(output_dir, f"{company}_{proposal}_CAM.docx"),
+                steps_completed=["draft", "audit", "export"])
     print(f"Done! Files generated in {output_dir}")
 
 if __name__ == "__main__":

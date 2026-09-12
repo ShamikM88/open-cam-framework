@@ -2,7 +2,7 @@ import os
 import argparse
 from anthropic import Anthropic
 from deal_export import export_deal
-from state_manager import write_state
+from state_manager import write_state, append_review_trail
 from template_resolver import cam_template_path
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -47,8 +47,15 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type):
         max_tokens=2000,
         messages=[{"role": "user", "content": f"{checker_prompt}\nDraft to review:\n{draft}"}]
     ).content[0].text
-    write_state(company, proposal, deal_type=deal_type,
-                review_verdict=audit, steps_completed=["draft", "audit"])
+    # append_review_trail (not write_state) so a re-run for the same deal
+    # never clobbers a prior audit's verdict/notes -- orchestrator.py
+    # doesn't loop today, but the schema stays consistent with /assemble's
+    # /review loop, which does. Note isn't parsed out of `audit` separately
+    # from the verdict here (see the review.md command for why: a naive
+    # keyword match on freeform LLM text would be fragile) -- both fields
+    # just hold the full audit response for now.
+    append_review_trail(company, proposal, verdict=audit, notes=None,
+                         deal_type=deal_type, steps_completed=["draft", "audit"])
 
     print(f"[3/3] Exporting .docx and .xlsx files...")
     output_dir = export_deal(company, proposal, deal_type, draft)

@@ -26,9 +26,11 @@ open-cam-framework/
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   └── spreading_builder.py     Financial spreading -> .xlsx export helper
 ├── templates/                   Markdown CAM templates by deal type (e.g. corporate_credit_cam.md, asset_finance_cam.md)
+├── tests/                       Pytest suite (currently: scripts/spreading_builder.py formula correctness)
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]`
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
+├── requirements-dev.txt         requirements.txt + pytest
 └── README.md
 ```
 

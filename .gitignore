@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment / secrets
+.env
+*.key
+
+# User-specific calibration input and generated artifacts — never commit real deal data
+inputs/
+config/style_guide.md
+
+# Generated deal outputs (contain borrower financials — confidential by nature)
+deals/

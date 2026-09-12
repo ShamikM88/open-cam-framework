@@ -31,4 +31,6 @@ Execute the following actions when triggered by their respective slash commands:
    - Core Action: Reads the samples directly (no API key needed), extracts writing style/tone into `config/style_guide.md`, and derives a generic CAM template into `templates/local/cam/<type>_cam.md` that overrides the shipped default for that deal type.
 
 See [`.claude/commands/`](../.claude/commands/) for the runnable slash-command implementation of
-each step above.
+each step above. Every step (`/calibrate` excepted) also takes `--company "<Name>" --proposal
+"<Proposal name>"` and checkpoints its results to `deals/<Company>/<Proposal>_<Date>/state.json`
+on completion — see CLAUDE.md's "Context Window & State Management Protocol".

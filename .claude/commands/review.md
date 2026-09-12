@@ -1,18 +1,34 @@
 ---
 description: Run the Risk Reviewer ("Checker") agent against a drafted CAM, auditing it before it's finalized (see config/skills_registry.md).
-argument-hint: "[paste the draft to review, or leave blank to review the most recent draft in this conversation]"
+argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [paste the draft to review, or leave blank to review the most recent draft in this conversation]"
 ---
 
 ## Task: /review
 
 Read `agents/risk_reviewer_agent.md` and act according to that role for the rest of this task.
 
-Review the CAM draft below. If no draft is given as an argument, review the most recently
-drafted CAM content earlier in this conversation.
+**Arguments:** `--company "<Name>" --proposal "<Proposal name>"` (needed to checkpoint the
+verdict to this deal's state file), followed by the draft to review.
 
 $ARGUMENTS
+
+## State: read
+
+If `--company`/`--proposal` were given, glob `deals/<company>/<proposal>_*/state.json`. If
+found, read it — the draft being reviewed should already be consistent with the figures recorded
+there; flag it as a finding if it isn't.
+
+Review the CAM draft given above. If none was given as an argument, review the most recently
+drafted CAM content earlier in this conversation.
 
 Re-verify every financial ratio against the raw inputs, flag any ungrounded assertion or missing
 source reference, and challenge any risk mitigant that isn't a concrete, enforceable policy
 condition. End with a clear verdict, exactly as specified by the role: **APPROVED** or
 **REJECTED**, with specific, actionable revision notes for anything rejected.
+
+## State: write
+
+If `--company`/`--proposal` were given: update this deal's state file (merge with whatever you
+read above — never drop a field another step already recorded) with `review_verdict` (this
+verdict and your revision notes) and append `"review"` to `steps_completed` if it isn't already
+there. If no state file existed yet, create `deals/<company>/<proposal>_<today's date>/state.json`.

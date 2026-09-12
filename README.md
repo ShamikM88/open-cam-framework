@@ -8,20 +8,36 @@ the result as an editable `.docx` report plus an `.xlsx` financial spreading wor
 It is designed to be forked: point it at your own historical CAMs and it calibrates itself to
 your house writing style and your own CAM layouts, rather than assuming any one bank's format.
 
+**Two ways to run it**, covered in full under [Getting started](#getting-started):
+
+- **Claude Code slash commands** (primary, recommended) — `/calibrate`, `/triage`, `/spread`,
+  `/commercial`, `/collateral`, `/assemble`, `/review`, run interactively inside a Claude Code
+  session pointed at this repo. Uses whatever Claude Code session/subscription you're already
+  running in — **no separate `ANTHROPIC_API_KEY` required.**
+- **Headless Python scripts** (`scripts/calibrate.py`, `scripts/orchestrator.py`) — for
+  automation, CI, or batch runs outside an interactive session. These call the Anthropic API
+  directly, so they need their own `ANTHROPIC_API_KEY` (a separate cost from a Claude Code
+  subscription).
+
+Both paths produce the same outputs and share the same templates, style guide, and
+confidentiality rules — pick whichever fits how you work.
+
 ## How it works
 
-1. **Setup (once per organization/desk):** drop a handful of your own past CAMs into
-   `inputs/calibration_samples/` and run `scripts/calibrate.py --type <deal_type>`. This
-   extracts your writing tone, structure, and standard risk phrasing into
-   `config/style_guide.md` (used for every subsequent draft), and also derives a CAM template
-   from those samples' structure — written to `templates/local/cam/<deal_type>_cam.md` — which
-   **overrides the shipped default** for that deal type. `<deal_type>` should match whatever
-   you'll later pass to `orchestrator.py --type`; it defaults to `corporate_credit`.
-2. **Per deal:** run `scripts/orchestrator.py` with the borrower/company details. The
-   **Underwriter Agent** drafts the CAM, grounded only in supplied source documents and
-   user-provided risk inputs (never fabricated figures). The **Risk Reviewer Agent** then
-   independently audits that draft — re-checking the ratio math, flagging unsourced claims, and
-   challenging weak risk mitigants — before the deal is exported.
+1. **Setup (once per organization/desk):** calibrate against a handful of your own past CAMs in
+   `inputs/calibration_samples/` — via `/calibrate --type <deal_type>` (Claude Code) or
+   `scripts/calibrate.py --type <deal_type>` (headless). Either extracts your writing tone,
+   structure, and standard risk phrasing into `config/style_guide.md` (used for every subsequent
+   draft), and derives a CAM template from those samples' structure into
+   `templates/local/cam/<deal_type>_cam.md`, which **overrides the shipped default** for that
+   deal type. `<deal_type>` should match whatever you'll use for `--type` on later runs; it
+   defaults to `corporate_credit`.
+2. **Per deal:** work through `/triage` → `/spread` → `/commercial` → `/collateral` →
+   `/assemble` (Claude Code), or run `scripts/orchestrator.py` (headless) with the
+   borrower/company details. Either way, the **Underwriter Agent** drafts the CAM, grounded only
+   in supplied source documents and user-provided risk inputs (never fabricated figures), and
+   the **Risk Reviewer Agent** independently audits that draft — re-checking the ratio math,
+   flagging unsourced claims, and challenging weak risk mitigants — before it's exported.
 3. **Output:** a `.docx` CAM (so you can edit it like any Word document — much easier than
    editing a PDF) and an `.xlsx` financial spreading workbook (so the numbers are auditable, not
    just narrative), written to a per-deal folder:
@@ -34,8 +50,8 @@ your house writing style and your own CAM layouts, rather than assuming any one 
    ```
 
 If a deal's `--type` doesn't match any template — neither a calibrated override under
-`templates/local/cam/` nor a shipped default under `templates/cam/` — the orchestrator treats it
-as a genuinely new CAM type and saves the drafted structure as a starting template under
+`templates/local/cam/` nor a shipped default under `templates/cam/` — it's treated as a
+genuinely new CAM type and the drafted structure is saved as a starting template under
 `templates/local/cam/` (never into the shared, git-tracked `templates/cam/`, since that first
 draft carries this deal's real company name and figures) — so your template library grows to
 match the kinds of deals you actually do, instead of forcing every deal through one fixed
@@ -64,16 +80,27 @@ to have scored the risk itself.
 
 ## Skills / slash commands
 
-[`config/skills_registry.md`](config/skills_registry.md) defines the step-by-step workflow an
-agent (or a human analyst) works through to assemble a CAM:
+[`config/skills_registry.md`](config/skills_registry.md) defines the step-by-step workflow;
+[`.claude/commands/`](.claude/commands/) is the runnable implementation of it, as native Claude
+Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#getting-started)):
 
 | Command | Inputs | Produces |
 | :--- | :--- | :--- |
+| `/calibrate` | Sample CAM PDFs in `inputs/calibration_samples/` | `config/style_guide.md` + a derived template override |
 | `/triage` | Registration number, credit bureau summary, charges register | Legal identity / UBO check, Go/No-Go screen |
 | `/spread` | 3–5 years of P&L and Balance Sheet | TNW, EBITDA, DSCR, EBIT/Interest, Gross Leverage, Gearing %, Current Ratio, Working Capital Days |
 | `/commercial` | Sector, management bios, customer/supplier notes | Company History, Management, Sector Dynamics, Concentration, Competitive Landscape |
 | `/collateral` | Asset description, valuation, LGD/RV/PD grades | Gross/Net Exposure, RV Exposure, Collateral Coverage %, Net Uncovered Risk |
-| `/assemble` | Outputs of the steps above | The final Markdown CAM, ready for `.docx`/`.xlsx` export |
+| `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |
+| `/review` | A drafted CAM (usually called automatically by `/assemble`) | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent, made runnable for the first time |
+
+`/triage`, `/spread`, `/commercial`, and `/collateral` each load
+[`agents/underwriter_agent.md`](agents/underwriter_agent.md)'s role; `/review` loads
+[`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md)'s. `/assemble` resolves the
+right CAM template (local override, else shipped default), drafts into it, loops `/review` until
+`APPROVED`, then calls [`scripts/deal_export.py`](scripts/deal_export.py) — the folder-creation
+and `.docx`/`.xlsx` export logic, factored out of `orchestrator.py` specifically so it has no
+`anthropic` dependency and can run from a slash command's Bash step.
 
 ## Templates
 
@@ -122,6 +149,36 @@ that exact layout, so you can inspect the format without running any code.
 
 ## Getting started
 
+### Option A: Claude Code slash commands (recommended, no separate API key)
+
+Open this repo in Claude Code (or the desktop app's Code tab) — the commands under
+[`.claude/commands/`](.claude/commands/) are picked up automatically.
+
+1. **(Recommended) Calibrate to your own style and templates:** put a few of your own historical
+   CAMs (PDF) into `inputs/calibration_samples/`, then run:
+   ```
+   /calibrate --type asset_finance
+   ```
+   Claude reads the PDFs directly (native PDF support), writes `config/style_guide.md`, and
+   derives a template at `templates/local/cam/asset_finance_cam.md` that overrides the shipped
+   default. Skip this step to use the neutral default tone and templates as-is.
+2. **Run a deal**, working through each step in the same conversation so later steps can see
+   earlier ones' output:
+   ```
+   /triage <registration number, credit bureau summary, charges register>
+   /spread <P&L and Balance Sheet figures>
+   /commercial <sector, management bios, customer/supplier notes>
+   /collateral <asset description, valuation, LGD/RV/PD grades>
+   /assemble --company "Acme Corp" --proposal "Fleet Loan" --type asset_finance --pd "0.20%" --lgd "LGD 3 (15%)"
+   ```
+   `/assemble` drafts the CAM into the resolved template, runs `/review` (the Risk Reviewer
+   agent) until it's `APPROVED`, then exports it. Output lands in
+   `deals/Acme Corp/Fleet Loan_<date>/`.
+
+### Option B: Headless Python scripts (scriptable, needs `ANTHROPIC_API_KEY`)
+
+For automation, CI, or running outside an interactive Claude Code session.
+
 1. **Install dependencies** (Python 3.10+ recommended):
    ```bash
    python -m venv venv
@@ -134,24 +191,20 @@ that exact layout, so you can inspect the format without running any code.
    ```
    Set this yourself in your own shell — never paste a live key into an AI assistant's chat (it
    ends up in transcripts/logs). No key set? `calibrate.py` automatically falls back to `--mock`
-   mode (see below) instead of failing outright.
-3. **(Recommended) Calibrate to your own style and templates:** put a few of your own historical
-   CAMs (PDF) into `inputs/calibration_samples/`, then run:
+   mode instead of failing outright.
+3. **(Recommended) Calibrate to your own style and templates:**
    ```bash
    python scripts/calibrate.py --type asset_finance
    ```
-   This writes `config/style_guide.md` and a derived template at
-   `templates/local/cam/asset_finance_cam.md` that overrides the shipped default. Skip this step
-   to use the neutral default tone and templates as-is.
-
-   Add `--mock` (or just omit the API key) to smoke-test this without calling the API — it
-   writes clearly-labeled placeholder output instead, to verify the PDF-reading/file-writing
-   pipeline works before spending real API credits.
+   Same output as `/calibrate` above. Add `--mock` (or just omit the API key) to smoke-test this
+   without calling the API — it writes clearly-labeled placeholder output instead, to verify the
+   PDF-reading/file-writing pipeline works before spending real API credits.
 4. **Run a deal:**
    ```bash
    python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance" --pd "0.20%" --lgd "LGD 3 (15%)"
    ```
-   Output lands in `deals/Acme Corp/Fleet Loan_<date>/`.
+   Output lands in `deals/Acme Corp/Fleet Loan_<date>/`. Internally this calls the same
+   `scripts/deal_export.py` that the slash-command path's `/assemble` uses.
 
 ### Running tests
 
@@ -160,10 +213,12 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-The current suite ([`tests/test_spreading_builder.py`](tests/test_spreading_builder.py)) checks
-the spreading workbook's structure (sheet names, headers, row order) and, since Excel formulas
-aren't evaluated by the library that writes them, re-evaluates every formula against hand-picked
-inputs to confirm each one still points at the row it's supposed to.
+Covers the four modules with no `anthropic` dependency, so no API key or network access is
+needed to run them: `spreading_builder.py` (workbook structure, plus re-evaluating every Excel
+formula against hand-picked inputs, since the library that writes them doesn't evaluate them),
+`docx_builder.py` (markdown → Word table conversion), `template_resolver.py` (local-override vs.
+shipped-default resolution), and `deal_export.py` (folder creation, template auto-save,
+`.docx`/`.xlsx` export — the logic shared by `/assemble` and `orchestrator.py`).
 
 ### Configuration
 

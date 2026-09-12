@@ -31,6 +31,7 @@ open-cam-framework/
 │   ├── calibrate.py             Headless style + template calibration entry point (needs ANTHROPIC_API_KEY)
 │   ├── orchestrator.py          Headless deal pipeline entry point (needs ANTHROPIC_API_KEY)
 │   ├── deal_export.py           Folder creation + template auto-save + .docx/.xlsx export (no anthropic dependency; shared by orchestrator.py and /assemble)
+│   ├── state_manager.py         Reads/writes deals/<Company>/<Proposal>_<Date>/state.json (no anthropic dependency; see "Context Window & State Management Protocol")
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   └── template_resolver.py     Resolves default vs. calibrated-override CAM template paths
@@ -38,8 +39,8 @@ open-cam-framework/
 │   ├── cam/                     Shipped default Markdown CAM templates (corporate_credit_cam.md, asset_finance_cam.md)
 │   ├── spreading/               default_spreading_template.xlsx -- reference copy of the spreading workbook layout
 │   └── local/cam/               Calibrated overrides / auto-saved new-type templates (gitignored, see below)
-├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution)
-├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]`
+├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence)
+├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
 ├── requirements-dev.txt         requirements.txt + pytest
@@ -61,6 +62,49 @@ Two independent agent prompts drive every deal, invoked in sequence by `scripts/
 
 Keep these two prompts independent — the Checker's value comes from auditing the Maker without
 sharing its reasoning, so avoid merging them or having one import the other's context.
+
+## Context Window & State Management Protocol
+
+A CAM is assembled across multiple steps (`/triage` → `/spread` → `/commercial` → `/collateral`
+→ `/assemble`, or `orchestrator.py`'s two agent calls), often in one long conversation. Don't
+rely on the conversation itself to remember the figures produced along the way — it can be
+compacted/summarized, and a session can be resumed later. Every step checkpoints its results to
+disk instead.
+
+**File-backed state.** All financial metrics, user inputs (PD, LGD, Experian/bureau score),
+calculated ratios, and deal metadata are persisted to
+`deals/<Company>/<Proposal>_<Date>/state.json`, via [`scripts/state_manager.py`](scripts/state_manager.py).
+Minimal schema (additional step-specific keys are fine; this is a floor, not a closed set):
+
+```json
+{
+  "company": "...", "proposal": "...", "deal_type": "...", "date": "YYYY-MM-DD",
+  "inputs": {"pd": "...", "lgd": "...", "experian_score": "..."},
+  "financials": {"...": "..."},
+  "steps_completed": ["triage", "spread", "..."],
+  "review_verdict": "...",
+  "draft_path": "..."
+}
+```
+
+**Checkpoint after every step.** `/triage`, `/spread`, `/commercial`, `/collateral`, `/review`,
+`/assemble`, and each of `orchestrator.py`'s two agent calls (draft, then audit) write their
+results to `state.json` on completion. This is "checkpoint at every step boundary," **not** a
+"pre-compaction hook" — there is no such callback available to a script or a command's prompt,
+so don't document or reason about it as one. The guarantee this gives you is weaker but real:
+whatever was true as of the last completed step is always on disk, so at worst a compaction or a
+resumed session loses only the in-progress step, never anything already checkpointed.
+
+**Re-hydration rule.** At the start of any step, or when a session resumes, read `state.json`
+for that company/proposal first, if it exists, and treat it as the source of truth. Never
+reconstruct a financial figure, input, or verdict from a compacted/summarized conversation when
+`state.json` already has it recorded.
+
+**No in-memory-only state.** Absolute figures, debt values, and audit verdicts must exist as
+structured disk artifacts (in `state.json`), never only in chat history.
+
+**Confidentiality.** `state.json` lives under `deals/`, which is already git-ignored (see the
+confidentiality rule below) — this introduces no new confidentiality gap.
 
 ## Slash commands (primary interface)
 
@@ -112,8 +156,10 @@ environments don't, and the Read-tool approach works everywhere regardless of sh
   given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
   prompts and style guide, resolves the CAM template for `--type` via
   `template_resolver.cam_template_path` and includes it in the drafting prompt if one exists,
-  runs the Underwriter draft, runs the Risk Reviewer audit, then calls `deal_export.export_deal`
-  (see below) to do the folder-creation/template-auto-save/export work:
+  runs the Underwriter draft and then the Risk Reviewer audit, checkpointing to `state.json` via
+  `state_manager.write_state` after each of those two agent calls (see the state management
+  protocol above), then calls `deal_export.export_deal` (see below) to do the
+  folder-creation/template-auto-save/export work:
   ```
   python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance"
   ```
@@ -131,6 +177,17 @@ environments don't, and the Read-tool approach works everywhere regardless of sh
   `cam_template_path(deal_type)` checks `templates/local/cam/` first, falls back to
   `templates/cam/`, returns `None` if neither exists; `local_cam_template_path(deal_type)`
   is always the write target for a new override or auto-saved template.
+- **`scripts/state_manager.py`** — no `anthropic` dependency, same testability pattern as
+  `template_resolver.py`. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
+  `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
+  an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
+  today, so a deal resumed on a later calendar day still finds its original file. (This is
+  deliberately different from `deal_export.export_deal`'s own date handling, which always
+  defaults to today -- a one-shot export never needs to be found again later, so today is always
+  correct there.) `read_state(company, proposal)` returns the parsed dict or `None`.
+  `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
+  any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
+  (reusing an existing one per the auto-discovery above), and returns the full merged state.
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.

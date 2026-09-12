@@ -65,6 +65,15 @@ sharing its reasoning, so avoid merging them or having one import the other's co
   ```
   python scripts/calibrate.py --type asset_finance
   ```
+  **`--mock`**: skips both Anthropic calls and writes deterministic placeholder output instead
+  (clearly labeled `(MOCK)` in the file content) -- for smoke-testing the PDF-reading and
+  file-writing plumbing without an API key or network access. It never fabricates anything
+  domain-specific (no invented PD/LGD/rating figures -- that would contradict the grounding rule
+  and isn't this script's job in the first place); it only proves the pipeline runs end to end.
+  Triggers automatically, with a printed notice, whenever `ANTHROPIC_API_KEY` isn't set:
+  ```
+  python scripts/calibrate.py --mock --type asset_finance
+  ```
 - **`scripts/orchestrator.py`** — the main pipeline. For a given `--company`, `--proposal`,
   `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker prompts and style guide, resolves
   the CAM template for `--type` via `template_resolver.cam_template_path` and includes it in the

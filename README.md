@@ -132,6 +132,9 @@ that exact layout, so you can inspect the format without running any code.
    ```bash
    set ANTHROPIC_API_KEY=sk-ant-...   # on Windows (PowerShell: $env:ANTHROPIC_API_KEY="sk-ant-...")
    ```
+   Set this yourself in your own shell — never paste a live key into an AI assistant's chat (it
+   ends up in transcripts/logs). No key set? `calibrate.py` automatically falls back to `--mock`
+   mode (see below) instead of failing outright.
 3. **(Recommended) Calibrate to your own style and templates:** put a few of your own historical
    CAMs (PDF) into `inputs/calibration_samples/`, then run:
    ```bash
@@ -140,6 +143,10 @@ that exact layout, so you can inspect the format without running any code.
    This writes `config/style_guide.md` and a derived template at
    `templates/local/cam/asset_finance_cam.md` that overrides the shipped default. Skip this step
    to use the neutral default tone and templates as-is.
+
+   Add `--mock` (or just omit the API key) to smoke-test this without calling the API — it
+   writes clearly-labeled placeholder output instead, to verify the PDF-reading/file-writing
+   pipeline works before spending real API credits.
 4. **Run a deal:**
    ```bash
    python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance" --pd "0.20%" --lgd "LGD 3 (15%)"

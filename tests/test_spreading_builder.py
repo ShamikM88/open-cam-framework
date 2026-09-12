@@ -12,7 +12,7 @@ import re
 import pytest
 import openpyxl
 
-from spreading_builder import export_to_xlsx, SECTIONS, COLLATERAL_HEADERS
+from spreading_builder import export_to_xlsx, validate_row_formulas, SECTIONS, COLLATERAL_HEADERS
 
 CELL_REF_RE = re.compile(r"([A-Z]+)(\d+)")
 
@@ -201,3 +201,46 @@ def test_iferror_falls_back_to_zero_on_division_by_zero(workbook):
     ]
     for label in ratio_labels:
         assert _evaluate(ws, "B", label_to_row[label], memo) == 0
+
+
+# ---------------------------------------------------------------------------
+# Runtime row-to-formula validation
+#
+# The "# row N" comments next to each SECTIONS entry only guarantee anything
+# if a human keeps updating them by hand. validate_row_formulas() derives
+# each row's real position from SECTIONS itself and checks every formula's
+# cell references against that -- these tests confirm it accepts the real
+# (correct) SECTIONS and rejects a deliberately broken one.
+# ---------------------------------------------------------------------------
+
+def test_validate_row_formulas_passes_on_the_real_sections():
+    validate_row_formulas(SECTIONS)  # must not raise
+
+
+def test_export_to_xlsx_validates_before_writing(tmp_path):
+    """export_to_xlsx() must run the same check the unit tests do, not just CI."""
+    export_to_xlsx("Test Co", str(tmp_path / "out.xlsx"))  # must not raise
+
+
+def test_validate_row_formulas_rejects_a_forward_reference():
+    # Row 2: "A" (blank). Row 3: "B (broken)" references row 4, which comes
+    # *after* it -- row 4 doesn't exist yet when row 3 is written.
+    broken_sections = [
+        ("Test Section", [
+            ("A", None),
+            ("B (broken)", "={col}4"),
+            ("C", None),
+        ]),
+    ]
+    with pytest.raises(ValueError, match="B \\(broken\\)"):
+        validate_row_formulas(broken_sections)
+
+
+def test_validate_row_formulas_rejects_a_self_reference():
+    broken_sections = [
+        ("Test Section", [
+            ("A (broken)", "={col}3"),  # row 3 referencing itself
+        ]),
+    ]
+    with pytest.raises(ValueError, match="row 3"):
+        validate_row_formulas(broken_sections)

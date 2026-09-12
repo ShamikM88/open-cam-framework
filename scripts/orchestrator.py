@@ -34,7 +34,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type):
     ).content[0].text
 
     # Auto-save novel deal templates
-    template_file = f"templates/{deal_type.lower()}_cam.md"
+    template_file = f"templates/cam/{deal_type.lower()}_cam.md"
     if not os.path.exists(template_file):
         print(f"[Auto-Template] Saving new template structure to {template_file}")
         with open(template_file, "w") as f: f.write(draft)

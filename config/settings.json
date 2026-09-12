@@ -3,5 +3,6 @@
   "max_tokens": 4000,
   "default_currency": "GBP",
   "output_directory": "deals",
-  "template_directory": "templates"
+  "template_directory": "templates/cam",
+  "spreading_template_directory": "templates/spreading"
 }

@@ -11,6 +11,7 @@ venv/
 # User-specific calibration input and generated artifacts — never commit real deal data
 inputs/
 config/style_guide.md
+templates/local/
 
 # Generated deal outputs (contain borrower financials — confidential by nature)
 deals/

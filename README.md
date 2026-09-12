@@ -129,6 +129,18 @@ that exact layout, so you can inspect the format without running any code.
    ```
    Output lands in `deals/Acme Corp/Fleet Loan_<date>/`.
 
+### Running tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+The current suite ([`tests/test_spreading_builder.py`](tests/test_spreading_builder.py)) checks
+the spreading workbook's structure (sheet names, headers, row order) and, since Excel formulas
+aren't evaluated by the library that writes them, re-evaluates every formula against hand-picked
+inputs to confirm each one still points at the row it's supposed to.
+
 ### Configuration
 
 [`config/settings.json`](config/settings.json) sets the model, max token budget, default

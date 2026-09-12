@@ -17,6 +17,10 @@ than always defaulting to today -- unlike deal_export.py's export_deal(),
 whose job (a one-shot export) never needs to be found again later, so
 today is always correct there. This is what lets a deal resumed on a later
 calendar day still find its original state.json.
+
+review_trail: append_review_trail() is the one exception to write_state()'s
+plain shallow-merge semantics baked into this module itself, rather than
+left to each caller -- see its docstring.
 """
 import glob
 import json
@@ -104,3 +108,41 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
         json.dump(state, f, indent=2)
 
     return state
+
+
+def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
+                         date_str=None, base_dir=None, **extra_fields):
+    """Append one entry to this deal's append-only `review_trail`, and set
+    `review_verdict` to this iteration's verdict as a "latest verdict"
+    convenience field.
+
+    write_state()'s shallow merge would silently replace the whole
+    review_trail list if a caller just passed a fresh `review_trail=[...]`
+    -- since /assemble loops /review until APPROVED, that was losing every
+    intermediate REJECTED verdict and its revision notes as soon as the
+    next iteration wrote state. This reads the existing trail first (`[]`
+    if there isn't one yet), appends, and writes the full list back, so
+    `review_trail` is always the deal's complete audit history regardless
+    of how many review iterations it took.
+
+    `iteration` is always `len(existing review_trail) + 1`, so it's correct
+    whether this is orchestrator.py's one-shot audit call or one loop of
+    /assemble -> /review. Any `extra_fields` are merged in on the same
+    write (e.g. `deal_type`, `steps_completed`), exactly like write_state().
+
+    Returns the full state dict that was written.
+    """
+    timestamp = timestamp or datetime.now().isoformat()
+    existing = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
+    trail = list(existing.get("review_trail") or [])
+    trail.append({
+        "iteration": len(trail) + 1,
+        "verdict": verdict,
+        "notes": notes,
+        "timestamp": timestamp,
+    })
+
+    return write_state(
+        company, proposal, date_str=date_str, base_dir=base_dir,
+        review_verdict=verdict, review_trail=trail, **extra_fields,
+    )

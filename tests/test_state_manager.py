@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 from deal_export import export_deal
-from state_manager import read_state, state_path, write_state
+from state_manager import append_review_trail, read_state, state_path, write_state
 
 
 def test_read_state_returns_none_when_no_file_exists(tmp_path):
@@ -138,3 +138,85 @@ def test_auto_discovery_is_scoped_to_the_matching_company_and_proposal(tmp_path)
 
     state = read_state("Acme Corp", "Fleet Loan", base_dir=base)
     assert state["note"] == "acme's deal"
+
+
+# ---------------------------------------------------------------------------
+# review_trail: append-only audit history.
+#
+# write_state()'s shallow merge would silently replace the whole list if a
+# caller passed a fresh review_trail=[...] -- these confirm
+# append_review_trail() reads the existing trail first and only ever adds
+# to it, since /assemble loops /review until APPROVED and every
+# intermediate REJECTED verdict must survive that loop.
+# ---------------------------------------------------------------------------
+
+def test_append_review_trail_initializes_it_when_missing(tmp_path):
+    base = str(tmp_path)
+
+    state = append_review_trail(
+        "Acme Corp", "Fleet Loan", verdict="REJECTED", notes="fix the ratios",
+        timestamp="2026-01-15T10:00:00", date_str="2026-01-15", base_dir=base,
+    )
+
+    assert state["review_trail"] == [
+        {"iteration": 1, "verdict": "REJECTED", "notes": "fix the ratios", "timestamp": "2026-01-15T10:00:00"},
+    ]
+    assert state["review_verdict"] == "REJECTED"
+
+
+def test_append_review_trail_appends_rather_than_replaces(tmp_path):
+    base = str(tmp_path)
+
+    append_review_trail(
+        "Acme Corp", "Fleet Loan", verdict="REJECTED", notes="fix the ratios",
+        timestamp="2026-01-15T10:00:00", date_str="2026-01-15", base_dir=base,
+    )
+    state = append_review_trail(
+        "Acme Corp", "Fleet Loan", verdict="APPROVED", notes=None,
+        timestamp="2026-01-15T11:00:00", date_str="2026-01-15", base_dir=base,
+    )
+
+    assert state["review_trail"] == [
+        {"iteration": 1, "verdict": "REJECTED", "notes": "fix the ratios", "timestamp": "2026-01-15T10:00:00"},
+        {"iteration": 2, "verdict": "APPROVED", "notes": None, "timestamp": "2026-01-15T11:00:00"},
+    ]
+    # review_verdict reflects only the latest iteration, not the history.
+    assert state["review_verdict"] == "APPROVED"
+
+
+def test_append_review_trail_persists_across_separate_read_state_calls(tmp_path):
+    """Not just the returned dict -- the file on disk must have both entries."""
+    base = str(tmp_path)
+
+    append_review_trail("Acme Corp", "Fleet Loan", verdict="REJECTED",
+                         date_str="2026-01-15", base_dir=base)
+    append_review_trail("Acme Corp", "Fleet Loan", verdict="APPROVED",
+                         date_str="2026-01-15", base_dir=base)
+
+    state = read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert [entry["verdict"] for entry in state["review_trail"]] == ["REJECTED", "APPROVED"]
+    assert [entry["iteration"] for entry in state["review_trail"]] == [1, 2]
+
+
+def test_append_review_trail_merges_extra_fields_like_write_state(tmp_path):
+    base = str(tmp_path)
+
+    state = append_review_trail(
+        "Acme Corp", "Fleet Loan", verdict="APPROVED",
+        date_str="2026-01-15", base_dir=base,
+        deal_type="asset_finance", steps_completed=["draft", "audit"],
+    )
+
+    assert state["deal_type"] == "asset_finance"
+    assert state["steps_completed"] == ["draft", "audit"]
+
+
+def test_append_review_trail_does_not_drop_fields_from_other_steps(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base,
+                inputs={"pd": "0.20%"})
+
+    state = append_review_trail("Acme Corp", "Fleet Loan", verdict="APPROVED",
+                                 date_str="2026-01-15", base_dir=base)
+
+    assert state["inputs"] == {"pd": "0.20%"}

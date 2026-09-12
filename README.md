@@ -184,7 +184,9 @@ be committed. If you're contributing a template change, make sure every field is
 `.gitignore` *before* writing anything there — never under a git-tracked path like
 `templates/cam/` or `templates/spreading/`. The shipped defaults must stay generic and safe to
 share across every fork; anything derived from one user's real documents belongs only in that
-fork.
+fork — *unless* it's a genuinely useful, generalized structure (not just one deal's content) that
+other forks would benefit from. Once it's fully scrubbed of real data, that's worth contributing
+back: open a PR to add it under `templates/cam/` as a new shared default.
 
 ## Roadmap
 

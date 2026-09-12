@@ -98,6 +98,14 @@ Don't copy a user-shared reference document into the repo at all unless asked �
 already-gitignored folder — since that creates a new persistent copy of sensitive data they
 didn't explicitly request.
 
+**Promoting a local override upstream:** if a file under `templates/local/cam/` turns out to be
+a genuinely useful, well-generalized CAM structure — not just this one deal's content — and has
+been fully scrubbed of real data (see the roadmap note on this in the README: derivation is
+prompted, not code-enforced, so verify by hand), recommend to the user that they open a PR
+against the shared framework repo to add it as a new default under `templates/cam/`, rather than
+leaving it stuck local to their fork. Never do this promotion (copy a local override into
+`templates/cam/`, or open such a PR) without the user explicitly asking for it first.
+
 ## Git workflow
 
 - **Auto-commit core changes**: whenever a change is made to a core file — anything under

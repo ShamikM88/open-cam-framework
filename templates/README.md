@@ -36,6 +36,12 @@ draft's real content) rather than the generic placeholders the shipped defaults 
 why this directory is git-ignored rather than living under `templates/cam/`. Delete a file here
 to fall back to the shipped default for that deal type.
 
+**Contributing one back:** if a file here turns out to be a genuinely useful, well-generalized
+CAM structure — not specific to one deal — review it by hand to confirm it's fully scrubbed of
+real data (the calibration prompt asks for that, but doesn't guarantee it), then open a PR to add
+it under `templates/cam/` as a new shared default. Don't do this automatically or silently; it's
+a deliberate decision to publish something derived from a user's real documents.
+
 ## `templates/spreading/`
 
 `default_spreading_template.xlsx` is the **reference copy** of the workbook layout that

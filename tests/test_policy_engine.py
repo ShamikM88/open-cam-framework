@@ -175,6 +175,45 @@ def test_missing_threshold_does_not_abort_other_covenants_in_the_same_call():
     assert results[1]["status"] == "FAIL"
 
 
+def test_undefined_ratio_value_is_unresolvable_not_a_crash():
+    """A ratio spreading_builder.py left undefined (None, e.g. a debt-free
+    company's DSCR -- see test_spreading_builder.py's
+    test_zero_denominator_ratios_are_undefined_not_zero) must be
+    UNRESOLVABLE, not crash the comparison -- the metric key is present in
+    ratios (unlike the "unrecognized metric" case), but its value can't be
+    compared against a threshold."""
+    state = {
+        "ratios": {"FY-Current": {"dscr": None}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+    }
+    covenant = evaluate_deal_policy(state)["covenant_results"][0]
+    assert covenant["status"] == "UNRESOLVABLE"
+    assert covenant["headroom_pct"] is None
+
+
+def test_non_numeric_ratio_value_is_unresolvable_not_a_crash():
+    state = {
+        "ratios": {"FY-Current": {"dscr": "1.5"}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+    }
+    covenant = evaluate_deal_policy(state)["covenant_results"][0]
+    assert covenant["status"] == "UNRESOLVABLE"
+
+
+def test_debt_free_company_does_not_falsely_fail_a_dscr_covenant():
+    """End-to-end regression for the audit's headline finding: a debt-free
+    company (undefined DSCR, not a coverage ratio of 0) must not FAIL a
+    DSCR covenant -- it's UNRESOLVABLE (the covenant doesn't meaningfully
+    apply), never a false breach."""
+    state = {
+        "ratios": {"FY-Current": {"dscr": None}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+    }
+    covenant = evaluate_deal_policy(state)["covenant_results"][0]
+    assert covenant["status"] != "FAIL"
+    assert covenant["status"] == "UNRESOLVABLE"
+
+
 # ---------------------------------------------------------------------------
 # Security & orphan checks: collateral <-> security_package cross-reference
 # via asset_id / secures_asset_id.

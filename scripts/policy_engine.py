@@ -55,8 +55,11 @@ def _evaluate_covenant(covenant, ratios):
     maximum covenants (>= and <= both include equality).
 
     Fallback rule: an unrecognized `metric` (doesn't exactly match a ratios
-    key), an unrecognized `type` (not "minimum"/"maximum"), or a missing or
-    non-numeric `threshold` is UNRESOLVABLE, never silently skipped or
+    key), an unrecognized `type` (not "minimum"/"maximum"), a missing or
+    non-numeric `threshold`, or a `metric` whose ratios value is itself
+    missing/non-numeric (e.g. `None`, from a ratio spreading_builder.py
+    left undefined because its denominator was 0 -- see
+    evaluate_financial_model()) is UNRESOLVABLE, never silently skipped or
     allowed to crash the comparison below it -- the covenant still appears
     in the result with actual/headroom_pct left as None.
 
@@ -88,6 +91,10 @@ def _evaluate_covenant(covenant, ratios):
         return result
 
     actual = ratios[metric]
+    actual_is_numeric = isinstance(actual, (int, float)) and not isinstance(actual, bool)
+    if not actual_is_numeric:
+        return result
+
     result["actual"] = actual
 
     if covenant_type == "minimum":

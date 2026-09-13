@@ -369,7 +369,60 @@ def test_evaluate_financial_model_defaults_missing_fields_to_zero():
     ratios = result["ratios"]["FY-Current"]
 
     assert financials["gross_profit"] == 100
-    assert ratios["dscr"] == 0  # IFERROR-equivalent: no interest/principal -> no division by zero
+    # No interest/principal at all -> DSCR is undefined (no debt service
+    # obligation to cover), not a coverage ratio of literal zero -- see
+    # test_zero_denominator_ratios_are_undefined_not_zero below for why.
+    assert ratios["dscr"] is None
+
+
+def test_zero_denominator_ratios_are_undefined_not_zero():
+    """A debt-free company (zero interest, zero principal) has undefined --
+    not zero -- coverage ratios: reporting 0 would misrepresent "no debt
+    service obligation" as "failing to cover it at all", which would wrongly
+    fail a real DSCR/interest-cover covenant for a company with no debt.
+    Likewise zero current liabilities (undefined current ratio) and zero
+    equity (undefined gearing) must not silently read as "0", which would
+    hide rather than surface those situations.
+    """
+    result = evaluate_financial_model({
+        "FY-Current": {
+            "revenue": 1000, "cost_of_sales": 400,
+            "interest_paid": 0, "scheduled_principal": 0,
+            # current_liabilities = trade_creditors + current_debt + overdraft
+            # + other_current_liabilities, all defaulted to 0 -> undefined current_ratio.
+            # total_equity = share_capital + retained_profit, both defaulted
+            # to 0 -> undefined gearing.
+        },
+    })
+    ratios = result["ratios"]["FY-Current"]
+
+    assert ratios["dscr"] is None
+    assert ratios["ebit_interest_cover"] is None
+    assert ratios["ebitda_interest_cover"] is None
+    assert ratios["EBIT/Interest"] is None
+    assert ratios["EBITDA/Interest"] is None
+    assert ratios["current_ratio"] is None
+    assert ratios["gearing"] is None
+    # total_debt is legitimately 0 here (no debt fields given) and EBITDA is
+    # a genuine nonzero 600 -- 0/600 is a well-defined, correct 0.0 leverage,
+    # not an undefined-denominator case like the others above.
+    assert ratios["gross_leverage"] == 0.0
+
+
+def test_nonzero_denominator_ratios_still_compute_normally_including_negative_equity():
+    """Confirms the None-for-zero-denominator change doesn't affect any
+    ratio whose denominator is genuinely nonzero -- including a legitimate
+    (if alarming) negative-equity gearing ratio, which must still compute
+    rather than being coerced to None or 0."""
+    result = evaluate_financial_model({
+        "FY-Current": {
+            "revenue": 1000, "cost_of_sales": 400,
+            "share_capital": 100, "retained_profit": -500,  # total_equity = -400
+            "current_debt": 200,
+        },
+    })
+    ratios = result["ratios"]["FY-Current"]
+    assert ratios["gearing"] == pytest.approx(200 / -400)
 
 
 # ---------------------------------------------------------------------------

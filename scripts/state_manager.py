@@ -25,9 +25,30 @@ left to each caller -- see its docstring.
 import glob
 import json
 import os
+import re
+import tempfile
 from datetime import datetime
 
 DEALS_DIR = "deals"
+
+_UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
+
+
+def sanitize_path_component(value, field_name):
+    """Reject a company/proposal value that isn't safe to use directly as a
+    filesystem path component -- a path separator, drive-letter colon, or a
+    bare "." /".." traversal segment would otherwise let `os.path.join`
+    escape the intended deals/<company>/<proposal>_<date>/ tree entirely
+    (on Windows, joining an absolute-looking later component discards every
+    path segment before it, rather than raising).
+    """
+    value = str(value)
+    if _UNSAFE_PATH_CHARS_RE.search(value) or value in (".", ".."):
+        raise ValueError(
+            f"{field_name} {value!r} isn't safe to use as a filesystem path "
+            "component (no \\ / : * ? \" < > | characters, and not \".\" or \"..\")."
+        )
+    return value
 
 
 def _deals_root(base_dir):
@@ -63,18 +84,39 @@ def state_path(company, proposal, date_str=None, base_dir=None):
     resolves its output directory: deals/<Company>/<Proposal>_<Date>/ --
     except that an explicit `date_str` isn't required to find an existing
     file; see the module docstring.
+
+    `company`/`proposal` are sanitized here -- the one place every other
+    function in this module (and deal_export.py, via its own call) routes
+    through -- since they're used directly as path components below.
     """
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
 
 
 def read_state(company, proposal, date_str=None, base_dir=None):
-    """Return the parsed state.json dict for this deal, or None if it doesn't exist yet."""
+    """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
+
+    Raises ValueError (not a raw json.JSONDecodeError) if the file exists
+    but is corrupted -- most likely left partial by an interrupted write --
+    rather than either crashing with an opaque traceback or, worse, silently
+    treating corrupted-but-present data as "no state yet" (which write_state()
+    would then happily overwrite, permanently losing whatever was still
+    readable).
+    """
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"state.json at {path} is corrupted and could not be parsed ({e}). "
+                "It may have been left partial by an interrupted write. Restore it "
+                "from a backup or fix it by hand before continuing."
+            ) from e
 
 
 def write_state(company, proposal, date_str=None, base_dir=None, **fields):
@@ -94,6 +136,12 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
 
     Returns the full state dict that was written.
     """
+    # Sanitize before the first direct use below (_resolve_date_str's own
+    # os.path.join) -- state_path() sanitizes again for its own join, but
+    # that's just a redundant, harmless re-validation of the same strings.
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -104,8 +152,21 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
     state["date"] = date_str
     state.update(fields)
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    # Atomic: write to a temp file in the same directory (so os.replace() is
+    # a same-filesystem rename, not a cross-device copy) and swap it into
+    # place, rather than truncating state.json directly. A crash, Ctrl+C, or
+    # power loss mid-write then leaves the temp file damaged and state.json
+    # untouched, instead of leaving state.json itself half-written and
+    # unreadable by every subsequent read_state() call for this deal.
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    try:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
     return state
 

@@ -291,7 +291,15 @@ def evaluate_financial_model(multi_period_data):
         total_debt = current_debt + overdraft + long_term_debt + loan_notes
 
         def safe_div(numerator, denominator):
-            return numerator / denominator if denominator else 0
+            """A zero denominator here means the ratio is genuinely
+            undefined (e.g. no interest expense at all -- infinite
+            coverage, not zero coverage; no equity -- not "0% geared").
+            Returning 0 in that case would misrepresent a debt-free or
+            distressed company as if it were failing the ratio outright;
+            None lets a covenant check (policy_engine._evaluate_covenant)
+            correctly treat it as UNRESOLVABLE instead of a false FAIL.
+            """
+            return numerator / denominator if denominator else None
 
         dscr = safe_div(ebitda, interest_paid + scheduled_principal)
         gross_leverage = safe_div(total_debt, ebitda)
@@ -301,7 +309,7 @@ def evaluate_financial_model(multi_period_data):
         ebitda_interest_cover = safe_div(ebitda, interest_paid)
 
         financials[period] = {
-            "raw": raw,
+            "raw": dict(raw),  # a copy -- never share a mutable reference to the caller's dict
             "gross_profit": gross_profit,
             "operating_profit": operating_profit,
             "ebitda": ebitda,

@@ -171,8 +171,28 @@ def _evaluate_security(collateral, security_package):
 
 
 def _guarantee_cps(guarantees):
+    """One CP per guarantee. `cp_id` is keyed on an explicit `guarantee_id`
+    when supplied, otherwise on the provider -- unchanged from before for
+    the common case of one guarantee per provider. A provider alone
+    collides whenever the same person or entity guarantees more than one
+    facility or amount, though -- a realistic deal structure, not an edge
+    case -- so any base slug shared by more than one guarantee gets a
+    stable numeric suffix (-1, -2, ...) in list order, keeping every
+    resulting `cp_id` distinct without disturbing the non-colliding case's
+    `cp_id` (which existing required_conditions_precedent consumers, and
+    an Underwriter's already-reported cp_ids_included, may depend on).
+    """
+    base_slugs = [
+        _slugify(guarantee.get("guarantee_id") or guarantee.get("provider", ""))
+        for guarantee in guarantees
+    ]
+    slug_counts = {}
+    for slug in base_slugs:
+        slug_counts[slug] = slug_counts.get(slug, 0) + 1
+
     cps = []
-    for guarantee in guarantees:
+    seen_counts = {}
+    for index, guarantee in enumerate(guarantees):
         provider = guarantee.get("provider", "")
         guarantee_type = guarantee.get("type", "Guarantee")
         amount = guarantee.get("amount")
@@ -181,8 +201,16 @@ def _guarantee_cps(guarantees):
         # "Unlimited Facility", which would materially misstate the CP.
         if amount is None or (isinstance(amount, str) and not amount.strip()):
             amount = "Unlimited Facility"
+
+        base_slug = base_slugs[index]
+        if slug_counts[base_slug] > 1:
+            seen_counts[base_slug] = seen_counts.get(base_slug, 0) + 1
+            cp_id = f"GUARANTEE-{base_slug}-{seen_counts[base_slug]}"
+        else:
+            cp_id = f"GUARANTEE-{base_slug}"
+
         cps.append({
-            "cp_id": f"GUARANTEE-{_slugify(provider)}",
+            "cp_id": cp_id,
             "text": f"Execution of {guarantee_type} Guarantee by {provider} for {amount}.",
         })
     return cps

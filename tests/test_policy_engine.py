@@ -236,6 +236,57 @@ def test_guarantee_cp_treats_blank_string_amount_as_missing():
     assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
 
 
+def test_guarantee_cps_use_distinct_ids_when_same_provider_guarantees_two_facilities():
+    """The same person/entity guaranteeing two different amounts is a
+    realistic deal structure -- both must get a distinct, addressable CP,
+    not silently collide on one shared cp_id."""
+    state = {"guarantees": [
+        {"provider": "Jane Smith", "type": "Personal", "amount": "£100,000"},
+        {"provider": "Jane Smith", "type": "Personal", "amount": "£250,000"},
+    ]}
+    result = evaluate_deal_policy(state)
+    guarantee_cps = [cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")]
+    cp_ids = [cp["cp_id"] for cp in guarantee_cps]
+
+    assert len(cp_ids) == 2
+    assert len(set(cp_ids)) == 2  # distinct, not both "GUARANTEE-JANE-SMITH"
+    texts = {cp["cp_id"]: cp["text"] for cp in guarantee_cps}
+    assert any("£100,000" in text for text in texts.values())
+    assert any("£250,000" in text for text in texts.values())
+
+
+def test_guarantee_cp_id_unchanged_for_the_common_single_guarantee_case():
+    """A guarantee that doesn't collide with anything else must keep the
+    same simple cp_id as before -- the disambiguation suffix only appears
+    when actually needed."""
+    state = {"guarantees": [{"provider": "Acme Holdings", "type": "Corporate", "amount": "£500,000"}]}
+    result = evaluate_deal_policy(state)
+    cp_ids = [cp["cp_id"] for cp in result["required_conditions_precedent"]]
+    assert "GUARANTEE-ACME-HOLDINGS" in cp_ids
+
+
+def test_guarantee_id_field_overrides_provider_as_the_cp_id_source_when_given():
+    state = {"guarantees": [
+        {"guarantee_id": "GRT-001", "provider": "Jane Smith", "type": "Personal", "amount": "£100,000"},
+        {"guarantee_id": "GRT-002", "provider": "Jane Smith", "type": "Personal", "amount": "£250,000"},
+    ]}
+    result = evaluate_deal_policy(state)
+    cp_ids = {cp["cp_id"] for cp in result["required_conditions_precedent"]}
+    assert "GUARANTEE-GRT-001" in cp_ids
+    assert "GUARANTEE-GRT-002" in cp_ids
+
+
+def test_guarantee_cps_are_stable_and_collision_free_across_repeated_calls():
+    state = {"guarantees": [
+        {"provider": "Jane Smith", "amount": "£100,000"},
+        {"provider": "Jane Smith", "amount": "£250,000"},
+        {"provider": "Acme Holdings", "amount": None},
+    ]}
+    first = evaluate_deal_policy(state)
+    second = evaluate_deal_policy(state)
+    assert first == second
+
+
 # ---------------------------------------------------------------------------
 # Determinism: same input must always produce the same cp_ids, in the same
 # structure -- this is the property orchestrator.py's governance gate relies on.

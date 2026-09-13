@@ -536,3 +536,101 @@ def test_slugify_falls_back_to_a_stable_hash_for_symbol_only_input():
     # Stability: the same symbol-only input always slugifies to the same id.
     again = evaluate_deal_policy(state)
     assert _cp_ids(result) == _cp_ids(again)
+
+
+# ---------------------------------------------------------------------------
+# Downside covenant breaches: purely additive on top of _evaluate_covenant().
+# covenant_results (the FY-Current gate) must be completely unaffected.
+# ---------------------------------------------------------------------------
+
+def test_base_pass_downside_fail_populates_downside_covenant_breaches():
+    state = {
+        "ratios": {
+            "FY-Current": {"dscr": 1.5},
+            "FY+2": {"dscr": 1.25},
+        },
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+    }
+    result = evaluate_deal_policy(state)
+    breaches = result["downside_covenant_breaches"]
+
+    assert len(breaches) == 1
+    breach = breaches[0]
+    assert breach["year"] == "FY+2"
+    assert breach["metric"] == "dscr"
+    assert breach["base_actual"] == 1.25
+    assert breach["downside_actual"] == 1.05
+    assert breach["threshold"] == 1.10
+    assert breach["breach_id"]
+
+
+def test_downside_breach_id_is_stable_and_repeatable_across_calls():
+    state = {
+        "ratios": {"FY+2": {"dscr": 1.25}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+    }
+    first = evaluate_deal_policy(state)["downside_covenant_breaches"]
+    second = evaluate_deal_policy(state)["downside_covenant_breaches"]
+    assert first == second
+    assert first[0]["breach_id"] == second[0]["breach_id"]
+
+
+def test_covenant_results_unaffected_by_downside_covenant_breach_logic():
+    """The existing FY-Current gate must be byte-for-byte the same whether
+    or not a downside_case is present -- this is purely additive."""
+    covenants = [{"metric": "dscr", "type": "minimum", "threshold": 1.10}]
+    without_downside = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"dscr": 1.5}},
+        "covenants": covenants,
+    })
+    with_downside = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"dscr": 1.5}, "FY+2": {"dscr": 1.25}},
+        "covenants": covenants,
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+    })
+    assert without_downside["covenant_results"] == with_downside["covenant_results"]
+
+
+def test_no_downside_breach_when_covenant_passes_in_both_cases():
+    state = {
+        "ratios": {"FY+2": {"dscr": 1.5}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.20}}},
+    }
+    assert evaluate_deal_policy(state)["downside_covenant_breaches"] == []
+
+
+def test_no_downside_breach_when_base_already_fails():
+    """Base already FAILs -- covered by the ordinary covenant_results gate,
+    not a "downside-specific" breach (the whole point of this list is
+    "passes today, fails only under stress")."""
+    state = {
+        "ratios": {"FY+2": {"dscr": 1.0}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 0.8}}},
+    }
+    assert evaluate_deal_policy(state)["downside_covenant_breaches"] == []
+
+
+def test_downside_covenant_breaches_empty_when_no_downside_case_present():
+    state = {
+        "ratios": {"FY-Current": {"dscr": 1.5}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+    }
+    assert evaluate_deal_policy(state)["downside_covenant_breaches"] == []
+
+
+def test_downside_covenant_breaches_across_multiple_forward_years():
+    state = {
+        "ratios": {"FY+1": {"dscr": 1.5}, "FY+2": {"dscr": 1.25}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {
+            "FY+1": {"dscr": 1.20},  # still passes downside
+            "FY+2": {"dscr": 1.05},  # breaches downside
+        }},
+    }
+    breaches = evaluate_deal_policy(state)["downside_covenant_breaches"]
+    assert len(breaches) == 1
+    assert breaches[0]["year"] == "FY+2"

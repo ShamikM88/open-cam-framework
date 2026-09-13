@@ -31,6 +31,16 @@ from datetime import datetime
 
 DEALS_DIR = "deals"
 
+# Bumped whenever state.json's schema gains a new top-level shape a reader
+# needs to know how to interpret (e.g. this version's downside_case/
+# stress_assumptions keys) -- not on every new optional field. A deal
+# folder created before this constant existed has no "schema_version" key
+# at all; read_state() reports LEGACY_SCHEMA_VERSION for those rather than
+# leaving the key absent, so future migration logic always has a defined
+# starting point instead of needing its own "key missing" special case.
+SCHEMA_VERSION = "1.1.0"
+LEGACY_SCHEMA_VERSION = "0.0.0"
+
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 
 
@@ -111,19 +121,28 @@ def read_state(company, proposal, date_str=None, base_dir=None):
     treating corrupted-but-present data as "no state yet" (which write_state()
     would then happily overwrite, permanently losing whatever was still
     readable).
+
+    A deal folder written before SCHEMA_VERSION existed has no
+    "schema_version" key at all -- callers must never assume the key is
+    present. Rather than leave that as an unhandled absence for every
+    caller to guard against separately, it's normalized here: the returned
+    dict always has a "schema_version" key, defaulting to
+    LEGACY_SCHEMA_VERSION when the file itself doesn't carry one.
     """
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as f:
         try:
-            return json.load(f)
+            state = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(
                 f"state.json at {path} is corrupted and could not be parsed ({e}). "
                 "It may have been left partial by an interrupted write. Restore it "
                 "from a backup or fix it by hand before continuing."
             ) from e
+    state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
+    return state
 
 
 def write_state(company, proposal, date_str=None, base_dir=None, **fields):
@@ -159,6 +178,7 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
     state["company"] = company
     state["proposal"] = proposal
     state["date"] = date_str
+    state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
 
     # Atomic: write to a temp file in the same directory (so os.replace() is

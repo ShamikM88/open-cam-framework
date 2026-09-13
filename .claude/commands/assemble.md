@@ -53,8 +53,11 @@ the user which ones are missing and stop rather than guessing their content.
    written) to `deals/<company>/<proposal>_draft.md` (create the folder if it doesn't exist).
 5. **Run `/review --company "<company>" --proposal "<proposal>"`** against that draft. If the
    verdict is REJECTED, revise the draft per the notes (which may include code-enforced reasons
-   from `policy_check.py` alongside the Reviewer's own qualitative feedback) and run `/review`
-   again — repeat until APPROVED.
+   from `policy_check.py` alongside the Reviewer's own qualitative feedback), **overwrite**
+   `deals/<company>/<proposal>_draft.md` with the revised Markdown and structured JSON block
+   (never leave the stale, rejected version on disk), and run `/review` again — repeat until
+   APPROVED. `/review`'s own file-reuse step only skips a rewrite when the on-disk file already
+   matches the draft being reviewed; a revision always changed it, so always overwrite here.
 6. **Export it.** Once approved, run:
    ```
    python scripts/deal_export.py --company "<company>" --proposal "<proposal>" --type <type> --draft "deals/<company>/<proposal>_draft.md"
@@ -69,8 +72,11 @@ the user which ones are missing and stop rather than guessing their content.
 
 Update this deal's state file (merge with whatever you read above — never drop a field another
 step already recorded): `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path` (the exported
-`.docx` path from step 6), and append `"assemble"` to `steps_completed` if it isn't already
-there. `/review` already checkpoints `review_verdict` itself. If `deal_export.py`'s output
+`.docx` path from step 6), `policy_state` (step 2's computed output, verbatim — per CLAUDE.md's
+state-management protocol, a code-enforced structural finding like a covenant breach or security
+gap must exist as a disk artifact, not only in this conversation), and append `"assemble"` to
+`steps_completed` if it isn't already there. `/review` already checkpoints `review_verdict`
+itself. If `deal_export.py`'s output
 directory (from step 6) uses a different date than the state file you read in step 1 — e.g. this
 deal spanned multiple days — write the state file into `deal_export.py`'s actual output
 directory instead, so `state.json` ends up next to the `.docx`/`.xlsx` it describes.

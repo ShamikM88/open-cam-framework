@@ -38,20 +38,21 @@ def normalize_category(category):
 def parse_underwriter_output(draft_text):
     """Extract the Underwriter's trailing structured JSON block
     ({"cp_ids_included": [...], "risk_categories_covered": {...},
-    "reported_figures": {...}}) from its drafted CAM (see
-    agents/underwriter_agent.md's Structured Output guideline). Scans
-    matches in reverse and returns the first one that actually looks like
-    this schema, for the same reason parse_verdict() (orchestrator.py)
-    does: a block should always be trailing, but this is safer against an
-    unrelated ```json block appearing earlier in the draft.
+    "reported_figures": {...}, "downside_breaches_acknowledged": [...]})
+    from its drafted CAM (see agents/underwriter_agent.md's Structured
+    Output guideline). Scans matches in reverse and returns the first one
+    that actually looks like this schema, for the same reason
+    parse_verdict() (orchestrator.py) does: a block should always be
+    trailing, but this is safer against an unrelated ```json block
+    appearing earlier in the draft.
 
     Missing or malformed output degrades to an empty structure, which then
     fails every downstream policy check safely (as "nothing included" /
-    "no category covered" / "nothing reported") rather than raising or
-    silently skipping enforcement. This includes a field being present but
-    the wrong *type* -- e.g. `risk_categories_covered` as a JSON list
-    instead of an object -- not just a field being absent, since
-    check_draft_compliance() assumes these exact types.
+    "no category covered" / "nothing reported" / "nothing acknowledged")
+    rather than raising or silently skipping enforcement. This includes a
+    field being present but the wrong *type* -- e.g. `risk_categories_covered`
+    as a JSON list instead of an object -- not just a field being absent,
+    since check_draft_compliance() assumes these exact types.
     """
     for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
         try:
@@ -64,18 +65,26 @@ def parse_underwriter_output(draft_text):
             "cp_ids_included" in payload
             or "risk_categories_covered" in payload
             or "reported_figures" in payload
+            or "downside_breaches_acknowledged" in payload
         ):
             cp_ids_included = payload.get("cp_ids_included")
             risk_categories_covered = payload.get("risk_categories_covered")
             reported_figures = payload.get("reported_figures")
+            downside_breaches_acknowledged = payload.get("downside_breaches_acknowledged")
             return {
                 "cp_ids_included": cp_ids_included if isinstance(cp_ids_included, list) else [],
                 "risk_categories_covered": (
                     risk_categories_covered if isinstance(risk_categories_covered, dict) else {}
                 ),
                 "reported_figures": reported_figures if isinstance(reported_figures, dict) else {},
+                "downside_breaches_acknowledged": (
+                    downside_breaches_acknowledged if isinstance(downside_breaches_acknowledged, list) else []
+                ),
             }
-    return {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    return {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def compute_collateral_cover_pct(collateral):
@@ -96,7 +105,7 @@ def compute_collateral_cover_pct(collateral):
     return (total_collateral_value / total_exposure) * 100
 
 
-def ground_truth_figures(financials, ratios, collateral):
+def ground_truth_figures(financials, ratios, collateral, downside_case=None):
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
     ratio (dscr, gross_leverage, current_ratio, gearing,
@@ -105,9 +114,13 @@ def ground_truth_figures(financials, ratios, collateral):
     gross_profit, operating_profit, net_profit, profit_before_tax,
     total_debt, total_assets, total_liabilities, total_equity) already
     computed by evaluate_financial_model(), plus an aggregate
-    collateral_cover_pct derived from the collateral list. A pure function
-    of the same data already checkpointed to state.json -- never a new
-    calculation the Underwriter couldn't already see.
+    collateral_cover_pct derived from the collateral list, plus -- if
+    `downside_case` is given -- every downside (stressed forward-year)
+    ratio/subtotal, keyed as `f"{metric}_{period}_downside"` (e.g.
+    `"dscr_FY+2_downside"`) so it can never collide with a base-case key
+    above. A pure function of the same data already checkpointed to
+    state.json -- never a new calculation the Underwriter couldn't already
+    see.
 
     A ratio evaluate_financial_model() left as `None` (e.g. a debt-free
     company's DSCR -- a zero denominator makes the ratio undefined, not
@@ -118,6 +131,8 @@ def ground_truth_figures(financials, ratios, collateral):
     raises) -- an unconditional, unfixable "Narrative/Ground-Truth
     Mismatch" for a metric that's legitimately undefined, rather than the
     correct outcome: it's simply not a figure this deal has a number for.
+    The same exclusion applies to downside figures below, for the same
+    reason.
     """
     current_ratios = (ratios or {}).get("FY-Current")
     current_financials = (financials or {}).get("FY-Current")
@@ -134,6 +149,25 @@ def ground_truth_figures(financials, ratios, collateral):
     collateral_cover_pct = compute_collateral_cover_pct(collateral)
     if collateral_cover_pct is not None:
         truth["collateral_cover_pct"] = collateral_cover_pct
+
+    if downside_case:
+        downside_ratios = downside_case.get("ratios") or {}
+        downside_financials = downside_case.get("financials") or {}
+
+        for period, period_ratios in downside_ratios.items():
+            if not isinstance(period_ratios, dict):
+                continue
+            for metric, value in period_ratios.items():
+                if value is not None:
+                    truth[f"{metric}_{period}_downside"] = value
+
+        for period, period_financials in downside_financials.items():
+            if not isinstance(period_financials, dict):
+                continue
+            for metric, value in period_financials.items():
+                if metric == "raw" or value is None:
+                    continue
+                truth[f"{metric}_{period}_downside"] = value
 
     return truth
 
@@ -184,8 +218,17 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
     """The single source of truth for "why would this draft be
     code-enforced-REJECTED": covenant FAIL/UNRESOLVABLE, any security gap,
     and -- only when a draft is actually being audited -- missing required
-    CPs, missing/malformed risk-taxonomy coverage, and narrative/ground-
-    truth figure mismatches.
+    CPs, missing/malformed risk-taxonomy coverage, undisclosed downside
+    covenant breaches, and narrative/ground-truth figure mismatches
+    (base-case and downside alike).
+
+    A downside covenant breach itself (policy_state's
+    `downside_covenant_breaches`) never forces a reason on its own -- a
+    deal can be sound with disclosed downside risk; see
+    policy_engine.evaluate_deal_policy(). What's enforced here is
+    disclosure: every breach_id must appear in the Underwriter's own
+    `downside_breaches_acknowledged` list, or it's treated exactly like any
+    other omission -- the same unified rejection path as a missing CP.
 
     `draft_text=None` means "no draft to audit yet" (e.g. /assemble calling
     this before drafting, just to obtain policy_state for its own drafting
@@ -228,6 +271,15 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
             )
             if malformed:
                 reasons.append(f"Missing or malformed Risk Category: {category}")
+
+        acknowledged_breach_ids = set(underwriter_output["downside_breaches_acknowledged"])
+        for breach in policy_state.get("downside_covenant_breaches", []):
+            if breach["breach_id"] not in acknowledged_breach_ids:
+                reasons.append(
+                    f"Undisclosed Downside Breach {breach['breach_id']}: {breach['metric']} "
+                    f"breaches threshold in {breach['year']} under stress but is not "
+                    "addressed in the draft."
+                )
 
     for result in policy_state.get("covenant_results", []):
         if result["status"] in ("FAIL", "UNRESOLVABLE"):

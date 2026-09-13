@@ -198,12 +198,18 @@ def test_parse_underwriter_output_extracts_cp_ids_and_categories():
 
 def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     result = parse_underwriter_output("# Draft CAM with no trailing JSON block")
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    assert result == {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     result = parse_underwriter_output('# Draft\n```json\n{"cp_ids_included": [\n```')
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    assert result == {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def test_parse_underwriter_output_extracts_reported_figures():
@@ -226,7 +232,10 @@ def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_typ
         + "\n```"
     )
     result = parse_underwriter_output(draft)
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    assert result == {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def test_apply_deterministic_policy_checks_does_not_crash_on_malformed_risk_categories_type():
@@ -718,6 +727,78 @@ def test_run_pipeline_accumulates_steps_completed_without_duplicating_across_rer
     assert state2["steps_completed"].count("draft") == 1
     assert state2["steps_completed"].count("audit") == 1
     assert state2["steps_completed"].count("export") == 1
+
+
+# ---------------------------------------------------------------------------
+# downside_case recomputation: financials and stress_assumptions don't have
+# to be re-supplied together on every run -- each independently falls back
+# to whatever this deal already had checkpointed, and downside_case is
+# recomputed whenever either one changes so it never silently drifts out of
+# sync with the base-case financials/ratios actually in effect.
+# ---------------------------------------------------------------------------
+
+FORWARD_PERIOD_BASE = {
+    "revenue": 1000, "cost_of_sales": 400, "admin_expenses": 100,
+    "depreciation": 50, "amortisation": 20, "other_income": 10,
+    "interest_paid": 30, "interest_received": 5, "scheduled_principal": 70,
+    "exceptional_costs": 0, "tax_paid": 40,
+    "cash": 60, "trade_debtors": 80, "stock": 90, "other_current_assets": 10,
+    "tangible_assets": 500, "intangible_assets": 50, "other_fixed_assets": 20,
+    "trade_creditors": 70, "other_current_liabilities": 10,
+    "overdraft": 5, "current_debt": 15, "long_term_debt": 300, "loan_notes": 25,
+    "share_capital": 100, "retained_profit": 200,
+}
+STRESS_ASSUMPTIONS = {
+    "revenue_haircut_pct": 10, "interest_rate_bump_bps": 200, "opex_increase_pct": 5,
+}
+
+
+def test_run_pipeline_recomputes_downside_case_against_revised_financials_without_restating_stress_assumptions(project_root):
+    """A revised --financials file recomputes downside_case against the
+    *new* base data even when --stress-assumptions isn't repeated -- it must
+    never keep comparing fresh base ratios against a stale, previous-run
+    downside case (see orchestrator.py's run_pipeline() downside_case
+    recomputation comment)."""
+    client1 = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY+1": dict(FORWARD_PERIOD_BASE)},
+                 stress_assumptions=STRESS_ASSUMPTIONS, client=client1)
+
+    state_after_first = read_state("Acme Corp", "Fleet Loan")
+    # shocked_revenue=900, gross_profit=500, operating_profit=335, ebitda=405
+    # shocked_interest=30+(345*200/10000)=36.9, dscr=405/(36.9+70)
+    assert state_after_first["downside_case"]["ratios"]["FY+1"]["dscr"] == pytest.approx(405 / 106.9)
+
+    revised_financials = dict(FORWARD_PERIOD_BASE, revenue=2000)
+    client2 = MockClient([_compliant_draft("# Draft v2"), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY+1": revised_financials}, client=client2)
+
+    state_after_second = read_state("Acme Corp", "Fleet Loan")
+    # shocked_revenue=1800, gross_profit=1400, operating_profit=1235, ebitda=1305
+    assert state_after_second["downside_case"]["ratios"]["FY+1"]["dscr"] == pytest.approx(1305 / 106.9)
+    # stress_assumptions themselves are preserved, not wiped, across the rerun
+    assert state_after_second["stress_assumptions"] == STRESS_ASSUMPTIONS
+
+
+def test_run_pipeline_recomputes_downside_case_from_cached_financials_when_only_stress_assumptions_given(project_root):
+    """New --stress-assumptions alone (financials omitted, assumed already
+    checkpointed) must actually take effect against the cached base-case
+    financials -- not be silently discarded as a no-op."""
+    client1 = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY+1": dict(FORWARD_PERIOD_BASE)},
+                 stress_assumptions=STRESS_ASSUMPTIONS, client=client1)
+
+    harsher_assumptions = dict(STRESS_ASSUMPTIONS, revenue_haircut_pct=20)
+    client2 = MockClient([_compliant_draft("# Draft v2"), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 stress_assumptions=harsher_assumptions, client=client2)
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["stress_assumptions"] == harsher_assumptions
+    # shocked_revenue=800 (20% haircut), gross_profit=400, operating_profit=235, ebitda=305
+    assert state["downside_case"]["ratios"]["FY+1"]["dscr"] == pytest.approx(305 / 106.9)
 
 
 # ---------------------------------------------------------------------------

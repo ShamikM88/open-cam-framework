@@ -64,16 +64,23 @@ never drop a field another step already recorded):
   `exposure`/`collateral_value` are the Gross Exposure and Collateral Value you calculated above
   for that asset; `perfection_status` records whether the security interest is registered/
   perfected, pending, or not applicable — never leave it blank if you know the answer.
-- Also set/update `security_package` as a **flat list**, one entry per asset, in this exact
-  shape (this is what `scripts/policy_engine.py` cross-references against `collateral` above to
-  flag an uncharged asset, an unperfected charge, or a subordinate ranking as a required
-  Condition Precedent — see the `/assemble`/`/review` steps):
+- Also set/update `security_package` as a **flat list**, one entry per charge (an asset can
+  carry more than one — e.g. a senior and a subordinate charge on the same `secures_asset_id` —
+  give each its own entry rather than collapsing them), in this exact shape (this is what
+  `scripts/policy_engine.py` cross-references against `collateral` above to flag an uncharged
+  asset, an unperfected charge, or a subordinate ranking as a required Condition Precedent — see
+  the `/assemble`/`/review` steps). Unlike `collateral.perfection_status` above, which is a
+  narrative field, `security_package`'s `perfection_status` and `ranking` are compared against
+  exact literal strings by code: use precisely `"Perfected"` when the charge is fully perfected
+  (any other value — including "Registered" or "Pending" — is treated as unperfected and
+  generates a Condition Precedent) and precisely `"First"` when this is the senior-most-ranking
+  charge (any other value — including "1st" or "Senior" — is treated as subordinate):
   ```json
   [
     {
       "secures_asset_id": "AST-001",
-      "perfection_status": "[same value as this asset's collateral.perfection_status]",
-      "ranking": "[e.g. First / Second]"
+      "perfection_status": "Perfected",
+      "ranking": "First"
     }
   ]
   ```

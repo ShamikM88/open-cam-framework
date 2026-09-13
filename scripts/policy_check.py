@@ -32,6 +32,7 @@ def compute(company, proposal, draft_path=None):
     financials = state.get("financials") or {}
     ratios = state.get("ratios") or {}
     collateral = state.get("collateral") or []
+    downside_case = state.get("downside_case") or {}
 
     policy_state = evaluate_deal_policy({
         "ratios": ratios,
@@ -39,6 +40,7 @@ def compute(company, proposal, draft_path=None):
         "covenants": state.get("covenants") or [],
         "security_package": state.get("security_package") or [],
         "guarantees": state.get("guarantees") or [],
+        "downside_case": downside_case,
     })
 
     draft_text = None
@@ -47,7 +49,8 @@ def compute(company, proposal, draft_path=None):
             draft_text = f.read()
 
     reasons = check_draft_compliance(
-        draft_text, policy_state, ground_truth_figures(financials, ratios, collateral),
+        draft_text, policy_state,
+        ground_truth_figures(financials, ratios, collateral, downside_case),
     )
 
     return {

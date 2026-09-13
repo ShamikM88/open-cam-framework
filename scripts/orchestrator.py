@@ -229,19 +229,33 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
 
-    # Downside (stressed) forward-year case: only (re)computed when this
-    # call was actually given both forward-year base-case financials and
-    # stress_assumptions to apply to them; otherwise reuse whatever this
-    # deal already had checkpointed (matching financials/ratios/collateral's
-    # own "only replace when given new data" rule above). Historical
-    # periods in `multi_period_financials` are never shocked -- see
-    # evaluate_downside_case().
-    if multi_period_financials and stress_assumptions:
-        downside_case = evaluate_downside_case(multi_period_financials, stress_assumptions)
-        stress_assumptions_to_persist = stress_assumptions
+    # Downside (stressed) forward-year case. The raw forward-year base-case
+    # financials and the stress_assumptions to apply to them don't have to
+    # be re-supplied together on every call -- each independently falls
+    # back to whatever this deal already had checkpointed, exactly like
+    # `financials`/`ratios` above. This matters because the two are re-run
+    # together whenever EITHER changes: recomputing on every call that has
+    # both available (fresh or cached) keeps `downside_case` from ever
+    # silently drifting out of sync with the `financials`/`ratios` actually
+    # in effect this run -- e.g. a revised --financials file recomputes the
+    # downside case against the *new* base data even if --stress-assumptions
+    # isn't repeated, and a new --stress-assumptions file alone recomputes
+    # it against the same cached base data `financials`/`ratios` were
+    # already reusing. Historical periods in `multi_period_financials` are
+    # never shocked -- see evaluate_downside_case().
+    multi_period_financials_for_downside = (
+        multi_period_financials or existing_state.get("multi_period_financials")
+    )
+    stress_assumptions_to_persist = stress_assumptions or existing_state.get("stress_assumptions", {})
+    if multi_period_financials_for_downside and stress_assumptions_to_persist:
+        downside_case = evaluate_downside_case(
+            multi_period_financials_for_downside, stress_assumptions_to_persist,
+        )
     else:
         downside_case = existing_state.get("downside_case", {})
-        stress_assumptions_to_persist = existing_state.get("stress_assumptions", {})
+    multi_period_financials_to_persist = (
+        multi_period_financials_for_downside or existing_state.get("multi_period_financials", {})
+    )
 
     # Covenants/security/guarantees have no dedicated CLI flags yet -- they
     # come from whatever this deal's state.json already carries (e.g. hand-
@@ -270,6 +284,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
+                multi_period_financials=multi_period_financials_to_persist,
                 policy_state=policy_state, steps_completed=steps_completed)
 
     grounding_context = _build_grounding_context(

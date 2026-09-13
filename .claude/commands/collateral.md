@@ -22,13 +22,17 @@ it. If none exists, this is the first step run for this deal.
 
 **Primary inputs** (ask the user for whatever's missing and isn't already in state): Asset
 Description, Valuation/Invoice Amount, Down Payment %, Loss Given Default (LGD) Grade & %,
-Residual Value (RV) %, Probability of Default (PD) Grade, and Ranking of the security interest
-taken over the asset (e.g. First, Second — where you rank relative to any other chargeholder).
+Residual Value (RV) %, Probability of Default (PD) Grade, Ranking of the security interest
+taken over the asset (e.g. First, Second — where you rank relative to any other chargeholder),
+and a credit bureau / reference-agency score (e.g. Experian) if one exists for this borrower.
 
 Calculate: Gross/Net Exposure, RV Exposure, Collateral Coverage %, LGD %, and Estimated Net
-Uncovered Risk. Show the formula and inputs used for each figure. PD and LGD grades are
-user-supplied inputs — this framework has no bureau/rating-agency integration — so use exactly
-what's given; never invent or adjust a grade yourself.
+Uncovered Risk. Show the formula and inputs used for each figure. PD, LGD, and any bureau score
+are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
+exactly what's given; never invent or adjust a grade or score yourself. Always ask for the
+bureau score explicitly before this deal's CAM is finalized (Section 14 of the CAM template)
+rather than defaulting it to "N/A"/"Not provided" unasked — if the user confirms none is
+available or applicable, that's a valid, citable answer in its own right.
 
 Assign each asset a stable `asset_id` (e.g. `"AST-001"`, or reuse one already in state.json if
 this asset already has one) — this is the join key `scripts/policy_engine.py` uses to cross-

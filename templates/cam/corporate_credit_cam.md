@@ -79,7 +79,7 @@
 
 ## 8. Industry
 
-[Narrative: market structure, growth outlook, competitive dynamics — cite the source of any market-size or growth figures.]
+[Narrative: market structure, growth outlook, competitive dynamics — cite the source of any market-size or growth figures. Don't rely solely on the borrower's own strategic report/directors' report as the only source: actively seek independent third-party market context (e.g. an IBISWorld industry report for the borrower's sector, competitor information, general research) before finalizing. "Not assessed" is a last resort after a genuine attempt to source better data, not a first-pass shortcut — especially on a facility of meaningful size.]
 
 | Concentration | Competition | Barriers to Entry | Substitutes | Buyer Power | Supplier Power |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -99,7 +99,7 @@
 
 ## 11. Financial Analysis
 
-Full line-by-line figures live in the accompanying spreading workbook (see `scripts/spreading_builder.py`). Summary:
+Full line-by-line figures live in the accompanying spreading workbook (see `scripts/spreading_builder.py`). The summary table below is a floor, not a ceiling — for anything beyond a small/immaterial facility, this section should also cover: the full income statement (every P&L line, not just EBITDA/DSCR), the debt structure and funding sources (what kind of debt, who holds it, how the balance sheet is actually funded), dividend/distribution history with payout ratios, and working-capital component detail (stock/debtor/creditor days individually, not just the net cycle number) — expand with additional sub-tables/sub-sections as the deal size and complexity warrant.
 
 | Metric | FY-2 | FY-1 | FY-Current |
 | :--- | ---: | ---: | ---: |
@@ -117,8 +117,8 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 ## 12. Credit Bureau / Legal Charges
 
 - **Registered charges / mortgages:** [Detail, or "None identified"]
-- **Credit bureau summary (e.g. CAIS-equivalent):** [Score, active accounts, delinquencies, judgments]
-- **External credit score (e.g. bureau-provided):** [Score, or "N/A"]
+- **Credit bureau summary (e.g. CAIS-equivalent):** [Score, active accounts, delinquencies, judgments. This framework has no live bureau integration -- a bureau score (e.g. Experian) is normally a user-supplied input, so ask the user for it before finalizing this document rather than writing "N/A"/"Not provided" unasked. If the user confirms none is available or applicable, that's a valid, citable answer.]
+- **External credit score (e.g. bureau-provided):** [Score, or "N/A" -- only after asking, per above]
 
 ## 13. Secondary Source of Repayment
 

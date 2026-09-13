@@ -99,3 +99,98 @@ def test_multiple_tables_in_one_document(tmp_path):
 def test_table_style_has_visible_borders(tmp_path):
     doc = _build(tmp_path, MARKDOWN_TABLE)
     assert doc.tables[0].style.name == "Table Grid"
+
+
+# ---------------------------------------------------------------------------
+# Inline markdown (bold/italic/code) in headings-adjacent body text, H3, and
+# stripping content that has no place in a client-facing Word document (a
+# horizontal rule, or a fenced code block like the Underwriter's trailing
+# structured JSON block).
+# ---------------------------------------------------------------------------
+
+def test_h3_heading(tmp_path):
+    doc = _build(tmp_path, "### Sub-subtitle\n")
+    assert doc.paragraphs[0].text == "Sub-subtitle"
+    assert doc.paragraphs[0].style.name == "Heading 3"
+
+
+def test_bold_in_plain_paragraph_renders_as_a_bold_run(tmp_path):
+    doc = _build(tmp_path, "**Verdict:** Approve.\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "Verdict: Approve."
+    assert paragraph.runs[0].text == "Verdict:"
+    assert paragraph.runs[0].bold is True
+    assert paragraph.runs[1].bold in (False, None)
+
+
+def test_italic_in_plain_paragraph_renders_as_an_italic_run(tmp_path):
+    doc = _build(tmp_path, "*A note in italics.*\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "A note in italics."
+    assert paragraph.runs[0].italic is True
+
+
+def test_bold_in_bullet_list_renders_as_a_bold_run(tmp_path):
+    doc = _build(tmp_path, "- **Label:** detail\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.style.name == "List Bullet"
+    assert paragraph.text == "Label: detail"
+    assert paragraph.runs[0].bold is True
+
+
+def test_horizontal_rule_is_skipped(tmp_path):
+    doc = _build(tmp_path, "First.\n\n---\n\nSecond.\n")
+    assert [p.text for p in doc.paragraphs] == ["First.", "Second."]
+
+
+def test_fenced_code_block_is_skipped_entirely(tmp_path):
+    markdown = (
+        "Before the block.\n"
+        "```json\n"
+        '{"verdict": "APPROVED", "notes": null}\n'
+        "```\n"
+        "After the block.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    assert [p.text for p in doc.paragraphs] == ["Before the block.", "After the block."]
+    full_text = "\n".join(p.text for p in doc.paragraphs)
+    assert "verdict" not in full_text
+    assert "```" not in full_text
+
+
+def test_unterminated_fence_does_not_discard_the_rest_of_the_document(tmp_path):
+    """A stray/odd ``` (e.g. from truncation) must not silently swallow
+    every line through EOF -- only a genuinely closed fence gets skipped."""
+    markdown = (
+        "Before.\n"
+        "```json\n"
+        '{"unterminated": true\n'
+        "## Section 2\n"
+        "Real narrative content that must survive.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert "Before." in texts
+    assert "Section 2" in texts
+    assert "Real narrative content that must survive." in texts
+
+
+def test_footnote_style_trailing_asterisk_is_not_treated_as_italic(tmp_path):
+    """A single `*` used as a footnote marker (common in financial
+    narrative, e.g. "Net Income* is 5.2x... Note 1*") must not be
+    misread as an emphasis delimiter -- that would silently eat both
+    asterisks and italicize unrelated text in between."""
+    doc = _build(tmp_path, "Net Income* is 5.2x Interest Expense, per Note 1*.\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "Net Income* is 5.2x Interest Expense, per Note 1*."
+    assert all(not r.italic for r in paragraph.runs)
+
+
+def test_triple_asterisk_renders_as_a_single_bold_italic_run(tmp_path):
+    doc = _build(tmp_path, "***Critical:*** breach detected\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "Critical: breach detected"
+    assert paragraph.runs[0].text == "Critical:"
+    assert paragraph.runs[0].bold is True
+    assert paragraph.runs[0].italic is True
+    assert "*" not in paragraph.text

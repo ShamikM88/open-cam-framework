@@ -287,6 +287,36 @@ def test_guarantee_cps_are_stable_and_collision_free_across_repeated_calls():
     assert first == second
 
 
+def test_guarantee_cps_avoid_cross_collision_between_suffixed_and_naturally_unique_slug():
+    """A third guarantee whose provider naturally slugifies to the exact
+    string a colliding pair's disambiguation suffix would produce must
+    still end up with a distinct id -- collision detection has to check
+    every cp_id already assigned, not just other guarantees sharing the
+    same pre-suffix base slug."""
+    state = {"guarantees": [
+        {"provider": "Acme Corp"},
+        {"provider": "Acme Corp"},
+        {"provider": "Acme Corp 1"},
+    ]}
+    result = evaluate_deal_policy(state)
+    cp_ids = [cp["cp_id"] for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")]
+    assert len(cp_ids) == 3
+    assert len(set(cp_ids)) == 3
+
+
+def test_guarantee_id_of_zero_is_honored_not_treated_as_missing():
+    """A falsy-but-real guarantee_id (0) must be used as given, the same
+    way a falsy-but-real amount (0) is -- not silently discarded in favor
+    of the provider-based fallback."""
+    state = {"guarantees": [
+        {"guarantee_id": 0, "provider": "Jane Smith", "amount": "£1"},
+        {"provider": "Jane Smith", "amount": "£2"},
+    ]}
+    result = evaluate_deal_policy(state)
+    cp_ids = {cp["cp_id"] for cp in result["required_conditions_precedent"]}
+    assert "GUARANTEE-0" in cp_ids
+
+
 # ---------------------------------------------------------------------------
 # Determinism: same input must always produce the same cp_ids, in the same
 # structure -- this is the property orchestrator.py's governance gate relies on.

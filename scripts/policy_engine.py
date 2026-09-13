@@ -172,27 +172,39 @@ def _evaluate_security(collateral, security_package):
 
 def _guarantee_cps(guarantees):
     """One CP per guarantee. `cp_id` is keyed on an explicit `guarantee_id`
-    when supplied, otherwise on the provider -- unchanged from before for
-    the common case of one guarantee per provider. A provider alone
-    collides whenever the same person or entity guarantees more than one
-    facility or amount, though -- a realistic deal structure, not an edge
-    case -- so any base slug shared by more than one guarantee gets a
-    stable numeric suffix (-1, -2, ...) in list order, keeping every
-    resulting `cp_id` distinct without disturbing the non-colliding case's
-    `cp_id` (which existing required_conditions_precedent consumers, and
-    an Underwriter's already-reported cp_ids_included, may depend on).
-    """
-    base_slugs = [
-        _slugify(guarantee.get("guarantee_id") or guarantee.get("provider", ""))
-        for guarantee in guarantees
-    ]
-    slug_counts = {}
-    for slug in base_slugs:
-        slug_counts[slug] = slug_counts.get(slug, 0) + 1
+    when supplied (and actually present -- a falsy-but-real id like `0` is
+    honored, not treated as absent), otherwise on the provider -- unchanged
+    from before for the common case of one guarantee per provider. A
+    provider alone collides whenever the same person or entity guarantees
+    more than one facility or amount, though -- a realistic deal structure,
+    not an edge case -- so a colliding guarantee's cp_id gets a numeric
+    suffix (-2, -3, ...) chosen against a running set of every cp_id
+    already assigned so far in this call, not just other guarantees
+    sharing its own base slug. That distinction matters: a naturally-
+    unique guarantee whose slug happens to equal another guarantee's
+    disambiguated suffix (e.g. provider "Acme Corp 1" naturally slugifying
+    to the same string a second "Acme Corp" guarantee would be suffixed to)
+    would otherwise silently collide with it.
 
+    cp_id is deterministic and repeatable for a fixed `guarantees` list
+    (the same list, called twice, always produces the same result -- see
+    the module docstring), but a colliding guarantee's specific numeric
+    suffix depends on its position relative to every other guarantee in
+    the list at the time of the call. If this deal's guarantees list can be
+    edited (reordered, or a new colliding entry inserted) between when an
+    Underwriter reports a cp_id and a later evaluate_deal_policy() call,
+    supply this guarantee's own stable `guarantee_id` explicitly rather
+    than relying on positional disambiguation to keep that identity fixed.
+    """
+    def has_explicit_id(guarantee):
+        guarantee_id = guarantee.get("guarantee_id")
+        return guarantee_id is not None and not (
+            isinstance(guarantee_id, str) and not guarantee_id.strip()
+        )
+
+    used_ids = set()
     cps = []
-    seen_counts = {}
-    for index, guarantee in enumerate(guarantees):
+    for guarantee in guarantees:
         provider = guarantee.get("provider", "")
         guarantee_type = guarantee.get("type", "Guarantee")
         amount = guarantee.get("amount")
@@ -202,12 +214,14 @@ def _guarantee_cps(guarantees):
         if amount is None or (isinstance(amount, str) and not amount.strip()):
             amount = "Unlimited Facility"
 
-        base_slug = base_slugs[index]
-        if slug_counts[base_slug] > 1:
-            seen_counts[base_slug] = seen_counts.get(base_slug, 0) + 1
-            cp_id = f"GUARANTEE-{base_slug}-{seen_counts[base_slug]}"
-        else:
-            cp_id = f"GUARANTEE-{base_slug}"
+        base_slug = _slugify(guarantee["guarantee_id"] if has_explicit_id(guarantee) else provider)
+
+        cp_id = f"GUARANTEE-{base_slug}"
+        suffix = 2
+        while cp_id in used_ids:
+            cp_id = f"GUARANTEE-{base_slug}-{suffix}"
+            suffix += 1
+        used_ids.add(cp_id)
 
         cps.append({
             "cp_id": cp_id,

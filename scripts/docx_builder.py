@@ -7,7 +7,16 @@ TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 HR_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 FENCE_RE = re.compile(r"^\s*```")
-INLINE_RE = re.compile(r"\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`")
+INLINE_SPAN = r"\S(?:.*?\S)?"  # non-whitespace at both ends -- keeps a lone
+# trailing/leading `*` used as a footnote marker (e.g. "Net Income* is...")
+# from being misread as an emphasis delimiter, since a real emphasis span
+# never opens/closes on whitespace.
+INLINE_RE = re.compile(
+    r"\*\*\*(" + INLINE_SPAN + r")\*\*\*"   # ***bold italic***
+    r"|\*\*(" + INLINE_SPAN + r")\*\*"       # **bold**
+    r"|\*(" + INLINE_SPAN + r")\*"           # *italic*
+    r"|`(.+?)`"                               # `code`
+)
 
 ALIGNMENTS = {
     "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -54,8 +63,12 @@ def _add_inline_runs(paragraph, text, base_bold=False):
         if match.start() > pos:
             run = paragraph.add_run(text[pos:match.start()])
             run.bold = base_bold
-        bold_text, italic_text, code_text = match.groups()
-        if bold_text is not None:
+        bold_italic_text, bold_text, italic_text, code_text = match.groups()
+        if bold_italic_text is not None:
+            run = paragraph.add_run(bold_italic_text)
+            run.bold = True
+            run.italic = True
+        elif bold_text is not None:
             run = paragraph.add_run(bold_text)
             run.bold = True
         elif italic_text is not None:
@@ -121,11 +134,18 @@ def export_to_docx(markdown_text, output_path):
             # A fenced code block (e.g. the Underwriter's trailing structured
             # JSON block, needed for policy_checks.py's regex parsing but
             # never meant for a client-facing CAM) -- skip it wholesale
-            # rather than dumping raw code/JSON as body paragraphs.
-            i += 1
-            while i < n and not FENCE_RE.match(lines[i]):
-                i += 1
-            i += 1  # skip the closing fence line too
+            # rather than dumping raw code/JSON as body paragraphs. Look
+            # ahead for an actual closing fence first: an unterminated one
+            # (a stray/odd ``` from truncation) must not silently discard
+            # every line through EOF, so only skip the block when a real
+            # closing fence exists -- otherwise treat this line as a lone
+            # stray marker and keep processing normally.
+            close_idx = None
+            for k in range(i + 1, n):
+                if FENCE_RE.match(lines[k]):
+                    close_idx = k
+                    break
+            i = close_idx + 1 if close_idx is not None else i + 1
         elif HR_RE.match(line):
             i += 1  # a markdown horizontal rule has no meaningful docx equivalent here
         elif line.startswith("- "):

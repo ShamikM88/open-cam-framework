@@ -156,3 +156,41 @@ def test_fenced_code_block_is_skipped_entirely(tmp_path):
     full_text = "\n".join(p.text for p in doc.paragraphs)
     assert "verdict" not in full_text
     assert "```" not in full_text
+
+
+def test_unterminated_fence_does_not_discard_the_rest_of_the_document(tmp_path):
+    """A stray/odd ``` (e.g. from truncation) must not silently swallow
+    every line through EOF -- only a genuinely closed fence gets skipped."""
+    markdown = (
+        "Before.\n"
+        "```json\n"
+        '{"unterminated": true\n'
+        "## Section 2\n"
+        "Real narrative content that must survive.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert "Before." in texts
+    assert "Section 2" in texts
+    assert "Real narrative content that must survive." in texts
+
+
+def test_footnote_style_trailing_asterisk_is_not_treated_as_italic(tmp_path):
+    """A single `*` used as a footnote marker (common in financial
+    narrative, e.g. "Net Income* is 5.2x... Note 1*") must not be
+    misread as an emphasis delimiter -- that would silently eat both
+    asterisks and italicize unrelated text in between."""
+    doc = _build(tmp_path, "Net Income* is 5.2x Interest Expense, per Note 1*.\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "Net Income* is 5.2x Interest Expense, per Note 1*."
+    assert all(not r.italic for r in paragraph.runs)
+
+
+def test_triple_asterisk_renders_as_a_single_bold_italic_run(tmp_path):
+    doc = _build(tmp_path, "***Critical:*** breach detected\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "Critical: breach detected"
+    assert paragraph.runs[0].text == "Critical:"
+    assert paragraph.runs[0].bold is True
+    assert paragraph.runs[0].italic is True
+    assert "*" not in paragraph.text

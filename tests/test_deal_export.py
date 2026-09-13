@@ -97,6 +97,22 @@ def test_export_deal_rejects_unsafe_company(tmp_path):
         export_deal("C:\\Windows\\Temp\\evil", "Fleet Loan", "asset_finance", "# Draft", base_dir=base)
 
 
+def test_export_deal_rejects_unsafe_deal_type(tmp_path):
+    """deal_type flows into template_resolver's path building
+    (templates/local/cam/<deal_type>_cam.md) the same way company/proposal
+    flow into the deals/ path -- it needs the same protection."""
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        export_deal("Acme Corp", "Fleet Loan", "../../evil", "# Draft", base_dir=base)
+
+
+def test_export_deal_rejects_unsafe_date_str(tmp_path):
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        export_deal("Acme Corp", "Fleet Loan", "asset_finance", "# Draft",
+                     date_str="../../evil", base_dir=base)
+
+
 def test_financial_data_from_state_ignores_non_dict_period_value():
     """A period value that isn't a dict (e.g. malformed/legacy state.json)
     must not crash -- it degrades to an empty raw-figures dict for that

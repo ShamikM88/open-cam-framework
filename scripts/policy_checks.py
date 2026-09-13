@@ -1,14 +1,17 @@
-"""Draft-compliance checks shared between scripts/orchestrator.py (the
-headless pipeline) and scripts/policy_check.py (a standalone CLI callable
-from the /assemble and /review slash commands' Bash steps).
+"""Draft-compliance checks used by scripts/orchestrator.py (the headless
+pipeline). Factored out into its own module -- rather than left inline in
+orchestrator.py -- specifically so a future standalone CLI can wrap it and
+be called from the /assemble and /review slash commands' Bash steps, the
+same way deal_export.py/state_manager.py/template_resolver.py already are
+(not yet wired up as of this module's introduction).
 
-Dependency-free (no anthropic/docx/openpyxl imports), matching
-template_resolver.py/state_manager.py/deal_export.py's pattern, so it's
-callable from a Bash step -- or unit tested -- without pulling in heavy
-dependencies. This is what lets the slash-command interface run the exact
-same deterministic checks orchestrator.py's headless pipeline does, instead
-of asking an LLM to reimplement this logic in prose (which would defeat the
-point of code-enforced policy).
+Dependency-free (no anthropic/docx/openpyxl imports), matching those
+modules' pattern, so it's callable from a Bash step -- or unit tested --
+without pulling in heavy dependencies. This is what will let the
+slash-command interface run the exact same deterministic checks
+orchestrator.py's headless pipeline does, instead of asking an LLM to
+reimplement this logic in prose (which would defeat the point of
+code-enforced policy).
 """
 import json
 import re
@@ -105,15 +108,28 @@ def ground_truth_figures(financials, ratios, collateral):
     collateral_cover_pct derived from the collateral list. A pure function
     of the same data already checkpointed to state.json -- never a new
     calculation the Underwriter couldn't already see.
+
+    A ratio evaluate_financial_model() left as `None` (e.g. a debt-free
+    company's DSCR -- a zero denominator makes the ratio undefined, not
+    zero) is excluded here entirely, the same way collateral_cover_pct is
+    only added when it's resolvable. If it weren't, the key would still be
+    "in" ground truth with value None, and any reported figure for it would
+    fail values_match() against None every single time (float(None) always
+    raises) -- an unconditional, unfixable "Narrative/Ground-Truth
+    Mismatch" for a metric that's legitimately undefined, rather than the
+    correct outcome: it's simply not a figure this deal has a number for.
     """
     current_ratios = (ratios or {}).get("FY-Current")
     current_financials = (financials or {}).get("FY-Current")
 
     truth = {}
-    truth.update(current_ratios if isinstance(current_ratios, dict) else {})
+    truth.update({
+        k: v for k, v in (current_ratios if isinstance(current_ratios, dict) else {}).items()
+        if v is not None
+    })
     current_financials = dict(current_financials) if isinstance(current_financials, dict) else {}
     current_financials.pop("raw", None)  # a nested dict of raw inputs, not a figure itself
-    truth.update(current_financials)
+    truth.update({k: v for k, v in current_financials.items() if v is not None})
 
     collateral_cover_pct = compute_collateral_cover_pct(collateral)
     if collateral_cover_pct is not None:

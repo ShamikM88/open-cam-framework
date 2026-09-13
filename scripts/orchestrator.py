@@ -87,9 +87,10 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
     verdict: covenant/security/CP/taxonomy/narrative-accuracy compliance is
     checked exactly, every time (via policy_checks.check_draft_compliance(),
-    shared with the /assemble and /review slash commands' own Bash-invoked
-    checks -- see scripts/policy_check.py), and can only ever move a
-    verdict from APPROVED to REJECTED -- never the reverse.
+    also usable from the /assemble and /review slash commands' own
+    Bash-invoked checks via a standalone CLI wrapping this same module --
+    not yet wired up as of this commit), and can only ever move a verdict
+    from APPROVED to REJECTED -- never the reverse.
 
     Every reason found here is folded into the same `notes` string
     append_review_trail() already records an LLM-originated rejection

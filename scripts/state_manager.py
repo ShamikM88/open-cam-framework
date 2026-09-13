@@ -87,10 +87,17 @@ def state_path(company, proposal, date_str=None, base_dir=None):
 
     `company`/`proposal` are sanitized here -- the one place every other
     function in this module (and deal_export.py, via its own call) routes
-    through -- since they're used directly as path components below.
+    through -- since they're used directly as path components below. An
+    explicitly-passed `date_str` is sanitized too (it's embedded in the
+    same "{proposal}_{date_str}" component); an auto-resolved one (the
+    common case -- see _resolve_date_str()) is always either today's own
+    ISO-format date or discovered from an existing directory name, so it
+    never needs this check.
     """
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
+    if date_str:
+        date_str = sanitize_path_component(date_str, "date_str")
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
 
@@ -141,6 +148,8 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
     # that's just a redundant, harmless re-validation of the same strings.
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
+    if date_str:
+        date_str = sanitize_path_component(date_str, "date_str")
 
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)

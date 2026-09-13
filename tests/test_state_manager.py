@@ -59,6 +59,20 @@ def test_state_path_rejects_unsafe_proposal(tmp_path):
         state_path("Acme Corp", "../../escape", date_str="2026-01-15", base_dir=str(tmp_path))
 
 
+def test_state_path_rejects_unsafe_explicit_date_str(tmp_path):
+    """date_str is embedded in the same "{proposal}_{date_str}" path
+    component as proposal -- an explicitly-passed one needs the same check."""
+    with pytest.raises(ValueError):
+        state_path("Acme Corp", "Fleet Loan", date_str="../../escape", base_dir=str(tmp_path))
+
+
+def test_write_state_rejects_unsafe_explicit_date_str(tmp_path):
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        write_state("Acme Corp", "Fleet Loan", date_str="../../escape", base_dir=base)
+    assert not os.path.exists(os.path.join(base, "deals"))
+
+
 # ---------------------------------------------------------------------------
 # Corrupted state.json: read_state() must raise a clear, actionable error --
 # never crash with a raw JSONDecodeError, and never silently treat corrupted

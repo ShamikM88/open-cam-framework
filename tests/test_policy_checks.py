@@ -96,6 +96,39 @@ def test_ground_truth_figures_handles_one_malformed_source_alongside_a_valid_one
     assert truth == {"dscr": 1.5}
 
 
+def test_ground_truth_figures_excludes_undefined_ratios_and_subtotals():
+    """A ratio or subtotal left as None (e.g. a debt-free company's DSCR --
+    evaluate_financial_model() deliberately leaves it undefined rather than
+    0) must not appear in ground truth at all -- if it did, any reported
+    figure for it would fail values_match() against None every time,
+    an unconditional and unfixable "mismatch" for a legitimately undefined
+    metric, defeating the None-vs-zero distinction in the first place."""
+    truth = ground_truth_figures(
+        {"FY-Current": {"raw": {}, "ebitda": None, "tangible_net_worth": 250}},
+        {"FY-Current": {"dscr": None, "gross_leverage": 0.5}},
+        [],
+    )
+    assert truth == {"gross_leverage": 0.5, "tangible_net_worth": 250}
+    assert "dscr" not in truth
+    assert "ebitda" not in truth
+
+
+def test_check_reported_figures_flags_unresolvable_rather_than_unfixable_mismatch_for_undefined_metric():
+    """Reporting a figure for a metric ground truth excluded (because it's
+    undefined) must be UNRESOLVABLE_REPORTED_FIGURE, not a permanent
+    Narrative/Ground-Truth Mismatch the Underwriter could never satisfy by
+    revising -- correctly omitting the key (per the Structured Output
+    guideline) must pass with zero reasons."""
+    truth = ground_truth_figures({}, {"FY-Current": {"dscr": None}}, [])
+
+    reasons_when_reported_anyway = check_reported_figures({"dscr": 0}, truth)
+    assert any("UNRESOLVABLE_REPORTED_FIGURE" in r for r in reasons_when_reported_anyway)
+    assert not any("Mismatch" in r for r in reasons_when_reported_anyway)
+
+    reasons_when_correctly_omitted = check_reported_figures({}, truth)
+    assert reasons_when_correctly_omitted == []
+
+
 # ---------------------------------------------------------------------------
 # check_draft_compliance(): the unified entry point both orchestrator.py and
 # scripts/policy_check.py's CLI use.

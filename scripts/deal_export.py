@@ -54,6 +54,8 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     """
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
+    deal_type = sanitize_path_component(deal_type, "deal_type")
+    date_str = sanitize_path_component(date_str, "date_str") if date_str else None
 
     date_str = date_str or datetime.now().strftime("%Y-%m-%d")
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"

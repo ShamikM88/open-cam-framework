@@ -201,6 +201,79 @@ def test_asset_can_fail_both_perfection_and_ranking_independently():
     assert len(result["security_gaps"]) == 2
 
 
+def test_multiple_charges_over_the_same_asset_are_all_evaluated_not_just_the_last():
+    """A senior (compliant) and a subordinate (non-compliant) charge over
+    the same asset is a realistic structure -- the non-compliant one must
+    never be silently dropped just because another charge for the same
+    asset also exists."""
+    state = {
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": "AST-001", "perfection_status": "Pending", "ranking": "Second"},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    assert any("Unperfected Security" in gap for gap in result["security_gaps"])
+    assert any("Subordinate Ranking" in gap for gap in result["security_gaps"])
+
+
+def test_multiple_charges_over_the_same_asset_get_distinct_cp_ids():
+    state = {
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Pending", "ranking": "First"},
+            {"secures_asset_id": "AST-001", "perfection_status": "Pending", "ranking": "First"},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    perfect_cp_ids = [cp_id for cp_id in _cp_ids(result) if cp_id.startswith("SEC-PERFECT-")]
+    assert len(perfect_cp_ids) == 2
+    assert len(set(perfect_cp_ids)) == 2  # distinct, not both "SEC-PERFECT-AST-001"
+
+
+def test_single_charge_per_asset_keeps_the_simple_cp_id_unchanged():
+    """The common case (one charge per asset) must not gain a suffix just
+    because the multi-charge code path now exists."""
+    state = {
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [{"secures_asset_id": "AST-001", "perfection_status": "Pending", "ranking": "First"}],
+    }
+    result = evaluate_deal_policy(state)
+    assert "SEC-PERFECT-AST-001" in _cp_ids(result)
+
+
+def test_security_cps_avoid_cross_collision_between_suffixed_and_naturally_unique_asset_slug():
+    """A second asset's own id can naturally slugify to the exact string a
+    different, multi-charge asset's disambiguation suffix would produce --
+    collision detection has to check every cp_id already assigned in this
+    call, not just other charges on the same asset."""
+    state = {
+        "collateral": [{"asset_id": "AST-1"}, {"asset_id": "AST-1-2"}],
+        "security_package": [
+            {"secures_asset_id": "AST-1", "perfection_status": "Pending", "ranking": "First"},
+            {"secures_asset_id": "AST-1", "perfection_status": "Pending", "ranking": "First"},
+            {"secures_asset_id": "AST-1-2", "perfection_status": "Pending", "ranking": "First"},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    perfect_cp_ids = [cp_id for cp_id in _cp_ids(result) if cp_id.startswith("SEC-PERFECT-")]
+    assert len(perfect_cp_ids) == 3
+    assert len(set(perfect_cp_ids)) == 3
+
+
+def test_dangling_reference_reported_once_even_with_multiple_charges_on_the_missing_asset():
+    state = {
+        "collateral": [],
+        "security_package": [
+            {"secures_asset_id": "AST-999", "perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": "AST-999", "perfection_status": "Pending", "ranking": "Second"},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    assert result["security_gaps"] == ["Dangling Reference: AST-999 does not exist in collateral records."]
+
+
 # ---------------------------------------------------------------------------
 # Guarantees
 # ---------------------------------------------------------------------------

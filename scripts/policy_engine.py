@@ -96,71 +96,99 @@ def _evaluate_security(collateral, security_package):
     """Cross-reference collateral assets against the security package taken
     over them, joined on asset_id <-> secures_asset_id.
 
+    An asset can have more than one charge registered against it (e.g. a
+    senior and a subordinate charge from different points in the deal's
+    history) -- every charge for a given asset is evaluated, not just one,
+    so a non-compliant charge is never silently dropped just because
+    another (compliant or not) charge for the same asset also exists.
+
     Returns (security_gaps: list[str], security_cps: list[{"cp_id", "text"}]).
-    An asset can independently fail perfection and ranking; each failure
-    gets its own gap entry and its own CP.
+    An asset (or a single charge on it) can independently fail perfection
+    and ranking; each failure gets its own gap entry and its own CP.
     """
     collateral_by_id = {
         asset.get("asset_id"): asset for asset in collateral if asset.get("asset_id")
     }
-    security_by_asset_id = {
-        charge.get("secures_asset_id"): charge
-        for charge in security_package if charge.get("secures_asset_id")
-    }
+    charges_by_asset_id = {}
+    for charge in security_package:
+        asset_id = charge.get("secures_asset_id")
+        if asset_id:
+            charges_by_asset_id.setdefault(asset_id, []).append(charge)
 
     gaps = []
     cps = []
 
-    for asset_id in collateral_by_id:
-        charge = security_by_asset_id.get(asset_id)
+    # A per-prefix candidate is checked against every cp_id already
+    # assigned anywhere in this call, not just other charges on the same
+    # asset -- a multi-charge asset's disambiguated suffix (e.g.
+    # "...-AST-001-2") could otherwise collide with a *different* asset
+    # whose own id happens to naturally slugify to that exact string (see
+    # _guarantee_cps() for the same pattern, fixed there for the same
+    # reason: a naturally-unique candidate must still be checked against
+    # every id already handed out, not just siblings sharing its own base).
+    used_ids = set()
 
-        if charge is None:
+    def unique_cp_id(prefix, base_slug):
+        cp_id = f"{prefix}-{base_slug}"
+        suffix = 2
+        while cp_id in used_ids:
+            cp_id = f"{prefix}-{base_slug}-{suffix}"
+            suffix += 1
+        used_ids.add(cp_id)
+        return cp_id
+
+    for asset_id in collateral_by_id:
+        charges = charges_by_asset_id.get(asset_id)
+        asset_slug = _slugify(asset_id)
+
+        if not charges:
             gaps.append(
                 f"Uncharged Asset: {asset_id} has no corresponding security charge registered."
             )
             cps.append({
-                "cp_id": f"SEC-MAPPING-{_slugify(asset_id)}",
+                "cp_id": unique_cp_id("SEC-MAPPING", asset_slug),
                 "text": f"Resolution of collateral security mapping discrepancy for asset {asset_id}.",
             })
             continue
 
-        perfection_status = charge.get("perfection_status")
-        ranking = charge.get("ranking")
+        for charge in charges:
+            perfection_status = charge.get("perfection_status")
+            ranking = charge.get("ranking")
 
-        if perfection_status != "Perfected":
-            gaps.append(
-                f"Unperfected Security: Asset {asset_id} charge status is "
-                f"'{perfection_status}', not Perfected."
-            )
-            cps.append({
-                "cp_id": f"SEC-PERFECT-{_slugify(asset_id)}",
-                "text": (
-                    "Execution and completion of registration to perfect charge over "
-                    f"asset {asset_id} (Current Status: {perfection_status})."
-                ),
-            })
+            if perfection_status != "Perfected":
+                gaps.append(
+                    f"Unperfected Security: Asset {asset_id} charge status is "
+                    f"'{perfection_status}', not Perfected."
+                )
+                cps.append({
+                    "cp_id": unique_cp_id("SEC-PERFECT", asset_slug),
+                    "text": (
+                        "Execution and completion of registration to perfect charge over "
+                        f"asset {asset_id} (Current Status: {perfection_status})."
+                    ),
+                })
 
-        if ranking != "First":
-            gaps.append(
-                f"Subordinate Ranking: Asset {asset_id} charge ranking is "
-                f"'{ranking}', not First."
-            )
-            cps.append({
-                "cp_id": f"SEC-PRIORITY-{_slugify(asset_id)}",
-                "text": (
-                    "Negotiation, execution, and stamping of a formal Intercreditor "
-                    f"Deed / Deed of Priority with existing chargeholders for asset "
-                    f"{asset_id} (Current Ranking: {ranking})."
-                ),
-            })
+            if ranking != "First":
+                gaps.append(
+                    f"Subordinate Ranking: Asset {asset_id} charge ranking is "
+                    f"'{ranking}', not First."
+                )
+                cps.append({
+                    "cp_id": unique_cp_id("SEC-PRIORITY", asset_slug),
+                    "text": (
+                        "Negotiation, execution, and stamping of a formal Intercreditor "
+                        f"Deed / Deed of Priority with existing chargeholders for asset "
+                        f"{asset_id} (Current Ranking: {ranking})."
+                    ),
+                })
 
-    for secures_asset_id in security_by_asset_id:
+    for secures_asset_id in charges_by_asset_id:
         if secures_asset_id not in collateral_by_id:
             gaps.append(
                 f"Dangling Reference: {secures_asset_id} does not exist in collateral records."
             )
             cps.append({
-                "cp_id": f"SEC-MAPPING-{_slugify(secures_asset_id)}",
+                "cp_id": unique_cp_id("SEC-MAPPING", _slugify(secures_asset_id)),
                 "text": (
                     "Resolution of collateral security mapping discrepancy for asset "
                     f"{secures_asset_id}."

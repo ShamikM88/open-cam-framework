@@ -102,7 +102,10 @@ def parse_underwriter_output(draft_text):
     Missing or malformed output degrades to an empty structure, which then
     fails every downstream policy check safely (as "nothing included" /
     "no category covered" / "nothing reported") rather than raising or
-    silently skipping enforcement.
+    silently skipping enforcement. This includes a field being present but
+    the wrong *type* -- e.g. `risk_categories_covered` as a JSON list
+    instead of an object -- not just a field being absent, since downstream
+    code (_apply_deterministic_policy_checks()) assumes these exact types.
     """
     for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
         try:
@@ -114,10 +117,15 @@ def parse_underwriter_output(draft_text):
             or "risk_categories_covered" in payload
             or "reported_figures" in payload
         ):
+            cp_ids_included = payload.get("cp_ids_included")
+            risk_categories_covered = payload.get("risk_categories_covered")
+            reported_figures = payload.get("reported_figures")
             return {
-                "cp_ids_included": payload.get("cp_ids_included") or [],
-                "risk_categories_covered": payload.get("risk_categories_covered") or {},
-                "reported_figures": payload.get("reported_figures") or {},
+                "cp_ids_included": cp_ids_included if isinstance(cp_ids_included, list) else [],
+                "risk_categories_covered": (
+                    risk_categories_covered if isinstance(risk_categories_covered, dict) else {}
+                ),
+                "reported_figures": reported_figures if isinstance(reported_figures, dict) else {},
             }
     return {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
 

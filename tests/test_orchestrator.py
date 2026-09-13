@@ -212,6 +212,36 @@ def test_parse_underwriter_output_extracts_reported_figures():
     assert result["reported_figures"] == {"dscr": 1.45, "ebitda": 950000}
 
 
+def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_type():
+    """A field present but the wrong JSON type (e.g. a list instead of an
+    object) must degrade to the safe empty default, not propagate a
+    malformed value that later crashes _apply_deterministic_policy_checks()."""
+    draft = (
+        "# Draft\n\n```json\n"
+        + json.dumps({
+            "cp_ids_included": "KYC-AML",  # should be a list, not a bare string
+            "risk_categories_covered": ["Market"],  # should be a dict, not a list
+            "reported_figures": ["dscr", 1.5],  # should be a dict, not a list
+        })
+        + "\n```"
+    )
+    result = parse_underwriter_output(draft)
+    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+
+
+def test_apply_deterministic_policy_checks_does_not_crash_on_malformed_risk_categories_type():
+    draft = (
+        "# Draft\n\n```json\n"
+        + json.dumps({"cp_ids_included": [], "risk_categories_covered": ["Market"], "reported_figures": {}})
+        + "\n```"
+    )
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(required_cps=[]), {},
+    )
+    assert verdict == "REJECTED"
+    assert "Missing or malformed Risk Category" in notes
+
+
 def test_parse_underwriter_output_ignores_unrelated_earlier_json_blocks():
     draft = (
         "# Draft CAM\n"

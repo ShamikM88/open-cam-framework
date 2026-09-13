@@ -96,25 +96,32 @@ def _evaluate_security(collateral, security_package):
     """Cross-reference collateral assets against the security package taken
     over them, joined on asset_id <-> secures_asset_id.
 
+    An asset can have more than one charge registered against it (e.g. a
+    senior and a subordinate charge from different points in the deal's
+    history) -- every charge for a given asset is evaluated, not just one,
+    so a non-compliant charge is never silently dropped just because
+    another (compliant or not) charge for the same asset also exists.
+
     Returns (security_gaps: list[str], security_cps: list[{"cp_id", "text"}]).
-    An asset can independently fail perfection and ranking; each failure
-    gets its own gap entry and its own CP.
+    An asset (or a single charge on it) can independently fail perfection
+    and ranking; each failure gets its own gap entry and its own CP.
     """
     collateral_by_id = {
         asset.get("asset_id"): asset for asset in collateral if asset.get("asset_id")
     }
-    security_by_asset_id = {
-        charge.get("secures_asset_id"): charge
-        for charge in security_package if charge.get("secures_asset_id")
-    }
+    charges_by_asset_id = {}
+    for charge in security_package:
+        asset_id = charge.get("secures_asset_id")
+        if asset_id:
+            charges_by_asset_id.setdefault(asset_id, []).append(charge)
 
     gaps = []
     cps = []
 
     for asset_id in collateral_by_id:
-        charge = security_by_asset_id.get(asset_id)
+        charges = charges_by_asset_id.get(asset_id)
 
-        if charge is None:
+        if not charges:
             gaps.append(
                 f"Uncharged Asset: {asset_id} has no corresponding security charge registered."
             )
@@ -124,37 +131,43 @@ def _evaluate_security(collateral, security_package):
             })
             continue
 
-        perfection_status = charge.get("perfection_status")
-        ranking = charge.get("ranking")
+        # A cp_id suffix only needs to disambiguate multiple charges on the
+        # *same* asset -- the common single-charge case keeps its existing,
+        # simpler cp_id.
+        multiple_charges = len(charges) > 1
+        for index, charge in enumerate(charges):
+            id_suffix = _slugify(asset_id) if not multiple_charges else f"{_slugify(asset_id)}-{index + 1}"
+            perfection_status = charge.get("perfection_status")
+            ranking = charge.get("ranking")
 
-        if perfection_status != "Perfected":
-            gaps.append(
-                f"Unperfected Security: Asset {asset_id} charge status is "
-                f"'{perfection_status}', not Perfected."
-            )
-            cps.append({
-                "cp_id": f"SEC-PERFECT-{_slugify(asset_id)}",
-                "text": (
-                    "Execution and completion of registration to perfect charge over "
-                    f"asset {asset_id} (Current Status: {perfection_status})."
-                ),
-            })
+            if perfection_status != "Perfected":
+                gaps.append(
+                    f"Unperfected Security: Asset {asset_id} charge status is "
+                    f"'{perfection_status}', not Perfected."
+                )
+                cps.append({
+                    "cp_id": f"SEC-PERFECT-{id_suffix}",
+                    "text": (
+                        "Execution and completion of registration to perfect charge over "
+                        f"asset {asset_id} (Current Status: {perfection_status})."
+                    ),
+                })
 
-        if ranking != "First":
-            gaps.append(
-                f"Subordinate Ranking: Asset {asset_id} charge ranking is "
-                f"'{ranking}', not First."
-            )
-            cps.append({
-                "cp_id": f"SEC-PRIORITY-{_slugify(asset_id)}",
-                "text": (
-                    "Negotiation, execution, and stamping of a formal Intercreditor "
-                    f"Deed / Deed of Priority with existing chargeholders for asset "
-                    f"{asset_id} (Current Ranking: {ranking})."
-                ),
-            })
+            if ranking != "First":
+                gaps.append(
+                    f"Subordinate Ranking: Asset {asset_id} charge ranking is "
+                    f"'{ranking}', not First."
+                )
+                cps.append({
+                    "cp_id": f"SEC-PRIORITY-{id_suffix}",
+                    "text": (
+                        "Negotiation, execution, and stamping of a formal Intercreditor "
+                        f"Deed / Deed of Priority with existing chargeholders for asset "
+                        f"{asset_id} (Current Ranking: {ranking})."
+                    ),
+                })
 
-    for secures_asset_id in security_by_asset_id:
+    for secures_asset_id in charges_by_asset_id:
         if secures_asset_id not in collateral_by_id:
             gaps.append(
                 f"Dangling Reference: {secures_asset_id} does not exist in collateral records."

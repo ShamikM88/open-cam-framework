@@ -8,7 +8,7 @@ from anthropic import Anthropic
 
 from deal_export import export_deal
 from spreading_builder import evaluate_financial_model
-from state_manager import write_state, append_review_trail, state_path
+from state_manager import write_state, append_review_trail, read_state, state_path
 from template_resolver import cam_template_path
 
 MODEL = "claude-3-7-sonnet-20250219"
@@ -36,24 +36,40 @@ def _load_multi_period_financials(financials_path, spread_path):
     return _load_json_file(financials_path)
 
 
+def _add_step(steps, step):
+    """Append `step` to `steps` if it isn't already there -- steps_completed
+    must only ever grow, matching the slash commands' own "Append X to
+    steps_completed if it isn't already there" convention."""
+    return steps if step in steps else steps + [step]
+
+
 def parse_verdict(response_text):
     """Extract the Risk Reviewer's fenced ```json {"verdict": ..., "notes": ...}```
     block from its response.
 
+    risk_reviewer_agent.md asks for this block "at the very end", but the
+    same prompt also hands the reviewer several other ```json blocks (the
+    grounding context's financials/ratios/collateral -- see
+    _build_grounding_context()) that it may legitimately quote back while
+    explaining a discrepancy. Scanning matches in reverse order and taking
+    the last one that actually carries a recognized verdict key -- rather
+    than just the first fenced block in the response -- avoids mistaking an
+    echoed input block for the real verdict.
+
     Returns (verdict, notes) with verdict normalized to exactly "APPROVED" or
-    "REJECTED". Falls back to ("REJECTED", response_text) if no such block is
-    present, isn't valid JSON, or doesn't carry a recognized verdict -- an
-    unparseable review must never be silently treated as an approval.
+    "REJECTED". Falls back to ("REJECTED", response_text) if no block carries
+    a recognized verdict at all -- an unparseable review must never be
+    silently treated as an approval.
     """
-    match = VERDICT_JSON_RE.search(response_text or "")
-    if match:
+    response_text = response_text or ""
+    for match in reversed(list(VERDICT_JSON_RE.finditer(response_text))):
         try:
             payload = json.loads(match.group(1))
-            verdict = str(payload.get("verdict", "")).strip().upper()
-            if verdict in ("APPROVED", "REJECTED"):
-                return verdict, payload.get("notes")
         except (json.JSONDecodeError, AttributeError, TypeError):
-            pass
+            continue
+        verdict = str(payload.get("verdict", "")).strip().upper()
+        if verdict in ("APPROVED", "REJECTED"):
+            return verdict, payload.get("notes")
     return "REJECTED", response_text
 
 
@@ -107,20 +123,37 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 f"placeholder with grounded, sourced content:\n{f.read()}\n"
             )
 
-    model_data = evaluate_financial_model(multi_period_financials or {})
+    # Never blindly overwrite what an earlier run of this pipeline (or an
+    # earlier slash-command step, if this deal was previously advanced that
+    # way) already checkpointed: only replace financials/ratios/collateral
+    # when this call was actually given new data for them, and only ever
+    # *add* to steps_completed, never reset it -- see state_manager
+    # .write_state()'s documented shallow-merge contract and CLAUDE.md's
+    # re-hydration rule.
+    existing_state = read_state(company, proposal) or {}
+    steps_completed = list(existing_state.get("steps_completed", []))
+
+    if multi_period_financials:
+        model_data = evaluate_financial_model(multi_period_financials)
+        financials, ratios = model_data["financials"], model_data["ratios"]
+        steps_completed = _add_step(steps_completed, "spread")
+    else:
+        financials = existing_state.get("financials", {})
+        ratios = existing_state.get("ratios", {})
+
+    collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
-    steps_completed = ["spread"] if multi_period_financials else []
     write_state(company, proposal, deal_type=deal_type,
                 inputs={"pd": pd_score, "lgd": lgd_score},
-                financials=model_data["financials"], ratios=model_data["ratios"],
-                collateral=collateral_data or [],
+                financials=financials, ratios=ratios, collateral=collateral,
                 steps_completed=steps_completed)
 
     grounding_context = _build_grounding_context(
-        company, proposal, pd_score, lgd_score, model_data, collateral_data,
+        company, proposal, pd_score, lgd_score,
+        {"financials": financials, "ratios": ratios}, collateral,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
@@ -130,8 +163,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
     ).content[0].text
-    write_state(company, proposal, deal_type=deal_type,
-                steps_completed=steps_completed + ["draft"])
+    steps_completed = _add_step(steps_completed, "draft")
+    write_state(company, proposal, deal_type=deal_type, steps_completed=steps_completed)
 
     deal_dir = os.path.dirname(state_path(company, proposal))
     os.makedirs(deal_dir, exist_ok=True)
@@ -153,9 +186,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         ).content[0].text
 
         verdict, notes = parse_verdict(audit_response)
+        steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
-                             deal_type=deal_type,
-                             steps_completed=steps_completed + ["draft", "audit"])
+                             deal_type=deal_type, steps_completed=steps_completed)
 
         if verdict == "APPROVED":
             approved_draft = draft
@@ -175,16 +208,17 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
-                    steps_completed=steps_completed + ["draft", "audit"])
+                    steps_completed=steps_completed)
         print(f"[FAILED] No APPROVED draft after {max_iterations} review iteration(s). "
               "Exiting without export.")
         sys.exit(1)
 
     print(f"[3/3] Exporting .docx and .xlsx files...")
     output_dir = export_deal(company, proposal, deal_type, approved_draft)
+    steps_completed = _add_step(steps_completed, "export")
     write_state(company, proposal, deal_type=deal_type,
                 draft_path=os.path.join(output_dir, f"{company}_{proposal}_CAM.docx"),
-                steps_completed=steps_completed + ["draft", "audit", "export"])
+                steps_completed=steps_completed)
     print(f"Done! Files generated in {output_dir}")
 
 

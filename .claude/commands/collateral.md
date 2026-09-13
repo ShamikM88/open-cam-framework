@@ -36,6 +36,25 @@ never drop a field another step already recorded):
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
   otherwise write back to the file you found.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), `inputs.pd`, `inputs.lgd`
-  (exactly as given — never adjusted), and a `collateral` object holding the exposure/coverage
-  figures calculated above.
+  (exactly as given — never adjusted), and `collateral` as a **flat list** (one entry per
+  asset/facility — never nested by year), each entry an object with exactly these keys, matching
+  `scripts/spreading_builder.py`'s collateral schema so `/assemble`'s export step populates the
+  Collateral & Exposure sheet correctly:
+  ```json
+  [
+    {
+      "asset_class": "[Asset class]",
+      "exposure": 0,
+      "number_of_units": 0,
+      "cap_value": 0,
+      "non_recovery": 0,
+      "costs": 0,
+      "collateral_value": 0,
+      "perfection_status": "[e.g. Registered / Pending / N/A]"
+    }
+  ]
+  ```
+  `exposure`/`collateral_value` are the Gross Exposure and Collateral Value you calculated above
+  for that asset; `perfection_status` records whether the security interest is registered/
+  perfected, pending, or not applicable — never leave it blank if you know the answer.
 - Append `"collateral"` to `steps_completed` if it isn't already there.

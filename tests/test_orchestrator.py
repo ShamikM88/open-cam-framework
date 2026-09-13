@@ -116,6 +116,33 @@ def test_parse_verdict_falls_back_to_rejected_on_empty_response():
     assert notes == ""
 
 
+def test_parse_verdict_ignores_an_earlier_echoed_json_block_and_finds_the_trailing_verdict():
+    """The grounding context hands the reviewer its own ```json blocks
+    (financials/ratios/collateral) to check the draft against -- if it
+    quotes one back while explaining its reasoning, that earlier block must
+    not be mistaken for the real, trailing verdict block."""
+    text = (
+        "Here are the ratios I'm checking the draft against:\n"
+        '```json\n{"dscr": 5.1, "gross_leverage": 0.68}\n```\n'
+        "Everything in the draft reconciles with the above.\n"
+        + _approved_json()
+    )
+    verdict, notes = parse_verdict(text)
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
+def test_parse_verdict_skips_multiple_non_verdict_blocks_to_find_the_real_one():
+    text = (
+        '```json\n{"financials": {"FY-Current": {"revenue": 1000}}}\n```\n'
+        '```json\n{"ratios": {"FY-Current": {"dscr": 5.1}}}\n```\n'
+        + _rejected_json("Collateral value doesn't match the supplied data.")
+    )
+    verdict, notes = parse_verdict(text)
+    assert verdict == "REJECTED"
+    assert notes == "Collateral value doesn't match the supplied data."
+
+
 # ---------------------------------------------------------------------------
 # _load_multi_period_financials(): --spread takes precedence over --financials
 # ---------------------------------------------------------------------------
@@ -257,3 +284,62 @@ def test_run_pipeline_stores_collateral_data_on_state(project_root):
 
     state = read_state("Acme Corp", "Fleet Loan")
     assert state["collateral"] == collateral_data
+
+
+# ---------------------------------------------------------------------------
+# State preservation across re-runs: write_state()'s shallow merge means a
+# fresh `financials={}` replaces the whole dict, so run_pipeline() must read
+# existing state first and only replace financials/ratios/collateral when
+# actually given new data for them, and only ever *add* to steps_completed.
+# ---------------------------------------------------------------------------
+
+def test_run_pipeline_preserves_existing_financials_when_rerun_without_new_data(project_root):
+    multi_period_financials = {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}
+    client1 = MockClient(["# Draft CAM", _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials=multi_period_financials, client=client1)
+
+    state_after_first = read_state("Acme Corp", "Fleet Loan")
+    assert state_after_first["financials"]["FY-Current"]["gross_profit"] == 600
+
+    # Second run for the same deal, no --financials/--spread this time --
+    # must not wipe what the first run already checkpointed.
+    client2 = MockClient(["# Draft CAM v2", _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client2)
+
+    state_after_second = read_state("Acme Corp", "Fleet Loan")
+    assert state_after_second["financials"]["FY-Current"]["gross_profit"] == 600
+
+
+def test_run_pipeline_preserves_existing_collateral_when_rerun_without_new_data(project_root):
+    collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
+                         "perfection_status": "Registered"}]
+    client1 = MockClient(["# Draft CAM", _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=collateral_data, client=client1)
+
+    client2 = MockClient(["# Draft CAM v2", _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client2)
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["collateral"] == collateral_data
+
+
+def test_run_pipeline_accumulates_steps_completed_without_duplicating_across_reruns(project_root):
+    client1 = MockClient(["# Draft CAM", _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client1)
+    state1 = read_state("Acme Corp", "Fleet Loan")
+    assert state1["steps_completed"].count("draft") == 1
+    assert state1["steps_completed"].count("audit") == 1
+    assert state1["steps_completed"].count("export") == 1
+
+    client2 = MockClient(["# Draft CAM v2", _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client2)
+    state2 = read_state("Acme Corp", "Fleet Loan")
+    assert state2["steps_completed"].count("draft") == 1
+    assert state2["steps_completed"].count("audit") == 1
+    assert state2["steps_completed"].count("export") == 1

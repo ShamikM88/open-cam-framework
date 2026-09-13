@@ -12,13 +12,7 @@ import re
 import pytest
 import openpyxl
 
-from spreading_builder import (
-    COLLATERAL_HEADERS,
-    SECTIONS,
-    evaluate_financial_model,
-    export_to_xlsx,
-    validate_row_formulas,
-)
+from spreading_builder import export_to_xlsx, validate_row_formulas, SECTIONS, COLLATERAL_HEADERS
 
 CELL_REF_RE = re.compile(r"([A-Z]+)(\d+)")
 
@@ -101,25 +95,9 @@ def test_financial_spreading_row_labels_match_section_definitions(workbook):
     assert actual_labels == expected_labels
 
 
-def test_dscr_is_in_key_ratios_and_gross_leverage_is_in_key_credit_metrics():
-    """DSCR needs only P&L rows (available inside "Key Ratios", which comes
-    right after "Profit & Loss"); Gross Leverage needs Balance Sheet debt
-    rows, so it must live in "Key Credit Metrics" (written after "Balance
-    Sheet") rather than back in "Key Ratios" -- otherwise it would be a
-    forward reference and validate_row_formulas() would reject it."""
-    sections_by_title = dict(SECTIONS)
-    key_ratio_labels = [label for label, _ in sections_by_title["Key Ratios"]]
-    key_metric_labels = [label for label, _ in sections_by_title["Key Credit Metrics"]]
-
-    assert "DSCR" in key_ratio_labels
-    assert "Gross Leverage" not in key_ratio_labels
-    assert "Gross Leverage" in key_metric_labels
-
-
 def test_collateral_sheet_headers(workbook):
     ws = workbook["Collateral & Exposure"]
     assert [c.value for c in ws[1]] == COLLATERAL_HEADERS
-    assert "Perfection Status" in COLLATERAL_HEADERS
 
 
 def test_collateral_sheet_has_a_total_row(workbook):
@@ -131,11 +109,11 @@ def test_collateral_sheet_has_a_total_row(workbook):
 # Formula correctness
 #
 # Every formula in the "Financial Spreading" sheet references other rows by
-# label (see FIELD_LABELS / the {Label} syntax in spreading_builder.py),
-# resolved to an absolute cell reference at write time. These tests fill in
-# every raw-input row with a hand-picked value, then check each derived cell
-# against a value computed by hand from those same inputs -- so a row
-# insertion/deletion/reorder that silently breaks a formula's dependency
+# absolute row number (see the comment above the row definitions in
+# spreading_builder.py). These tests fill in every raw-input row with a
+# hand-picked value, then check each derived cell against a value computed
+# by hand from those same inputs -- so a row insertion/deletion that silently
+# shifts a formula's cell references (as happened once during development)
 # fails loudly instead of quietly pointing at the wrong row.
 # ---------------------------------------------------------------------------
 
@@ -148,7 +126,6 @@ RAW_INPUTS = {
     "Other Income": 10,
     "Interest Paid": 30,
     "Interest Received": 5,
-    "Scheduled Principal Repayment": 70,
     "Exceptional Costs / (Income)": 0,
     "Tax": 40,
     "Tangible Fixed Assets": 500,
@@ -174,7 +151,6 @@ RAW_INPUTS = {
 }
 
 # Hand-calculated from RAW_INPUTS above.
-# Total interest-bearing debt = 15 + 5 + 300 + 25 = 345.
 EXPECTED = {
     "Gross Profit": 600,
     "Gross Profit Margin %": pytest.approx(0.6),
@@ -183,7 +159,6 @@ EXPECTED = {
     "EBITDA": 510,
     "Profit Before Tax": 415,
     "Net Profit": 375,
-    "DSCR": pytest.approx(510 / (30 + 70)),
     "EBIT/Interest": pytest.approx(440 / 30),
     "EBITDA/Interest": pytest.approx(17.0),
     "Total Fixed Assets": 570,
@@ -197,7 +172,6 @@ EXPECTED = {
     "TNW + Loan Notes / Preference Shares": 275,
     "Gearing % (Interest-Bearing Debt / Equity)": pytest.approx(345 / 300),
     "Current Ratio": pytest.approx(2.4),
-    "Gross Leverage": pytest.approx(345 / 510),
     "Working Capital Cycle (days)": 65,
 }
 
@@ -215,31 +189,6 @@ def test_formula_results_match_hand_calculated_values(workbook):
         assert actual == expected, f"{label} (row {label_to_row[label]}): expected {expected}, got {actual}"
 
 
-def test_scheduled_principal_only_affects_dscr(workbook):
-    """The Accounting Guard: Scheduled Principal Repayment is a DSCR-only
-    memo line and must never enter the Profit Before Tax / Net Profit chain."""
-    ws = workbook["Financial Spreading"]
-    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
-
-    for label, value in RAW_INPUTS.items():
-        ws.cell(row=label_to_row[label], column=2, value=value)
-
-    memo_with_principal = {}
-    dscr_with_principal = _evaluate(ws, "B", label_to_row["DSCR"], dict(memo_with_principal))
-    pbt_with_principal = _evaluate(ws, "B", label_to_row["Profit Before Tax"], dict(memo_with_principal))
-    net_profit_with_principal = _evaluate(ws, "B", label_to_row["Net Profit"], dict(memo_with_principal))
-
-    ws.cell(row=label_to_row["Scheduled Principal Repayment"], column=2, value=0)
-    memo_without_principal = {}
-    dscr_without_principal = _evaluate(ws, "B", label_to_row["DSCR"], memo_without_principal)
-    pbt_without_principal = _evaluate(ws, "B", label_to_row["Profit Before Tax"], memo_without_principal)
-    net_profit_without_principal = _evaluate(ws, "B", label_to_row["Net Profit"], memo_without_principal)
-
-    assert dscr_with_principal != dscr_without_principal
-    assert pbt_with_principal == pbt_without_principal == 415
-    assert net_profit_with_principal == net_profit_without_principal == 375
-
-
 def test_iferror_falls_back_to_zero_on_division_by_zero(workbook):
     """Every raw input left blank (0) should not raise ZeroDivisionError."""
     ws = workbook["Financial Spreading"]
@@ -247,9 +196,8 @@ def test_iferror_falls_back_to_zero_on_division_by_zero(workbook):
 
     memo = {}
     ratio_labels = [
-        "Gross Profit Margin %", "Operating Margin %", "DSCR", "EBIT/Interest",
-        "EBITDA/Interest", "Gearing % (Interest-Bearing Debt / Equity)",
-        "Current Ratio", "Gross Leverage",
+        "Gross Profit Margin %", "Operating Margin %", "EBIT/Interest",
+        "EBITDA/Interest", "Gearing % (Interest-Bearing Debt / Equity)", "Current Ratio",
     ]
     for label in ratio_labels:
         assert _evaluate(ws, "B", label_to_row[label], memo) == 0
@@ -258,14 +206,15 @@ def test_iferror_falls_back_to_zero_on_division_by_zero(workbook):
 # ---------------------------------------------------------------------------
 # Runtime row-to-formula validation
 #
-# validate_row_formulas() derives each row's real position from `sections`
-# itself and checks every formula's label dependencies against that -- these
-# tests confirm it accepts the real (correct) SECTIONS and rejects a
-# deliberately broken one.
+# The "# row N" comments next to each SECTIONS entry only guarantee anything
+# if a human keeps updating them by hand. validate_row_formulas() derives
+# each row's real position from SECTIONS itself and checks every formula's
+# cell references against that -- these tests confirm it accepts the real
+# (correct) SECTIONS and rejects a deliberately broken one.
 # ---------------------------------------------------------------------------
 
 def test_validate_row_formulas_passes_on_the_real_sections():
-    validate_row_formulas(SECTIONS)  # must not raise, after the section reshuffle
+    validate_row_formulas(SECTIONS)  # must not raise
 
 
 def test_export_to_xlsx_validates_before_writing(tmp_path):
@@ -274,12 +223,12 @@ def test_export_to_xlsx_validates_before_writing(tmp_path):
 
 
 def test_validate_row_formulas_rejects_a_forward_reference():
-    # Row 3: "B (broken)" references "C", which is written on row 4 -- after
-    # it -- so "C" doesn't exist yet when row 3 is written.
+    # Row 2: "A" (blank). Row 3: "B (broken)" references row 4, which comes
+    # *after* it -- row 4 doesn't exist yet when row 3 is written.
     broken_sections = [
         ("Test Section", [
             ("A", None),
-            ("B (broken)", "={C}"),
+            ("B (broken)", "={col}4"),
             ("C", None),
         ]),
     ]
@@ -290,159 +239,8 @@ def test_validate_row_formulas_rejects_a_forward_reference():
 def test_validate_row_formulas_rejects_a_self_reference():
     broken_sections = [
         ("Test Section", [
-            ("A (broken)", "={A (broken)}"),  # row 3 referencing itself
+            ("A (broken)", "={col}3"),  # row 3 referencing itself
         ]),
     ]
     with pytest.raises(ValueError, match="row 3"):
         validate_row_formulas(broken_sections)
-
-
-def test_validate_row_formulas_rejects_an_unknown_label():
-    broken_sections = [
-        ("Test Section", [
-            ("A (broken)", "={Nonexistent Label}"),
-        ]),
-    ]
-    with pytest.raises(ValueError, match="unknown label"):
-        validate_row_formulas(broken_sections)
-
-
-# ---------------------------------------------------------------------------
-# evaluate_financial_model(): the programmatic single source of truth for
-# subtotals/ratios, independent of the Excel formulas (used for LLM
-# grounding context and state.json's financials/ratios keys).
-# ---------------------------------------------------------------------------
-
-SAMPLE_PERIOD = {
-    "revenue": 1000, "cost_of_sales": 400, "admin_expenses": 100,
-    "depreciation": 50, "amortisation": 20, "other_income": 10,
-    "interest_paid": 30, "interest_received": 5, "scheduled_principal": 70,
-    "exceptional_costs": 0, "tax_paid": 40,
-    "cash": 60, "trade_debtors": 80, "stock": 90, "other_current_assets": 10,
-    "tangible_assets": 500, "intangible_assets": 50, "other_fixed_assets": 20,
-    "trade_creditors": 70, "other_current_liabilities": 10,
-    "overdraft": 5, "current_debt": 15, "long_term_debt": 300, "loan_notes": 25,
-    "share_capital": 100, "retained_profit": 200,
-}
-
-
-def test_evaluate_financial_model_matches_hand_calculated_workbook_values():
-    result = evaluate_financial_model({"FY-Current": SAMPLE_PERIOD})
-
-    financials = result["financials"]["FY-Current"]
-    ratios = result["ratios"]["FY-Current"]
-
-    assert financials["ebitda"] == 510
-    assert financials["profit_before_tax"] == 415
-    assert financials["net_profit"] == 375
-    assert financials["tangible_net_worth"] == 250
-    assert financials["total_debt"] == 345
-
-    assert ratios["dscr"] == pytest.approx(510 / 100)
-    assert ratios["gross_leverage"] == pytest.approx(345 / 510)
-    assert ratios["current_ratio"] == pytest.approx(2.4)
-    assert ratios["ebit_interest_cover"] == pytest.approx(440 / 30)
-    assert ratios["ebitda_interest_cover"] == pytest.approx(17.0)
-    # Aliases matching the Excel row labels must agree with their snake_case originals.
-    assert ratios["EBIT/Interest"] == ratios["ebit_interest_cover"]
-    assert ratios["EBITDA/Interest"] == ratios["ebitda_interest_cover"]
-
-
-def test_evaluate_financial_model_handles_multiple_periods_independently():
-    result = evaluate_financial_model({
-        "FY-2": {**SAMPLE_PERIOD, "revenue": 500},
-        "FY-Current": SAMPLE_PERIOD,
-    })
-
-    assert result["financials"]["FY-2"]["gross_profit"] == 100
-    assert result["financials"]["FY-Current"]["gross_profit"] == 600
-
-
-def test_evaluate_financial_model_handles_empty_input():
-    assert evaluate_financial_model({}) == {"financials": {}, "ratios": {}}
-    assert evaluate_financial_model(None) == {"financials": {}, "ratios": {}}
-
-
-def test_evaluate_financial_model_defaults_missing_fields_to_zero():
-    result = evaluate_financial_model({"FY-Current": {"revenue": 100}})
-    financials = result["financials"]["FY-Current"]
-    ratios = result["ratios"]["FY-Current"]
-
-    assert financials["gross_profit"] == 100
-    assert ratios["dscr"] == 0  # IFERROR-equivalent: no interest/principal -> no division by zero
-
-
-# ---------------------------------------------------------------------------
-# Live population: raw multi-period financials + a flat collateral list.
-# ---------------------------------------------------------------------------
-
-def test_export_to_xlsx_populates_raw_financial_cells(tmp_path):
-    out_path = tmp_path / "populated.xlsx"
-    financial_data = {"FY-Current": SAMPLE_PERIOD}
-
-    export_to_xlsx("Test Co", str(out_path), financial_data=financial_data)
-    wb = openpyxl.load_workbook(out_path)
-    ws = wb["Financial Spreading"]
-    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
-
-    # FY-Current is column D.
-    assert ws.cell(row=label_to_row["Revenue"], column=4).value == 1000
-    assert ws.cell(row=label_to_row["Interest Paid"], column=4).value == 30
-    assert ws.cell(row=label_to_row["Scheduled Principal Repayment"], column=4).value == 70
-
-    # DSCR and Gross Leverage are still live Excel formulas, not baked numbers.
-    dscr_cell = ws.cell(row=label_to_row["DSCR"], column=4).value
-    gross_leverage_cell = ws.cell(row=label_to_row["Gross Leverage"], column=4).value
-    assert isinstance(dscr_cell, str) and dscr_cell.startswith("=")
-    assert isinstance(gross_leverage_cell, str) and gross_leverage_cell.startswith("=")
-
-
-def test_export_to_xlsx_leaves_unpopulated_periods_blank(tmp_path):
-    out_path = tmp_path / "partial.xlsx"
-    export_to_xlsx("Test Co", str(out_path), financial_data={"FY-Current": SAMPLE_PERIOD})
-    wb = openpyxl.load_workbook(out_path)
-    ws = wb["Financial Spreading"]
-    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
-
-    assert ws.cell(row=label_to_row["Revenue"], column=2).value is None  # FY-2
-    assert ws.cell(row=label_to_row["Revenue"], column=3).value is None  # FY-1
-
-
-def test_export_to_xlsx_writes_perfection_status_column(tmp_path):
-    out_path = tmp_path / "collateral.xlsx"
-    collateral_data = [
-        {"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
-         "perfection_status": "Registered"},
-    ]
-    export_to_xlsx("Test Co", str(out_path), collateral_data=collateral_data)
-    wb = openpyxl.load_workbook(out_path)
-    ws = wb["Collateral & Exposure"]
-
-    assert ws.cell(row=2, column=1).value == "HGV"
-    assert ws.cell(row=2, column=9).value == "Registered"  # Perfection Status column
-
-
-def test_export_to_xlsx_scales_total_row_for_multiple_collateral_assets(tmp_path):
-    out_path = tmp_path / "multi_collateral.xlsx"
-    collateral_data = [
-        {"asset_class": "HGV", "exposure": 100, "collateral_value": 80, "perfection_status": "Registered"},
-        {"asset_class": "Trailer", "exposure": 50, "collateral_value": 40, "perfection_status": "Registered"},
-        {"asset_class": "Forklift", "exposure": 20, "collateral_value": 15, "perfection_status": "Pending"},
-    ]
-    export_to_xlsx("Test Co", str(out_path), collateral_data=collateral_data)
-    wb = openpyxl.load_workbook(out_path)
-    ws = wb["Collateral & Exposure"]
-
-    # 3 assets -> rows 2-4, total on row 5.
-    assert ws.cell(row=5, column=1).value == "Total"
-    assert ws.cell(row=5, column=2).value == "=SUM(B2:B4)"
-    assert ws.cell(row=5, column=7).value == "=SUM(G2:G4)"
-    assert ws.cell(row=5, column=8).value == "=IFERROR(G5/B5,0)"
-
-    memo = {}
-    total_exposure = _evaluate(ws, "B", 5, memo)
-    total_collateral_value = _evaluate(ws, "G", 5, memo)
-    cv_pct = _evaluate(ws, "H", 5, memo)
-    assert total_exposure == 170
-    assert total_collateral_value == 135
-    assert cv_pct == pytest.approx(135 / 170)

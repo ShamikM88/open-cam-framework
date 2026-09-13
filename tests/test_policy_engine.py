@@ -220,6 +220,22 @@ def test_guarantee_cp_falls_back_to_unlimited_facility_when_amount_missing():
     assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
 
 
+def test_guarantee_cp_preserves_a_legitimate_zero_amount():
+    """A falsy-but-real amount (0) must not be silently rewritten to
+    "Unlimited Facility" -- that would materially misstate the CP."""
+    state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": 0}]}
+    result = evaluate_deal_policy(state)
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for 0."
+
+
+def test_guarantee_cp_treats_blank_string_amount_as_missing():
+    state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": "   "}]}
+    result = evaluate_deal_policy(state)
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
+
+
 # ---------------------------------------------------------------------------
 # Determinism: same input must always produce the same cp_ids, in the same
 # structure -- this is the property orchestrator.py's governance gate relies on.
@@ -247,3 +263,22 @@ def test_slugify_normalizes_special_characters_deterministically():
     cp_ids = _cp_ids(result)
     matching = [cp_id for cp_id in cp_ids if cp_id.startswith("GUARANTEE-")]
     assert matching == ["GUARANTEE-ACME-SONS-LTD"]
+
+
+def test_slugify_falls_back_to_a_stable_hash_for_symbol_only_input():
+    """An asset_id with no alphanumeric characters at all must not collapse
+    to an empty slug -- that would make two different such assets collide
+    on the same cp_id (e.g. both "SEC-MAPPING-")."""
+    state = {
+        "collateral": [{"asset_id": "***"}, {"asset_id": "---"}],
+        "security_package": [],
+    }
+    result = evaluate_deal_policy(state)
+    cp_ids = [cp_id for cp_id in _cp_ids(result) if cp_id.startswith("SEC-MAPPING-")]
+    assert len(cp_ids) == 2
+    assert len(set(cp_ids)) == 2  # distinct, not both "SEC-MAPPING-"
+    assert all(cp_id != "SEC-MAPPING-" for cp_id in cp_ids)
+
+    # Stability: the same symbol-only input always slugifies to the same id.
+    again = evaluate_deal_policy(state)
+    assert _cp_ids(result) == _cp_ids(again)

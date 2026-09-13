@@ -267,6 +267,18 @@ def test_apply_deterministic_policy_checks_accepts_normalized_category_key():
     assert notes is None
 
 
+def test_apply_deterministic_policy_checks_accepts_case_insensitive_status_value():
+    """A status of "Covered" (capitalized, plausible LLM drift) must be
+    recognized the same as "covered" -- only the category *key* was
+    normalized before, not the *status value* itself."""
+    categories = dict(ALL_CATEGORIES_COVERED)
+    categories["Market"] = {"status": "Covered"}
+    draft = _compliant_draft(cp_ids=["KYC-AML"], risk_categories=categories)
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
 def test_apply_deterministic_policy_checks_overrides_on_covenant_failure():
     draft = _compliant_draft(cp_ids=["KYC-AML"])
     policy_state = _policy_state(covenant_results=[

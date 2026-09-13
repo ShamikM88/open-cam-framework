@@ -144,7 +144,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state)
     }
     for category in REQUIRED_RISK_TAXONOMY:
         entry = covered_by_normalized_key.get(_normalize_category(category))
-        status = entry.get("status") if isinstance(entry, dict) else None
+        raw_status = entry.get("status") if isinstance(entry, dict) else None
+        status = str(raw_status).strip().lower() if raw_status is not None else None
         justification = entry.get("justification") if isinstance(entry, dict) else None
         malformed = status not in ("covered", "not_applicable") or (
             status == "not_applicable" and not str(justification or "").strip()

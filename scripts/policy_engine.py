@@ -17,6 +17,7 @@ Underwriter is never asked to reproduce or paraphrase a CP's free-text
 `cp_id` it rendered, so orchestrator.py can check for exact set membership
 rather than fuzzy-matching prose.
 """
+import hashlib
 import re
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
@@ -33,8 +34,17 @@ def _slugify(value):
     collapsed to a single "-", no leading/trailing "-". The same input
     always produces the same fragment, which is what makes a `cp_id` built
     from it a stable join key across governance-loop iterations.
+
+    An input with no alphanumeric characters at all (rare, but not
+    impossible for a hand-entered asset_id/provider) would otherwise slugify
+    to an empty string -- falls back to a short deterministic hash of the
+    original value instead, so two different such inputs still get distinct,
+    stable `cp_id`s rather than colliding on the same empty fragment.
     """
-    return SLUG_RE.sub("-", str(value).strip().upper()).strip("-")
+    slug = SLUG_RE.sub("-", str(value).strip().upper()).strip("-")
+    if slug:
+        return slug
+    return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12].upper()
 
 
 def _safe_div(numerator, denominator):
@@ -165,7 +175,12 @@ def _guarantee_cps(guarantees):
     for guarantee in guarantees:
         provider = guarantee.get("provider", "")
         guarantee_type = guarantee.get("type", "Guarantee")
-        amount = guarantee.get("amount") or "Unlimited Facility"
+        amount = guarantee.get("amount")
+        # Only an absent/blank amount means "no cap specified" -- a
+        # legitimate falsy amount like 0 must not be overwritten with
+        # "Unlimited Facility", which would materially misstate the CP.
+        if amount is None or (isinstance(amount, str) and not amount.strip()):
+            amount = "Unlimited Facility"
         cps.append({
             "cp_id": f"GUARANTEE-{_slugify(provider)}",
             "text": f"Execution of {guarantee_type} Guarantee by {provider} for {amount}.",

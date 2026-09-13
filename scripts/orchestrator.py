@@ -7,6 +7,7 @@ import argparse
 from anthropic import Anthropic
 
 from deal_export import export_deal
+from policy_engine import evaluate_deal_policy
 from spreading_builder import evaluate_financial_model
 from state_manager import write_state, append_review_trail, read_state, state_path
 from template_resolver import cam_template_path
@@ -14,7 +15,14 @@ from template_resolver import cam_template_path
 MODEL = "claude-3-7-sonnet-20250219"
 MAX_REVIEW_ITERATIONS = 3
 
-VERDICT_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+# Canonical risk categories the Underwriter's structured output must cover
+# (see agents/underwriter_agent.md's Structured Output guideline).
+REQUIRED_RISK_TAXONOMY = [
+    "Market", "Refinance", "Operational", "Concentration", "Key Man", "Financial", "Legal",
+]
+
+FENCED_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+CATEGORY_SUFFIX_RE = re.compile(r"\s+risk\s*$", re.IGNORECASE)
 
 
 def _default_client():
@@ -43,13 +51,21 @@ def _add_step(steps, step):
     return steps if step in steps else steps + [step]
 
 
+def _normalize_category(category):
+    """Fixed string transform (not semantic judgment): lowercase, strip a
+    trailing "risk" suffix, trim whitespace -- so "Market Risk" and "Market"
+    both normalize to "market" and compare equal without needing the
+    Underwriter to match the canonical taxonomy's spelling exactly."""
+    return CATEGORY_SUFFIX_RE.sub("", str(category).strip()).strip().lower()
+
+
 def parse_verdict(response_text):
     """Extract the Risk Reviewer's fenced ```json {"verdict": ..., "notes": ...}```
     block from its response.
 
     risk_reviewer_agent.md asks for this block "at the very end", but the
     same prompt also hands the reviewer several other ```json blocks (the
-    grounding context's financials/ratios/collateral -- see
+    grounding context's financials/ratios/collateral/policy data -- see
     _build_grounding_context()) that it may legitimately quote back while
     explaining a discrepancy. Scanning matches in reverse order and taking
     the last one that actually carries a recognized verdict key -- rather
@@ -62,7 +78,7 @@ def parse_verdict(response_text):
     silently treated as an approval.
     """
     response_text = response_text or ""
-    for match in reversed(list(VERDICT_JSON_RE.finditer(response_text))):
+    for match in reversed(list(FENCED_JSON_RE.finditer(response_text))):
         try:
             payload = json.loads(match.group(1))
         except (json.JSONDecodeError, AttributeError, TypeError):
@@ -73,12 +89,92 @@ def parse_verdict(response_text):
     return "REJECTED", response_text
 
 
-def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data, collateral_data):
-    """The only place raw financials/ratios/collateral are injected into
-    either agent's prompt -- both the Maker (draft + revision calls) and the
-    Checker (audit call) receive exactly this block, so the Checker is
-    auditing the draft against the same ground truth the Maker was given,
-    not just against the draft's own internal consistency.
+def parse_underwriter_output(draft_text):
+    """Extract the Underwriter's trailing structured JSON block
+    ({"cp_ids_included": [...], "risk_categories_covered": {...}}) from its
+    drafted CAM (see agents/underwriter_agent.md's Structured Output
+    guideline). Scans matches in reverse and returns the first one that
+    actually looks like this schema, for the same reason parse_verdict()
+    does: a block should always be trailing, but this is safer against an
+    unrelated ```json block appearing earlier in the draft.
+
+    Missing or malformed output degrades to an empty structure, which then
+    fails every downstream policy check safely (as "nothing included" /
+    "no category covered") rather than raising or silently skipping
+    enforcement.
+    """
+    for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
+        try:
+            payload = json.loads(match.group(1))
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            continue
+        if isinstance(payload, dict) and (
+            "cp_ids_included" in payload or "risk_categories_covered" in payload
+        ):
+            return {
+                "cp_ids_included": payload.get("cp_ids_included") or [],
+                "risk_categories_covered": payload.get("risk_categories_covered") or {},
+            }
+    return {"cp_ids_included": [], "risk_categories_covered": {}}
+
+
+def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state):
+    """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
+    verdict: covenant/security/CP/taxonomy compliance is checked exactly,
+    every time, and can only ever move a verdict from APPROVED to REJECTED
+    -- never the reverse.
+
+    Every reason found here is folded into the same `notes` string
+    append_review_trail() already records an LLM-originated rejection
+    under (never a separate/parallel field), so a code-enforced rejection
+    re-prompts the Underwriter through the exact same revision path as a
+    Reviewer-originated one.
+    """
+    reasons = []
+
+    underwriter_output = parse_underwriter_output(draft_text)
+    cp_ids_included = set(underwriter_output["cp_ids_included"])
+    for cp in policy_state.get("required_conditions_precedent", []):
+        if cp["cp_id"] not in cp_ids_included:
+            reasons.append(f"Missing Required CP {cp['cp_id']}: {cp['text']}")
+
+    covered_by_normalized_key = {
+        _normalize_category(key): value
+        for key, value in underwriter_output["risk_categories_covered"].items()
+    }
+    for category in REQUIRED_RISK_TAXONOMY:
+        entry = covered_by_normalized_key.get(_normalize_category(category))
+        status = entry.get("status") if isinstance(entry, dict) else None
+        justification = entry.get("justification") if isinstance(entry, dict) else None
+        malformed = status not in ("covered", "not_applicable") or (
+            status == "not_applicable" and not str(justification or "").strip()
+        )
+        if malformed:
+            reasons.append(f"Missing or malformed Risk Category: {category}")
+
+    for result in policy_state.get("covenant_results", []):
+        if result["status"] in ("FAIL", "UNRESOLVABLE"):
+            reasons.append(
+                f"Covenant {result['status']}: {result['metric']} "
+                f"({result['type']} {result['threshold']}, actual {result['actual']})"
+            )
+
+    reasons.extend(policy_state.get("security_gaps", []))
+
+    if not reasons:
+        return verdict, notes
+
+    combined_notes = "\n".join(([str(notes)] if notes else []) + reasons)
+    return "REJECTED", combined_notes
+
+
+def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
+                              collateral_data, policy_state=None):
+    """The only place raw financials/ratios/collateral/policy data are
+    injected into either agent's prompt -- both the Maker (draft + revision
+    calls) and the Checker (audit call) receive exactly this block, so the
+    Checker is auditing the draft against the same ground truth the Maker
+    was given, not just against the draft's own internal consistency.
     """
     parts = [
         f"\nCompany: {company}",
@@ -95,6 +191,24 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     if collateral_data:
         parts.append("\nCollateral / exposure data (from state.json):")
         parts.append(f"```json\n{json.dumps(collateral_data, indent=2)}\n```")
+    if policy_state:
+        parts.append(
+            "\nRequired Conditions Precedent (from policy_state -- render each one's "
+            "`text` as prose in the CAM's Conditions Precedent section, and report "
+            "inclusion in your structured output by `cp_id` only; a code-level check "
+            "rejects the draft if any required cp_id is missing):"
+        )
+        parts.append(
+            f"```json\n{json.dumps(policy_state.get('required_conditions_precedent', []), indent=2)}\n```"
+        )
+        parts.append(
+            "\nCovenant compliance results (from policy_state -- already computed; "
+            "narrate the headroom or breach in your commentary, do not recompute):"
+        )
+        parts.append(f"```json\n{json.dumps(policy_state.get('covenant_results', []), indent=2)}\n```")
+        if policy_state.get("security_gaps"):
+            parts.append("\nSecurity/collateral gaps identified (from policy_state):")
+            parts.append(f"```json\n{json.dumps(policy_state['security_gaps'], indent=2)}\n```")
     return "\n".join(parts)
 
 
@@ -143,17 +257,30 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
 
+    # Covenants/security/guarantees have no dedicated CLI flags yet -- they
+    # come from whatever this deal's state.json already carries (e.g. hand-
+    # edited, or written by a future slash-command step). policy_state is
+    # a pure function of these plus the freshly (re)computed ratios/
+    # collateral above, so it's recomputed every run rather than cached.
+    policy_state = evaluate_deal_policy({
+        "ratios": ratios,
+        "collateral": collateral,
+        "covenants": existing_state.get("covenants", []),
+        "security_package": existing_state.get("security_package", []),
+        "guarantees": existing_state.get("guarantees", []),
+    })
+
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
     write_state(company, proposal, deal_type=deal_type,
                 inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral,
-                steps_completed=steps_completed)
+                policy_state=policy_state, steps_completed=steps_completed)
 
     grounding_context = _build_grounding_context(
         company, proposal, pd_score, lgd_score,
-        {"financials": financials, "ratios": ratios}, collateral,
+        {"financials": financials, "ratios": ratios}, collateral, policy_state,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
@@ -186,6 +313,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         ).content[0].text
 
         verdict, notes = parse_verdict(audit_response)
+        verdict, notes = _apply_deterministic_policy_checks(verdict, notes, draft, policy_state)
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
                              deal_type=deal_type, steps_completed=steps_completed)

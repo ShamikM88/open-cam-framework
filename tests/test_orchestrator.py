@@ -1,5 +1,6 @@
 """Tests for scripts/orchestrator.py: verdict parsing, the Maker-Checker
-governance loop, per-iteration checkpointing, and export gating.
+governance loop, per-iteration checkpointing, deterministic policy
+enforcement, and export gating.
 
 run_pipeline() reads agents/*.md, config/style_guide.md, and
 templates/cam/*.md relative to the current working directory (same as
@@ -7,6 +8,13 @@ deal_export.py / state_manager.py's own base_dir=None convention) -- the
 `project_root` fixture below builds a minimal fake project in tmp_path and
 chdirs into it so these tests never touch the real repository's deals/ or
 templates/ directories.
+
+Since _apply_deterministic_policy_checks() now forces REJECTED whenever a
+draft's trailing structured JSON block doesn't cover every required CP and
+risk category, every MockClient "draft" response that a test expects to be
+approved and exported must include a *compliant* block -- see
+_compliant_draft() below. Drafts used only to exercise an LLM-originated (or
+deliberately triggered code-enforced) REJECTED path don't need one.
 """
 import json
 import os
@@ -17,8 +25,12 @@ import pytest
 
 from orchestrator import (
     MAX_REVIEW_ITERATIONS,
+    REQUIRED_RISK_TAXONOMY,
+    _apply_deterministic_policy_checks,
     _load_multi_period_financials,
+    _normalize_category,
     evaluate_financial_model,
+    parse_underwriter_output,
     parse_verdict,
     run_pipeline,
 )
@@ -63,6 +75,26 @@ def _approved_json(notes=None):
 
 def _rejected_json(notes):
     return '```json\n' + json.dumps({"verdict": "REJECTED", "notes": notes}) + '\n```'
+
+
+# A deal with no covenants/security_package/guarantees in state.json only
+# ever requires the two standard CPs, and the Underwriter is always free to
+# self-report every canonical risk category as covered.
+STANDARD_CP_IDS = ["KYC-AML", "FACILITY-EXECUTION"]
+ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
+
+
+def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS,
+                      risk_categories=None):
+    """A draft whose trailing structured JSON block satisfies every
+    deterministic policy check by default (see agents/underwriter_agent.md's
+    Structured Output guideline) -- for tests where the draft is expected to
+    actually be approved and exported."""
+    payload = {
+        "cp_ids_included": list(cp_ids),
+        "risk_categories_covered": risk_categories if risk_categories is not None else ALL_CATEGORIES_COVERED,
+    }
+    return body + "\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +176,146 @@ def test_parse_verdict_skips_multiple_non_verdict_blocks_to_find_the_real_one():
 
 
 # ---------------------------------------------------------------------------
+# parse_underwriter_output()
+# ---------------------------------------------------------------------------
+
+def test_parse_underwriter_output_extracts_cp_ids_and_categories():
+    draft = _compliant_draft(cp_ids=["KYC-AML", "FACILITY-EXECUTION", "SEC-PERFECT-AST-001"])
+    result = parse_underwriter_output(draft)
+    assert result["cp_ids_included"] == ["KYC-AML", "FACILITY-EXECUTION", "SEC-PERFECT-AST-001"]
+    assert result["risk_categories_covered"] == ALL_CATEGORIES_COVERED
+
+
+def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
+    result = parse_underwriter_output("# Draft CAM with no trailing JSON block")
+    assert result == {"cp_ids_included": [], "risk_categories_covered": {}}
+
+
+def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
+    result = parse_underwriter_output('# Draft\n```json\n{"cp_ids_included": [\n```')
+    assert result == {"cp_ids_included": [], "risk_categories_covered": {}}
+
+
+def test_parse_underwriter_output_ignores_unrelated_earlier_json_blocks():
+    draft = (
+        "# Draft CAM\n"
+        '```json\n{"some_other_data": 123}\n```\n'
+        + _compliant_draft(body="", cp_ids=["KYC-AML"]).strip()
+    )
+    result = parse_underwriter_output(draft)
+    assert result["cp_ids_included"] == ["KYC-AML"]
+
+
+# ---------------------------------------------------------------------------
+# _normalize_category(): fixed string transform, not semantic judgment.
+# ---------------------------------------------------------------------------
+
+def test_normalize_category_strips_trailing_risk_suffix():
+    assert _normalize_category("Market Risk") == _normalize_category("Market") == "market"
+
+
+def test_normalize_category_is_case_and_whitespace_insensitive():
+    assert _normalize_category("  KEY MAN  ") == _normalize_category("Key Man Risk") == "key man"
+
+
+# ---------------------------------------------------------------------------
+# _apply_deterministic_policy_checks(): the code-enforced overlay that can
+# only ever move a verdict from APPROVED to REJECTED, never the reverse.
+# ---------------------------------------------------------------------------
+
+def _policy_state(required_cps=None, covenant_results=None, security_gaps=None):
+    return {
+        "required_conditions_precedent": required_cps or [{"cp_id": "KYC-AML", "text": "KYC/AML clearance."}],
+        "covenant_results": covenant_results or [],
+        "security_gaps": security_gaps or [],
+    }
+
+
+def test_apply_deterministic_policy_checks_passes_through_a_fully_compliant_approval():
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
+def test_apply_deterministic_policy_checks_overrides_approval_on_missing_cp():
+    """A missing required cp_id must force REJECTED even when the LLM itself said APPROVED."""
+    draft = _compliant_draft(cp_ids=[])  # KYC-AML required but not reported as included
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    assert verdict == "REJECTED"
+    assert "Missing Required CP KYC-AML" in notes
+
+
+def test_apply_deterministic_policy_checks_overrides_on_malformed_not_applicable_category():
+    """not_applicable with an empty justification is malformed and must trip the override."""
+    categories = dict(ALL_CATEGORIES_COVERED)
+    categories["Operational"] = {"status": "not_applicable", "justification": "   "}
+    draft = _compliant_draft(cp_ids=["KYC-AML"], risk_categories=categories)
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    assert verdict == "REJECTED"
+    assert "Missing or malformed Risk Category: Operational" in notes
+
+
+def test_apply_deterministic_policy_checks_accepts_normalized_category_key():
+    """"Market Risk" as a key must satisfy the canonical "Market" requirement."""
+    categories = dict(ALL_CATEGORIES_COVERED)
+    del categories["Market"]
+    categories["Market Risk"] = {"status": "covered"}
+    draft = _compliant_draft(cp_ids=["KYC-AML"], risk_categories=categories)
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
+def test_apply_deterministic_policy_checks_overrides_on_covenant_failure():
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    policy_state = _policy_state(covenant_results=[
+        {"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.0, "status": "FAIL", "headroom_pct": -0.2},
+    ])
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state)
+    assert verdict == "REJECTED"
+    assert "Covenant FAIL: dscr" in notes
+
+
+def test_apply_deterministic_policy_checks_overrides_on_unresolvable_covenant():
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    policy_state = _policy_state(covenant_results=[
+        {"metric": "made_up_metric", "type": "minimum", "threshold": 1.0, "actual": None,
+         "status": "UNRESOLVABLE", "headroom_pct": None},
+    ])
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state)
+    assert verdict == "REJECTED"
+    assert "Covenant UNRESOLVABLE: made_up_metric" in notes
+
+
+def test_apply_deterministic_policy_checks_overrides_on_security_gap():
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    policy_state = _policy_state(security_gaps=[
+        "Uncharged Asset: AST-002 has no corresponding security charge registered.",
+    ])
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state)
+    assert verdict == "REJECTED"
+    assert "Uncharged Asset: AST-002" in notes
+
+
+def test_apply_deterministic_policy_checks_combines_llm_notes_with_code_enforced_reasons():
+    draft = _compliant_draft(cp_ids=[])  # missing KYC-AML
+    verdict, notes = _apply_deterministic_policy_checks(
+        "REJECTED", "The narrative is too generic.", draft, _policy_state(),
+    )
+    assert verdict == "REJECTED"
+    assert "The narrative is too generic." in notes
+    assert "Missing Required CP KYC-AML" in notes
+
+
+def test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved():
+    draft = _compliant_draft(cp_ids=["KYC-AML"])  # fully compliant
+    verdict, notes = _apply_deterministic_policy_checks("REJECTED", "Weak mitigants.", draft, _policy_state())
+    assert verdict == "REJECTED"
+    assert notes == "Weak mitigants."
+
+
+# ---------------------------------------------------------------------------
 # _load_multi_period_financials(): --spread takes precedence over --financials
 # ---------------------------------------------------------------------------
 
@@ -185,7 +357,7 @@ def test_evaluate_financial_model_usable_from_orchestrator():
 
 def test_run_pipeline_exports_when_approved_on_first_iteration(project_root):
     client = MockClient([
-        "# Draft CAM",           # [1/3] Underwriter draft
+        _compliant_draft(),      # [1/3] Underwriter draft
         _approved_json(),        # [2/3] Risk Reviewer audit, iteration 1
     ])
 
@@ -200,6 +372,7 @@ def test_run_pipeline_exports_when_approved_on_first_iteration(project_root):
     assert [entry["verdict"] for entry in state["review_trail"]] == ["APPROVED"]
     assert state["review_verdict"] == "APPROVED"
     assert "export" in state["steps_completed"]
+    assert "policy_state" in state
 
     docx_path = os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx")
     xlsx_path = os.path.join(deal_dir, "Acme Corp_Fleet Loan_Spreading.xlsx")
@@ -209,9 +382,9 @@ def test_run_pipeline_exports_when_approved_on_first_iteration(project_root):
 
 def test_run_pipeline_revises_and_exports_after_one_rejection(project_root):
     client = MockClient([
-        "# Draft v1",                                  # initial draft
+        _compliant_draft("# Draft v1"),                # initial draft
         _rejected_json("Fix the EBITDA figure."),      # iteration 1 audit
-        "# Draft v2 (revised)",                         # Maker revision
+        _compliant_draft("# Draft v2 (revised)"),      # Maker revision
         _approved_json(),                                # iteration 2 audit
     ])
 
@@ -220,9 +393,9 @@ def test_run_pipeline_revises_and_exports_after_one_rejection(project_root):
 
     deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
     with open(os.path.join(deal_dir, "draft_v1.md"), encoding="utf-8") as f:
-        assert f.read() == "# Draft v1"
+        assert f.read() == _compliant_draft("# Draft v1")
     with open(os.path.join(deal_dir, "draft_v2.md"), encoding="utf-8") as f:
-        assert f.read() == "# Draft v2 (revised)"
+        assert f.read() == _compliant_draft("# Draft v2 (revised)")
 
     state = read_state("Acme Corp", "Fleet Loan")
     assert [entry["verdict"] for entry in state["review_trail"]] == ["REJECTED", "APPROVED"]
@@ -262,7 +435,7 @@ def test_run_pipeline_exits_nonzero_and_skips_export_after_max_rejections(projec
 
 
 def test_run_pipeline_stores_financials_and_ratios_on_state(project_root):
-    client = MockClient(["# Draft CAM", _approved_json()])
+    client = MockClient([_compliant_draft(), _approved_json()])
     multi_period_financials = {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}
 
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
@@ -275,7 +448,7 @@ def test_run_pipeline_stores_financials_and_ratios_on_state(project_root):
 
 
 def test_run_pipeline_stores_collateral_data_on_state(project_root):
-    client = MockClient(["# Draft CAM", _approved_json()])
+    client = MockClient([_compliant_draft(), _approved_json()])
     collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
                          "perfection_status": "Registered"}]
 
@@ -295,7 +468,7 @@ def test_run_pipeline_stores_collateral_data_on_state(project_root):
 
 def test_run_pipeline_preserves_existing_financials_when_rerun_without_new_data(project_root):
     multi_period_financials = {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}
-    client1 = MockClient(["# Draft CAM", _approved_json()])
+    client1 = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  multi_period_financials=multi_period_financials, client=client1)
 
@@ -304,7 +477,7 @@ def test_run_pipeline_preserves_existing_financials_when_rerun_without_new_data(
 
     # Second run for the same deal, no --financials/--spread this time --
     # must not wipe what the first run already checkpointed.
-    client2 = MockClient(["# Draft CAM v2", _approved_json()])
+    client2 = MockClient([_compliant_draft("# Draft CAM v2"), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client2)
 
@@ -315,11 +488,11 @@ def test_run_pipeline_preserves_existing_financials_when_rerun_without_new_data(
 def test_run_pipeline_preserves_existing_collateral_when_rerun_without_new_data(project_root):
     collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
                          "perfection_status": "Registered"}]
-    client1 = MockClient(["# Draft CAM", _approved_json()])
+    client1 = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  collateral_data=collateral_data, client=client1)
 
-    client2 = MockClient(["# Draft CAM v2", _approved_json()])
+    client2 = MockClient([_compliant_draft("# Draft CAM v2"), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client2)
 
@@ -328,7 +501,7 @@ def test_run_pipeline_preserves_existing_collateral_when_rerun_without_new_data(
 
 
 def test_run_pipeline_accumulates_steps_completed_without_duplicating_across_reruns(project_root):
-    client1 = MockClient(["# Draft CAM", _approved_json()])
+    client1 = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client1)
     state1 = read_state("Acme Corp", "Fleet Loan")
@@ -336,10 +509,50 @@ def test_run_pipeline_accumulates_steps_completed_without_duplicating_across_rer
     assert state1["steps_completed"].count("audit") == 1
     assert state1["steps_completed"].count("export") == 1
 
-    client2 = MockClient(["# Draft CAM v2", _approved_json()])
+    client2 = MockClient([_compliant_draft("# Draft CAM v2"), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client2)
     state2 = read_state("Acme Corp", "Fleet Loan")
     assert state2["steps_completed"].count("draft") == 1
     assert state2["steps_completed"].count("audit") == 1
     assert state2["steps_completed"].count("export") == 1
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: a deterministic policy failure (not an LLM-originated one)
+# must still drive the governance loop through the exact same revision path,
+# and produce a review_trail entry structurally identical to an
+# LLM-originated one.
+# ---------------------------------------------------------------------------
+
+def test_run_pipeline_code_enforced_rejection_triggers_revision_and_matches_review_trail_shape(project_root):
+    # The Reviewer says APPROVED both times; the *first* draft omits a
+    # required CP, so the code-enforced layer must override it to REJECTED
+    # and drive a revision cycle identical to an LLM-originated rejection.
+    client = MockClient([
+        _compliant_draft("# Draft v1", cp_ids=[]),   # missing KYC-AML/FACILITY-EXECUTION
+        _approved_json(),                              # Reviewer wrongly says APPROVED
+        _compliant_draft("# Draft v2 (fixed)"),        # Maker revision, now compliant
+        _approved_json(),
+    ])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    trail = state["review_trail"]
+    assert [entry["verdict"] for entry in trail] == ["REJECTED", "APPROVED"]
+    assert "Missing Required CP KYC-AML" in trail[0]["notes"]
+
+    # Structurally identical to an LLM-originated entry: same keys, same types.
+    llm_style_entry_keys = {"iteration", "verdict", "notes", "timestamp"}
+    assert set(trail[0].keys()) == llm_style_entry_keys
+    assert set(trail[1].keys()) == llm_style_entry_keys
+
+    # The revision path actually ran: a second draft + audit call were made.
+    assert client.call_count == 4
+
+    docx_path = os.path.join(os.path.dirname(state_path("Acme Corp", "Fleet Loan")),
+                              "Acme Corp_Fleet Loan_CAM.docx")
+    doc = docx.Document(docx_path)
+    assert doc.paragraphs[0].text == "Draft v2 (fixed)"

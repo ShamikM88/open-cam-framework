@@ -243,6 +243,25 @@ def test_single_charge_per_asset_keeps_the_simple_cp_id_unchanged():
     assert "SEC-PERFECT-AST-001" in _cp_ids(result)
 
 
+def test_security_cps_avoid_cross_collision_between_suffixed_and_naturally_unique_asset_slug():
+    """A second asset's own id can naturally slugify to the exact string a
+    different, multi-charge asset's disambiguation suffix would produce --
+    collision detection has to check every cp_id already assigned in this
+    call, not just other charges on the same asset."""
+    state = {
+        "collateral": [{"asset_id": "AST-1"}, {"asset_id": "AST-1-2"}],
+        "security_package": [
+            {"secures_asset_id": "AST-1", "perfection_status": "Pending", "ranking": "First"},
+            {"secures_asset_id": "AST-1", "perfection_status": "Pending", "ranking": "First"},
+            {"secures_asset_id": "AST-1-2", "perfection_status": "Pending", "ranking": "First"},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    perfect_cp_ids = [cp_id for cp_id in _cp_ids(result) if cp_id.startswith("SEC-PERFECT-")]
+    assert len(perfect_cp_ids) == 3
+    assert len(set(perfect_cp_ids)) == 3
+
+
 def test_dangling_reference_reported_once_even_with_multiple_charges_on_the_missing_asset():
     state = {
         "collateral": [],

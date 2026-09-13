@@ -118,25 +118,40 @@ def _evaluate_security(collateral, security_package):
     gaps = []
     cps = []
 
+    # A per-prefix candidate is checked against every cp_id already
+    # assigned anywhere in this call, not just other charges on the same
+    # asset -- a multi-charge asset's disambiguated suffix (e.g.
+    # "...-AST-001-2") could otherwise collide with a *different* asset
+    # whose own id happens to naturally slugify to that exact string (see
+    # _guarantee_cps() for the same pattern, fixed there for the same
+    # reason: a naturally-unique candidate must still be checked against
+    # every id already handed out, not just siblings sharing its own base).
+    used_ids = set()
+
+    def unique_cp_id(prefix, base_slug):
+        cp_id = f"{prefix}-{base_slug}"
+        suffix = 2
+        while cp_id in used_ids:
+            cp_id = f"{prefix}-{base_slug}-{suffix}"
+            suffix += 1
+        used_ids.add(cp_id)
+        return cp_id
+
     for asset_id in collateral_by_id:
         charges = charges_by_asset_id.get(asset_id)
+        asset_slug = _slugify(asset_id)
 
         if not charges:
             gaps.append(
                 f"Uncharged Asset: {asset_id} has no corresponding security charge registered."
             )
             cps.append({
-                "cp_id": f"SEC-MAPPING-{_slugify(asset_id)}",
+                "cp_id": unique_cp_id("SEC-MAPPING", asset_slug),
                 "text": f"Resolution of collateral security mapping discrepancy for asset {asset_id}.",
             })
             continue
 
-        # A cp_id suffix only needs to disambiguate multiple charges on the
-        # *same* asset -- the common single-charge case keeps its existing,
-        # simpler cp_id.
-        multiple_charges = len(charges) > 1
-        for index, charge in enumerate(charges):
-            id_suffix = _slugify(asset_id) if not multiple_charges else f"{_slugify(asset_id)}-{index + 1}"
+        for charge in charges:
             perfection_status = charge.get("perfection_status")
             ranking = charge.get("ranking")
 
@@ -146,7 +161,7 @@ def _evaluate_security(collateral, security_package):
                     f"'{perfection_status}', not Perfected."
                 )
                 cps.append({
-                    "cp_id": f"SEC-PERFECT-{id_suffix}",
+                    "cp_id": unique_cp_id("SEC-PERFECT", asset_slug),
                     "text": (
                         "Execution and completion of registration to perfect charge over "
                         f"asset {asset_id} (Current Status: {perfection_status})."
@@ -159,7 +174,7 @@ def _evaluate_security(collateral, security_package):
                     f"'{ranking}', not First."
                 )
                 cps.append({
-                    "cp_id": f"SEC-PRIORITY-{id_suffix}",
+                    "cp_id": unique_cp_id("SEC-PRIORITY", asset_slug),
                     "text": (
                         "Negotiation, execution, and stamping of a formal Intercreditor "
                         f"Deed / Deed of Priority with existing chargeholders for asset "
@@ -173,7 +188,7 @@ def _evaluate_security(collateral, security_package):
                 f"Dangling Reference: {secures_asset_id} does not exist in collateral records."
             )
             cps.append({
-                "cp_id": f"SEC-MAPPING-{_slugify(secures_asset_id)}",
+                "cp_id": unique_cp_id("SEC-MAPPING", _slugify(secures_asset_id)),
                 "text": (
                     "Resolution of collateral security mapping discrepancy for asset "
                     f"{secures_asset_id}."

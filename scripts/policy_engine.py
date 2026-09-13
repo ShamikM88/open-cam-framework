@@ -47,10 +47,6 @@ def _slugify(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12].upper()
 
 
-def _safe_div(numerator, denominator):
-    return numerator / denominator if denominator else 0
-
-
 def _evaluate_covenant(covenant, ratios):
     """One covenant's PASS/FAIL/UNRESOLVABLE result against `ratios`
     (a single period's ratios dict, e.g. state.json's ratios["FY-Current"]).
@@ -62,6 +58,13 @@ def _evaluate_covenant(covenant, ratios):
     key) or an unrecognized `type` (not "minimum"/"maximum") is
     UNRESOLVABLE, never silently skipped -- the covenant still appears in
     the result with actual/headroom_pct left as None.
+
+    A threshold of exactly 0 makes "headroom as a % of threshold"
+    mathematically undefined, not zero -- headroom_pct is left as None in
+    that case (status is unaffected: it's still computed by direct
+    comparison, not via headroom_pct). Silently coercing it to 0 would read
+    as "right at the compliance boundary" regardless of how far the actual
+    value is from a zero threshold, understating a real breach's severity.
     """
     metric = covenant.get("metric")
     covenant_type = covenant.get("type")
@@ -83,10 +86,12 @@ def _evaluate_covenant(covenant, ratios):
     result["actual"] = actual
 
     if covenant_type == "minimum":
-        result["headroom_pct"] = _safe_div(actual - threshold, threshold)
+        if threshold:
+            result["headroom_pct"] = (actual - threshold) / threshold
         result["status"] = "PASS" if actual >= threshold else "FAIL"
     else:
-        result["headroom_pct"] = _safe_div(threshold - actual, threshold)
+        if threshold:
+            result["headroom_pct"] = (threshold - actual) / threshold
         result["status"] = "PASS" if actual <= threshold else "FAIL"
 
     return result

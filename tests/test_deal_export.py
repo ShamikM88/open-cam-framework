@@ -2,8 +2,9 @@ import os
 
 import docx
 import openpyxl
+import pytest
 
-from deal_export import export_deal
+from deal_export import _financial_data_from_state, export_deal
 
 
 def _write(path, content="content"):
@@ -88,3 +89,34 @@ def test_does_not_touch_local_override_when_shipped_default_exists(tmp_path):
 
     local_override_path = os.path.join(base, "templates", "local", "cam", "asset_finance_cam.md")
     assert not os.path.exists(local_override_path)
+
+
+def test_export_deal_rejects_unsafe_company(tmp_path):
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        export_deal("C:\\Windows\\Temp\\evil", "Fleet Loan", "asset_finance", "# Draft", base_dir=base)
+
+
+def test_export_deal_rejects_unsafe_deal_type(tmp_path):
+    """deal_type flows into template_resolver's path building
+    (templates/local/cam/<deal_type>_cam.md) the same way company/proposal
+    flow into the deals/ path -- it needs the same protection."""
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        export_deal("Acme Corp", "Fleet Loan", "../../evil", "# Draft", base_dir=base)
+
+
+def test_export_deal_rejects_unsafe_date_str(tmp_path):
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        export_deal("Acme Corp", "Fleet Loan", "asset_finance", "# Draft",
+                     date_str="../../evil", base_dir=base)
+
+
+def test_financial_data_from_state_ignores_non_dict_period_value():
+    """A period value that isn't a dict (e.g. malformed/legacy state.json)
+    must not crash -- it degrades to an empty raw-figures dict for that
+    period instead."""
+    state = {"financials": {"FY-Current": "not a dict", "FY-1": {"raw": {"revenue": 100}}}}
+    result = _financial_data_from_state(state)
+    assert result == {"FY-Current": {}, "FY-1": {"revenue": 100}}

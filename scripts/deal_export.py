@@ -12,7 +12,7 @@ from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import export_to_xlsx
-from state_manager import read_state
+from state_manager import read_state, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
 
@@ -25,7 +25,10 @@ def _financial_data_from_state(state):
     formulas in the workbook already.
     """
     financials = state.get("financials") or {}
-    return {period: (data or {}).get("raw", {}) for period, data in financials.items()}
+    return {
+        period: (data.get("raw", {}) if isinstance(data, dict) else {})
+        for period, data in financials.items()
+    }
 
 
 def _collateral_data_from_state(state):
@@ -49,6 +52,11 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
 
     Returns the output directory path.
     """
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    deal_type = sanitize_path_component(deal_type, "deal_type")
+    date_str = sanitize_path_component(date_str, "date_str") if date_str else None
+
     date_str = date_str or datetime.now().strftime("%Y-%m-%d")
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")

@@ -1,13 +1,94 @@
 import json
 import os
+import pytest
 from datetime import datetime
 
 from deal_export import export_deal
-from state_manager import append_review_trail, read_state, state_path, write_state
+from state_manager import (
+    append_review_trail,
+    read_state,
+    sanitize_path_component,
+    state_path,
+    write_state,
+)
 
 
 def test_read_state_returns_none_when_no_file_exists(tmp_path):
     assert read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path)) is None
+
+
+# ---------------------------------------------------------------------------
+# Path sanitization: company/proposal are used directly as filesystem path
+# components -- an unsanitized value could otherwise escape the intended
+# deals/<company>/<proposal>_<date>/ tree entirely (os.path.join discards
+# every earlier segment when a later one looks like an absolute path).
+# ---------------------------------------------------------------------------
+
+def test_sanitize_path_component_rejects_path_separators():
+    with pytest.raises(ValueError):
+        sanitize_path_component("Acme/Corp", "company")
+    with pytest.raises(ValueError):
+        sanitize_path_component("Acme\\Corp", "company")
+
+
+def test_sanitize_path_component_rejects_drive_qualified_paths():
+    with pytest.raises(ValueError):
+        sanitize_path_component("C:\\Windows\\Temp\\evil", "company")
+
+
+def test_sanitize_path_component_rejects_dot_and_dotdot():
+    with pytest.raises(ValueError):
+        sanitize_path_component("..", "proposal")
+    with pytest.raises(ValueError):
+        sanitize_path_component(".", "proposal")
+
+
+def test_sanitize_path_component_accepts_ordinary_names():
+    assert sanitize_path_component("Acme Corp", "company") == "Acme Corp"
+
+
+def test_write_state_rejects_unsafe_company(tmp_path):
+    with pytest.raises(ValueError):
+        write_state("C:\\Windows\\Temp\\evil", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path))
+    # Nothing must have been written anywhere, including outside base_dir.
+    assert not os.path.exists(os.path.join(str(tmp_path), "deals"))
+
+
+def test_state_path_rejects_unsafe_proposal(tmp_path):
+    with pytest.raises(ValueError):
+        state_path("Acme Corp", "../../escape", date_str="2026-01-15", base_dir=str(tmp_path))
+
+
+def test_state_path_rejects_unsafe_explicit_date_str(tmp_path):
+    """date_str is embedded in the same "{proposal}_{date_str}" path
+    component as proposal -- an explicitly-passed one needs the same check."""
+    with pytest.raises(ValueError):
+        state_path("Acme Corp", "Fleet Loan", date_str="../../escape", base_dir=str(tmp_path))
+
+
+def test_write_state_rejects_unsafe_explicit_date_str(tmp_path):
+    base = str(tmp_path)
+    with pytest.raises(ValueError):
+        write_state("Acme Corp", "Fleet Loan", date_str="../../escape", base_dir=base)
+    assert not os.path.exists(os.path.join(base, "deals"))
+
+
+# ---------------------------------------------------------------------------
+# Corrupted state.json: read_state() must raise a clear, actionable error --
+# never crash with a raw JSONDecodeError, and never silently treat corrupted
+# data as "no state yet" (which write_state() would then happily overwrite).
+# ---------------------------------------------------------------------------
+
+def test_read_state_raises_a_clear_error_on_corrupted_json(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write('{"company": "Acme Corp", "proposal": ')  # truncated, as if interrupted mid-write
+
+    with pytest.raises(ValueError, match="corrupted"):
+        read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
 
 
 def test_read_state_returns_none_when_no_dated_folder_exists_at_all(tmp_path):
@@ -220,3 +301,12 @@ def test_append_review_trail_does_not_drop_fields_from_other_steps(tmp_path):
                                  date_str="2026-01-15", base_dir=base)
 
     assert state["inputs"] == {"pd": "0.20%"}
+
+
+def test_write_state_leaves_no_stray_temp_file_behind(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+
+    deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base))
+    entries = os.listdir(deal_dir)
+    assert entries == ["state.json"]

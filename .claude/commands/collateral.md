@@ -22,12 +22,18 @@ it. If none exists, this is the first step run for this deal.
 
 **Primary inputs** (ask the user for whatever's missing and isn't already in state): Asset
 Description, Valuation/Invoice Amount, Down Payment %, Loss Given Default (LGD) Grade & %,
-Residual Value (RV) %, Probability of Default (PD) Grade.
+Residual Value (RV) %, Probability of Default (PD) Grade, and Ranking of the security interest
+taken over the asset (e.g. First, Second — where you rank relative to any other chargeholder).
 
 Calculate: Gross/Net Exposure, RV Exposure, Collateral Coverage %, LGD %, and Estimated Net
 Uncovered Risk. Show the formula and inputs used for each figure. PD and LGD grades are
 user-supplied inputs — this framework has no bureau/rating-agency integration — so use exactly
 what's given; never invent or adjust a grade yourself.
+
+Assign each asset a stable `asset_id` (e.g. `"AST-001"`, or reuse one already in state.json if
+this asset already has one) — this is the join key `scripts/policy_engine.py` uses to cross-
+reference this asset against its security/charge record, so it must stay the same across
+re-runs of this command for the same asset.
 
 ## State: write
 
@@ -43,6 +49,7 @@ never drop a field another step already recorded):
   ```json
   [
     {
+      "asset_id": "AST-001",
       "asset_class": "[Asset class]",
       "exposure": 0,
       "number_of_units": 0,
@@ -57,4 +64,17 @@ never drop a field another step already recorded):
   `exposure`/`collateral_value` are the Gross Exposure and Collateral Value you calculated above
   for that asset; `perfection_status` records whether the security interest is registered/
   perfected, pending, or not applicable — never leave it blank if you know the answer.
+- Also set/update `security_package` as a **flat list**, one entry per asset, in this exact
+  shape (this is what `scripts/policy_engine.py` cross-references against `collateral` above to
+  flag an uncharged asset, an unperfected charge, or a subordinate ranking as a required
+  Condition Precedent — see the `/assemble`/`/review` steps):
+  ```json
+  [
+    {
+      "secures_asset_id": "AST-001",
+      "perfection_status": "[same value as this asset's collateral.perfection_status]",
+      "ranking": "[e.g. First / Second]"
+    }
+  ]
+  ```
 - Append `"collateral"` to `steps_completed` if it isn't already there.

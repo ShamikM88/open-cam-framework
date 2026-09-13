@@ -1,7 +1,7 @@
 ---
 description: Assemble the final CAM from the /triage /spread /commercial /collateral outputs, audit it via /review, and export .docx + .xlsx (see config/skills_registry.md).
 argument-hint: --company "<Name>" --proposal "<Proposal name>" --type <deal_type> --pd <PD> --lgd <LGD>
-allowed-tools: Bash(python scripts/deal_export.py *)
+allowed-tools: Bash(python scripts/deal_export.py *), Bash(python scripts/policy_check.py *)
 disable-model-invocation: true
 ---
 
@@ -29,32 +29,48 @@ the user which ones are missing and stop rather than guessing their content.
    override — see `/calibrate`); otherwise read `templates/cam/<type>_cam.md` (the shipped
    default). If neither exists, this is a new deal type — note that, and you'll be establishing
    its structure with this draft.
-2. **Draft the CAM.** Write the full CAM as Markdown, following that template's exact section
-   structure, filling every placeholder with the grounded content already produced by the prior
-   steps. `--pd`/`--lgd` above are user-supplied inputs — use them exactly as given; never invent
-   or independently recompute a risk grade. Never state a fact or figure that wasn't grounded in
-   one of the prior steps or a source the user supplied.
-3. Save that draft to `deals/<company>/<proposal>_draft.md` (create the folder if it doesn't
-   exist).
-4. **Run `/review --company "<company>" --proposal "<proposal>"`** against that draft. If the
-   verdict is REJECTED, revise the draft per the notes and run `/review` again — repeat until
-   APPROVED.
-5. **Export it.** Once approved, run:
+2. **Get this deal's policy_state.** Run:
+   ```
+   python scripts/policy_check.py --company "<company>" --proposal "<proposal>"
+   ```
+   This reads `state.json`'s `ratios`/`collateral`/`covenants`/`security_package`/`guarantees`
+   (whatever of those exist — none of them are required) and deterministically computes
+   `required_conditions_precedent`, `covenant_results`, and `security_gaps`. If its `reasons`
+   list is non-empty (a real covenant breach or security gap already exists in this deal's
+   recorded structure), note that now — it's independent of anything you're about to draft.
+3. **Draft the CAM.** Read `agents/underwriter_agent.md` and act according to that role for this
+   step. Write the full CAM as Markdown, following the template's exact section structure,
+   filling every placeholder with the grounded content already produced by the prior steps.
+   `--pd`/`--lgd` above are user-supplied inputs — use them exactly as given; never invent or
+   independently recompute a risk grade. Never state a fact or figure that wasn't grounded in one
+   of the prior steps or a source the user supplied. Render every entry in policy_state's
+   `required_conditions_precedent` (from step 2) as prose in the CAM's Conditions Precedent
+   section, and end your response with the structured JSON block `agents/underwriter_agent.md`'s
+   Structured Output guideline specifies (`cp_ids_included`, `risk_categories_covered`,
+   `reported_figures`) — `/review` in step 5 checks the draft against this deterministically, so
+   it must actually be present and accurate, not a formality.
+4. Save that draft (Markdown *and* its trailing structured JSON block together, exactly as
+   written) to `deals/<company>/<proposal>_draft.md` (create the folder if it doesn't exist).
+5. **Run `/review --company "<company>" --proposal "<proposal>"`** against that draft. If the
+   verdict is REJECTED, revise the draft per the notes (which may include code-enforced reasons
+   from `policy_check.py` alongside the Reviewer's own qualitative feedback) and run `/review`
+   again — repeat until APPROVED.
+6. **Export it.** Once approved, run:
    ```
    python scripts/deal_export.py --company "<company>" --proposal "<proposal>" --type <type> --draft "deals/<company>/<proposal>_draft.md"
    ```
    This creates the dated output folder, exports `.docx` + `.xlsx`, and — only if this deal type
    had no template at all — auto-saves the draft's structure as a new override under
    `templates/local/cam/`.
-6. Report the output folder to the user, then delete the temporary `<proposal>_draft.md` file —
+7. Report the output folder to the user, then delete the temporary `<proposal>_draft.md` file —
    the real output now lives in the dated folder as a proper `.docx`/`.xlsx`.
 
 ## State: write
 
 Update this deal's state file (merge with whatever you read above — never drop a field another
 step already recorded): `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path` (the exported
-`.docx` path from step 5), and append `"assemble"` to `steps_completed` if it isn't already
+`.docx` path from step 6), and append `"assemble"` to `steps_completed` if it isn't already
 there. `/review` already checkpoints `review_verdict` itself. If `deal_export.py`'s output
-directory (from step 5) uses a different date than the state file you read in step 1 — e.g. this
+directory (from step 6) uses a different date than the state file you read in step 1 — e.g. this
 deal spanned multiple days — write the state file into `deal_export.py`'s actual output
 directory instead, so `state.json` ends up next to the `.docx`/`.xlsx` it describes.

@@ -91,17 +91,18 @@ def parse_verdict(response_text):
 
 def parse_underwriter_output(draft_text):
     """Extract the Underwriter's trailing structured JSON block
-    ({"cp_ids_included": [...], "risk_categories_covered": {...}}) from its
-    drafted CAM (see agents/underwriter_agent.md's Structured Output
-    guideline). Scans matches in reverse and returns the first one that
-    actually looks like this schema, for the same reason parse_verdict()
-    does: a block should always be trailing, but this is safer against an
-    unrelated ```json block appearing earlier in the draft.
+    ({"cp_ids_included": [...], "risk_categories_covered": {...},
+    "reported_figures": {...}}) from its drafted CAM (see
+    agents/underwriter_agent.md's Structured Output guideline). Scans
+    matches in reverse and returns the first one that actually looks like
+    this schema, for the same reason parse_verdict() does: a block should
+    always be trailing, but this is safer against an unrelated ```json
+    block appearing earlier in the draft.
 
     Missing or malformed output degrades to an empty structure, which then
     fails every downstream policy check safely (as "nothing included" /
-    "no category covered") rather than raising or silently skipping
-    enforcement.
+    "no category covered" / "nothing reported") rather than raising or
+    silently skipping enforcement.
     """
     for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
         try:
@@ -109,20 +110,118 @@ def parse_underwriter_output(draft_text):
         except (json.JSONDecodeError, AttributeError, TypeError):
             continue
         if isinstance(payload, dict) and (
-            "cp_ids_included" in payload or "risk_categories_covered" in payload
+            "cp_ids_included" in payload
+            or "risk_categories_covered" in payload
+            or "reported_figures" in payload
         ):
             return {
                 "cp_ids_included": payload.get("cp_ids_included") or [],
                 "risk_categories_covered": payload.get("risk_categories_covered") or {},
+                "reported_figures": payload.get("reported_figures") or {},
             }
-    return {"cp_ids_included": [], "risk_categories_covered": {}}
+    return {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
 
 
-def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state):
+def _compute_collateral_cover_pct(collateral):
+    """Aggregate collateral cover %, matching the same
+    collateral_value/exposure ratio spreading_builder.py's Collateral &
+    Exposure sheet computes as an Excel formula -- expressed as a
+    percentage (0-100 scale, matching how it's normally quoted in a CAM)
+    rather than the workbook's raw 0-1 fraction.
+
+    Returns None (rather than 0) when there's nothing to compute from, so
+    it's simply omitted from the ground-truth figures instead of being
+    compared against as if it were a real zero.
+    """
+    total_exposure = sum((asset.get("exposure") or 0) for asset in (collateral or []))
+    total_collateral_value = sum((asset.get("collateral_value") or 0) for asset in (collateral or []))
+    if not total_exposure:
+        return None
+    return (total_collateral_value / total_exposure) * 100
+
+
+def _ground_truth_figures(financials, ratios, collateral):
+    """The complete set of figures the Underwriter is allowed to cite a
+    number for, and what that number must actually be: every FY-Current
+    ratio (dscr, gross_leverage, current_ratio, gearing,
+    ebit_interest_cover, ebitda_interest_cover, plus the "EBIT/Interest"/
+    "EBITDA/Interest" aliases) and subtotal (ebitda, tangible_net_worth,
+    gross_profit, operating_profit, net_profit, profit_before_tax,
+    total_debt, total_assets, total_liabilities, total_equity) already
+    computed by evaluate_financial_model(), plus an aggregate
+    collateral_cover_pct derived from the collateral list. A pure function
+    of the same data already checkpointed to state.json -- never a new
+    calculation the Underwriter couldn't already see.
+    """
+    truth = {}
+    truth.update((ratios or {}).get("FY-Current") or {})
+    current_financials = dict((financials or {}).get("FY-Current") or {})
+    current_financials.pop("raw", None)  # a nested dict of raw inputs, not a figure itself
+    truth.update(current_financials)
+
+    collateral_cover_pct = _compute_collateral_cover_pct(collateral)
+    if collateral_cover_pct is not None:
+        truth["collateral_cover_pct"] = collateral_cover_pct
+
+    return truth
+
+
+def _values_match(reported_value, actual_value, relative_tolerance=0.005):
+    """A fixed 0.5% relative tolerance, applied consistently to every
+    metric (ratios and currency amounts alike) rather than picking a
+    different rule per metric. Guards the zero case explicitly since a
+    relative tolerance is undefined against an actual value of exactly 0.
+    """
+    try:
+        reported_value = float(reported_value)
+        actual_value = float(actual_value)
+    except (TypeError, ValueError):
+        return False
+    if actual_value == 0:
+        return abs(reported_value) < 1e-9
+    return abs(reported_value - actual_value) / abs(actual_value) <= relative_tolerance
+
+
+def _check_reported_figures(reported_figures, ground_truth_figures):
+    """Compare every figure the Underwriter's structured output declares
+    against the actual computed ground truth. A key with no corresponding
+    computed value is flagged UNRESOLVABLE_REPORTED_FIGURE -- the same
+    fallback discipline policy_engine.py's covenant-metric check uses --
+    rather than silently ignored, and any mismatch beyond tolerance is
+    reported with both the reported and computed values so the revision
+    prompt can point the Underwriter at exactly what to fix.
+    """
+    reasons = []
+    for metric, reported_value in (reported_figures or {}).items():
+        if metric not in ground_truth_figures:
+            reasons.append(
+                f"UNRESOLVABLE_REPORTED_FIGURE: '{metric}' is not a recognized computed "
+                f"figure (reported value: {reported_value})."
+            )
+            continue
+        actual_value = ground_truth_figures[metric]
+        if not _values_match(reported_value, actual_value):
+            reasons.append(
+                f"Narrative/Ground-Truth Mismatch: reported {metric} {reported_value} "
+                f"vs computed {actual_value}"
+            )
+    return reasons
+
+
+def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures):
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
-    verdict: covenant/security/CP/taxonomy compliance is checked exactly,
-    every time, and can only ever move a verdict from APPROVED to REJECTED
-    -- never the reverse.
+    verdict: covenant/security/CP/taxonomy/narrative-accuracy compliance is
+    checked exactly, every time, and can only ever move a verdict from
+    APPROVED to REJECTED -- never the reverse.
+
+    The narrative-accuracy check (reported_figures vs. ground_truth_figures)
+    closes the gap the taxonomy/CP/covenant checks don't: those validate the
+    deal's actual computed figures and structure, but say nothing about
+    whether the drafted prose *states* those figures correctly. Without it,
+    an Underwriter could narrate a wrong DSCR while still correctly
+    reporting cp_ids_included/risk_categories_covered, and nothing would
+    catch it -- this is that missing check, and risk_reviewer_agent.md is
+    deliberately not given this responsibility back; it stays code-enforced.
 
     Every reason found here is folded into the same `notes` string
     append_review_trail() already records an LLM-originated rejection
@@ -161,6 +260,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state)
             )
 
     reasons.extend(policy_state.get("security_gaps", []))
+
+    reasons.extend(_check_reported_figures(underwriter_output["reported_figures"], ground_truth_figures))
 
     if not reasons:
         return verdict, notes
@@ -270,6 +371,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         "security_package": existing_state.get("security_package", []),
         "guarantees": existing_state.get("guarantees", []),
     })
+    # Same inputs the loop below already holds fixed across iterations
+    # (financials/ratios/collateral don't change draft-to-draft within one
+    # run), so this is computed once and reused rather than per-iteration.
+    ground_truth_figures = _ground_truth_figures(financials, ratios, collateral)
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
@@ -314,7 +419,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         ).content[0].text
 
         verdict, notes = parse_verdict(audit_response)
-        verdict, notes = _apply_deterministic_policy_checks(verdict, notes, draft, policy_state)
+        verdict, notes = _apply_deterministic_policy_checks(
+            verdict, notes, draft, policy_state, ground_truth_figures,
+        )
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
                              deal_type=deal_type, steps_completed=steps_completed)

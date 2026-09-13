@@ -27,8 +27,12 @@ from orchestrator import (
     MAX_REVIEW_ITERATIONS,
     REQUIRED_RISK_TAXONOMY,
     _apply_deterministic_policy_checks,
+    _check_reported_figures,
+    _compute_collateral_cover_pct,
+    _ground_truth_figures,
     _load_multi_period_financials,
     _normalize_category,
+    _values_match,
     evaluate_financial_model,
     parse_underwriter_output,
     parse_verdict,
@@ -85,14 +89,20 @@ ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIR
 
 
 def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS,
-                      risk_categories=None):
+                      risk_categories=None, reported_figures=None):
     """A draft whose trailing structured JSON block satisfies every
     deterministic policy check by default (see agents/underwriter_agent.md's
     Structured Output guideline) -- for tests where the draft is expected to
-    actually be approved and exported."""
+    actually be approved and exported.
+
+    reported_figures defaults to empty: per the Structured Output guideline,
+    omitting a metric entirely (rather than reporting an unverifiable guess)
+    is always compliant, and most tests below have no financial data behind
+    them for a reported figure to be checked against anyway."""
     payload = {
         "cp_ids_included": list(cp_ids),
         "risk_categories_covered": risk_categories if risk_categories is not None else ALL_CATEGORIES_COVERED,
+        "reported_figures": reported_figures if reported_figures is not None else {},
     }
     return body + "\n\n```json\n" + json.dumps(payload) + "\n```"
 
@@ -188,12 +198,18 @@ def test_parse_underwriter_output_extracts_cp_ids_and_categories():
 
 def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     result = parse_underwriter_output("# Draft CAM with no trailing JSON block")
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}}
+    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
 
 
 def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     result = parse_underwriter_output('# Draft\n```json\n{"cp_ids_included": [\n```')
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}}
+    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+
+
+def test_parse_underwriter_output_extracts_reported_figures():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], reported_figures={"dscr": 1.45, "ebitda": 950000})
+    result = parse_underwriter_output(draft)
+    assert result["reported_figures"] == {"dscr": 1.45, "ebitda": 950000}
 
 
 def test_parse_underwriter_output_ignores_unrelated_earlier_json_blocks():
@@ -233,7 +249,7 @@ def _policy_state(required_cps=None, covenant_results=None, security_gaps=None):
 
 def test_apply_deterministic_policy_checks_passes_through_a_fully_compliant_approval():
     draft = _compliant_draft(cp_ids=["KYC-AML"])
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state(), {})
     assert verdict == "APPROVED"
     assert notes is None
 
@@ -241,7 +257,7 @@ def test_apply_deterministic_policy_checks_passes_through_a_fully_compliant_appr
 def test_apply_deterministic_policy_checks_overrides_approval_on_missing_cp():
     """A missing required cp_id must force REJECTED even when the LLM itself said APPROVED."""
     draft = _compliant_draft(cp_ids=[])  # KYC-AML required but not reported as included
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state(), {})
     assert verdict == "REJECTED"
     assert "Missing Required CP KYC-AML" in notes
 
@@ -251,7 +267,7 @@ def test_apply_deterministic_policy_checks_overrides_on_malformed_not_applicable
     categories = dict(ALL_CATEGORIES_COVERED)
     categories["Operational"] = {"status": "not_applicable", "justification": "   "}
     draft = _compliant_draft(cp_ids=["KYC-AML"], risk_categories=categories)
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state(), {})
     assert verdict == "REJECTED"
     assert "Missing or malformed Risk Category: Operational" in notes
 
@@ -262,7 +278,7 @@ def test_apply_deterministic_policy_checks_accepts_normalized_category_key():
     del categories["Market"]
     categories["Market Risk"] = {"status": "covered"}
     draft = _compliant_draft(cp_ids=["KYC-AML"], risk_categories=categories)
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state(), {})
     assert verdict == "APPROVED"
     assert notes is None
 
@@ -274,7 +290,7 @@ def test_apply_deterministic_policy_checks_accepts_case_insensitive_status_value
     categories = dict(ALL_CATEGORIES_COVERED)
     categories["Market"] = {"status": "Covered"}
     draft = _compliant_draft(cp_ids=["KYC-AML"], risk_categories=categories)
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state())
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, _policy_state(), {})
     assert verdict == "APPROVED"
     assert notes is None
 
@@ -284,7 +300,7 @@ def test_apply_deterministic_policy_checks_overrides_on_covenant_failure():
     policy_state = _policy_state(covenant_results=[
         {"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.0, "status": "FAIL", "headroom_pct": -0.2},
     ])
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state)
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state, {})
     assert verdict == "REJECTED"
     assert "Covenant FAIL: dscr" in notes
 
@@ -295,7 +311,7 @@ def test_apply_deterministic_policy_checks_overrides_on_unresolvable_covenant():
         {"metric": "made_up_metric", "type": "minimum", "threshold": 1.0, "actual": None,
          "status": "UNRESOLVABLE", "headroom_pct": None},
     ])
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state)
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state, {})
     assert verdict == "REJECTED"
     assert "Covenant UNRESOLVABLE: made_up_metric" in notes
 
@@ -305,7 +321,7 @@ def test_apply_deterministic_policy_checks_overrides_on_security_gap():
     policy_state = _policy_state(security_gaps=[
         "Uncharged Asset: AST-002 has no corresponding security charge registered.",
     ])
-    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state)
+    verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state, {})
     assert verdict == "REJECTED"
     assert "Uncharged Asset: AST-002" in notes
 
@@ -313,7 +329,7 @@ def test_apply_deterministic_policy_checks_overrides_on_security_gap():
 def test_apply_deterministic_policy_checks_combines_llm_notes_with_code_enforced_reasons():
     draft = _compliant_draft(cp_ids=[])  # missing KYC-AML
     verdict, notes = _apply_deterministic_policy_checks(
-        "REJECTED", "The narrative is too generic.", draft, _policy_state(),
+        "REJECTED", "The narrative is too generic.", draft, _policy_state(), {},
     )
     assert verdict == "REJECTED"
     assert "The narrative is too generic." in notes
@@ -322,9 +338,153 @@ def test_apply_deterministic_policy_checks_combines_llm_notes_with_code_enforced
 
 def test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved():
     draft = _compliant_draft(cp_ids=["KYC-AML"])  # fully compliant
-    verdict, notes = _apply_deterministic_policy_checks("REJECTED", "Weak mitigants.", draft, _policy_state())
+    verdict, notes = _apply_deterministic_policy_checks("REJECTED", "Weak mitigants.", draft, _policy_state(), {})
     assert verdict == "REJECTED"
     assert notes == "Weak mitigants."
+
+
+# ---------------------------------------------------------------------------
+# Narrative-accuracy check: reported_figures vs. ground_truth_figures. This
+# closes the gap the CP/taxonomy/covenant checks don't -- those validate the
+# deal's actual computed figures and structure, never what the drafted
+# prose *states* those figures to be.
+# ---------------------------------------------------------------------------
+
+GROUND_TRUTH = {"dscr": 1.05, "gross_leverage": 3.4, "ebitda": 950000}
+
+
+def test_apply_deterministic_policy_checks_passes_a_matching_reported_figure():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], reported_figures={"dscr": 1.0501})  # within 0.5% tolerance
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), GROUND_TRUTH,
+    )
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
+def test_apply_deterministic_policy_checks_rejects_a_mismatched_reported_figure():
+    """A stated DSCR of 1.45 against a computed 1.05 is well outside tolerance."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"], reported_figures={"dscr": 1.45})
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), GROUND_TRUTH,
+    )
+    assert verdict == "REJECTED"
+    assert "Narrative/Ground-Truth Mismatch: reported dscr 1.45 vs computed 1.05" in notes
+
+
+def test_apply_deterministic_policy_checks_flags_unresolvable_reported_figure():
+    """A reported metric with no corresponding computed value must be
+    flagged, not silently ignored -- same fallback discipline as the
+    covenant-metric check in policy_engine.py."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"], reported_figures={"made_up_metric": 42})
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), GROUND_TRUTH,
+    )
+    assert verdict == "REJECTED"
+    assert "UNRESOLVABLE_REPORTED_FIGURE" in notes
+    assert "made_up_metric" in notes
+
+
+def test_apply_deterministic_policy_checks_reported_figures_uses_same_unified_rejection_path():
+    """A narrative mismatch must combine with LLM notes exactly like every
+    other code-enforced reason -- not a separate/parallel field."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"], reported_figures={"dscr": 1.45})
+    verdict, notes = _apply_deterministic_policy_checks(
+        "REJECTED", "The tone is too informal.", draft, _policy_state(), GROUND_TRUTH,
+    )
+    assert verdict == "REJECTED"
+    assert "The tone is too informal." in notes
+    assert "Narrative/Ground-Truth Mismatch: reported dscr 1.45 vs computed 1.05" in notes
+
+
+def test_apply_deterministic_policy_checks_ignores_omitted_figures():
+    """Omitting a metric entirely (rather than guessing) must never itself be a violation."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"], reported_figures={})
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), GROUND_TRUTH,
+    )
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
+# ---------------------------------------------------------------------------
+# _values_match(): a fixed 0.5% relative tolerance, applied consistently.
+# ---------------------------------------------------------------------------
+
+def test_values_match_within_tolerance():
+    assert _values_match(1.0501, 1.05) is True  # ~0.01% off
+
+
+def test_values_match_rejects_beyond_tolerance():
+    assert _values_match(1.45, 1.05) is False
+
+
+def test_values_match_boundary_exactly_at_tolerance():
+    actual = 100.0
+    reported = actual * 1.005  # exactly 0.5%
+    assert _values_match(reported, actual) is True
+
+
+def test_values_match_handles_zero_actual_without_dividing_by_zero():
+    assert _values_match(0, 0) is True
+    assert _values_match(0.001, 0) is False
+
+
+def test_values_match_returns_false_for_non_numeric_input():
+    assert _values_match("not a number", 1.05) is False
+
+
+# ---------------------------------------------------------------------------
+# _compute_collateral_cover_pct() / _ground_truth_figures()
+# ---------------------------------------------------------------------------
+
+def test_compute_collateral_cover_pct_aggregates_across_assets():
+    collateral = [
+        {"exposure": 100, "collateral_value": 80},
+        {"exposure": 50, "collateral_value": 40},
+    ]
+    assert _compute_collateral_cover_pct(collateral) == pytest.approx(120 / 150 * 100)
+
+
+def test_compute_collateral_cover_pct_returns_none_when_no_exposure():
+    assert _compute_collateral_cover_pct([]) is None
+    assert _compute_collateral_cover_pct([{"exposure": 0, "collateral_value": 0}]) is None
+
+
+def test_ground_truth_figures_combines_ratios_financials_and_collateral():
+    financials = {"FY-Current": {"raw": {"revenue": 1000}, "ebitda": 510, "tangible_net_worth": 250}}
+    ratios = {"FY-Current": {"dscr": 1.5, "gross_leverage": 0.68}}
+    collateral = [{"exposure": 100, "collateral_value": 90}]
+
+    truth = _ground_truth_figures(financials, ratios, collateral)
+
+    assert truth["dscr"] == 1.5
+    assert truth["gross_leverage"] == 0.68
+    assert truth["ebitda"] == 510
+    assert truth["tangible_net_worth"] == 250
+    assert truth["collateral_cover_pct"] == pytest.approx(90.0)
+    assert "raw" not in truth  # the nested raw-input dict is not itself a figure
+
+
+def test_ground_truth_figures_handles_completely_empty_input():
+    assert _ground_truth_figures({}, {}, []) == {}
+
+
+# ---------------------------------------------------------------------------
+# _check_reported_figures()
+# ---------------------------------------------------------------------------
+
+def test_check_reported_figures_returns_no_reasons_when_all_match():
+    assert _check_reported_figures({"dscr": 1.05}, {"dscr": 1.05}) == []
+
+
+def test_check_reported_figures_flags_unresolvable_and_mismatch_independently():
+    reasons = _check_reported_figures(
+        {"dscr": 1.45, "made_up_metric": 42}, {"dscr": 1.05},
+    )
+    assert len(reasons) == 2
+    assert any("Narrative/Ground-Truth Mismatch" in r for r in reasons)
+    assert any("UNRESOLVABLE_REPORTED_FIGURE" in r for r in reasons)
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +723,46 @@ def test_run_pipeline_code_enforced_rejection_triggers_revision_and_matches_revi
 
     # The revision path actually ran: a second draft + audit call were made.
     assert client.call_count == 4
+
+    docx_path = os.path.join(os.path.dirname(state_path("Acme Corp", "Fleet Loan")),
+                              "Acme Corp_Fleet Loan_CAM.docx")
+    doc = docx.Document(docx_path)
+    assert doc.paragraphs[0].text == "Draft v2 (fixed)"
+
+
+def test_run_pipeline_narrative_mismatch_triggers_revision_and_matches_review_trail_shape(project_root):
+    """A drafted CAM can state figures that don't match what state.json
+    actually computed even while every CP/taxonomy box is ticked -- the
+    narrative-accuracy check must catch that independently, drive the same
+    revision cycle, and produce a review_trail entry with the same shape as
+    every other rejection reason."""
+    client = MockClient([
+        _compliant_draft("# Draft v1", reported_figures={"dscr": 5.0}),  # wildly wrong DSCR
+        _approved_json(),                                                 # Reviewer wrongly says APPROVED
+        _compliant_draft("# Draft v2 (fixed)", reported_figures={"dscr": 5.1}),  # now matches
+        _approved_json(),
+    ])
+    multi_period_financials = {
+        "FY-Current": {
+            "revenue": 1000, "cost_of_sales": 400, "admin_expenses": 100,
+            "depreciation": 50, "amortisation": 20, "other_income": 10,
+            "interest_paid": 30, "scheduled_principal": 70,
+        }
+    }  # EBITDA=510, DSCR=510/(30+70)=5.1
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials=multi_period_financials, client=client)
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    trail = state["review_trail"]
+    assert [entry["verdict"] for entry in trail] == ["REJECTED", "APPROVED"]
+    assert "Narrative/Ground-Truth Mismatch: reported dscr 5.0 vs computed 5.1" in trail[0]["notes"]
+
+    llm_style_entry_keys = {"iteration", "verdict", "notes", "timestamp"}
+    assert set(trail[0].keys()) == llm_style_entry_keys
+    assert set(trail[1].keys()) == llm_style_entry_keys
+
+    assert client.call_count == 4  # revision path actually ran
 
     docx_path = os.path.join(os.path.dirname(state_path("Acme Corp", "Fleet Loan")),
                               "Acme Corp_Fleet Loan_CAM.docx")

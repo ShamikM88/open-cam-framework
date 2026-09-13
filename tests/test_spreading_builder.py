@@ -15,6 +15,8 @@ import openpyxl
 from spreading_builder import (
     COLLATERAL_HEADERS,
     SECTIONS,
+    apply_stress_shocks,
+    evaluate_downside_case,
     evaluate_financial_model,
     export_to_xlsx,
     validate_row_formulas,
@@ -423,6 +425,147 @@ def test_nonzero_denominator_ratios_still_compute_normally_including_negative_eq
     })
     ratios = result["ratios"]["FY-Current"]
     assert ratios["gearing"] == pytest.approx(200 / -400)
+
+
+# ---------------------------------------------------------------------------
+# Forward periods (FY+1-FY+3): evaluate_financial_model() needs zero code
+# changes to handle these -- it already loops generically over whatever
+# period keys it's given. These tests confirm that directly rather than
+# taking it on faith.
+# ---------------------------------------------------------------------------
+
+def test_evaluate_financial_model_handles_forward_periods_with_no_special_casing():
+    result = evaluate_financial_model({
+        "FY-Current": SAMPLE_PERIOD,
+        "FY+1": SAMPLE_PERIOD,
+        "FY+2": SAMPLE_PERIOD,
+        "FY+3": SAMPLE_PERIOD,
+    })
+
+    for period in ("FY-Current", "FY+1", "FY+2", "FY+3"):
+        assert result["financials"][period]["ebitda"] == 510
+        assert result["ratios"][period]["dscr"] == pytest.approx(510 / 100)
+
+
+def test_evaluate_financial_model_forward_periods_are_grounded_input_not_derived():
+    """A forward year with figures entirely different from the historical
+    period must produce entirely independent results -- confirming forward
+    years are treated as their own directly-supplied input, never derived
+    or extrapolated from the historical period alongside them."""
+    result = evaluate_financial_model({
+        "FY-Current": SAMPLE_PERIOD,
+        "FY+1": {**SAMPLE_PERIOD, "revenue": 2000},  # management's own forecast, e.g.
+    })
+    assert result["financials"]["FY-Current"]["gross_profit"] == 600
+    assert result["financials"]["FY+1"]["gross_profit"] == 1600  # 2000 - 400, independent
+
+
+# ---------------------------------------------------------------------------
+# Stress testing: apply_stress_shocks() / evaluate_downside_case(). No LLM
+# math, no invented figures -- these only ever transform an already-supplied
+# forward-year base case via explicit, deterministic shocks, then re-run the
+# exact same evaluate_financial_model() row chains used for the base case.
+# ---------------------------------------------------------------------------
+
+STRESS_ASSUMPTIONS = {
+    "revenue_haircut_pct": 10,
+    "interest_rate_bump_bps": 200,
+    "opex_increase_pct": 5,
+}
+
+
+def test_apply_stress_shocks_revenue_haircut():
+    shocked = apply_stress_shocks({"revenue": 1000}, {"revenue_haircut_pct": 10})
+    assert shocked["revenue"] == pytest.approx(900)  # 1000 * (1 - 10/100)
+
+
+def test_apply_stress_shocks_opex_increase_affects_only_admin_expenses():
+    shocked = apply_stress_shocks(
+        {"admin_expenses": 100, "cost_of_sales": 400}, {"opex_increase_pct": 5},
+    )
+    assert shocked["admin_expenses"] == pytest.approx(105)  # 100 * (1 + 5/100)
+    assert shocked["cost_of_sales"] == 400  # untouched -- opex shock never touches COGS
+
+
+def test_apply_stress_shocks_interest_rate_bump_uses_total_interest_bearing_debt():
+    base = {
+        "interest_paid": 30,
+        "current_debt": 15, "overdraft": 5, "long_term_debt": 300, "loan_notes": 25,
+    }
+    shocked = apply_stress_shocks(base, {"interest_rate_bump_bps": 200})
+    # total_interest_bearing_debt = 15+5+300+25 = 345; bump = 345 * 200/10000 = 6.9
+    assert shocked["interest_paid"] == pytest.approx(30 + 6.9)
+
+
+def test_apply_stress_shocks_leaves_other_fields_unchanged():
+    shocked = apply_stress_shocks(SAMPLE_PERIOD, STRESS_ASSUMPTIONS)
+    assert shocked["tax_paid"] == SAMPLE_PERIOD["tax_paid"]
+    assert shocked["cash"] == SAMPLE_PERIOD["cash"]
+    assert shocked["share_capital"] == SAMPLE_PERIOD["share_capital"]
+
+
+def test_apply_stress_shocks_does_not_mutate_the_base_case_dict():
+    original = dict(SAMPLE_PERIOD)
+    apply_stress_shocks(SAMPLE_PERIOD, STRESS_ASSUMPTIONS)
+    assert SAMPLE_PERIOD == original
+
+
+def test_apply_stress_shocks_with_no_assumptions_is_a_no_op_for_the_shocked_fields():
+    shocked = apply_stress_shocks(SAMPLE_PERIOD, {})
+    assert shocked["revenue"] == SAMPLE_PERIOD["revenue"]
+    assert shocked["admin_expenses"] == SAMPLE_PERIOD["admin_expenses"]
+    assert shocked["interest_paid"] == SAMPLE_PERIOD["interest_paid"]
+
+
+def test_evaluate_downside_case_produces_exact_expected_degraded_ebitda_and_dscr():
+    """End-to-end: SAMPLE_PERIOD as FY+1's base case, stressed by
+    STRESS_ASSUMPTIONS, re-run through the exact same row-chain evaluator
+    as the base case -- hand-calculated expected EBITDA/DSCR."""
+    result = evaluate_downside_case({"FY+1": SAMPLE_PERIOD}, STRESS_ASSUMPTIONS)
+
+    shocked_revenue = 1000 * 0.9  # 900
+    shocked_admin_expenses = 100 * 1.05  # 105
+    shocked_interest_paid = 30 + (345 * 200 / 10000)  # 30 + 6.9 = 36.9
+
+    expected_gross_profit = shocked_revenue - 400  # cost_of_sales unchanged = 400
+    expected_operating_profit = expected_gross_profit - shocked_admin_expenses - 50 - 20 + 10
+    expected_ebitda = expected_operating_profit + 50 + 20
+    expected_dscr = expected_ebitda / (shocked_interest_paid + 70)  # scheduled_principal unchanged
+
+    financials = result["financials"]["FY+1"]
+    ratios = result["ratios"]["FY+1"]
+    assert financials["ebitda"] == pytest.approx(expected_ebitda)
+    assert ratios["dscr"] == pytest.approx(expected_dscr)
+
+
+def test_evaluate_downside_case_never_shocks_historical_periods():
+    result = evaluate_downside_case(
+        {"FY-2": SAMPLE_PERIOD, "FY-1": SAMPLE_PERIOD, "FY-Current": SAMPLE_PERIOD, "FY+1": SAMPLE_PERIOD},
+        STRESS_ASSUMPTIONS,
+    )
+    assert set(result["financials"].keys()) == {"FY+1"}
+    assert "FY-2" not in result["ratios"]
+    assert "FY-Current" not in result["ratios"]
+
+
+def test_evaluate_downside_case_only_includes_forward_periods_actually_present():
+    result = evaluate_downside_case({"FY+1": SAMPLE_PERIOD}, STRESS_ASSUMPTIONS)
+    assert set(result["financials"].keys()) == {"FY+1"}
+    assert "FY+2" not in result["financials"]
+    assert "FY+3" not in result["financials"]
+
+
+def test_evaluate_downside_case_with_no_forward_periods_returns_empty():
+    result = evaluate_downside_case({"FY-Current": SAMPLE_PERIOD}, STRESS_ASSUMPTIONS)
+    assert result == {"financials": {}, "ratios": {}}
+
+
+def test_evaluate_downside_case_handles_multiple_forward_years_independently():
+    result = evaluate_downside_case(
+        {"FY+1": SAMPLE_PERIOD, "FY+2": {**SAMPLE_PERIOD, "revenue": 2000}},
+        STRESS_ASSUMPTIONS,
+    )
+    assert result["financials"]["FY+1"]["ebitda"] != result["financials"]["FY+2"]["ebitda"]
 
 
 # ---------------------------------------------------------------------------

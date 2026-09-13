@@ -18,7 +18,7 @@ from policy_checks import (
     check_reported_figures as _check_reported_figures,
 )
 from policy_engine import evaluate_deal_policy
-from spreading_builder import evaluate_financial_model
+from spreading_builder import evaluate_downside_case, evaluate_financial_model
 from state_manager import write_state, append_review_trail, read_state, state_path
 from template_resolver import cam_template_path
 
@@ -108,28 +108,49 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
 
 
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
-                              collateral_data, policy_state=None):
+                              collateral_data, policy_state=None, downside_case=None):
     """The only place raw financials/ratios/collateral/policy data are
     injected into either agent's prompt -- both the Maker (draft + revision
     calls) and the Checker (audit call) receive exactly this block, so the
     Checker is auditing the draft against the same ground truth the Maker
     was given, not just against the draft's own internal consistency.
+
+    `model_data`'s financials/ratios include forward periods ("FY+1"-
+    "FY+3") exactly like historical ones when the deal has them -- this is
+    the base case. `downside_case` (if given) is the separate, explicitly
+    stressed version of those same forward periods (see
+    spreading_builder.evaluate_downside_case()) -- never mixed into the
+    base-case financials/ratios above, so the Underwriter can never
+    mistake one for the other.
     """
     parts = [
         f"\nCompany: {company}",
         f"Proposal: {proposal}",
         f"PD: {pd_score}",
         f"LGD: {lgd_score}",
-        "\nGrounded multi-period financials (from state.json -- the only "
-        "source of truth for these figures; never invent or adjust them):",
+        "\nGrounded multi-period financials -- historical and forward-year "
+        "base case alike (from state.json -- the only source of truth for "
+        "these figures; never invent, extrapolate, or adjust them):",
         f"```json\n{json.dumps(model_data.get('financials', {}), indent=2)}\n```",
-        "\nProgrammatically calculated ratios (from state.json -- re-verify "
-        "the draft's stated figures against these; never recompute independently):",
+        "\nProgrammatically calculated ratios, base case, every period "
+        "supplied (from state.json -- re-verify the draft's stated figures "
+        "against these; never recompute independently):",
         f"```json\n{json.dumps(model_data.get('ratios', {}), indent=2)}\n```",
     ]
     if collateral_data:
         parts.append("\nCollateral / exposure data (from state.json):")
         parts.append(f"```json\n{json.dumps(collateral_data, indent=2)}\n```")
+    if downside_case and (downside_case.get("financials") or downside_case.get("ratios")):
+        parts.append(
+            "\nDownside (stressed) forward-year financials and ratios (from "
+            "state.json -- already computed by applying this deal's "
+            "stress_assumptions to the base case above; synthesize these in "
+            "your Projections & Sensitivities section, never recompute or "
+            "invent a stress impact yourself. Cite any of these figures in "
+            "your structured output's `reported_figures` under "
+            "`{metric}_{period}_downside` keys, e.g. \"dscr_FY+2_downside\"):"
+        )
+        parts.append(f"```json\n{json.dumps(downside_case, indent=2)}\n```")
     if policy_state:
         parts.append(
             "\nRequired Conditions Precedent (from policy_state -- render each one's "
@@ -148,11 +169,23 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
         if policy_state.get("security_gaps"):
             parts.append("\nSecurity/collateral gaps identified (from policy_state):")
             parts.append(f"```json\n{json.dumps(policy_state['security_gaps'], indent=2)}\n```")
+        if policy_state.get("downside_covenant_breaches"):
+            parts.append(
+                "\nDownside covenant breaches under stress (from policy_state -- a "
+                "covenant that PASSes in the base case but FAILs in the downside "
+                "case for a given year. This does not force rejection on its own, "
+                "but every breach_id below must be named, with its year/metric/"
+                "shortfall and a proposed structural mitigant, in your Projections "
+                "& Sensitivities section, and included in your structured output's "
+                "`downside_breaches_acknowledged` -- a code-level check rejects the "
+                "draft if any breach_id here is left undisclosed):"
+            )
+            parts.append(f"```json\n{json.dumps(policy_state['downside_covenant_breaches'], indent=2)}\n```")
     return "\n".join(parts)
 
 
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
-                  multi_period_financials=None, collateral_data=None,
+                  multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS):
     client = client or _default_client()
 
@@ -196,22 +229,39 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
 
+    # Downside (stressed) forward-year case: only (re)computed when this
+    # call was actually given both forward-year base-case financials and
+    # stress_assumptions to apply to them; otherwise reuse whatever this
+    # deal already had checkpointed (matching financials/ratios/collateral's
+    # own "only replace when given new data" rule above). Historical
+    # periods in `multi_period_financials` are never shocked -- see
+    # evaluate_downside_case().
+    if multi_period_financials and stress_assumptions:
+        downside_case = evaluate_downside_case(multi_period_financials, stress_assumptions)
+        stress_assumptions_to_persist = stress_assumptions
+    else:
+        downside_case = existing_state.get("downside_case", {})
+        stress_assumptions_to_persist = existing_state.get("stress_assumptions", {})
+
     # Covenants/security/guarantees have no dedicated CLI flags yet -- they
     # come from whatever this deal's state.json already carries (e.g. hand-
     # edited, or written by a future slash-command step). policy_state is
     # a pure function of these plus the freshly (re)computed ratios/
-    # collateral above, so it's recomputed every run rather than cached.
+    # collateral/downside_case above, so it's recomputed every run rather
+    # than cached.
     policy_state = evaluate_deal_policy({
         "ratios": ratios,
         "collateral": collateral,
         "covenants": existing_state.get("covenants", []),
         "security_package": existing_state.get("security_package", []),
         "guarantees": existing_state.get("guarantees", []),
+        "downside_case": downside_case,
     })
     # Same inputs the loop below already holds fixed across iterations
-    # (financials/ratios/collateral don't change draft-to-draft within one
-    # run), so this is computed once and reused rather than per-iteration.
-    ground_truth_figures = _ground_truth_figures(financials, ratios, collateral)
+    # (financials/ratios/collateral/downside_case don't change draft-to-draft
+    # within one run), so this is computed once and reused rather than
+    # per-iteration.
+    ground_truth_figures = _ground_truth_figures(financials, ratios, collateral, downside_case)
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
@@ -219,11 +269,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     write_state(company, proposal, deal_type=deal_type,
                 inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral,
+                downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
                 policy_state=policy_state, steps_completed=steps_completed)
 
     grounding_context = _build_grounding_context(
         company, proposal, pd_score, lgd_score,
-        {"financials": financials, "ratios": ratios}, collateral, policy_state,
+        {"financials": financials, "ratios": ratios}, collateral, policy_state, downside_case,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
@@ -303,18 +354,34 @@ if __name__ == "__main__":
     parser.add_argument("--lgd", default="LGD 3 (15%)")
     parser.add_argument("--type", default="corporate_credit")
     parser.add_argument("--financials",
-                         help="Path to a JSON file of multi-period raw financials: "
-                              '{"FY-2": {...}, "FY-1": {...}, "FY-Current": {...}}')
+                         help="Path to a JSON file of multi-period raw financials, dict-keyed by "
+                              "period label -- historical ('FY-2', 'FY-1', 'FY-Current') and/or "
+                              "forward ('FY+1', 'FY+2', 'FY+3'), any subset of either, same "
+                              "granular schema for all of them: "
+                              '{"FY-2": {...}, "FY-1": {...}, "FY-Current": {...}, "FY+1": {...}}. '
+                              "Forward-year figures are grounded, user-supplied input (e.g. "
+                              "management's own forecast) exactly like historical ones -- never "
+                              "derived or extrapolated by this tool.")
     parser.add_argument("--spread",
                          help="Path to a JSON file in the same shape as --financials; "
                               "takes precedence over --financials if both are given")
     parser.add_argument("--collateral",
                          help="Path to a JSON file containing a flat list of collateral asset dicts")
+    parser.add_argument("--stress-assumptions",
+                         help="Path to a JSON file of deterministic downside-case shocks applied "
+                              "to --financials/--spread's FY+1-FY+3 entries only (historical "
+                              "periods are never shocked): "
+                              '{"revenue_haircut_pct": 10, "interest_rate_bump_bps": 200, '
+                              '"opex_increase_pct": 5}. opex_increase_pct affects admin_expenses '
+                              "only, never cost_of_sales. Ignored if --financials/--spread has no "
+                              "forward-year entries.")
     args = parser.parse_args()
 
     multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
     collateral_data = _load_json_file(args.collateral)
+    stress_assumptions = _load_json_file(args.stress_assumptions)
 
     run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,
                  multi_period_financials=multi_period_financials,
-                 collateral_data=collateral_data)
+                 collateral_data=collateral_data,
+                 stress_assumptions=stress_assumptions)

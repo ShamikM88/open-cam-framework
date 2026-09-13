@@ -5,6 +5,8 @@ from datetime import datetime
 
 from deal_export import export_deal
 from state_manager import (
+    LEGACY_SCHEMA_VERSION,
+    SCHEMA_VERSION,
     append_review_trail,
     read_state,
     sanitize_path_component,
@@ -15,6 +17,50 @@ from state_manager import (
 
 def test_read_state_returns_none_when_no_file_exists(tmp_path):
     assert read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path)) is None
+
+
+# ---------------------------------------------------------------------------
+# Schema versioning: write_state() always stamps the current version;
+# read_state() never assumes it's present on an older file.
+# ---------------------------------------------------------------------------
+
+def test_write_state_sets_schema_version_unconditionally(tmp_path):
+    base = str(tmp_path)
+    state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert state["schema_version"] == SCHEMA_VERSION == "1.1.0"
+
+
+def test_write_state_sets_schema_version_on_every_subsequent_write_too(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+    state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, inputs={"pd": "0.20%"})
+    assert state["schema_version"] == SCHEMA_VERSION
+
+
+def test_read_state_reports_legacy_version_for_a_file_with_no_schema_version_key(tmp_path):
+    """A deal folder written before schema_version existed at all -- must
+    not raise, and must report LEGACY_SCHEMA_VERSION rather than leaving
+    the key absent."""
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"company": "Acme Corp", "proposal": "Fleet Loan", "date": "2026-01-15"}, f)
+
+    state = read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert state is not None
+    assert state["schema_version"] == LEGACY_SCHEMA_VERSION == "0.0.0"
+
+
+def test_write_state_upgrades_a_legacy_file_to_the_current_schema_version(tmp_path):
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"company": "Acme Corp", "proposal": "Fleet Loan", "date": "2026-01-15"}, f)
+
+    state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+    assert state["schema_version"] == SCHEMA_VERSION
 
 
 # ---------------------------------------------------------------------------

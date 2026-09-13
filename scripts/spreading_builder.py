@@ -226,8 +226,16 @@ def validate_row_formulas(sections=None):
 
 def evaluate_financial_model(multi_period_data):
     """Programmatically evaluate the same row chains spreading_builder.py
-    writes as Excel formulas, for each period in `multi_period_data`
-    (expected keys: "FY-2", "FY-1", "FY-Current" -- any subset is fine).
+    writes as Excel formulas, for each period in `multi_period_data` --
+    historical ("FY-2", "FY-1", "FY-Current") and forward ("FY+1", "FY+2",
+    "FY+3") periods alike, any subset of either. There is nothing period-
+    specific about the row chains below: a forward year's raw figures are
+    just as directly-supplied (grounded, user/management input -- e.g. a
+    forecast) as a historical year's, so they're evaluated exactly the same
+    way. Nothing here forecasts, extrapolates, or invents a forward year's
+    starting figures -- see apply_stress_shocks()/evaluate_downside_case()
+    for the one deterministic transformation this module does apply, and
+    only on top of an already-supplied forward-year base case.
 
     This is the single source of truth for computed figures outside of the
     Excel workbook itself (e.g. for grounding LLM prompts and for
@@ -337,6 +345,90 @@ def evaluate_financial_model(multi_period_data):
         }
 
     return {"financials": financials, "ratios": ratios}
+
+
+DEFAULT_FORWARD_PERIODS = ("FY+1", "FY+2", "FY+3")
+
+
+def apply_stress_shocks(base_case_raw, stress_assumptions):
+    """Derive one forward year's shocked raw-input dict from its
+    already-supplied base-case raw figures and a set of explicit,
+    deterministic stress assumptions -- never a Python-invented or
+    -extrapolated figure; the base case itself is untouched input, only
+    the three shocks below are applied to it.
+
+    `stress_assumptions` (all optional, default to no shock):
+    - "revenue_haircut_pct": shocked revenue = base_revenue * (1 - pct/100)
+    - "opex_increase_pct": shocked admin_expenses = base_admin_expenses *
+      (1 + pct/100) -- applies to `admin_expenses` only, never
+      `cost_of_sales`; a cost-of-sales stress is a different, unmodeled
+      scenario (e.g. a supply-cost shock), not "opex".
+    - "interest_rate_bump_bps": shocked interest_paid = base_interest_paid
+      + (total_interest_bearing_debt * bps / 10000), where
+      total_interest_bearing_debt is that same year's base-case
+      current_debt + overdraft + long_term_debt + loan_notes -- the same
+      debt aggregate evaluate_financial_model() uses for total_debt/
+      gross_leverage/gearing, just computed directly from the raw dict here
+      since evaluate_financial_model() hasn't run yet at this point.
+
+    Every other raw field (balance sheet, tax, etc.) is carried through
+    unchanged -- the shocks model a P&L/financing stress, not a full
+    re-forecast of the balance sheet.
+
+    Returns a new dict; `base_case_raw` is never mutated.
+    """
+    stress_assumptions = stress_assumptions or {}
+    revenue_haircut_pct = stress_assumptions.get("revenue_haircut_pct") or 0
+    opex_increase_pct = stress_assumptions.get("opex_increase_pct") or 0
+    interest_rate_bump_bps = stress_assumptions.get("interest_rate_bump_bps") or 0
+
+    base_case_raw = base_case_raw or {}
+    shocked = dict(base_case_raw)
+
+    base_revenue = base_case_raw.get("revenue", 0) or 0
+    shocked["revenue"] = base_revenue * (1 - revenue_haircut_pct / 100)
+
+    base_admin_expenses = base_case_raw.get("admin_expenses", 0) or 0
+    shocked["admin_expenses"] = base_admin_expenses * (1 + opex_increase_pct / 100)
+
+    base_interest_paid = base_case_raw.get("interest_paid", 0) or 0
+    total_interest_bearing_debt = (
+        (base_case_raw.get("current_debt", 0) or 0)
+        + (base_case_raw.get("overdraft", 0) or 0)
+        + (base_case_raw.get("long_term_debt", 0) or 0)
+        + (base_case_raw.get("loan_notes", 0) or 0)
+    )
+    shocked["interest_paid"] = base_interest_paid + (
+        total_interest_bearing_debt * interest_rate_bump_bps / 10000
+    )
+
+    return shocked
+
+
+def evaluate_downside_case(multi_period_data, stress_assumptions, forward_periods=DEFAULT_FORWARD_PERIODS):
+    """Build the downside (stressed) case for every forward period present
+    in `multi_period_data`, by applying apply_stress_shocks() to that
+    period's already-supplied base-case raw figures and then re-running
+    evaluate_financial_model() on the shocked inputs -- the exact same
+    row-chain evaluator the base case uses, never a separate, hand-derived
+    formula set, so a covenant check against downside ratios is comparing
+    like for like against the base case.
+
+    Historical periods are never shocked and never appear in the result --
+    only entries in `forward_periods` that are actually present in
+    `multi_period_data` are included. Returns {} (both "financials" and
+    "ratios" empty) if no forward periods are present at all.
+
+    Returns the same shape as evaluate_financial_model():
+    {"financials": {period: {...}}, "ratios": {period: {...}}}.
+    """
+    multi_period_data = multi_period_data or {}
+    shocked_inputs = {
+        period: apply_stress_shocks(multi_period_data[period], stress_assumptions)
+        for period in forward_periods
+        if period in multi_period_data
+    }
+    return evaluate_financial_model(shocked_inputs)
 
 
 def _write_financial_spreading(wb, row_of, financial_data=None):

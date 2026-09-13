@@ -275,33 +275,91 @@ def _guarantee_cps(guarantees):
     return cps
 
 
+def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios):
+    """For each covenant, independently re-check it against every forward
+    period that has both a base-case and a downside-case ratio set. Where
+    the base case PASSes but the downside (stressed) case FAILs, record it
+    as a downside breach.
+
+    This is purely additive on top of _evaluate_covenant() -- it neither
+    reads nor changes covenant_results's existing meaning (the current-
+    period gate both orchestrator.py and policy_checks.py already enforce);
+    it's a second, independent pass of the same per-covenant evaluation
+    against different (forward-year, shocked) ratio inputs.
+
+    `all_ratios`/`downside_ratios` are the full multi-period ratios dicts
+    (e.g. state.json's `ratios` and `downside_case["ratios"]`) -- not
+    pre-sliced to one period, unlike `_evaluate_covenant`'s own `ratios`
+    argument, since this needs every forward period present in both.
+
+    Returns a list of {"year", "metric", "base_actual", "downside_actual",
+    "threshold", "breach_id"}. `breach_id` is built from _slugify() (the
+    same stable-identifier convention as `cp_id`), so a downside breach for
+    "FY+2"/"dscr" always slugifies to the same id (e.g.
+    "DOWNSIDE-FY-2-DSCR" -- "+" is not alphanumeric, so it slugifies to
+    "-", the same as every other cp_id in this module) across repeated
+    calls with the same input.
+    """
+    breaches = []
+    for period in sorted(downside_ratios or {}):
+        if period not in (all_ratios or {}):
+            continue
+        base_ratios_for_period = all_ratios[period] or {}
+        downside_ratios_for_period = downside_ratios[period] or {}
+
+        for covenant in covenants:
+            base_result = _evaluate_covenant(covenant, base_ratios_for_period)
+            downside_result = _evaluate_covenant(covenant, downside_ratios_for_period)
+
+            if base_result["status"] == "PASS" and downside_result["status"] == "FAIL":
+                metric = covenant.get("metric")
+                breaches.append({
+                    "year": period,
+                    "metric": metric,
+                    "base_actual": base_result["actual"],
+                    "downside_actual": downside_result["actual"],
+                    "threshold": base_result["threshold"],
+                    "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                })
+
+    return breaches
+
+
 def evaluate_deal_policy(state_dict):
     """Evaluate one deal's state against deterministic credit policy rules.
 
-    Reads (all optional, default to empty): `ratios["FY-Current"]`,
-    `collateral` (a flat list of asset dicts, each expected to carry an
-    `asset_id`), `security_package` (a flat list of
+    Reads (all optional, default to empty): `ratios` (the full multi-period
+    dict -- `ratios["FY-Current"]` drives `covenant_results` below exactly
+    as before; any `"FY+1"`/`"FY+2"`/`"FY+3"` entries feed the downside
+    check only), `collateral` (a flat list of asset dicts, each expected to
+    carry an `asset_id`), `security_package` (a flat list of
     {"secures_asset_id", "perfection_status", "ranking"} dicts), `guarantees`
-    (a flat list of {"provider", "type", "amount"} dicts), and `covenants`
-    (a flat list of {"metric", "type", "threshold"} dicts).
+    (a flat list of {"provider", "type", "amount"} dicts), `covenants`
+    (a flat list of {"metric", "type", "threshold"} dicts), and
+    `downside_case` ({"financials": {...}, "ratios": {...}} for forward
+    periods only -- see spreading_builder.evaluate_downside_case()).
 
     Returns:
     {
         "covenant_results": [{"metric", "type", "threshold", "actual", "status", "headroom_pct"}, ...],
         "security_gaps": [str, ...],
         "required_conditions_precedent": [{"cp_id", "text"}, ...],
+        "downside_covenant_breaches": [{"year", "metric", "base_actual", "downside_actual", "threshold", "breach_id"}, ...],
     }
     """
     state_dict = state_dict or {}
-    ratios = (state_dict.get("ratios") or {}).get("FY-Current") or {}
+    all_ratios = state_dict.get("ratios") or {}
+    ratios = all_ratios.get("FY-Current") or {}
     collateral = state_dict.get("collateral") or []
     security_package = state_dict.get("security_package") or []
     guarantees = state_dict.get("guarantees") or []
     covenants = state_dict.get("covenants") or []
+    downside_ratios = (state_dict.get("downside_case") or {}).get("ratios") or {}
 
     covenant_results = [_evaluate_covenant(covenant, ratios) for covenant in covenants]
     security_gaps, security_cps = _evaluate_security(collateral, security_package)
     guarantee_cps = _guarantee_cps(guarantees)
+    downside_covenant_breaches = _evaluate_downside_covenants(covenants, all_ratios, downside_ratios)
 
     required_conditions_precedent = (
         list(STANDARD_CONDITIONS_PRECEDENT) + security_cps + guarantee_cps
@@ -311,4 +369,5 @@ def evaluate_deal_policy(state_dict):
         "covenant_results": covenant_results,
         "security_gaps": security_gaps,
         "required_conditions_precedent": required_conditions_precedent,
+        "downside_covenant_breaches": downside_covenant_breaches,
     }

@@ -198,12 +198,18 @@ def test_parse_underwriter_output_extracts_cp_ids_and_categories():
 
 def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     result = parse_underwriter_output("# Draft CAM with no trailing JSON block")
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    assert result == {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     result = parse_underwriter_output('# Draft\n```json\n{"cp_ids_included": [\n```')
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    assert result == {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def test_parse_underwriter_output_extracts_reported_figures():
@@ -226,7 +232,10 @@ def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_typ
         + "\n```"
     )
     result = parse_underwriter_output(draft)
-    assert result == {"cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {}}
+    assert result == {
+        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+    }
 
 
 def test_apply_deterministic_policy_checks_does_not_crash_on_malformed_risk_categories_type():

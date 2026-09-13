@@ -28,21 +28,24 @@ from policy_checks import (
 ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
 
 
-def _compliant_draft(cp_ids=("KYC-AML",), reported_figures=None):
+def _compliant_draft(cp_ids=("KYC-AML",), reported_figures=None, downside_breaches_acknowledged=None):
     import json
     payload = {
         "cp_ids_included": list(cp_ids),
         "risk_categories_covered": ALL_CATEGORIES_COVERED,
         "reported_figures": reported_figures or {},
+        "downside_breaches_acknowledged": list(downside_breaches_acknowledged or []),
     }
     return "# Draft\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
-def _policy_state(required_cps=None, covenant_results=None, security_gaps=None):
+def _policy_state(required_cps=None, covenant_results=None, security_gaps=None,
+                   downside_covenant_breaches=None):
     return {
         "required_conditions_precedent": required_cps or [{"cp_id": "KYC-AML", "text": "KYC/AML clearance."}],
         "covenant_results": covenant_results or [],
         "security_gaps": security_gaps or [],
+        "downside_covenant_breaches": downside_covenant_breaches or [],
     }
 
 
@@ -208,3 +211,114 @@ def test_check_draft_compliance_empty_string_draft_is_treated_as_a_real_draft():
     reasons = check_draft_compliance("", _policy_state(), {})
     assert any("Missing Required CP KYC-AML" in r for r in reasons)
     assert any("Missing or malformed Risk Category" in r for r in reasons)
+
+
+# ---------------------------------------------------------------------------
+# Downside breach disclosure: a breach itself never forces a reason (a deal
+# can be sound with disclosed downside risk) -- only silently omitting it
+# from downside_breaches_acknowledged does.
+# ---------------------------------------------------------------------------
+
+DOWNSIDE_BREACH = {
+    "year": "FY+2", "metric": "dscr", "base_actual": 1.25,
+    "downside_actual": 1.05, "threshold": 1.10, "breach_id": "DOWNSIDE-FY-2-DSCR",
+}
+
+
+def test_check_draft_compliance_flags_undisclosed_downside_breach():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], downside_breaches_acknowledged=[])
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH])
+
+    reasons = check_draft_compliance(draft, policy_state, {})
+    assert any(
+        "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR" in r and "FY+2" in r and "dscr" in r
+        for r in reasons
+    )
+
+
+def test_check_draft_compliance_passes_when_downside_breach_is_acknowledged():
+    """The breach itself never forces REJECTED -- only non-disclosure does."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"], downside_breaches_acknowledged=["DOWNSIDE-FY-2-DSCR"])
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH])
+
+    reasons = check_draft_compliance(draft, policy_state, {})
+    assert reasons == []
+
+
+def test_check_draft_compliance_with_no_draft_never_checks_downside_disclosure():
+    """Disclosure is a property of the draft's own narrative -- it can't be
+    checked before a draft exists, same as CP/taxonomy."""
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH])
+    reasons = check_draft_compliance(None, policy_state, {})
+    assert not any("Undisclosed Downside Breach" in r for r in reasons)
+
+
+def test_check_draft_compliance_no_reasons_when_no_downside_breaches_exist():
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    reasons = check_draft_compliance(draft, _policy_state(), {})
+    assert reasons == []
+
+
+# ---------------------------------------------------------------------------
+# Downside reported-figures accuracy: the same mismatch/unresolvable
+# discipline as base-case reported_figures, extended to downside keys.
+# ---------------------------------------------------------------------------
+
+def test_ground_truth_figures_includes_downside_keys_when_downside_case_given():
+    downside_case = {
+        "ratios": {"FY+2": {"dscr": 1.05}},
+        "financials": {"FY+2": {"raw": {"revenue": 900}, "ebitda": 480}},
+    }
+    truth = ground_truth_figures({}, {}, [], downside_case=downside_case)
+    assert truth["dscr_FY+2_downside"] == 1.05
+    assert truth["ebitda_FY+2_downside"] == 480
+    assert "raw_FY+2_downside" not in truth  # the nested raw dict is never a figure itself
+
+
+def test_ground_truth_figures_excludes_undefined_downside_ratios():
+    downside_case = {"ratios": {"FY+2": {"dscr": None}}, "financials": {}}
+    truth = ground_truth_figures({}, {}, [], downside_case=downside_case)
+    assert "dscr_FY+2_downside" not in truth
+
+
+def test_ground_truth_figures_downside_keys_never_collide_with_base_case_keys():
+    truth = ground_truth_figures(
+        {"FY-Current": {"raw": {}, "ebitda": 510}},
+        {"FY-Current": {"dscr": 1.5}},
+        [],
+        downside_case={"ratios": {"FY+2": {"dscr": 1.05}}, "financials": {}},
+    )
+    assert truth["dscr"] == 1.5  # base case, untouched
+    assert truth["dscr_FY+2_downside"] == 1.05  # downside, distinct key
+
+
+def test_check_draft_compliance_catches_downside_reported_figure_mismatch():
+    """The same narrative-accuracy discipline FY-Current already has, now
+    extended to a downside-case figure -- not just whether the breach was
+    disclosed, but whether the cited number for it is actually correct."""
+    draft = _compliant_draft(
+        cp_ids=["KYC-AML"],
+        reported_figures={"dscr_FY+2_downside": 5.0},  # wildly wrong
+        downside_breaches_acknowledged=["DOWNSIDE-FY-2-DSCR"],
+    )
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH])
+    ground_truth = ground_truth_figures({}, {}, [], downside_case={"ratios": {"FY+2": {"dscr": 1.05}}, "financials": {}})
+
+    reasons = check_draft_compliance(draft, policy_state, ground_truth)
+    assert any(
+        "Narrative/Ground-Truth Mismatch: reported dscr_FY+2_downside 5.0 vs computed 1.05" in r
+        for r in reasons
+    )
+
+
+def test_check_draft_compliance_downside_figure_within_tolerance_passes():
+    draft = _compliant_draft(
+        cp_ids=["KYC-AML"],
+        reported_figures={"dscr_FY+2_downside": 1.0501},
+        downside_breaches_acknowledged=["DOWNSIDE-FY-2-DSCR"],
+    )
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH])
+    ground_truth = ground_truth_figures({}, {}, [], downside_case={"ratios": {"FY+2": {"dscr": 1.05}}, "financials": {}})
+
+    reasons = check_draft_compliance(draft, policy_state, ground_truth)
+    assert reasons == []

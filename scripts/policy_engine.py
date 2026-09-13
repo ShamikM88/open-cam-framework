@@ -55,16 +55,20 @@ def _evaluate_covenant(covenant, ratios):
     maximum covenants (>= and <= both include equality).
 
     Fallback rule: an unrecognized `metric` (doesn't exactly match a ratios
-    key) or an unrecognized `type` (not "minimum"/"maximum") is
-    UNRESOLVABLE, never silently skipped -- the covenant still appears in
-    the result with actual/headroom_pct left as None.
+    key), an unrecognized `type` (not "minimum"/"maximum"), or a missing or
+    non-numeric `threshold` is UNRESOLVABLE, never silently skipped or
+    allowed to crash the comparison below it -- the covenant still appears
+    in the result with actual/headroom_pct left as None.
 
-    A threshold of exactly 0 makes "headroom as a % of threshold"
-    mathematically undefined, not zero -- headroom_pct is left as None in
-    that case (status is unaffected: it's still computed by direct
-    comparison, not via headroom_pct). Silently coercing it to 0 would read
-    as "right at the compliance boundary" regardless of how far the actual
-    value is from a zero threshold, understating a real breach's severity.
+    A threshold of exactly 0 (a legitimate number, unlike a missing one)
+    makes "headroom as a % of threshold" mathematically undefined, not
+    zero -- headroom_pct is left as None in that case too, but status is
+    still resolved by direct comparison rather than left UNRESOLVABLE
+    (a zero threshold is a perfectly well-defined comparison, just not one
+    with a meaningful percentage). Silently coercing headroom_pct to 0
+    would read as "right at the compliance boundary" regardless of how far
+    the actual value is from a zero threshold, understating a real
+    breach's severity.
     """
     metric = covenant.get("metric")
     covenant_type = covenant.get("type")
@@ -79,7 +83,8 @@ def _evaluate_covenant(covenant, ratios):
         "headroom_pct": None,
     }
 
-    if covenant_type not in ("minimum", "maximum") or metric not in ratios:
+    threshold_is_numeric = isinstance(threshold, (int, float)) and not isinstance(threshold, bool)
+    if covenant_type not in ("minimum", "maximum") or metric not in ratios or not threshold_is_numeric:
         return result
 
     actual = ratios[metric]

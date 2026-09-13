@@ -138,6 +138,43 @@ def test_zero_threshold_minimum_covenant_reports_headroom_as_none():
     assert covenant["headroom_pct"] is None
 
 
+def test_missing_threshold_is_unresolvable_not_a_crash():
+    """A covenant with no `threshold` key at all (threshold=None) must be
+    UNRESOLVABLE, not raise -- '>=' between a float and None otherwise
+    crashes the comparison below the zero-threshold guard, taking down the
+    whole evaluate_deal_policy() call for every other covenant/asset in it."""
+    state = {
+        "ratios": {"FY-Current": {"dscr": 1.5}},
+        "covenants": [{"metric": "dscr", "type": "minimum"}],
+    }
+    covenant = evaluate_deal_policy(state)["covenant_results"][0]
+    assert covenant["status"] == "UNRESOLVABLE"
+    assert covenant["actual"] is None
+    assert covenant["headroom_pct"] is None
+
+
+def test_non_numeric_threshold_is_unresolvable_not_a_crash():
+    state = {
+        "ratios": {"FY-Current": {"dscr": 1.5}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": "1.25"}],
+    }
+    covenant = evaluate_deal_policy(state)["covenant_results"][0]
+    assert covenant["status"] == "UNRESOLVABLE"
+
+
+def test_missing_threshold_does_not_abort_other_covenants_in_the_same_call():
+    state = {
+        "ratios": RATIOS,
+        "covenants": [
+            {"metric": "dscr", "type": "minimum"},  # missing threshold
+            {"metric": "gross_leverage", "type": "maximum", "threshold": 3.0},
+        ],
+    }
+    results = evaluate_deal_policy(state)["covenant_results"]
+    assert results[0]["status"] == "UNRESOLVABLE"
+    assert results[1]["status"] == "FAIL"
+
+
 # ---------------------------------------------------------------------------
 # Security & orphan checks: collateral <-> security_package cross-reference
 # via asset_id / secures_asset_id.

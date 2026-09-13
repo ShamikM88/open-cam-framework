@@ -25,9 +25,13 @@ drafted CAM content earlier in this conversation.
 ## Code-enforced check (run this before forming your verdict)
 
 If `--company`/`--proposal` were given, run the deterministic check:
-1. If the draft isn't already saved to a file, save it as-is (Markdown and its trailing
-   structured JSON block together) to `deals/<company>/<proposal>_draft.md` (create the folder
-   if needed) — reuse the existing file at that path if `/assemble` already wrote it.
+1. Save the draft (Markdown and its trailing structured JSON block together) to
+   `deals/<company>/<proposal>_draft.md` (create the folder if needed). Skip the write only when
+   a file already exists at that path *and* its content already matches the draft being reviewed
+   right now (e.g. `/assemble` just wrote this exact draft in the same step) — on a revision
+   cycle the draft has changed since it was last saved, so overwrite the file with the current
+   content rather than reusing what's there; `policy_check.py` below reads only the file on disk,
+   so a stale file means it silently re-checks the previous, already-rejected draft.
 2. Run:
    ```
    python scripts/policy_check.py --company "<company>" --proposal "<proposal>" --draft "deals/<company>/<proposal>_draft.md"

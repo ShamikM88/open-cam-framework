@@ -79,7 +79,7 @@
 
 ## 8. Industry
 
-[Narrative: market structure, growth outlook, competitive dynamics — cite the source of any market-size or growth figures.]
+[Narrative: market structure, growth outlook, competitive dynamics — cite the source of any market-size or growth figures. Don't rely solely on the borrower's own strategic report/directors' report as the only source: actively seek independent third-party market context (e.g. an IBISWorld industry report for the borrower's sector, competitor information, general research) before finalizing. "Not assessed" is a last resort after a genuine attempt to source better data, not a first-pass shortcut — especially on a facility of meaningful size.]
 
 | Concentration | Competition | Barriers to Entry | Substitutes | Buyer Power | Supplier Power |
 | :--- | :--- | :--- | :--- | :--- | :--- |

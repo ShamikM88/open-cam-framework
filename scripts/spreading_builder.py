@@ -33,6 +33,12 @@ PNL_ROWS = [
     ("Interest Paid", None),
     ("Interest Received", None),
     ("Scheduled Principal Repayment", None),
+    # Capital Expenditure is a memo line for FCF purposes only, exactly like
+    # Scheduled Principal Repayment above is a memo line for DSCR purposes
+    # only -- it must never be referenced by the Profit Before Tax / Net
+    # Profit chain below. Capex is a cash/investing-activity outflow, not a
+    # P&L expense; folding it into PBT would misstate earnings.
+    ("Capital Expenditure", None),
     ("Exceptional Costs / (Income)", None),
     ("Profit Before Tax",
      "={Operating Profit}-{Interest Paid}+{Interest Received}-{Exceptional Costs / (Income)}"),
@@ -47,6 +53,18 @@ RATIO_ROWS = [
     ("DSCR", '=IFERROR({EBITDA}/({Interest Paid}+{Scheduled Principal Repayment}),"N/A")'),
     ("EBIT/Interest", '=IFERROR({Operating Profit}/{Interest Paid},"N/A")'),
     ("EBITDA/Interest", '=IFERROR({EBITDA}/{Interest Paid},"N/A")'),
+    # FCF = cash generated after tax, net interest, and capex. Deliberately
+    # does NOT net off Scheduled Principal Repayment -- that's a financing
+    # (balance-sheet) outflow, not an operating/FCF concept, and DSCR above
+    # already covers debt-service coverage on its own; folding principal
+    # into FCF too would double-count the same obligation under two
+    # different ratios. Lives here (Key Ratios) rather than Key Credit
+    # Metrics because every row it references (EBITDA, Capital Expenditure,
+    # Tax, Interest Paid, Interest Received) is already written by the end
+    # of Profit & Loss above -- no Balance Sheet dependency, unlike Gross
+    # Leverage / Net Debt / EBITDA below.
+    ("FCF", "={EBITDA}-{Capital Expenditure}-{Tax}-{Interest Paid}+{Interest Received}"),
+    ("FCF Conversion %", '=IFERROR({FCF}/{EBITDA},"N/A")'),
 ]
 
 BALANCE_SHEET_ROWS = [
@@ -91,6 +109,14 @@ KEY_METRIC_ROWS = [
     ("Current Ratio", '=IFERROR({Total Current Assets}/{Total Current Liabilities},"N/A")'),
     ("Gross Leverage",
      '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{EBITDA},"N/A")'),
+    # Net Debt / EBITDA: the same interest-bearing debt aggregate as Gross
+    # Leverage above, netted against Cash -- a standard institutional
+    # leverage metric Gross Leverage alone doesn't capture (a cash-rich
+    # borrower can look more levered on a gross basis than its net cash
+    # position actually implies). "N/A" fallback matches every other ratio's
+    # own convention here -- see FCF Conversion % above for the same choice.
+    ("Net Debt / EBITDA",
+     '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash})/{EBITDA},"N/A")'),
 ]
 
 WORKING_CAPITAL_ROWS = [
@@ -118,6 +144,11 @@ COLLATERAL_HEADERS = [
 # evaluate_financial_model() (computes subtotals/ratios from these same raw
 # fields) and _write_financial_spreading() (writes the raw values themselves
 # into the workbook so the Excel formulas above have something to evaluate).
+#
+# "capex" (-> "Capital Expenditure") is optional, like every other raw
+# field: a period's input dict simply omitting the key defaults it to 0 via
+# evaluate_financial_model()'s own g()/`.get(field, 0)` convention, so every
+# existing fixture/caller that predates this field stays fully compatible.
 FIELD_LABELS = {
     "revenue": "Revenue",
     "cost_of_sales": "Cost of Goods Sold",
@@ -128,6 +159,7 @@ FIELD_LABELS = {
     "interest_paid": "Interest Paid",
     "interest_received": "Interest Received",
     "scheduled_principal": "Scheduled Principal Repayment",
+    "capex": "Capital Expenditure",
     "exceptional_costs": "Exceptional Costs / (Income)",
     "tax_paid": "Tax",
     "tangible_assets": "Tangible Fixed Assets",
@@ -285,6 +317,7 @@ def evaluate_financial_model(multi_period_data):
         interest_paid = g("interest_paid")
         interest_received = g("interest_received")
         scheduled_principal = g("scheduled_principal")
+        capex = g("capex")
         exceptional_costs = g("exceptional_costs")
         tax_paid = g("tax_paid")
 
@@ -293,6 +326,13 @@ def evaluate_financial_model(multi_period_data):
         ebitda = operating_profit + depreciation + amortisation
         profit_before_tax = operating_profit - interest_paid + interest_received - exceptional_costs
         net_profit = profit_before_tax - tax_paid
+
+        # FCF = cash generated after tax, net interest, and capex.
+        # Deliberately does NOT net off scheduled_principal -- that's a
+        # financing (balance-sheet) outflow, not an operating/FCF concept,
+        # and DSCR already covers debt-service coverage on its own; see the
+        # matching comment on the "FCF" Excel row in RATIO_ROWS above.
+        fcf = ebitda - capex - tax_paid - interest_paid + interest_received
 
         cash = g("cash")
         trade_debtors = g("trade_debtors")
@@ -333,10 +373,15 @@ def evaluate_financial_model(multi_period_data):
 
         dscr = safe_div(ebitda, interest_paid + scheduled_principal)
         gross_leverage = safe_div(total_debt, ebitda)
+        # Same interest-bearing debt aggregate as gross_leverage, netted
+        # against cash -- see the matching comment on the "Net Debt / EBITDA"
+        # Excel row in KEY_METRIC_ROWS above.
+        net_debt_to_ebitda = safe_div(total_debt - cash, ebitda)
         current_ratio = safe_div(current_assets, current_liabilities)
         gearing = safe_div(total_debt, total_equity)
         ebit_interest_cover = safe_div(operating_profit, interest_paid)
         ebitda_interest_cover = safe_div(ebitda, interest_paid)
+        fcf_conversion_pct = safe_div(fcf, ebitda)
 
         financials[period] = {
             "raw": dict(raw),  # a copy -- never share a mutable reference to the caller's dict
@@ -345,6 +390,7 @@ def evaluate_financial_model(multi_period_data):
             "ebitda": ebitda,
             "profit_before_tax": profit_before_tax,
             "net_profit": net_profit,
+            "fcf": fcf,
             "current_assets": current_assets,
             "current_liabilities": current_liabilities,
             "total_assets": total_assets,
@@ -356,10 +402,12 @@ def evaluate_financial_model(multi_period_data):
         ratios[period] = {
             "dscr": dscr,
             "gross_leverage": gross_leverage,
+            "net_debt_to_ebitda": net_debt_to_ebitda,
             "current_ratio": current_ratio,
             "gearing": gearing,
             "ebit_interest_cover": ebit_interest_cover,
             "ebitda_interest_cover": ebitda_interest_cover,
+            "fcf_conversion_pct": fcf_conversion_pct,
             # Aliases matching the Excel row labels, so anything reading
             # `ratios` off state.json can look figures up either way.
             "EBIT/Interest": ebit_interest_cover,

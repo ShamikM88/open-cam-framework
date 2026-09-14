@@ -116,12 +116,15 @@ def compute_collateral_cover_pct(collateral):
 def ground_truth_figures(financials, ratios, collateral, downside_case=None):
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
-    ratio (dscr, gross_leverage, current_ratio, gearing,
-    ebit_interest_cover, ebitda_interest_cover, plus the "EBIT/Interest"/
-    "EBITDA/Interest" aliases) and subtotal (ebitda, tangible_net_worth,
-    gross_profit, operating_profit, net_profit, profit_before_tax,
-    total_debt, total_assets, total_liabilities, total_equity) already
-    computed by evaluate_financial_model(), plus an aggregate
+    ratio (dscr, gross_leverage, net_debt_to_ebitda, current_ratio, gearing,
+    ebit_interest_cover, ebitda_interest_cover, fcf_conversion_pct, plus the
+    "EBIT/Interest"/"EBITDA/Interest" aliases) and subtotal (ebitda,
+    tangible_net_worth, gross_profit, operating_profit, net_profit,
+    profit_before_tax, fcf, total_debt, total_assets, total_liabilities,
+    total_equity) already computed by evaluate_financial_model() -- this
+    docstring is descriptive, not a closed allowlist: every key
+    evaluate_financial_model() returns flows through automatically, so a
+    future new ratio/subtotal needs no change here -- plus an aggregate
     collateral_cover_pct derived from the collateral list, plus -- if
     `downside_case` is given -- every downside (stressed forward-year)
     ratio/subtotal, keyed as `f"{metric}_{period}_downside"` (e.g.

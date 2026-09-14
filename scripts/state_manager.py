@@ -151,6 +151,29 @@ def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_revie
     return _existing_date_str(company, proposal, base_dir=base_dir) or datetime.now().strftime("%Y-%m-%d")
 
 
+def resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
+    """Public wrapper around _resolve_date_str() -- for a caller (e.g.
+    orchestrator.py's run_pipeline()) that needs to resolve this deal's
+    dated-folder date *once* and then pass that concrete value to every
+    subsequent read_state()/write_state()/append_review_trail()/
+    state_path() call via their existing `date_str` parameter, rather than
+    re-deriving it at each call site via `new_review=new_review`.
+
+    Re-deriving per call site is fragile: every one of those functions'
+    own `new_review` resolution is independent, so a call site that forgets
+    to pass `new_review=new_review` (or, like append_review_trail() before
+    this function existed, has no `new_review` parameter to pass at all)
+    silently falls back to auto-discovering the most recent existing dated
+    folder instead of forcing today's -- exactly the "new annual review
+    silently merges into last year's state" bug `new_review` exists to
+    prevent, now reintroduced at the one call site that got missed. Only
+    the *first* resolution in a run should ever pass `new_review`; every
+    later call in that same run should pass the concrete `date_str` this
+    returns instead, so there is no second flag to forget.
+    """
+    return _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
+
+
 def state_path(company, proposal, date_str=None, base_dir=None, new_review=False):
     """Path to this deal's state.json, resolved the same way deal_export.py
     resolves its output directory: deals/<Company>/<Proposal>_<Date>/ --

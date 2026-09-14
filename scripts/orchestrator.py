@@ -19,7 +19,7 @@ from policy_checks import (
 )
 from policy_engine import evaluate_deal_policy
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
-from state_manager import write_state, append_review_trail, read_state, state_path
+from state_manager import write_state, append_review_trail, read_state, state_path, resolve_date_str
 from template_resolver import cam_template_path
 
 _DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
@@ -236,7 +236,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # *add* to steps_completed, never reset it -- see state_manager
     # .write_state()'s documented shallow-merge contract and CLAUDE.md's
     # re-hydration rule.
-    existing_state = read_state(company, proposal, new_review=new_review) or {}
+    # Resolved once, here, and threaded through every read_state()/
+    # write_state()/append_review_trail()/state_path() call below via
+    # date_str -- never via new_review=new_review again -- so every call
+    # in this run is guaranteed to agree on which dated folder, with no
+    # second call site able to silently forget the flag and fall back to
+    # auto-discovery (see resolve_date_str()'s own docstring).
+    date_str = resolve_date_str(company, proposal, new_review=new_review)
+    existing_state = read_state(company, proposal, date_str=date_str) or {}
     steps_completed = list(existing_state.get("steps_completed", []))
 
     if multi_period_financials:
@@ -300,7 +307,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
-    write_state(company, proposal, deal_type=deal_type, new_review=new_review,
+    write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
@@ -320,9 +327,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
     ).content[0].text
     steps_completed = _add_step(steps_completed, "draft")
-    write_state(company, proposal, deal_type=deal_type, new_review=new_review, steps_completed=steps_completed)
+    write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed)
 
-    deal_dir = os.path.dirname(state_path(company, proposal))
+    deal_dir = os.path.dirname(state_path(company, proposal, date_str=date_str))
     os.makedirs(deal_dir, exist_ok=True)
 
     verdict, notes = "REJECTED", None
@@ -347,7 +354,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         )
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
-                             deal_type=deal_type, steps_completed=steps_completed)
+                             deal_type=deal_type, steps_completed=steps_completed,
+                             date_str=date_str)
 
         if verdict == "APPROVED":
             approved_draft = draft
@@ -367,7 +375,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
-                    new_review=new_review, steps_completed=steps_completed)
+                    date_str=date_str, steps_completed=steps_completed)
         print(f"[FAILED] No APPROVED draft after {max_iterations} review iteration(s). "
               "Exiting without export.")
         sys.exit(1)
@@ -375,7 +383,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     print(f"[3/3] Exporting .docx and .xlsx files...")
     output_dir = export_deal(company, proposal, deal_type, approved_draft)
     steps_completed = _add_step(steps_completed, "export")
-    write_state(company, proposal, deal_type=deal_type, new_review=new_review,
+    write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 draft_path=os.path.join(output_dir, f"{company}_{proposal}_CAM.docx"),
                 steps_completed=steps_completed)
     print(f"Done! Files generated in {output_dir}")

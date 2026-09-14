@@ -12,6 +12,7 @@ from state_manager import (
     _FileLock,
     append_review_trail,
     read_state,
+    resolve_date_str,
     sanitize_path_component,
     state_path,
     write_state,
@@ -481,6 +482,62 @@ def test_append_review_trail_does_not_drop_fields_from_other_steps(tmp_path):
                                  date_str="2026-01-15", base_dir=base)
 
     assert state["inputs"] == {"pd": "0.20%"}
+
+
+def test_append_review_trail_with_explicit_date_str_ignores_a_newer_auto_discovered_folder(tmp_path):
+    """Regression test for a real bug found in code review: orchestrator.py
+    used to call append_review_trail() with no date_str/new_review at all,
+    silently relying on auto-discovery -- correct only by the coincidence
+    that a fresh folder was always created immediately beforehand in the
+    same run. This proves the actual mechanism the fix now depends on:
+    an explicit date_str must be honored over whatever auto-discovery
+    (unqualified, no date_str) would otherwise resolve to -- an older
+    folder stays targeted even once a newer one exists."""
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base, note="old year")
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, note="new year")
+
+    # Without date_str, auto-discovery would resolve to 2026-01-15 (most
+    # recent) -- explicitly targeting the older folder must override that.
+    append_review_trail("Acme Corp", "Fleet Loan", verdict="APPROVED",
+                         date_str="2025-01-10", base_dir=base)
+
+    old_state = read_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base)
+    new_state = read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert len(old_state["review_trail"]) == 1
+    assert "review_trail" not in new_state
+
+
+# ---------------------------------------------------------------------------
+# resolve_date_str(): the public wrapper orchestrator.py's run_pipeline()
+# uses to resolve a deal's dated folder exactly once, then threads that
+# concrete value through every subsequent call via date_str -- rather than
+# re-deriving it per call site via new_review, which is fragile (a call
+# site that forgets to pass new_review=new_review, or has no such
+# parameter at all, silently falls back to auto-discovery).
+# ---------------------------------------------------------------------------
+
+def test_resolve_date_str_returns_the_given_date_str_unchanged(tmp_path):
+    assert resolve_date_str("Acme Corp", "Fleet Loan", date_str="2026-01-15",
+                             base_dir=str(tmp_path)) == "2026-01-15"
+
+
+def test_resolve_date_str_with_new_review_ignores_an_existing_dated_folder(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base)
+
+    resolved = resolve_date_str("Acme Corp", "Fleet Loan", base_dir=base, new_review=True)
+
+    assert resolved != "2025-01-10"
+    assert resolved == datetime.now().strftime("%Y-%m-%d")
+
+
+def test_resolve_date_str_without_new_review_auto_discovers_the_most_recent_folder(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+
+    assert resolve_date_str("Acme Corp", "Fleet Loan", base_dir=base) == "2026-01-15"
 
 
 def test_write_state_leaves_no_stray_temp_file_behind(tmp_path):

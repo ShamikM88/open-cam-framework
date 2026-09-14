@@ -37,9 +37,10 @@ def normalize_category(category):
 
 def parse_underwriter_output(draft_text):
     """Extract the Underwriter's trailing structured JSON block
-    ({"cp_ids_included": [...], "risk_categories_covered": {...},
-    "reported_figures": {...}, "downside_breaches_acknowledged": [...],
-    "sources": [...]}) from its drafted CAM (see
+    ({"cp_ids_included": [...], "cs_ids_included": [...],
+    "risk_categories_covered": {...}, "reported_figures": {...},
+    "downside_breaches_acknowledged": [...], "sources": [...]}) from its
+    drafted CAM (see
     agents/underwriter_agent.md's Structured Output guideline). Scans
     matches in reverse and returns the first one that actually looks like
     this schema, for the same reason parse_verdict() (orchestrator.py)
@@ -64,18 +65,21 @@ def parse_underwriter_output(draft_text):
             continue
         if isinstance(payload, dict) and (
             "cp_ids_included" in payload
+            or "cs_ids_included" in payload
             or "risk_categories_covered" in payload
             or "reported_figures" in payload
             or "downside_breaches_acknowledged" in payload
             or "sources" in payload
         ):
             cp_ids_included = payload.get("cp_ids_included")
+            cs_ids_included = payload.get("cs_ids_included")
             risk_categories_covered = payload.get("risk_categories_covered")
             reported_figures = payload.get("reported_figures")
             downside_breaches_acknowledged = payload.get("downside_breaches_acknowledged")
             sources = payload.get("sources")
             return {
                 "cp_ids_included": cp_ids_included if isinstance(cp_ids_included, list) else [],
+                "cs_ids_included": cs_ids_included if isinstance(cs_ids_included, list) else [],
                 "risk_categories_covered": (
                     risk_categories_covered if isinstance(risk_categories_covered, dict) else {}
                 ),
@@ -86,8 +90,8 @@ def parse_underwriter_output(draft_text):
                 "sources": sources if isinstance(sources, list) else [],
             }
     return {
-        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [], "sources": [],
+        "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
+        "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
@@ -112,12 +116,15 @@ def compute_collateral_cover_pct(collateral):
 def ground_truth_figures(financials, ratios, collateral, downside_case=None):
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
-    ratio (dscr, gross_leverage, current_ratio, gearing,
-    ebit_interest_cover, ebitda_interest_cover, plus the "EBIT/Interest"/
-    "EBITDA/Interest" aliases) and subtotal (ebitda, tangible_net_worth,
-    gross_profit, operating_profit, net_profit, profit_before_tax,
-    total_debt, total_assets, total_liabilities, total_equity) already
-    computed by evaluate_financial_model(), plus an aggregate
+    ratio (dscr, gross_leverage, net_debt_to_ebitda, current_ratio, gearing,
+    ebit_interest_cover, ebitda_interest_cover, fcf_conversion_pct, plus the
+    "EBIT/Interest"/"EBITDA/Interest" aliases) and subtotal (ebitda,
+    tangible_net_worth, gross_profit, operating_profit, net_profit,
+    profit_before_tax, fcf, total_debt, total_assets, total_liabilities,
+    total_equity) already computed by evaluate_financial_model() -- this
+    docstring is descriptive, not a closed allowlist: every key
+    evaluate_financial_model() returns flows through automatically, so a
+    future new ratio/subtotal needs no change here -- plus an aggregate
     collateral_cover_pct derived from the collateral list, plus -- if
     `downside_case` is given -- every downside (stressed forward-year)
     ratio/subtotal, keyed as `f"{metric}_{period}_downside"` (e.g.
@@ -222,9 +229,9 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
     """The single source of truth for "why would this draft be
     code-enforced-REJECTED": covenant FAIL/UNRESOLVABLE, any security gap,
     and -- only when a draft is actually being audited -- missing required
-    CPs, missing/malformed risk-taxonomy coverage, undisclosed downside
-    covenant breaches, and narrative/ground-truth figure mismatches
-    (base-case and downside alike).
+    CPs, missing required CSs, missing/malformed risk-taxonomy coverage,
+    undisclosed downside covenant breaches, and narrative/ground-truth
+    figure mismatches (base-case and downside alike).
 
     A downside covenant breach itself (policy_state's
     `downside_covenant_breaches`) never forces a reason on its own -- a
@@ -260,6 +267,11 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
         for cp in policy_state.get("required_conditions_precedent", []):
             if cp["cp_id"] not in cp_ids_included:
                 reasons.append(f"Missing Required CP {cp['cp_id']}: {cp['text']}")
+
+        cs_ids_included = set(underwriter_output["cs_ids_included"])
+        for cs in policy_state.get("required_conditions_subsequent", []):
+            if cs["cs_id"] not in cs_ids_included:
+                reasons.append(f"Missing Required Condition Subsequent {cs['cs_id']}: {cs['text']}")
 
         covered_by_normalized_key = {
             normalize_category(key): value

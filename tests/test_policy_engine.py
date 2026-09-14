@@ -9,7 +9,11 @@ directly, not just on the individual rule outcomes.
 """
 import pytest
 
-from policy_engine import STANDARD_CONDITIONS_PRECEDENT, evaluate_deal_policy
+from policy_engine import (
+    STANDARD_CONDITIONS_PRECEDENT,
+    STANDARD_CONDITIONS_SUBSEQUENT,
+    evaluate_deal_policy,
+)
 
 
 RATIOS = {"FY-Current": {"dscr": 1.5, "gross_leverage": 3.2, "current_ratio": 2.0}}
@@ -17,6 +21,10 @@ RATIOS = {"FY-Current": {"dscr": 1.5, "gross_leverage": 3.2, "current_ratio": 2.
 
 def _cp_ids(result):
     return [cp["cp_id"] for cp in result["required_conditions_precedent"]]
+
+
+def _cs_ids(result):
+    return [cs["cs_id"] for cs in result["required_conditions_subsequent"]]
 
 
 # ---------------------------------------------------------------------------
@@ -634,3 +642,158 @@ def test_downside_covenant_breaches_across_multiple_forward_years():
     breaches = evaluate_deal_policy(state)["downside_covenant_breaches"]
     assert len(breaches) == 1
     assert breaches[0]["year"] == "FY+2"
+
+
+# ---------------------------------------------------------------------------
+# Conditions Subsequent: purely additive on top of everything above --
+# covenant_results/security_gaps/required_conditions_precedent/
+# downside_covenant_breaches must be byte-for-byte unaffected by this
+# module's introduction (mirrors this file's own precedent for
+# downside_covenant_breaches when it was added).
+# ---------------------------------------------------------------------------
+
+def test_standard_cs_always_included_even_with_no_deal_structure():
+    result = evaluate_deal_policy({})
+    assert result["required_conditions_subsequent"] == STANDARD_CONDITIONS_SUBSEQUENT
+
+
+def test_evaluate_deal_policy_handles_none_input_for_cs_too():
+    result = evaluate_deal_policy(None)
+    assert result["required_conditions_subsequent"] == STANDARD_CONDITIONS_SUBSEQUENT
+
+
+def test_existing_keys_are_byte_for_byte_unaffected_by_cs_introduction():
+    """Additive-only: every pre-existing return key must be identical to
+    what evaluate_deal_policy() produced before required_conditions_subsequent
+    existed at all, for a state exercising every CP-driving code path."""
+    state = {
+        "ratios": RATIOS,
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+        "guarantees": [{"provider": "Acme Holdings", "type": "Corporate", "amount": "£500,000"}],
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+    }
+    result = evaluate_deal_policy(state)
+    assert result["covenant_results"] == [
+        {"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.5,
+         "status": "PASS", "headroom_pct": pytest.approx((1.5 - 1.25) / 1.25)},
+    ]
+    assert result["security_gaps"] == []
+    assert _cp_ids(result) == [
+        "KYC-AML", "FACILITY-EXECUTION", "GUARANTEE-ACME-HOLDINGS",
+    ]
+    assert result["downside_covenant_breaches"] == []
+
+
+def test_covenant_cs_appears_iff_covenants_non_empty():
+    with_covenants = evaluate_deal_policy({
+        "ratios": RATIOS,
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+    })
+    without_covenants = evaluate_deal_policy({"ratios": RATIOS})
+
+    assert "CS-COVENANT-COMPLIANCE" in _cs_ids(with_covenants)
+    assert "CS-COVENANT-COMPLIANCE" not in _cs_ids(without_covenants)
+
+
+def test_covenant_cs_is_one_entry_for_the_whole_deal_not_one_per_covenant():
+    state = {
+        "ratios": RATIOS,
+        "covenants": [
+            {"metric": "dscr", "type": "minimum", "threshold": 1.25},
+            {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    covenant_cs_ids = [cs_id for cs_id in _cs_ids(result) if cs_id.startswith("CS-COVENANT-")]
+    assert covenant_cs_ids == ["CS-COVENANT-COMPLIANCE"]
+
+
+def test_security_cs_appears_only_for_a_perfected_charge():
+    perfected = evaluate_deal_policy({
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    })
+    pending = evaluate_deal_policy({
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Pending", "ranking": "First"},
+        ],
+    })
+    no_security = evaluate_deal_policy({})
+
+    assert "CS-SEC-REPERFECT-AST-001" in _cs_ids(perfected)
+    assert not any(cs_id.startswith("CS-SEC-REPERFECT-") for cs_id in _cs_ids(pending))
+    assert not any(cs_id.startswith("CS-SEC-REPERFECT-") for cs_id in _cs_ids(no_security))
+
+
+def test_security_cs_gets_distinct_ids_for_multiple_perfected_charges_on_the_same_asset():
+    state = {
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "Second"},
+        ],
+    }
+    result = evaluate_deal_policy(state)
+    reperfect_ids = [cs_id for cs_id in _cs_ids(result) if cs_id.startswith("CS-SEC-REPERFECT-")]
+    assert len(reperfect_ids) == 2
+    assert len(set(reperfect_ids)) == 2
+
+
+def test_guarantee_cs_appears_iff_guarantees_non_empty():
+    with_guarantee = evaluate_deal_policy({
+        "guarantees": [{"provider": "Acme Holdings", "type": "Corporate", "amount": "£500,000"}],
+    })
+    without_guarantee = evaluate_deal_policy({})
+
+    assert "CS-GUARANTEE-ACME-HOLDINGS" in _cs_ids(with_guarantee)
+    assert not any(cs_id.startswith("CS-GUARANTEE-") for cs_id in _cs_ids(without_guarantee))
+
+
+def test_guarantee_cs_gets_distinct_ids_for_two_guarantees_from_the_same_provider():
+    state = {"guarantees": [
+        {"provider": "Jane Smith", "type": "Personal", "amount": "£100,000"},
+        {"provider": "Jane Smith", "type": "Personal", "amount": "£250,000"},
+    ]}
+    result = evaluate_deal_policy(state)
+    guarantee_cs_ids = [cs_id for cs_id in _cs_ids(result) if cs_id.startswith("CS-GUARANTEE-")]
+    assert len(guarantee_cs_ids) == 2
+    assert len(set(guarantee_cs_ids)) == 2
+
+
+def test_cs_id_generation_is_stable_across_repeated_calls_with_the_same_input():
+    state = {
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+        "guarantees": [{"provider": "Acme Holdings", "type": "Corporate", "amount": "£1,000,000"}],
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+        "ratios": RATIOS,
+    }
+    first = evaluate_deal_policy(state)
+    second = evaluate_deal_policy(state)
+    assert first == second
+    assert _cs_ids(first) == _cs_ids(second)
+
+
+def test_cp_and_cs_id_namespaces_never_collide():
+    """A cs_id must never be indistinguishable from a cp_id -- every
+    deal-driven CS id carries a "CS-" prefix distinct from every CP prefix
+    ("SEC-", "GUARANTEE-") used for the equivalent structure."""
+    state = {
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [
+            {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+        "guarantees": [{"provider": "Acme Holdings", "amount": "£1,000,000"}],
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+        "ratios": RATIOS,
+    }
+    result = evaluate_deal_policy(state)
+    assert set(_cp_ids(result)).isdisjoint(set(_cs_ids(result)))

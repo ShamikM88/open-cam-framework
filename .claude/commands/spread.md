@@ -24,9 +24,10 @@ it. If none exists, this is the first step run for this deal.
 of Profit & Loss and Balance Sheet data.
 
 Extract and spread the line items, then calculate: Tangible Net Worth (TNW), EBITDA, Debt
-Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Gearing %, Current Ratio, and
-Working Capital Days. Show which raw line items each ratio comes from so it can be checked, and
-never estimate a figure that isn't in the source data provided.
+Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %,
+Current Ratio, FCF Conversion %, and Working Capital Days. Show which raw line items each ratio
+comes from so it can be checked, and never estimate a figure that isn't in the source data
+provided.
 
 ## State: write
 
@@ -46,7 +47,7 @@ never drop a field another step already recorded):
     "raw": {
       "revenue": 0, "cost_of_sales": 0, "admin_expenses": 0, "depreciation": 0,
       "amortisation": 0, "other_income": 0, "interest_paid": 0, "interest_received": 0,
-      "scheduled_principal": 0, "exceptional_costs": 0, "tax_paid": 0,
+      "scheduled_principal": 0, "capex": 0, "exceptional_costs": 0, "tax_paid": 0,
       "cash": 0, "trade_debtors": 0, "stock": 0, "other_current_assets": 0,
       "tangible_assets": 0, "intangible_assets": 0, "other_fixed_assets": 0,
       "trade_creditors": 0, "other_current_liabilities": 0, "overdraft": 0,
@@ -54,16 +55,19 @@ never drop a field another step already recorded):
       "share_capital": 0, "retained_profit": 0
     },
     "gross_profit": 0, "operating_profit": 0, "ebitda": 0, "profit_before_tax": 0,
-    "net_profit": 0, "current_assets": 0, "current_liabilities": 0, "total_assets": 0,
+    "net_profit": 0, "fcf": 0, "current_assets": 0, "current_liabilities": 0, "total_assets": 0,
     "total_liabilities": 0, "total_equity": 0, "total_debt": 0, "tangible_net_worth": 0
   }
   ```
   Every key under `raw` is a source figure from the P&L/Balance Sheet you were given (`0` if not
-  applicable — never invented). `scheduled_principal` is a memo line for DSCR only and must
-  never be folded into `profit_before_tax`/`net_profit`. Every key alongside `raw` is a subtotal
-  you calculate from those raw figures, using the labels above exactly.
+  applicable — never invented). `scheduled_principal` is a memo line for DSCR only and `capex` is
+  a memo line for FCF only — neither is ever folded into `profit_before_tax`/`net_profit`. Every
+  key alongside `raw` is a subtotal you calculate from those raw figures, using the labels above
+  exactly. `fcf` = EBITDA − Capex − Tax − Interest Paid + Interest Received (never netted against
+  `scheduled_principal`, which DSCR already covers separately).
 - Also set a `ratios` object, keyed by the same periods, each holding: `dscr`, `gross_leverage`,
-  `current_ratio`, `gearing`, `ebit_interest_cover`, `ebitda_interest_cover` — all calculated
-  from the `financials` figures above (show your working in your response; store only the final
-  numbers here).
+  `net_debt_to_ebitda` (Gross Leverage's debt aggregate, netted against Cash), `current_ratio`,
+  `gearing`, `ebit_interest_cover`, `ebitda_interest_cover`, `fcf_conversion_pct` (`fcf` / `ebitda`)
+  — all calculated from the `financials` figures above (show your working in your response; store
+  only the final numbers here).
 - Append `"spread"` to `steps_completed` if it isn't already there.

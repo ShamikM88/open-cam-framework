@@ -28,11 +28,12 @@ from policy_checks import (
 ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
 
 
-def _compliant_draft(cp_ids=("KYC-AML",), reported_figures=None, downside_breaches_acknowledged=None,
-                      sources=None):
+def _compliant_draft(cp_ids=("KYC-AML",), cs_ids=("MI-REPORTING",), reported_figures=None,
+                      downside_breaches_acknowledged=None, sources=None):
     import json
     payload = {
         "cp_ids_included": list(cp_ids),
+        "cs_ids_included": list(cs_ids),
         "risk_categories_covered": ALL_CATEGORIES_COVERED,
         "reported_figures": reported_figures or {},
         "downside_breaches_acknowledged": list(downside_breaches_acknowledged or []),
@@ -41,10 +42,14 @@ def _compliant_draft(cp_ids=("KYC-AML",), reported_figures=None, downside_breach
     return "# Draft\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
-def _policy_state(required_cps=None, covenant_results=None, security_gaps=None,
+def _policy_state(required_cps=None, required_css=None, covenant_results=None, security_gaps=None,
                    downside_covenant_breaches=None):
     return {
         "required_conditions_precedent": required_cps or [{"cp_id": "KYC-AML", "text": "KYC/AML clearance."}],
+        "required_conditions_subsequent": (
+            required_css if required_css is not None
+            else [{"cs_id": "MI-REPORTING", "text": "Periodic MI submission."}]
+        ),
         "covenant_results": covenant_results or [],
         "security_gaps": security_gaps or [],
         "downside_covenant_breaches": downside_covenant_breaches or [],
@@ -75,6 +80,12 @@ def test_parse_underwriter_output_sources_degrades_to_empty_list_on_wrong_type()
     draft = '# Draft\n\n```json\n{"cp_ids_included": ["KYC-AML"], "sources": "not a list"}\n```'
     result = parse_underwriter_output(draft)
     assert result["sources"] == []
+
+
+def test_parse_underwriter_output_extracts_cs_ids_included():
+    draft = _compliant_draft(cs_ids=["MI-REPORTING", "CS-COVENANT-COMPLIANCE"])
+    result = parse_underwriter_output(draft)
+    assert result["cs_ids_included"] == ["MI-REPORTING", "CS-COVENANT-COMPLIANCE"]
 
 
 def test_values_match_importable_and_correct():
@@ -188,6 +199,22 @@ def test_check_draft_compliance_skips_narrative_sources_check_when_no_draft_yet(
     not flag a missing-sources reason against a draft that doesn't exist yet."""
     reasons = check_draft_compliance(None, _policy_state(), {})
     assert not any("Missing Narrative Sources" in r for r in reasons)
+
+
+def test_check_draft_compliance_flags_missing_cs():
+    draft = _compliant_draft(cs_ids=[])
+    reasons = check_draft_compliance(draft, _policy_state(), {})
+    assert any("Missing Required Condition Subsequent MI-REPORTING" in r for r in reasons)
+
+
+def test_check_draft_compliance_passes_when_every_required_cs_is_included():
+    required_css = [
+        {"cs_id": "MI-REPORTING", "text": "Periodic MI submission."},
+        {"cs_id": "CS-COVENANT-COMPLIANCE", "text": "Ongoing covenant certification."},
+    ]
+    draft = _compliant_draft(cs_ids=["MI-REPORTING", "CS-COVENANT-COMPLIANCE"])
+    reasons = check_draft_compliance(draft, _policy_state(required_css=required_css), {})
+    assert reasons == []
 
 
 def test_check_draft_compliance_flags_covenant_failure_regardless_of_draft():

@@ -223,6 +223,18 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
         parts.append(
             f"```json\n{json.dumps(policy_state.get('required_conditions_precedent', []), indent=2)}\n```"
         )
+        if policy_state.get("required_conditions_subsequent"):
+            parts.append(
+                "\nRequired Conditions Subsequent (from policy_state -- post-drawdown, "
+                "ongoing monitoring obligations, as opposed to the pre-drawdown Conditions "
+                "Precedent above; render each one's `text` as prose in the CAM's Conditions "
+                "Precedent & Subsequent section, and report inclusion in your structured "
+                "output by `cs_id` only; a code-level check rejects the draft if any "
+                "required cs_id is missing):"
+            )
+            parts.append(
+                f"```json\n{json.dumps(policy_state['required_conditions_subsequent'], indent=2)}\n```"
+            )
         parts.append(
             "\nCovenant compliance results (from policy_state -- already computed; "
             "narrate the headroom or breach in your commentary, do not recompute):"

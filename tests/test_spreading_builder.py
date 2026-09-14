@@ -153,6 +153,7 @@ RAW_INPUTS = {
     "Interest Paid": 30,
     "Interest Received": 5,
     "Scheduled Principal Repayment": 70,
+    "Capital Expenditure": 60,
     "Exceptional Costs / (Income)": 0,
     "Tax": 40,
     "Tangible Fixed Assets": 500,
@@ -190,6 +191,9 @@ EXPECTED = {
     "DSCR": pytest.approx(510 / (30 + 70)),
     "EBIT/Interest": pytest.approx(440 / 30),
     "EBITDA/Interest": pytest.approx(17.0),
+    # FCF = EBITDA(510) - Capex(60) - Tax(40) - Interest Paid(30) + Interest Received(5).
+    "FCF": 385,
+    "FCF Conversion %": pytest.approx(385 / 510),
     "Total Fixed Assets": 570,
     "Total Current Assets": 240,
     "Total Assets": 810,
@@ -202,6 +206,8 @@ EXPECTED = {
     "Gearing % (Interest-Bearing Debt / Equity)": pytest.approx(345 / 300),
     "Current Ratio": pytest.approx(2.4),
     "Gross Leverage": pytest.approx(345 / 510),
+    # Net Debt / EBITDA: total interest-bearing debt (345) netted against Cash (60) = 285.
+    "Net Debt / EBITDA": pytest.approx(285 / 510),
     "Working Capital Cycle (days)": 65,
 }
 
@@ -259,7 +265,7 @@ def test_iferror_falls_back_to_na_on_division_by_zero(workbook):
     ratio_labels = [
         "Gross Profit Margin %", "Operating Margin %", "DSCR", "EBIT/Interest",
         "EBITDA/Interest", "Gearing % (Interest-Bearing Debt / Equity)",
-        "Current Ratio", "Gross Leverage",
+        "Current Ratio", "Gross Leverage", "Net Debt / EBITDA", "FCF Conversion %",
     ]
     for label in ratio_labels:
         assert _evaluate(ws, "B", label_to_row[label], memo) == "N/A"
@@ -367,12 +373,18 @@ def test_evaluate_financial_model_matches_hand_calculated_workbook_values():
     assert financials["net_profit"] == 375
     assert financials["tangible_net_worth"] == 250
     assert financials["total_debt"] == 345
+    # SAMPLE_PERIOD has no "capex" key at all -- defaults to 0, like every
+    # other omitted raw field -- so fcf = ebitda - 0 - tax_paid - interest_paid + interest_received.
+    assert financials["fcf"] == 510 - 0 - 40 - 30 + 5
 
     assert ratios["dscr"] == pytest.approx(510 / 100)
     assert ratios["gross_leverage"] == pytest.approx(345 / 510)
+    # net_debt_to_ebitda: total_debt(345) - cash(60) = 285.
+    assert ratios["net_debt_to_ebitda"] == pytest.approx(285 / 510)
     assert ratios["current_ratio"] == pytest.approx(2.4)
     assert ratios["ebit_interest_cover"] == pytest.approx(440 / 30)
     assert ratios["ebitda_interest_cover"] == pytest.approx(17.0)
+    assert ratios["fcf_conversion_pct"] == pytest.approx(financials["fcf"] / 510)
     # Aliases matching the Excel row labels must agree with their snake_case originals.
     assert ratios["EBIT/Interest"] == ratios["ebit_interest_cover"]
     assert ratios["EBITDA/Interest"] == ratios["ebitda_interest_cover"]
@@ -403,6 +415,46 @@ def test_evaluate_financial_model_defaults_missing_fields_to_zero():
     # obligation to cover), not a coverage ratio of literal zero -- see
     # test_zero_denominator_ratios_are_undefined_not_zero below for why.
     assert ratios["dscr"] is None
+
+
+def test_evaluate_financial_model_capex_is_optional_and_defaults_to_zero():
+    """A period dict with no "capex" key at all (every existing fixture/
+    caller that predates this field) must still compute fcf/fcf_conversion_pct
+    -- backward compatible, exactly like every other raw field's `.get(field, 0)`
+    default."""
+    result = evaluate_financial_model({
+        "FY-Current": {"revenue": 1000, "cost_of_sales": 400, "tax_paid": 40,
+                        "interest_paid": 30, "interest_received": 5},
+    })
+    financials = result["financials"]["FY-Current"]
+    ratios = result["ratios"]["FY-Current"]
+    # ebitda = 600 (gross_profit, no admin/dep/amort/other_income supplied)
+    assert financials["ebitda"] == 600
+    assert financials["fcf"] == 600 - 0 - 40 - 30 + 5
+    assert ratios["fcf_conversion_pct"] == pytest.approx((600 - 0 - 40 - 30 + 5) / 600)
+
+
+def test_evaluate_financial_model_net_debt_to_ebitda_and_fcf_conversion_pct_are_none_not_zero_when_ebitda_is_zero():
+    """A zero-EBITDA period makes both net_debt_to_ebitda and
+    fcf_conversion_pct undefined -- must be None, not a misleading 0."""
+    result = evaluate_financial_model({
+        "FY-Current": {"current_debt": 100, "capex": 10, "tax_paid": 5},
+    })
+    ratios = result["ratios"]["FY-Current"]
+    assert ratios["net_debt_to_ebitda"] is None
+    assert ratios["fcf_conversion_pct"] is None
+
+
+def test_evaluate_financial_model_net_debt_to_ebitda_is_well_defined_zero_for_a_debt_free_cash_rich_company():
+    """total_debt=0 and cash=0 both legitimately absent here, with a
+    genuinely nonzero EBITDA -- 0/EBITDA is a well-defined 0.0, not an
+    undefined-denominator case (mirrors gross_leverage's own
+    zero-numerator-but-defined-denominator precedent)."""
+    result = evaluate_financial_model({
+        "FY-Current": {"revenue": 1000, "cost_of_sales": 400},
+    })
+    ratios = result["ratios"]["FY-Current"]
+    assert ratios["net_debt_to_ebitda"] == 0.0
 
 
 def test_zero_denominator_ratios_are_undefined_not_zero():

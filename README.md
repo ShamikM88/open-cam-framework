@@ -88,7 +88,7 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | :--- | :--- | :--- |
 | `/calibrate` | Sample CAM PDFs in `inputs/calibration_samples/` | `config/style_guide.md` + a derived template override |
 | `/triage` | Registration number, credit bureau summary, charges register | Legal identity / UBO check, Go/No-Go screen |
-| `/spread` | 3–5 years of P&L and Balance Sheet | TNW, EBITDA, DSCR, EBIT/Interest, Gross Leverage, Gearing %, Current Ratio, Working Capital Days |
+| `/spread` | 3–5 years of P&L and Balance Sheet | TNW, EBITDA, DSCR, EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, Working Capital Days |
 | `/commercial` | Sector, management bios, customer/supplier notes | Company History, Management, Sector Dynamics, Concentration, Competitive Landscape |
 | `/collateral` | Asset description, valuation, LGD/RV/PD grades | Gross/Net Exposure, RV Exposure, Collateral Coverage %, Net Uncovered Risk |
 | `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |

@@ -301,7 +301,7 @@ def test_forward_and_downside_columns_stay_blank_when_nothing_supplied(workbook)
         assert ws.cell(row=revenue_row, column=col).value is None
 
 
-def test_formulas_compute_correctly_in_forward_and_downside_columns():
+def test_formulas_compute_correctly_in_forward_and_downside_columns(tmp_path):
     """Formulas are column-agnostic ({col} substitution) -- confirm a real
     row chain (not just a bare raw-input cell) actually evaluates correctly
     in the forward-year base-case (E) and downside (H) columns too, not only
@@ -314,19 +314,17 @@ def test_formulas_compute_correctly_in_forward_and_downside_columns():
         "exceptional_costs": 0, "tax_paid": 40,
     }
 
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        out_path = f"{tmp_dir}/test_deal.xlsx"
-        export_to_xlsx(
-            "Test Co", out_path,
-            financial_data={"FY+1": period_raw},
-            downside_financial_data={"FY+1": period_raw},
-        )
-        ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
-        label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        financial_data={"FY+1": period_raw},
+        downside_financial_data={"FY+1": period_raw},
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
 
-        assert _evaluate(ws, "E", label_to_row["EBITDA"], {}) == 510  # FY+1 base case
-        assert _evaluate(ws, "H", label_to_row["EBITDA"], {}) == 510  # FY+1 (Downside)
+    assert _evaluate(ws, "E", label_to_row["EBITDA"], {}) == 510  # FY+1 base case
+    assert _evaluate(ws, "H", label_to_row["EBITDA"], {}) == 510  # FY+1 (Downside)
 
 
 def test_iferror_falls_back_to_na_on_division_by_zero(workbook):

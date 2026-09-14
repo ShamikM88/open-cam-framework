@@ -160,7 +160,6 @@ def test_export_deal_populates_downside_columns_in_the_exported_workbook(tmp_pat
     gets its FY+1 (Downside) column populated in the exported .xlsx --
     proves the full state.json -> deal_export.py -> spreading_builder.py
     wiring, not just the extraction function in isolation."""
-    import openpyxl
     from state_manager import write_state
 
     base = str(tmp_path)

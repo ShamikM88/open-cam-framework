@@ -101,8 +101,8 @@ at that moment -- so a historical deal stays identifiable even after the model o
 changes later (a model-risk-management concern; see the gap-analysis issue this closed).
 
 **Checkpoint after every step.** `/triage`, `/spread`, `/commercial`, `/collateral`, `/project`,
-`/review`, `/assemble`, and each of `orchestrator.py`'s two agent calls (draft, then audit) write their
-results to `state.json` on completion. This is "checkpoint at every step boundary," **not** a
+`/review`, `/assemble`, and each of `orchestrator.py`'s two agent calls (draft, then audit) write
+their results to `state.json` on completion. This is "checkpoint at every step boundary," **not** a
 "pre-compaction hook" — there is no such callback available to a script or a command's prompt,
 so don't document or reason about it as one. The guarantee this gives you is weaker but real:
 whatever was true as of the last completed step is always on disk, so at worst a compaction or a

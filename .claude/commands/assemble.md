@@ -1,5 +1,5 @@
 ---
-description: Assemble the final CAM from the /triage /spread /commercial /collateral outputs, audit it via /review, and export .docx + .xlsx (see config/skills_registry.md).
+description: Assemble the final CAM from the /triage /spread /commercial /collateral /project outputs, audit it via /review, and export .docx + .xlsx (see config/skills_registry.md).
 argument-hint: --company "<Name>" --proposal "<Proposal name>" --type <deal_type> --pd <PD> --lgd <LGD>
 allowed-tools: Bash(python scripts/deal_export.py *), Bash(python scripts/policy_check.py *), Bash(python scripts/state_manager.py *)
 disable-model-invocation: true
@@ -15,15 +15,18 @@ $ARGUMENTS
 
 Glob `deals/<company>/<proposal>_*/state.json` (there should be at most one, regardless of
 date). If found, read it first — it may already hold the outputs of `/triage`, `/spread`,
-`/commercial`, and `/collateral` from earlier in this conversation, from a previous session, or
-from after a context compaction. Treat it as the source of truth for any figure it has recorded;
-never fall back to a summarized/compacted memory of a step when state.json already has that
-step's result.
+`/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous
+session, or from after a context compaction. Treat it as the source of truth for any figure it
+has recorded; never fall back to a summarized/compacted memory of a step when state.json already
+has that step's result.
 
 You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
 `/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier
 in this conversation. If any of those steps' results aren't available from either source, tell
-the user which ones are missing and stop rather than guessing their content.
+the user which ones are missing and stop rather than guessing their content. `/project`'s output
+(forward-year financials, downside case, covenants, guarantees) is separately optional — a deal
+with none of it recorded simply has no Projections & Sensitivities section and no covenants/
+guarantees to condition on; don't treat its absence as a missing step.
 
 1. **Resolve the template.** Read `templates/local/cam/<type>_cam.md` if it exists (a calibrated
    override — see `/calibrate`); otherwise read `templates/cam/<type>_cam.md` (the shipped

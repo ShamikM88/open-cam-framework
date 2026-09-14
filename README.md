@@ -11,9 +11,9 @@ your house writing style and your own CAM layouts, rather than assuming any one 
 **Two ways to run it**, covered in full under [Getting started](#getting-started):
 
 - **Claude Code slash commands** (primary, recommended) — `/calibrate`, `/triage`, `/spread`,
-  `/commercial`, `/collateral`, `/assemble`, `/review`, run interactively inside a Claude Code
-  session pointed at this repo. Uses whatever Claude Code session/subscription you're already
-  running in — **no separate `ANTHROPIC_API_KEY` required.**
+  `/commercial`, `/collateral`, `/project`, `/assemble`, `/review`, run interactively inside a
+  Claude Code session pointed at this repo. Uses whatever Claude Code session/subscription
+  you're already running in — **no separate `ANTHROPIC_API_KEY` required.**
 - **Headless Python scripts** (`scripts/calibrate.py`, `scripts/orchestrator.py`) — for
   automation, CI, or batch runs outside an interactive session. These call the Anthropic API
   directly, so they need their own `ANTHROPIC_API_KEY` (a separate cost from a Claude Code
@@ -32,8 +32,9 @@ confidentiality rules — pick whichever fits how you work.
    `templates/local/cam/<deal_type>_cam.md`, which **overrides the shipped default** for that
    deal type. `<deal_type>` should match whatever you'll use for `--type` on later runs; it
    defaults to `corporate_credit`.
-2. **Per deal:** work through `/triage` → `/spread` → `/commercial` → `/collateral` →
-   `/assemble` (Claude Code), or run `scripts/orchestrator.py` (headless) with the
+2. **Per deal:** work through `/triage` → `/spread` → `/commercial` → `/collateral` → `/project`
+   (optional -- forward financials, stress testing, covenants, guarantees) → `/assemble` (Claude
+   Code), or run `scripts/orchestrator.py` (headless) with the
    borrower/company details. Either way, the **Underwriter Agent** drafts the CAM, grounded only
    in supplied source documents and user-provided risk inputs (never fabricated figures), and
    the **Risk Reviewer Agent** independently audits that draft — re-checking the ratio math,
@@ -91,10 +92,11 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | `/spread` | 3–5 years of P&L and Balance Sheet | TNW, EBITDA, DSCR, EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, Working Capital Days |
 | `/commercial` | Sector, management bios, customer/supplier notes | Company History, Management, Sector Dynamics, Concentration, Competitive Landscape |
 | `/collateral` | Asset description, valuation, LGD/RV/PD grades | Gross/Net Exposure, RV Exposure, Collateral Coverage %, Net Uncovered Risk |
+| `/project` (optional) | Forward-year P&L/Balance Sheet forecasts, stress-test assumptions, covenants, guarantees | Forward-year ratios, a deterministic downside (stressed) case, and covenant/guarantee records for `/assemble`'s code-enforced policy checks |
 | `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |
 | `/review` | A drafted CAM (usually called automatically by `/assemble`) | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent, made runnable for the first time |
 
-`/triage`, `/spread`, `/commercial`, and `/collateral` each load
+`/triage`, `/spread`, `/commercial`, `/collateral`, and `/project` each load
 [`agents/underwriter_agent.md`](agents/underwriter_agent.md)'s role; `/review` loads
 [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md)'s. `/assemble` resolves the
 right CAM template (local override, else shipped default), drafts into it, loops `/review` until
@@ -169,6 +171,7 @@ Open this repo in Claude Code (or the desktop app's Code tab) — the commands u
    /spread <P&L and Balance Sheet figures>
    /commercial <sector, management bios, customer/supplier notes>
    /collateral <asset description, valuation, LGD/RV/PD grades>
+   /project <forward-year forecasts, stress assumptions, covenants, guarantees>   # optional
    /assemble --company "Acme Corp" --proposal "Fleet Loan" --type asset_finance --pd "0.20%" --lgd "LGD 3 (15%)"
    ```
    `/assemble` drafts the CAM into the resolved template, runs `/review` (the Risk Reviewer

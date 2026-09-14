@@ -26,10 +26,12 @@ import pytest
 from orchestrator import (
     MAX_REVIEW_ITERATIONS,
     REQUIRED_RISK_TAXONOMY,
+    _DEFAULT_MODEL,
     _apply_deterministic_policy_checks,
     _check_reported_figures,
     _compute_collateral_cover_pct,
     _ground_truth_figures,
+    _load_model_name,
     _load_multi_period_financials,
     _normalize_category,
     _values_match,
@@ -38,7 +40,7 @@ from orchestrator import (
     parse_verdict,
     run_pipeline,
 )
-from state_manager import read_state, state_path
+from state_manager import read_state, state_path, write_state
 
 
 class MockClient:
@@ -71,6 +73,40 @@ def project_root(tmp_path, monkeypatch):
 
     monkeypatch.chdir(tmp_path)
     return tmp_path
+
+
+# ---------------------------------------------------------------------------
+# _load_model_name(): config/settings.json's "model" field is the documented
+# single source of truth -- must never silently drift from a hardcoded
+# constant duplicated here.
+# ---------------------------------------------------------------------------
+
+def test_load_model_name_reads_from_config_settings_json(project_root):
+    config_dir = project_root / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(
+        json.dumps({"model": "claude-custom-model-v9"}), encoding="utf-8",
+    )
+    assert _load_model_name() == "claude-custom-model-v9"
+
+
+def test_load_model_name_falls_back_to_default_when_config_missing(project_root):
+    # project_root has no config/settings.json at all.
+    assert _load_model_name() == _DEFAULT_MODEL
+
+
+def test_load_model_name_falls_back_to_default_when_config_malformed(project_root):
+    config_dir = project_root / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text("{not valid json", encoding="utf-8")
+    assert _load_model_name() == _DEFAULT_MODEL
+
+
+def test_load_model_name_falls_back_to_default_when_model_key_missing(project_root):
+    config_dir = project_root / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(json.dumps({"max_tokens": 4000}), encoding="utf-8")
+    assert _load_model_name() == _DEFAULT_MODEL
 
 
 def _approved_json(notes=None):
@@ -727,6 +763,35 @@ def test_run_pipeline_accumulates_steps_completed_without_duplicating_across_rer
     assert state2["steps_completed"].count("draft") == 1
     assert state2["steps_completed"].count("audit") == 1
     assert state2["steps_completed"].count("export") == 1
+
+
+# ---------------------------------------------------------------------------
+# new_review: a genuinely new annual review under the same company/proposal
+# must get its own fresh dated folder, never silently merge into a prior
+# year's stale financials/collateral/policy_state.
+# ---------------------------------------------------------------------------
+
+def test_run_pipeline_with_new_review_does_not_inherit_a_prior_dated_folders_data(project_root):
+    old_financials = {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10",
+                financials={"FY-Current": {"gross_profit": 600}}, ratios={},
+                collateral=[{"asset_class": "HGV", "exposure": 100}],
+                inputs={"pd": "0.10%", "lgd": "LGD 1 (5%)"})
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    new_state = read_state("Acme Corp", "Fleet Loan", new_review=True)
+    assert new_state["date"] != "2025-01-10"
+    assert new_state["financials"] == {}  # not last year's {"FY-Current": {"gross_profit": 600}}
+    assert new_state["collateral"] == []  # not last year's HGV entry
+    assert new_state["inputs"] == {"pd": "0.20%", "lgd": "LGD 3 (15%)"}
+
+    # The old folder is untouched.
+    old_state = read_state("Acme Corp", "Fleet Loan", date_str="2025-01-10")
+    assert old_state["inputs"] == {"pd": "0.10%", "lgd": "LGD 1 (5%)"}
+    assert old_state["collateral"] == [{"asset_class": "HGV", "exposure": 100}]
 
 
 # ---------------------------------------------------------------------------

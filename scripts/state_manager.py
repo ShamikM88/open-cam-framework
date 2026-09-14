@@ -27,6 +27,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from datetime import datetime
 
 DEALS_DIR = "deals"
@@ -42,6 +43,60 @@ SCHEMA_VERSION = "1.1.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
+
+LOCK_TIMEOUT_SECONDS = 10
+_LOCK_POLL_INTERVAL_SECONDS = 0.05
+
+
+class _FileLock:
+    """A minimal, dependency-free, cross-platform lock guarding one deal's
+    read-modify-write against a concurrent write_state()/append_review_trail()
+    call for the *same* company/proposal (e.g. two Claude Code sessions, or
+    a slash command and a headless orchestrator.py run, both touching the
+    same deal at once) -- without it, both reads see the same starting
+    state, both compute an update from it, and the second write silently
+    clobbers whatever the first one added (no error, no warning).
+
+    Uses exclusive file creation (os.O_CREAT | os.O_EXCL), which is atomic
+    on both Windows and POSIX -- no platform-conditional msvcrt/fcntl code
+    or third-party dependency needed. Retries with a short poll interval up
+    to `timeout` seconds before giving up.
+    """
+
+    def __init__(self, target_path, timeout=LOCK_TIMEOUT_SECONDS):
+        self._lock_path = target_path + ".lock"
+        self._timeout = timeout
+        self._fd = None
+
+    def __enter__(self):
+        deadline = time.monotonic() + self._timeout
+        while True:
+            try:
+                self._fd = os.open(self._lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                return self
+            except (FileExistsError, PermissionError):
+                # On Windows, a genuine O_EXCL collision (another thread/
+                # process winning the race to create the same lock file a
+                # moment earlier) can surface as PermissionError rather than
+                # FileExistsError -- NTFS briefly denies access to a file
+                # another handle just created before its attributes settle.
+                # Treat both identically: back off and retry.
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Could not acquire lock {self._lock_path!r} within {self._timeout}s. "
+                        "Either another process is genuinely mid-write, or this is a stale lock "
+                        "left behind by a process that crashed while holding it -- if so, it's "
+                        "safe to delete the .lock file by hand."
+                    )
+                time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._fd is not None:
+            os.close(self._fd)
+        try:
+            os.remove(self._lock_path)
+        except FileNotFoundError:
+            pass
 
 
 def sanitize_path_component(value, field_name):
@@ -83,17 +138,28 @@ def _existing_date_str(company, proposal, base_dir=None):
     return max(dates) if dates else None
 
 
-def _resolve_date_str(company, proposal, date_str=None, base_dir=None):
+def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
     if date_str:
         return date_str
+    if new_review:
+        # Force today's date rather than resuming the most recent existing
+        # folder -- e.g. a new annual review for the same company/proposal
+        # must not silently merge into last year's state.json (stale PD/LGD,
+        # financials, policy_state). Matches deal_export.py's own
+        # always-today convention for a one-shot export.
+        return datetime.now().strftime("%Y-%m-%d")
     return _existing_date_str(company, proposal, base_dir=base_dir) or datetime.now().strftime("%Y-%m-%d")
 
 
-def state_path(company, proposal, date_str=None, base_dir=None):
+def state_path(company, proposal, date_str=None, base_dir=None, new_review=False):
     """Path to this deal's state.json, resolved the same way deal_export.py
     resolves its output directory: deals/<Company>/<Proposal>_<Date>/ --
     except that an explicit `date_str` isn't required to find an existing
     file; see the module docstring.
+
+    `new_review=True` forces today's date instead of auto-resuming the most
+    recent existing dated folder for this company/proposal -- see
+    _resolve_date_str(). Ignored if `date_str` is given explicitly.
 
     `company`/`proposal` are sanitized here -- the one place every other
     function in this module (and deal_export.py, via its own call) routes
@@ -108,11 +174,11 @@ def state_path(company, proposal, date_str=None, base_dir=None):
     proposal = sanitize_path_component(proposal, "proposal")
     if date_str:
         date_str = sanitize_path_component(date_str, "date_str")
-    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
+    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
     return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
 
 
-def read_state(company, proposal, date_str=None, base_dir=None):
+def read_state(company, proposal, date_str=None, base_dir=None, new_review=False):
     """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
 
     Raises ValueError (not a raw json.JSONDecodeError) if the file exists
@@ -122,6 +188,12 @@ def read_state(company, proposal, date_str=None, base_dir=None):
     would then happily overwrite, permanently losing whatever was still
     readable).
 
+    `new_review=True` forces today's date instead of auto-resuming the most
+    recent existing dated folder -- see _resolve_date_str(). A caller
+    starting a genuinely new annual review under the same company/proposal
+    should pass this so it reads back `None` (nothing yet exists for
+    today's fresh folder) rather than last year's stale state.
+
     A deal folder written before SCHEMA_VERSION existed has no
     "schema_version" key at all -- callers must never assume the key is
     present. Rather than leave that as an unhandled absence for every
@@ -129,7 +201,7 @@ def read_state(company, proposal, date_str=None, base_dir=None):
     dict always has a "schema_version" key, defaulting to
     LEGACY_SCHEMA_VERSION when the file itself doesn't carry one.
     """
-    path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
+    path = state_path(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as f:
@@ -145,7 +217,7 @@ def read_state(company, proposal, date_str=None, base_dir=None):
     return state
 
 
-def write_state(company, proposal, date_str=None, base_dir=None, **fields):
+def write_state(company, proposal, date_str=None, base_dir=None, new_review=False, **fields):
     """Merge `fields` into this deal's state.json (if any) and write it back.
 
     Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
@@ -153,6 +225,13 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
     `date_str` isn't given, rather than always creating a new one dated
     today. `company`, `proposal`, and `date` are always kept in sync
     automatically.
+
+    `new_review=True` forces today's date instead of auto-resuming the most
+    recent existing dated folder -- see _resolve_date_str(). Use this for a
+    genuinely new annual review under the same company/proposal, so it gets
+    its own fresh dated folder (and, paired with `read_state(...,
+    new_review=True)`, doesn't inherit stale PD/LGD/financials/policy_state
+    from a prior year's folder) rather than silently merging into it.
 
     The merge is a shallow dict.update(): a fresh `financials={...}` replaces
     the whole financials dict rather than merging inside it, and a fresh
@@ -170,10 +249,22 @@ def write_state(company, proposal, date_str=None, base_dir=None, **fields):
     if date_str:
         date_str = sanitize_path_component(date_str, "date_str")
 
-    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
+    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
+    with _FileLock(path):
+        return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
+
+
+def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
+    """The actual read-modify-write, factored out so both write_state() and
+    append_review_trail() can hold one _FileLock across their *entire*
+    read-modify-write -- including, for append_review_trail(), the read and
+    review_trail-list-build step that happens before this is called -- while
+    this helper itself never acquires the lock (it would deadlock retrying
+    to acquire a lock its own caller is already holding).
+    """
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
     state["company"] = company
     state["proposal"] = proposal
@@ -223,16 +314,29 @@ def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
     Returns the full state dict that was written.
     """
     timestamp = timestamp or datetime.now().isoformat()
-    existing = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
-    trail = list(existing.get("review_trail") or [])
-    trail.append({
-        "iteration": len(trail) + 1,
-        "verdict": verdict,
-        "notes": notes,
-        "timestamp": timestamp,
-    })
 
-    return write_state(
-        company, proposal, date_str=date_str, base_dir=base_dir,
-        review_verdict=verdict, review_trail=trail, **extra_fields,
-    )
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    if date_str:
+        date_str = sanitize_path_component(date_str, "date_str")
+    date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
+    path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    # The read (existing trail) and the write must happen under the *same*
+    # lock acquisition -- two concurrent calls each locking only around
+    # write_state()'s own internal read-modify-write would still race here,
+    # since each would have already computed its `trail` from an unlocked
+    # read taken before either write happened, and the second write would
+    # clobber the first's appended entry with its own stale-based list.
+    with _FileLock(path):
+        existing = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
+        trail = list(existing.get("review_trail") or [])
+        trail.append({
+            "iteration": len(trail) + 1,
+            "verdict": verdict,
+            "notes": notes,
+            "timestamp": timestamp,
+        })
+        fields = dict(extra_fields, review_verdict=verdict, review_trail=trail)
+        return _merge_and_write(path, company, proposal, date_str, base_dir, fields)

@@ -1,5 +1,7 @@
 import json
 import os
+import threading
+import time
 import pytest
 from datetime import datetime
 
@@ -7,6 +9,7 @@ from deal_export import export_deal
 from state_manager import (
     LEGACY_SCHEMA_VERSION,
     SCHEMA_VERSION,
+    _FileLock,
     append_review_trail,
     read_state,
     sanitize_path_component,
@@ -256,6 +259,137 @@ def test_prefers_the_most_recent_dated_folder_when_more_than_one_exists(tmp_path
     state = read_state("Acme Corp", "Fleet Loan", base_dir=base)
     assert state["note"] == "newer"
     assert state["date"] == "2026-01-20"
+
+
+# ---------------------------------------------------------------------------
+# new_review: a genuinely new annual review under the same company/proposal
+# must get its own fresh dated folder, never silently merge into whatever
+# dated folder already exists (stale PD/LGD, financials, policy_state).
+# ---------------------------------------------------------------------------
+
+def test_read_state_with_new_review_ignores_an_existing_dated_folder(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base,
+                deal_type="asset_finance", inputs={"pd": "0.10%"})
+
+    # Without new_review, this would resume 2025-01-10's stale state.
+    state = read_state("Acme Corp", "Fleet Loan", base_dir=base, new_review=True)
+    assert state is None
+
+
+def test_write_state_with_new_review_creates_a_fresh_dated_folder(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base,
+                deal_type="asset_finance", inputs={"pd": "0.10%"})
+
+    new_state = write_state("Acme Corp", "Fleet Loan", base_dir=base, new_review=True,
+                             inputs={"pd": "0.20%"})
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert new_state["date"] == today
+    assert new_state["inputs"] == {"pd": "0.20%"}  # not merged with 2025-01-10's stale inputs
+
+    # The old folder is untouched, not overwritten.
+    old_state = read_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base)
+    assert old_state["inputs"] == {"pd": "0.10%"}
+
+
+# ---------------------------------------------------------------------------
+# File locking: a concurrent write_state()/append_review_trail() call for
+# the *same* deal must not silently clobber the other's update -- see
+# _FileLock's docstring.
+# ---------------------------------------------------------------------------
+
+def test_file_lock_serializes_concurrent_acquisition(tmp_path):
+    """Direct proof of the mutual-exclusion property _FileLock provides:
+    two threads racing for the same lock must never both hold it at once."""
+    lock_target = str(tmp_path / "state.json")
+    holders = []
+    overlap_detected = []
+
+    def worker():
+        with _FileLock(lock_target):
+            holders.append(1)
+            if len(holders) > 1:
+                overlap_detected.append(True)
+            time.sleep(0.05)
+            holders.pop()
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert overlap_detected == []
+    # The lock file itself is cleaned up after every acquisition completes.
+    assert not os.path.exists(lock_target + ".lock")
+
+
+def test_file_lock_raises_timeout_error_when_already_held(tmp_path):
+    lock_target = str(tmp_path / "state.json")
+    with _FileLock(lock_target):
+        with pytest.raises(TimeoutError):
+            _FileLock(lock_target, timeout=0.2).__enter__()
+
+
+def test_concurrent_write_state_calls_do_not_clobber_each_others_update(tmp_path):
+    """Without the lock, two concurrent write_state() calls each read the
+    same starting state, compute an update from it, and the second write
+    silently drops whatever the first one added. With it, both updates
+    survive regardless of interleaving."""
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+
+    def writer(field_name, value):
+        write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, **{field_name: value})
+
+    t1 = threading.Thread(target=writer, args=("steps_completed", ["triage"]))
+    t2 = threading.Thread(target=writer, args=("inputs", {"pd": "0.20%"}))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    state = read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert state["steps_completed"] == ["triage"]
+    assert state["inputs"] == {"pd": "0.20%"}
+
+
+def test_concurrent_append_review_trail_calls_do_not_lose_an_entry(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+
+    def appender(verdict):
+        append_review_trail("Acme Corp", "Fleet Loan", verdict, date_str="2026-01-15", base_dir=base)
+
+    t1 = threading.Thread(target=appender, args=("REJECTED",))
+    t2 = threading.Thread(target=appender, args=("APPROVED",))
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    state = read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert len(state["review_trail"]) == 2  # neither call's entry was lost
+    assert {"REJECTED", "APPROVED"} == {e["verdict"] for e in state["review_trail"]}
+    assert {1, 2} == {e["iteration"] for e in state["review_trail"]}  # no duplicate iteration numbers
+
+
+def test_new_review_still_resumes_within_the_same_day(tmp_path):
+    """new_review=True is a one-time "start clean" trigger, not a
+    permanent per-call override -- a second write the same day (with or
+    without new_review) must land in the folder the first call just
+    created, not fork yet another new one."""
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base, note="old year")
+    first = write_state("Acme Corp", "Fleet Loan", base_dir=base, new_review=True, note="new year")
+
+    second = write_state("Acme Corp", "Fleet Loan", base_dir=base, steps_completed=["triage"])
+
+    assert second["date"] == first["date"]
+    assert second["note"] == "new year"  # merged with the fresh folder, not the old one
+    assert second["steps_completed"] == ["triage"]
 
 
 def test_auto_discovery_is_scoped_to_the_matching_company_and_proposal(tmp_path):

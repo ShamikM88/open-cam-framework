@@ -39,10 +39,15 @@ why this directory is git-ignored rather than living under `templates/cam/`. Del
 to fall back to the shipped default for that deal type.
 
 **Contributing one back:** if a file here turns out to be a genuinely useful, well-generalized
-CAM structure — not specific to one deal — review it by hand to confirm it's fully scrubbed of
-real data (the calibration prompt asks for that, but doesn't guarantee it), then open a PR to add
-it under `templates/cam/` as a new shared default. Don't do this automatically or silently; it's
-a deliberate decision to publish something derived from a user's real documents.
+CAM structure — not specific to one deal — first run it through `scripts/pii_scan.py` as a
+second line of defense (`python scripts/pii_scan.py templates/local/cam/<deal_type>_cam.md`;
+prints any likely-real currency figures, emails, phone numbers, dates, company names, or
+Companies House-style registration numbers it finds as JSON). An empty result is a heuristic
+"nothing obvious found," not a guarantee — still review it by hand to confirm it's fully
+scrubbed of real data (the calibration prompt asks for that, but doesn't guarantee it), then
+open a PR to add it under `templates/cam/` as a new shared default. Don't do this automatically
+or silently; it's a deliberate decision to publish something derived from a user's real
+documents.
 
 ## `templates/spreading/`
 

@@ -12,6 +12,7 @@ from state_manager import (
     _FileLock,
     append_review_trail,
     read_state,
+    required_steps_completed,
     resolve_date_str,
     sanitize_path_component,
     state_path,
@@ -538,6 +539,48 @@ def test_resolve_date_str_without_new_review_auto_discovers_the_most_recent_fold
     write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
 
     assert resolve_date_str("Acme Corp", "Fleet Loan", base_dir=base) == "2026-01-15"
+
+
+# ---------------------------------------------------------------------------
+# required_steps_completed(): pure comparison used to hard-gate /assemble
+# (and any other step) against steps_completed recorded in state.json,
+# rather than relying only on prose instructions -- see issue #28.
+# ---------------------------------------------------------------------------
+
+def test_required_steps_completed_returns_empty_when_nothing_missing():
+    assert required_steps_completed(["triage", "spread"], ["spread"]) == []
+
+
+def test_required_steps_completed_returns_empty_when_all_required_present():
+    assert required_steps_completed(["triage", "spread", "collateral"], ["spread", "triage"]) == []
+
+
+def test_required_steps_completed_returns_the_missing_step():
+    assert required_steps_completed(["triage"], ["spread"]) == ["spread"]
+
+
+def test_required_steps_completed_returns_multiple_missing_steps_in_required_order():
+    assert required_steps_completed([], ["spread", "collateral"]) == ["spread", "collateral"]
+    assert required_steps_completed(["collateral"], ["spread", "collateral"]) == ["spread"]
+
+
+def test_required_steps_completed_with_empty_required_list_is_always_empty():
+    assert required_steps_completed(["spread"], []) == []
+    assert required_steps_completed([], []) == []
+
+
+def test_required_steps_completed_with_empty_steps_completed_returns_all_required():
+    assert required_steps_completed([], ["spread"]) == ["spread"]
+
+
+def test_required_steps_completed_tolerates_none_steps_completed():
+    """steps_completed may be absent from a legacy state.json entirely --
+    read_state() would then hand back None/missing rather than []."""
+    assert required_steps_completed(None, ["spread"]) == ["spread"]
+
+
+def test_required_steps_completed_does_not_duplicate_a_repeated_required_entry():
+    assert required_steps_completed([], ["spread", "spread"]) == ["spread"]
 
 
 def test_write_state_leaves_no_stray_temp_file_behind(tmp_path):

@@ -75,6 +75,10 @@
 **Transaction Structure**
 - [Facility mechanics — lease/loan type, RV treatment, term matching rationale, payment profile, end-of-term treatment]
 
+**Conditions Precedent & Subsequent**
+- *Conditions Precedent (pre-drawdown):* [Enumerate every required Condition Precedent's text, sourced from `policy_state`'s `required_conditions_precedent`]
+- *Conditions Subsequent (post-drawdown, ongoing monitoring):* [Enumerate every required Condition Subsequent's text, sourced from `policy_state`'s `required_conditions_subsequent`]
+
 ## 7. Company Overview & Group Structure
 
 - [Company website, date/place of incorporation, core activity]

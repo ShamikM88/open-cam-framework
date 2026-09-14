@@ -16,6 +16,23 @@ Underwriter is never asked to reproduce or paraphrase a CP's free-text
 `text` for compliance-checking purposes, only to echo back the stable
 `cp_id` it rendered, so orchestrator.py can check for exact set membership
 rather than fuzzy-matching prose.
+
+Conditions Subsequent (`cs_id`) are this same pattern applied to the other
+side of drawdown: post-drawdown, ongoing monitoring obligations (e.g.
+periodic MI, covenant-compliance certification, re-confirming security
+perfection or guarantor standing), as opposed to CPs, which are pre-
+drawdown conditions to satisfy before completion. `cs_id`s are a distinct
+namespace from `cp_id`s (always prefixed "CS-", except the always-present
+standard ones -- see STANDARD_CONDITIONS_SUBSEQUENT) so the two can never
+collide or be mistaken for one another in the Underwriter's structured
+output.
+
+Deliberately out of scope for this module (see the PR that introduced CS
+tracking for the full disclosure): covenant test-frequency/step-down-over-
+tenor modeling, a cure-period/maintenance-vs-incurrence distinction for
+covenants, and severity/likelihood weighting of the risk taxonomy. Those
+are separate, larger design discussions -- this module only adds Conditions
+Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 """
 import hashlib
 import re
@@ -26,6 +43,22 @@ SLUG_RE = re.compile(r"[^A-Z0-9]+")
 STANDARD_CONDITIONS_PRECEDENT = [
     {"cp_id": "KYC-AML", "text": "Standard KYC/AML clearance for all borrowing entities."},
     {"cp_id": "FACILITY-EXECUTION", "text": "Execution of Facility Agreement."},
+]
+
+# Always required regardless of deal-specific structure -- the Conditions
+# Subsequent analogue of STANDARD_CONDITIONS_PRECEDENT above. Kept
+# deliberately qualitative (no invented numeric deadline like "within 30
+# days of period end") -- this codebase's grounding rule bars inventing
+# figures, and a submission deadline is exactly the kind of deal-specific
+# detail this module has no basis to assert.
+STANDARD_CONDITIONS_SUBSEQUENT = [
+    {
+        "cs_id": "MI-REPORTING",
+        "text": (
+            "Ongoing submission of periodic financial statements and management "
+            "information to support continued monitoring of the facility."
+        ),
+    },
 ]
 
 
@@ -275,6 +308,103 @@ def _guarantee_cps(guarantees):
     return cps
 
 
+def _covenant_compliance_cs(covenants):
+    """One CS for the whole deal when `covenants` is non-empty -- not one
+    per covenant. The underlying obligation (certify ongoing compliance
+    with the covenant package under the Facility Agreement) is a single
+    standing undertaking, not a separate administrative duty per metric; a
+    per-covenant CS would also need its own id disambiguation and would
+    churn (new ids appearing/disappearing) every time the covenant package
+    itself is edited, for no real monitoring benefit over one deal-level
+    certification obligation that already covers "all financial covenants"
+    by reference.
+    """
+    if not covenants:
+        return []
+    return [{
+        "cs_id": "CS-COVENANT-COMPLIANCE",
+        "text": (
+            "Ongoing certification of continued compliance with all financial "
+            "covenants set out in the Facility Agreement."
+        ),
+    }]
+
+
+def _security_reconfirmation_cs(security_package):
+    """One CS per currently-Perfected charge -- mirrors _evaluate_security()'s
+    own per-charge granularity (a multi-charge asset can have more than one
+    charge independently reach Perfected status, each its own standing
+    reconfirmation obligation). A charge that is *not* Perfected today is
+    already covered by its own Conditions Precedent (see _evaluate_security()
+    above) -- it has nothing to reconfirm post-drawdown yet, so it gets no CS
+    entry here.
+
+    `used_ids` is scoped to this function only (distinct "CS-SEC-REPERFECT-"
+    prefix from every other CS/CP generator), matching _evaluate_security()'s
+    own collision-avoidance pattern for the equivalent CP.
+    """
+    used_ids = set()
+    cs_list = []
+
+    def unique_cs_id(base_slug):
+        cs_id = f"CS-SEC-REPERFECT-{base_slug}"
+        suffix = 2
+        while cs_id in used_ids:
+            cs_id = f"CS-SEC-REPERFECT-{base_slug}-{suffix}"
+            suffix += 1
+        used_ids.add(cs_id)
+        return cs_id
+
+    for charge in security_package:
+        if charge.get("perfection_status") != "Perfected":
+            continue
+        asset_id = charge.get("secures_asset_id")
+        cs_list.append({
+            "cs_id": unique_cs_id(_slugify(asset_id)),
+            "text": (
+                "Ongoing (e.g. annual) reconfirmation of the continued perfection "
+                f"status of the security charge over asset {asset_id}."
+            ),
+        })
+    return cs_list
+
+
+def _guarantee_standing_cs(guarantees):
+    """One CS per guarantee -- mirrors _guarantee_cps()'s own one-per-
+    guarantee granularity and id-disambiguation approach (a guarantee's own
+    `guarantee_id` when supplied and actually present, else its `provider`,
+    suffixed on collision). `used_ids` is scoped to this function only
+    (distinct "CS-GUARANTEE-" prefix).
+    """
+    def has_explicit_id(guarantee):
+        guarantee_id = guarantee.get("guarantee_id")
+        return guarantee_id is not None and not (
+            isinstance(guarantee_id, str) and not guarantee_id.strip()
+        )
+
+    used_ids = set()
+    cs_list = []
+    for guarantee in guarantees:
+        provider = guarantee.get("provider", "")
+        base_slug = _slugify(guarantee["guarantee_id"] if has_explicit_id(guarantee) else provider)
+
+        cs_id = f"CS-GUARANTEE-{base_slug}"
+        suffix = 2
+        while cs_id in used_ids:
+            cs_id = f"CS-GUARANTEE-{base_slug}-{suffix}"
+            suffix += 1
+        used_ids.add(cs_id)
+
+        cs_list.append({
+            "cs_id": cs_id,
+            "text": (
+                "Ongoing (e.g. annual) reconfirmation of the continued standing of "
+                f"guarantor {provider}."
+            ),
+        })
+    return cs_list
+
+
 def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios):
     """For each covenant, independently re-check it against every forward
     period that has both a base-case and a downside-case ratio set. Where
@@ -344,6 +474,7 @@ def evaluate_deal_policy(state_dict):
         "covenant_results": [{"metric", "type", "threshold", "actual", "status", "headroom_pct"}, ...],
         "security_gaps": [str, ...],
         "required_conditions_precedent": [{"cp_id", "text"}, ...],
+        "required_conditions_subsequent": [{"cs_id", "text"}, ...],
         "downside_covenant_breaches": [{"year", "metric", "base_actual", "downside_actual", "threshold", "breach_id"}, ...],
     }
     """
@@ -364,10 +495,17 @@ def evaluate_deal_policy(state_dict):
     required_conditions_precedent = (
         list(STANDARD_CONDITIONS_PRECEDENT) + security_cps + guarantee_cps
     )
+    required_conditions_subsequent = (
+        list(STANDARD_CONDITIONS_SUBSEQUENT)
+        + _covenant_compliance_cs(covenants)
+        + _security_reconfirmation_cs(security_package)
+        + _guarantee_standing_cs(guarantees)
+    )
 
     return {
         "covenant_results": covenant_results,
         "security_gaps": security_gaps,
         "required_conditions_precedent": required_conditions_precedent,
+        "required_conditions_subsequent": required_conditions_subsequent,
         "downside_covenant_breaches": downside_covenant_breaches,
     }

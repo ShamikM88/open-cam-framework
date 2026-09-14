@@ -193,13 +193,15 @@ def _rejected_json(notes):
 
 
 # A deal with no covenants/security_package/guarantees in state.json only
-# ever requires the two standard CPs, and the Underwriter is always free to
-# self-report every canonical risk category as covered.
+# ever requires the two standard CPs and the one standard CS, and the
+# Underwriter is always free to self-report every canonical risk category
+# as covered.
 STANDARD_CP_IDS = ["KYC-AML", "FACILITY-EXECUTION"]
+STANDARD_CS_IDS = ["MI-REPORTING"]
 ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
 
 
-def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS,
+def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD_CS_IDS,
                       risk_categories=None, reported_figures=None, sources=None):
     """A draft whose trailing structured JSON block satisfies every
     deterministic policy check by default (see agents/underwriter_agent.md's
@@ -218,6 +220,7 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS,
     explicitly rather than relying on this default."""
     payload = {
         "cp_ids_included": list(cp_ids),
+        "cs_ids_included": list(cs_ids),
         "risk_categories_covered": risk_categories if risk_categories is not None else ALL_CATEGORIES_COVERED,
         "reported_figures": reported_figures if reported_figures is not None else {},
         "sources": sources if sources is not None else ["Test Source"],
@@ -317,16 +320,16 @@ def test_parse_underwriter_output_extracts_cp_ids_and_categories():
 def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     result = parse_underwriter_output("# Draft CAM with no trailing JSON block")
     assert result == {
-        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [], "sources": [],
+        "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
+        "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
 def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     result = parse_underwriter_output('# Draft\n```json\n{"cp_ids_included": [\n```')
     assert result == {
-        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [], "sources": [],
+        "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
+        "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
@@ -351,8 +354,8 @@ def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_typ
     )
     result = parse_underwriter_output(draft)
     assert result == {
-        "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [], "sources": [],
+        "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
+        "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
@@ -396,9 +399,13 @@ def test_normalize_category_is_case_and_whitespace_insensitive():
 # only ever move a verdict from APPROVED to REJECTED, never the reverse.
 # ---------------------------------------------------------------------------
 
-def _policy_state(required_cps=None, covenant_results=None, security_gaps=None):
+def _policy_state(required_cps=None, required_css=None, covenant_results=None, security_gaps=None):
     return {
         "required_conditions_precedent": required_cps or [{"cp_id": "KYC-AML", "text": "KYC/AML clearance."}],
+        "required_conditions_subsequent": (
+            required_css if required_css is not None
+            else [{"cs_id": "MI-REPORTING", "text": "Periodic MI submission."}]
+        ),
         "covenant_results": covenant_results or [],
         "security_gaps": security_gaps or [],
     }

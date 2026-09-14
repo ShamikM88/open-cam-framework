@@ -14,9 +14,10 @@ from policy_check import compute
 from state_manager import write_state
 
 
-def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION")):
+def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION"), cs_ids=("MI-REPORTING",)):
     payload = {
         "cp_ids_included": list(cp_ids),
+        "cs_ids_included": list(cs_ids),
         "risk_categories_covered": {
             category: {"status": "covered"}
             for category in ["Market", "Refinance", "Operational", "Concentration",
@@ -80,12 +81,24 @@ def test_compute_with_an_incomplete_draft_flags_missing_cp(tmp_path, monkeypatch
     assert any("Missing Required CP KYC-AML" in r for r in result["reasons"])
 
 
+def test_compute_with_an_incomplete_draft_flags_missing_cs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(_compliant_draft(cs_ids=[]), encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    assert result["compliant"] is False
+    assert any("Missing Required Condition Subsequent MI-REPORTING" in r for r in result["reasons"])
+
+
 def test_compute_checks_reported_figures_against_state_when_draft_given(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     write_state("Acme Corp", "Fleet Loan", ratios={"FY-Current": {"dscr": 1.05}})
 
     payload = {
         "cp_ids_included": ["KYC-AML", "FACILITY-EXECUTION"],
+        "cs_ids_included": ["MI-REPORTING"],
         "risk_categories_covered": {
             category: {"status": "covered"}
             for category in ["Market", "Refinance", "Operational", "Concentration",

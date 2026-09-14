@@ -142,6 +142,25 @@ def _evaluate_covenant(covenant, ratios):
     return result
 
 
+def _unique_id(prefix, base_slug, used_ids):
+    """Collision-avoiding id builder shared by every CP/CS generator below:
+    produce "<prefix>-<base_slug>", and if that's already in `used_ids`
+    append a numeric suffix (-2, -3, ...) until it's unique. `used_ids` is
+    checked (and then updated with the chosen id) against every id already
+    handed out in this call, not just ones sharing the same base_slug -- a
+    naturally-unique candidate could otherwise silently collide with
+    another id's own disambiguated suffix (e.g. a second, differently-named
+    entity whose slug happens to equal an earlier collision's "-2" form).
+    """
+    candidate = f"{prefix}-{base_slug}"
+    suffix = 2
+    while candidate in used_ids:
+        candidate = f"{prefix}-{base_slug}-{suffix}"
+        suffix += 1
+    used_ids.add(candidate)
+    return candidate
+
+
 def _evaluate_security(collateral, security_package):
     """Cross-reference collateral assets against the security package taken
     over them, joined on asset_id <-> secures_asset_id.
@@ -173,19 +192,11 @@ def _evaluate_security(collateral, security_package):
     # asset -- a multi-charge asset's disambiguated suffix (e.g.
     # "...-AST-001-2") could otherwise collide with a *different* asset
     # whose own id happens to naturally slugify to that exact string (see
-    # _guarantee_cps() for the same pattern, fixed there for the same
-    # reason: a naturally-unique candidate must still be checked against
-    # every id already handed out, not just siblings sharing its own base).
+    # _unique_id()'s own docstring for the general form of this).
     used_ids = set()
 
     def unique_cp_id(prefix, base_slug):
-        cp_id = f"{prefix}-{base_slug}"
-        suffix = 2
-        while cp_id in used_ids:
-            cp_id = f"{prefix}-{base_slug}-{suffix}"
-            suffix += 1
-        used_ids.add(cp_id)
-        return cp_id
+        return _unique_id(prefix, base_slug, used_ids)
 
     for asset_id in collateral_by_id:
         charges = charges_by_asset_id.get(asset_id)
@@ -294,12 +305,7 @@ def _guarantee_cps(guarantees):
 
         base_slug = _slugify(guarantee["guarantee_id"] if has_explicit_id(guarantee) else provider)
 
-        cp_id = f"GUARANTEE-{base_slug}"
-        suffix = 2
-        while cp_id in used_ids:
-            cp_id = f"GUARANTEE-{base_slug}-{suffix}"
-            suffix += 1
-        used_ids.add(cp_id)
+        cp_id = _unique_id("GUARANTEE", base_slug, used_ids)
 
         cps.append({
             "cp_id": cp_id,
@@ -347,13 +353,7 @@ def _security_reconfirmation_cs(security_package):
     cs_list = []
 
     def unique_cs_id(base_slug):
-        cs_id = f"CS-SEC-REPERFECT-{base_slug}"
-        suffix = 2
-        while cs_id in used_ids:
-            cs_id = f"CS-SEC-REPERFECT-{base_slug}-{suffix}"
-            suffix += 1
-        used_ids.add(cs_id)
-        return cs_id
+        return _unique_id("CS-SEC-REPERFECT", base_slug, used_ids)
 
     for charge in security_package:
         if charge.get("perfection_status") != "Perfected":
@@ -388,12 +388,7 @@ def _guarantee_standing_cs(guarantees):
         provider = guarantee.get("provider", "")
         base_slug = _slugify(guarantee["guarantee_id"] if has_explicit_id(guarantee) else provider)
 
-        cs_id = f"CS-GUARANTEE-{base_slug}"
-        suffix = 2
-        while cs_id in used_ids:
-            cs_id = f"CS-GUARANTEE-{base_slug}-{suffix}"
-            suffix += 1
-        used_ids.add(cs_id)
+        cs_id = _unique_id("CS-GUARANTEE", base_slug, used_ids)
 
         cs_list.append({
             "cs_id": cs_id,

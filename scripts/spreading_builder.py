@@ -21,14 +21,14 @@ PNL_ROWS = [
     ("Revenue", None),
     ("Cost of Goods Sold", None),
     ("Gross Profit", "={Revenue}-{Cost of Goods Sold}"),
-    ("Gross Profit Margin %", "=IFERROR({Gross Profit}/{Revenue},0)"),
+    ("Gross Profit Margin %", '=IFERROR({Gross Profit}/{Revenue},"N/A")'),
     ("Admin Expenses", None),
     ("Depreciation", None),
     ("Amortisation", None),
     ("Other Income", None),
     ("Operating Profit",
      "={Gross Profit}-{Admin Expenses}-{Depreciation}-{Amortisation}+{Other Income}"),
-    ("Operating Margin %", "=IFERROR({Operating Profit}/{Revenue},0)"),
+    ("Operating Margin %", '=IFERROR({Operating Profit}/{Revenue},"N/A")'),
     ("EBITDA", "={Operating Profit}+{Depreciation}+{Amortisation}"),
     ("Interest Paid", None),
     ("Interest Received", None),
@@ -44,9 +44,9 @@ PNL_ROWS = [
 # Gross Leverage, which needs Balance Sheet debt rows that don't exist yet
 # at this point in the sheet -- see KEY_METRIC_ROWS below.
 RATIO_ROWS = [
-    ("DSCR", "=IFERROR({EBITDA}/({Interest Paid}+{Scheduled Principal Repayment}),0)"),
-    ("EBIT/Interest", "=IFERROR({Operating Profit}/{Interest Paid},0)"),
-    ("EBITDA/Interest", "=IFERROR({EBITDA}/{Interest Paid},0)"),
+    ("DSCR", '=IFERROR({EBITDA}/({Interest Paid}+{Scheduled Principal Repayment}),"N/A")'),
+    ("EBIT/Interest", '=IFERROR({Operating Profit}/{Interest Paid},"N/A")'),
+    ("EBITDA/Interest", '=IFERROR({EBITDA}/{Interest Paid},"N/A")'),
 ]
 
 BALANCE_SHEET_ROWS = [
@@ -87,10 +87,10 @@ KEY_METRIC_ROWS = [
     ("TNW + Loan Notes / Preference Shares",
      "={Tangible Net Worth (TNW)}+{Loan Notes / Preference Shares}"),
     ("Gearing % (Interest-Bearing Debt / Equity)",
-     "=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{Total Equity},0)"),
-    ("Current Ratio", "=IFERROR({Total Current Assets}/{Total Current Liabilities},0)"),
+     '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{Total Equity},"N/A")'),
+    ("Current Ratio", '=IFERROR({Total Current Assets}/{Total Current Liabilities},"N/A")'),
     ("Gross Leverage",
-     "=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{EBITDA},0)"),
+     '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{EBITDA},"N/A")'),
 ]
 
 WORKING_CAPITAL_ROWS = [
@@ -146,6 +146,28 @@ FIELD_LABELS = {
     "share_capital": "Share Capital",
     "retained_profit": "Retained Profit",
 }
+
+def _build_label_to_field(field_labels):
+    """Reverse of FIELD_LABELS (label -> field), used by
+    _write_financial_spreading() to look up which raw field populates a
+    given workbook row. Built with an explicit uniqueness check rather than
+    a plain dict comprehension: if a future edit to FIELD_LABELS ever gives
+    two different fields the same label (a typo, or two fields meant to
+    share one), a plain `{label: field for field, label in ...}` would
+    silently collapse to whichever entry comes last in iteration order --
+    no error, no test failure, just one field silently never populating its
+    row. Fail loudly here instead, at the one place this mapping is built.
+    """
+    label_to_field = {}
+    for field, label in field_labels.items():
+        if label in label_to_field:
+            raise ValueError(
+                f"FIELD_LABELS has two fields mapping to the same label {label!r}: "
+                f"{label_to_field[label]!r} and {field!r}. Give one of them a distinct label."
+            )
+        label_to_field[label] = field
+    return label_to_field
+
 
 LABEL_REF_RE = re.compile(r"\{([^{}]+)\}")
 
@@ -438,7 +460,7 @@ def _write_financial_spreading(wb, row_of, financial_data=None):
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
-    label_to_field = {label: field for field, label in FIELD_LABELS.items()}
+    label_to_field = _build_label_to_field(FIELD_LABELS)
 
     for section_title, rows in SECTIONS:
         ws.append([section_title, None, None, None])
@@ -483,7 +505,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
             asset.get("non_recovery"),
             asset.get("costs"),
             asset.get("collateral_value"),
-            f"=IFERROR(G{row}/B{row},0)",
+            f'=IFERROR(G{row}/B{row},"N/A")',
             asset.get("perfection_status"),
         ])
 
@@ -496,7 +518,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
         f"=SUM(E{first_row}:E{last_row})",
         f"=SUM(F{first_row}:F{last_row})",
         f"=SUM(G{first_row}:G{last_row})",
-        f"=IFERROR(G{total_row}/B{total_row},0)",
+        f'=IFERROR(G{total_row}/B{total_row},"N/A")',
         None,
     ])
 

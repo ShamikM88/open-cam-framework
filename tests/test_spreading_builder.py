@@ -14,7 +14,9 @@ import openpyxl
 
 from spreading_builder import (
     COLLATERAL_HEADERS,
+    FIELD_LABELS,
     SECTIONS,
+    _build_label_to_field,
     apply_stress_shocks,
     evaluate_downside_case,
     evaluate_financial_model,
@@ -56,9 +58,9 @@ def _eval_expr(ws, expr, memo):
         assert col1 == col2, f"Unsupported multi-column SUM range: {expr}"
         return sum(_evaluate(ws, col1, r, memo) for r in range(r1, r2 + 1))
 
-    m = re.fullmatch(r"IFERROR\((.+),(-?\d+(?:\.\d+)?)\)", expr)
+    m = re.fullmatch(r'IFERROR\((.+),"([^"]*)"\)', expr)
     if m:
-        inner, fallback = m.group(1), float(m.group(2))
+        inner, fallback = m.group(1), m.group(2)
         try:
             return _eval_arith(ws, inner, memo)
         except ZeroDivisionError:
@@ -242,8 +244,14 @@ def test_scheduled_principal_only_affects_dscr(workbook):
     assert net_profit_with_principal == net_profit_without_principal == 375
 
 
-def test_iferror_falls_back_to_zero_on_division_by_zero(workbook):
-    """Every raw input left blank (0) should not raise ZeroDivisionError."""
+def test_iferror_falls_back_to_na_on_division_by_zero(workbook):
+    """Every raw input left blank (0) should not raise ZeroDivisionError --
+    and the fallback must read as "undefined" ("N/A"), not the misleading
+    "0" a debt-free company's DSCR/leverage would otherwise show (0 reads
+    as "zero coverage"/"zero leverage", not "nothing to divide by"). This
+    mirrors evaluate_financial_model()'s own safe_div() -> None behavior on
+    the Python/state.json side (see PR #20) -- the Excel formula was the
+    one place still masking undefined as 0."""
     ws = workbook["Financial Spreading"]
     label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
 
@@ -254,7 +262,27 @@ def test_iferror_falls_back_to_zero_on_division_by_zero(workbook):
         "Current Ratio", "Gross Leverage",
     ]
     for label in ratio_labels:
-        assert _evaluate(ws, "B", label_to_row[label], memo) == 0
+        assert _evaluate(ws, "B", label_to_row[label], memo) == "N/A"
+
+
+# ---------------------------------------------------------------------------
+# _build_label_to_field(): FIELD_LABELS's reverse mapping must fail loudly
+# on a duplicate label rather than silently collapsing to whichever entry
+# comes last in iteration order (which would leave one field permanently
+# unable to populate its row, with no error and no test failure to catch it).
+# ---------------------------------------------------------------------------
+
+def test_build_label_to_field_succeeds_on_the_real_field_labels():
+    # The real FIELD_LABELS has no duplicate label today -- this must not raise.
+    label_to_field = _build_label_to_field(FIELD_LABELS)
+    assert label_to_field["Revenue"] == "revenue"
+    assert len(label_to_field) == len(FIELD_LABELS)
+
+
+def test_build_label_to_field_raises_on_a_duplicate_label():
+    duplicated = {"revenue": "Revenue", "cost_of_sales": "Revenue"}
+    with pytest.raises(ValueError, match="Revenue"):
+        _build_label_to_field(duplicated)
 
 
 # ---------------------------------------------------------------------------
@@ -633,7 +661,7 @@ def test_export_to_xlsx_scales_total_row_for_multiple_collateral_assets(tmp_path
     assert ws.cell(row=5, column=1).value == "Total"
     assert ws.cell(row=5, column=2).value == "=SUM(B2:B4)"
     assert ws.cell(row=5, column=7).value == "=SUM(G2:G4)"
-    assert ws.cell(row=5, column=8).value == "=IFERROR(G5/B5,0)"
+    assert ws.cell(row=5, column=8).value == '=IFERROR(G5/B5,"N/A")'
 
     memo = {}
     total_exposure = _evaluate(ws, "B", 5, memo)

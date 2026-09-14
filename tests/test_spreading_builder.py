@@ -91,7 +91,10 @@ def test_creates_expected_sheets(workbook):
 
 def test_financial_spreading_header_row(workbook):
     ws = workbook["Financial Spreading"]
-    assert [c.value for c in ws[1]] == ["Metric", "FY-2", "FY-1", "FY-Current"]
+    assert [c.value for c in ws[1]] == [
+        "Metric", "FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3",
+        "FY+1 (Downside)", "FY+2 (Downside)", "FY+3 (Downside)",
+    ]
 
 
 def test_financial_spreading_row_labels_match_section_definitions(workbook):
@@ -248,6 +251,82 @@ def test_scheduled_principal_only_affects_dscr(workbook):
     assert dscr_with_principal != dscr_without_principal
     assert pbt_with_principal == pbt_without_principal == 415
     assert net_profit_with_principal == net_profit_without_principal == 375
+
+
+# ---------------------------------------------------------------------------
+# Forward-year and downside columns (issue #38): financial_data's FY+1/+2/+3
+# entries populate the forward-year base-case columns (E/F/G), and a
+# separate downside_financial_data's FY+1/+2/+3 entries populate the
+# "(Downside)" columns (H/I/J) -- independently of each other and of the
+# historical columns (B/C/D).
+# ---------------------------------------------------------------------------
+
+def test_export_to_xlsx_populates_forward_and_downside_columns(tmp_path):
+    out_path = tmp_path / "test_deal.xlsx"
+    financial_data = {
+        "FY-Current": {"revenue": 1000},
+        "FY+1": {"revenue": 1100},
+        "FY+2": {"revenue": 1200},
+    }
+    downside_financial_data = {
+        "FY+1": {"revenue": 950},
+        "FY+2": {"revenue": 1000},
+    }
+    export_to_xlsx("Test Co", str(out_path), financial_data=financial_data,
+                    downside_financial_data=downside_financial_data)
+
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    revenue_row = label_to_row["Revenue"]
+
+    assert ws.cell(row=revenue_row, column=4).value == 1000   # D = FY-Current
+    assert ws.cell(row=revenue_row, column=5).value == 1100   # E = FY+1
+    assert ws.cell(row=revenue_row, column=6).value == 1200   # F = FY+2
+    assert ws.cell(row=revenue_row, column=7).value is None   # G = FY+3, not supplied
+    assert ws.cell(row=revenue_row, column=8).value == 950    # H = FY+1 (Downside)
+    assert ws.cell(row=revenue_row, column=9).value == 1000   # I = FY+2 (Downside)
+    assert ws.cell(row=revenue_row, column=10).value is None  # J = FY+3 (Downside), not supplied
+
+
+def test_forward_and_downside_columns_stay_blank_when_nothing_supplied(workbook):
+    """The blank `workbook` fixture (no financial_data/downside_financial_data
+    at all) must still carry all 9 data columns -- just with every raw-input
+    cell blank, exactly like the historical columns already are without
+    financial_data (see issue #38's requirement that the workbook's shape
+    never depends on which figures happen to be available)."""
+    ws = workbook["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    revenue_row = label_to_row["Revenue"]
+    for col in range(2, 11):  # B..J
+        assert ws.cell(row=revenue_row, column=col).value is None
+
+
+def test_formulas_compute_correctly_in_forward_and_downside_columns():
+    """Formulas are column-agnostic ({col} substitution) -- confirm a real
+    row chain (not just a bare raw-input cell) actually evaluates correctly
+    in the forward-year base-case (E) and downside (H) columns too, not only
+    the historical columns the rest of this file's tests exercise."""
+    period_raw = {
+        "revenue": 1000, "cost_of_sales": 400, "admin_expenses": 100,
+        "depreciation": 50, "amortisation": 20, "other_income": 10,
+        "interest_paid": 30, "interest_received": 5,
+        "scheduled_principal": 70, "capex": 60,
+        "exceptional_costs": 0, "tax_paid": 40,
+    }
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_path = f"{tmp_dir}/test_deal.xlsx"
+        export_to_xlsx(
+            "Test Co", out_path,
+            financial_data={"FY+1": period_raw},
+            downside_financial_data={"FY+1": period_raw},
+        )
+        ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+        label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+
+        assert _evaluate(ws, "E", label_to_row["EBITDA"], {}) == 510  # FY+1 base case
+        assert _evaluate(ws, "H", label_to_row["EBITDA"], {}) == 510  # FY+1 (Downside)
 
 
 def test_iferror_falls_back_to_na_on_division_by_zero(workbook):

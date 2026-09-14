@@ -223,8 +223,14 @@ a genuinely useful, well-generalized CAM structure — not just this one deal's 
 been fully scrubbed of real data (see the roadmap note on this in the README: derivation is
 prompted, not code-enforced, so verify by hand), recommend to the user that they open a PR
 against the shared framework repo to add it as a new default under `templates/cam/`, rather than
-leaving it stuck local to their fork. Never do this promotion (copy a local override into
-`templates/cam/`, or open such a PR) without the user explicitly asking for it first.
+leaving it stuck local to their fork. Before recommending it, run
+`python scripts/pii_scan.py templates/local/cam/<deal_type>_cam.md` as a second line of defense
+against the by-hand review above — it heuristically flags likely-real currency figures, emails,
+phone numbers, dates, company names, and Companies House-style registration numbers left over
+from calibration. A clean result is not a guarantee (it's a mechanical pattern scan, not
+comprehension), so the by-hand review is still required either way. Never do this promotion (copy
+a local override into `templates/cam/`, or open such a PR) without the user explicitly asking for
+it first.
 
 ## Git workflow
 

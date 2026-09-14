@@ -23,6 +23,7 @@ def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION")):
                               "Key Man", "Financial", "Legal"]
         },
         "reported_figures": {},
+        "sources": ["Test Source"],
     }
     return "# Draft CAM\n\n```json\n" + json.dumps(payload) + "\n```"
 

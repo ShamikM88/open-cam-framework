@@ -28,13 +28,15 @@ from policy_checks import (
 ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
 
 
-def _compliant_draft(cp_ids=("KYC-AML",), reported_figures=None, downside_breaches_acknowledged=None):
+def _compliant_draft(cp_ids=("KYC-AML",), reported_figures=None, downside_breaches_acknowledged=None,
+                      sources=None):
     import json
     payload = {
         "cp_ids_included": list(cp_ids),
         "risk_categories_covered": ALL_CATEGORIES_COVERED,
         "reported_figures": reported_figures or {},
         "downside_breaches_acknowledged": list(downside_breaches_acknowledged or []),
+        "sources": list(sources) if sources is not None else ["Test Source"],
     }
     return "# Draft\n\n```json\n" + json.dumps(payload) + "\n```"
 
@@ -61,6 +63,18 @@ def test_parse_underwriter_output_importable_and_correct():
     draft = _compliant_draft(cp_ids=["KYC-AML", "SEC-PERFECT-AST-001"])
     result = parse_underwriter_output(draft)
     assert result["cp_ids_included"] == ["KYC-AML", "SEC-PERFECT-AST-001"]
+
+
+def test_parse_underwriter_output_extracts_sources():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], sources=["Companies House filing", "Directors' Report"])
+    result = parse_underwriter_output(draft)
+    assert result["sources"] == ["Companies House filing", "Directors' Report"]
+
+
+def test_parse_underwriter_output_sources_degrades_to_empty_list_on_wrong_type():
+    draft = '# Draft\n\n```json\n{"cp_ids_included": ["KYC-AML"], "sources": "not a list"}\n```'
+    result = parse_underwriter_output(draft)
+    assert result["sources"] == []
 
 
 def test_values_match_importable_and_correct():
@@ -147,6 +161,33 @@ def test_check_draft_compliance_flags_missing_cp():
     draft = _compliant_draft(cp_ids=[])
     reasons = check_draft_compliance(draft, _policy_state(), {})
     assert any("Missing Required CP KYC-AML" in r for r in reasons)
+
+
+def test_check_draft_compliance_flags_missing_narrative_sources():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], sources=[])
+    reasons = check_draft_compliance(draft, _policy_state(), {})
+    assert any("Missing Narrative Sources" in r for r in reasons)
+
+
+def test_check_draft_compliance_flags_narrative_sources_that_are_only_blank_strings():
+    """A declared-but-empty citation (whitespace, or an empty string) is
+    the same as not declaring one at all -- must not satisfy the check."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"], sources=["", "   "])
+    reasons = check_draft_compliance(draft, _policy_state(), {})
+    assert any("Missing Narrative Sources" in r for r in reasons)
+
+
+def test_check_draft_compliance_passes_with_at_least_one_real_source():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], sources=["Companies House filing, FY2025"])
+    reasons = check_draft_compliance(draft, _policy_state(), {})
+    assert reasons == []
+
+
+def test_check_draft_compliance_skips_narrative_sources_check_when_no_draft_yet():
+    """draft_text=None (e.g. /assemble's pre-draft policy_state call) must
+    not flag a missing-sources reason against a draft that doesn't exist yet."""
+    reasons = check_draft_compliance(None, _policy_state(), {})
+    assert not any("Missing Narrative Sources" in r for r in reasons)
 
 
 def test_check_draft_compliance_flags_covenant_failure_regardless_of_draft():

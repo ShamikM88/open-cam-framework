@@ -16,19 +16,39 @@ from state_manager import read_state, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
 
-def _financial_data_from_state(state):
-    """Reduce state.json's `financials` (raw + evaluate_financial_model()'s
+def _raw_financials(financials):
+    """Reduce a `financials`-shaped dict (raw + evaluate_financial_model()'s
     computed subtotals per period, keyed under "raw" -- see
-    spreading_builder.evaluate_financial_model) back down to just the raw
+    spreading_builder.evaluate_financial_model) down to just the raw
     multi-period figures export_to_xlsx() needs to populate input cells.
     The computed subtotals aren't passed through: those live as Excel
-    formulas in the workbook already.
+    formulas in the workbook already. Shared by _financial_data_from_state()
+    (state.json's own `financials`) and _downside_financial_data_from_state()
+    (state.json's `downside_case`'s own `financials`) -- same shape, two
+    different sources.
     """
-    financials = state.get("financials") or {}
+    financials = financials or {}
     return {
         period: (data.get("raw", {}) if isinstance(data, dict) else {})
         for period, data in financials.items()
     }
+
+
+def _financial_data_from_state(state):
+    return _raw_financials(state.get("financials"))
+
+
+def _downside_financial_data_from_state(state):
+    """state.json's `downside_case` (see spreading_builder.evaluate_downside_case)
+    is `{"financials": {...}, "ratios": {...}}` when stress_assumptions were
+    ever supplied for this deal, `{}` otherwise -- either way, reduce its own
+    `financials` the same way _financial_data_from_state() reduces the
+    top-level one, so the exported workbook's FY+1/FY+2/FY+3 "(Downside)"
+    columns (see issue #38) have something to populate from.
+    """
+    downside_case = state.get("downside_case")
+    downside_financials = downside_case.get("financials") if isinstance(downside_case, dict) else None
+    return _raw_financials(downside_financials)
 
 
 def _collateral_data_from_state(state):
@@ -83,11 +103,13 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     # this deal's ground truth for populating the spreading workbook.
     state = read_state(company, proposal, base_dir=base_dir) or {}
     financial_data = _financial_data_from_state(state)
+    downside_financial_data = _downside_financial_data_from_state(state)
     collateral_data = _collateral_data_from_state(state)
 
     export_to_docx(draft_markdown, docx_path)
     export_to_xlsx(company, xlsx_path, financial_data=financial_data or None,
-                    collateral_data=collateral_data)
+                    collateral_data=collateral_data,
+                    downside_financial_data=downside_financial_data or None)
 
     return output_dir
 

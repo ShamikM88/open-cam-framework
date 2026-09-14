@@ -3,9 +3,37 @@ import re
 import openpyxl
 from openpyxl.styles import Font
 
-PERIOD_HEADERS = ["Metric", "FY-2", "FY-1", "FY-Current"]
-PERIOD_COLS = ["B", "C", "D"]
-PERIOD_KEYS = ["FY-2", "FY-1", "FY-Current"]
+# Forward periods used both here (workbook columns) and by
+# evaluate_downside_case() below -- defined once, at the top, so the two
+# never drift apart.
+DEFAULT_FORWARD_PERIODS = ("FY+1", "FY+2", "FY+3")
+
+# The exported workbook always carries all three period "families" as their
+# own static columns -- historical actuals, the forward-year base case, and
+# the forward-year downside (stressed) case -- rather than only historical,
+# so the forward-projection and stress-test figures already computed by
+# evaluate_financial_model()/evaluate_downside_case() (and already narrated
+# in the CAM) also reach the one artifact meant to be the auditable source
+# of truth (see issue #38). A period family with nothing supplied for it
+# (e.g. no stress_assumptions given, so no downside case at all) still gets
+# its columns -- left blank, exactly like a historical period with no
+# financial_data at all already does -- so the workbook's shape never
+# depends on which figures happen to be available for a given deal.
+HISTORICAL_PERIOD_KEYS = ["FY-2", "FY-1", "FY-Current"]
+FORWARD_PERIOD_KEYS = list(DEFAULT_FORWARD_PERIODS)
+PERIOD_KEYS = HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS
+DOWNSIDE_HEADERS = [f"{period} (Downside)" for period in FORWARD_PERIOD_KEYS]
+PERIOD_HEADERS = ["Metric"] + HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS + DOWNSIDE_HEADERS
+PERIOD_COLS = ["B", "C", "D", "E", "F", "G", "H", "I", "J"]
+HISTORICAL_COLS = PERIOD_COLS[:3]
+FORWARD_COLS = PERIOD_COLS[3:6]
+DOWNSIDE_COLS = PERIOD_COLS[6:9]
+
+# Which raw-figures dict (financial_data vs. downside_financial_data) and
+# which period key within it populates a given raw-input column -- see
+# _write_financial_spreading().
+COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS))
+DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS))
 
 # {Label} in a formula template is resolved to `{col}{row}` for whatever row
 # that label ends up on -- see _row_layout()/_resolve_formula(). This is what
@@ -417,9 +445,6 @@ def evaluate_financial_model(multi_period_data):
     return {"financials": financials, "ratios": ratios}
 
 
-DEFAULT_FORWARD_PERIODS = ("FY+1", "FY+2", "FY+3")
-
-
 def apply_stress_shocks(base_case_raw, stress_assumptions):
     """Derive one forward year's shocked raw-input dict from its
     already-supplied base-case raw figures and a set of explicit,
@@ -501,7 +526,7 @@ def evaluate_downside_case(multi_period_data, stress_assumptions, forward_period
     return evaluate_financial_model(shocked_inputs)
 
 
-def _write_financial_spreading(wb, row_of, financial_data=None):
+def _write_financial_spreading(wb, row_of, financial_data=None, downside_financial_data=None):
     ws = wb.active
     ws.title = "Financial Spreading"
     ws.append(PERIOD_HEADERS)
@@ -511,18 +536,22 @@ def _write_financial_spreading(wb, row_of, financial_data=None):
     label_to_field = _build_label_to_field(FIELD_LABELS)
 
     for section_title, rows in SECTIONS:
-        ws.append([section_title, None, None, None])
+        ws.append([section_title] + [None] * len(PERIOD_COLS))
         ws.cell(row=ws.max_row, column=1).font = Font(bold=True, italic=True)
         for label, formula_template in rows:
             row_values = [label]
-            for i, col in enumerate(PERIOD_COLS):
+            for col in PERIOD_COLS:
                 if formula_template:
                     row_values.append(_resolve_formula(formula_template, row_of, col))
                 else:
                     value = None
                     field = label_to_field.get(label)
-                    if financial_data and field:
-                        period_raw = financial_data.get(PERIOD_KEYS[i], {}) or {}
+                    if field:
+                        if col in DOWNSIDE_COL_TO_PERIOD_KEY:
+                            source, period_key = downside_financial_data, DOWNSIDE_COL_TO_PERIOD_KEY[col]
+                        else:
+                            source, period_key = financial_data, COL_TO_PERIOD_KEY[col]
+                        period_raw = (source or {}).get(period_key, {}) or {}
                         if field in period_raw:
                             value = period_raw[field]
                     row_values.append(value)
@@ -575,20 +604,29 @@ def _write_collateral_sheet(wb, collateral_data=None):
         ws.column_dimensions[col].width = 16
 
 
-def export_to_xlsx(company, output_path, financial_data=None, collateral_data=None):
+def export_to_xlsx(company, output_path, financial_data=None, collateral_data=None,
+                    downside_financial_data=None):
     """Build the financial spreading + collateral workbook.
 
     `financial_data` is the same multi-period raw-figure shape consumed by
-    evaluate_financial_model() (e.g. {"FY-2": {"revenue": ..., ...}, ...}):
-    its values are written into the raw-input cells so the Excel formulas
-    above actually have something to evaluate. `collateral_data` is a flat
-    list of asset dicts (see COLLATERAL_HEADERS / FIELD_LABELS for the
-    expected keys); a single blank row is written if omitted, matching the
-    prior blank-template behaviour.
+    evaluate_financial_model() (e.g. {"FY-2": {"revenue": ..., ...}, "FY+1":
+    {...}, ...}): its values are written into the historical (FY-2/FY-1/
+    FY-Current) and forward-year base-case (FY+1/FY+2/FY+3) raw-input cells
+    so the Excel formulas above actually have something to evaluate.
+    `downside_financial_data` is the same shape again, but sourced from
+    evaluate_downside_case()'s own `financials` output -- its FY+1/FY+2/FY+3
+    entries populate the three "(Downside)" columns instead. Either can be
+    omitted (e.g. no forward years supplied at all, or no stress_assumptions
+    given so no downside case exists) -- the corresponding columns are then
+    just left blank, exactly like a historical period with no financial_data
+    at all already is. `collateral_data` is a flat list of asset dicts (see
+    COLLATERAL_HEADERS / FIELD_LABELS for the expected keys); a single blank
+    row is written if omitted, matching the prior blank-template behaviour.
     """
     row_of, _ = _row_layout(SECTIONS)
     validate_row_formulas()
     wb = openpyxl.Workbook()
-    _write_financial_spreading(wb, row_of, financial_data=financial_data)
+    _write_financial_spreading(wb, row_of, financial_data=financial_data,
+                                downside_financial_data=downside_financial_data)
     _write_collateral_sheet(wb, collateral_data=collateral_data)
     wb.save(output_path)

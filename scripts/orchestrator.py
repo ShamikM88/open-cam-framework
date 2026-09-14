@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import sys
@@ -25,25 +26,66 @@ from template_resolver import cam_template_path
 _DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
 
 
-def _load_model_name():
-    """The model name every Underwriter/Risk Reviewer call below uses --
-    read from config/settings.json's "model" field (the documented single
-    source of truth per CLAUDE.md) so it can never silently drift from
-    what the rest of the framework is configured to use. Falls back to
-    _DEFAULT_MODEL if the config file is missing or malformed (e.g. a
-    test's minimal fake project root, which has no config/settings.json at
-    all) rather than raising -- a missing config file shouldn't itself
-    break the pipeline.
+def _load_settings():
+    """config/settings.json's full contents -- the documented single
+    source of truth per CLAUDE.md for the Maker/Checker model and
+    temperature configuration below, so neither can silently drift from a
+    hardcoded constant. Falls back to {} if the config file is missing or
+    malformed (e.g. a test's minimal fake project root) rather than
+    raising -- a missing config file shouldn't itself break the pipeline.
     """
     try:
         with open("config/settings.json", encoding="utf-8") as f:
-            return json.load(f).get("model") or _DEFAULT_MODEL
+            return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        return _DEFAULT_MODEL
+        return {}
 
 
-MODEL = _load_model_name()
+def _resolve_maker_checker_config():
+    """The Underwriter ("Maker") and Risk Reviewer ("Checker") are
+    independently configurable model/temperature knobs -- institutional
+    governance expects independent review to use a structurally different
+    model/config, not just a different prompt, to avoid the two sharing the
+    same blind spots. Without an explicit "checker_model"/"*_temperature"
+    in config/settings.json, the Checker still defaults to the same model
+    as the Maker and no temperature override is applied (this framework
+    can't invent a second model on its own), but the two are independent
+    settings rather than one hardcoded constant shared by every call.
+
+    Reads config/settings.json fresh on every call (matching e.g.
+    template_resolver.cam_template_path()'s own read-on-every-call
+    convention) rather than freezing the result at import time, both for
+    consistency with the rest of this codebase and so a config change is
+    picked up by the very next deal run without needing a process restart.
+    """
+    settings = _load_settings()
+    maker_model = settings.get("model") or _DEFAULT_MODEL
+    return {
+        "maker_model": maker_model,
+        "checker_model": settings.get("checker_model") or maker_model,
+        "maker_temperature": settings.get("maker_temperature"),
+        "checker_temperature": settings.get("checker_temperature"),
+    }
+
+
 MAX_REVIEW_ITERATIONS = 3
+
+
+def _completion_kwargs(model, temperature):
+    """kwargs for client.messages.create() -- temperature is only included
+    when actually configured, so omitting it from config/settings.json
+    preserves the Anthropic API's own default rather than this module
+    silently picking one."""
+    kwargs = {"model": model}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    return kwargs
+
+
+def _content_hash(text):
+    """Short, stable fingerprint of a prompt file's content at the moment
+    it was used to draft/audit a deal -- see model_provenance below."""
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
 
 
 def _default_client():
@@ -212,6 +254,20 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     with open("agents/underwriter_agent.md") as f: maker_prompt = f.read()
     with open("agents/risk_reviewer_agent.md") as f: checker_prompt = f.read()
 
+    maker_checker_config = _resolve_maker_checker_config()
+
+    # Which model and which exact version of each prompt actually produced
+    # this deal's draft/audit -- state.json records schema_version already,
+    # but not this. If either the model or a prompt file changes later, a
+    # historical deal otherwise has no way to identify what generated it (a
+    # model-risk-management gap: SR 11-7 / PRA SS1/23-style expectations).
+    model_provenance = {
+        "maker_model": maker_checker_config["maker_model"],
+        "checker_model": maker_checker_config["checker_model"],
+        "underwriter_prompt_hash": _content_hash(maker_prompt),
+        "risk_reviewer_prompt_hash": _content_hash(checker_prompt),
+    }
+
     style_guide = ""
     if os.path.exists("config/style_guide.md"):
         with open("config/style_guide.md") as f: style_guide = f.read()
@@ -312,7 +368,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 financials=financials, ratios=ratios, collateral=collateral,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
                 multi_period_financials=multi_period_financials_to_persist,
-                policy_state=policy_state, steps_completed=steps_completed)
+                policy_state=policy_state, steps_completed=steps_completed,
+                model_provenance=model_provenance)
 
     grounding_context = _build_grounding_context(
         company, proposal, pd_score, lgd_score,
@@ -321,13 +378,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
     draft = client.messages.create(
-        model=MODEL,
+        **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
         max_tokens=4000,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
     ).content[0].text
     steps_completed = _add_step(steps_completed, "draft")
-    write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed)
+    write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed,
+                model_provenance=model_provenance)
 
     deal_dir = os.path.dirname(state_path(company, proposal, date_str=date_str))
     os.makedirs(deal_dir, exist_ok=True)
@@ -342,7 +400,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
         print(f"[2/3] Risk Reviewer Agent auditing draft (iteration {iteration}/{max_iterations})...")
         audit_response = client.messages.create(
-            model=MODEL,
+            **_completion_kwargs(maker_checker_config["checker_model"], maker_checker_config["checker_temperature"]),
             max_tokens=2000,
             messages=[{"role": "user", "content":
                        f"{checker_prompt}\n{grounding_context}\nDraft to review:\n{draft}"}]
@@ -355,7 +413,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
                              deal_type=deal_type, steps_completed=steps_completed,
-                             date_str=date_str)
+                             date_str=date_str, model_provenance=model_provenance)
 
         if verdict == "APPROVED":
             approved_draft = draft
@@ -364,7 +422,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         if iteration < max_iterations:
             print(f"[Revise] Iteration {iteration} REJECTED: {notes}")
             draft = client.messages.create(
-                model=MODEL,
+                **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
                 max_tokens=4000,
                 messages=[{"role": "user", "content":
                            f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}\n"
@@ -375,7 +433,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
-                    date_str=date_str, steps_completed=steps_completed)
+                    date_str=date_str, steps_completed=steps_completed, model_provenance=model_provenance)
         print(f"[FAILED] No APPROVED draft after {max_iterations} review iteration(s). "
               "Exiting without export.")
         sys.exit(1)
@@ -385,7 +443,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     steps_completed = _add_step(steps_completed, "export")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 draft_path=os.path.join(output_dir, f"{company}_{proposal}_CAM.docx"),
-                steps_completed=steps_completed)
+                steps_completed=steps_completed, model_provenance=model_provenance)
     print(f"Done! Files generated in {output_dir}")
 
 

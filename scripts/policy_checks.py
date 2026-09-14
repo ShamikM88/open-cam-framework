@@ -38,21 +38,22 @@ def normalize_category(category):
 def parse_underwriter_output(draft_text):
     """Extract the Underwriter's trailing structured JSON block
     ({"cp_ids_included": [...], "risk_categories_covered": {...},
-    "reported_figures": {...}, "downside_breaches_acknowledged": [...]})
-    from its drafted CAM (see agents/underwriter_agent.md's Structured
-    Output guideline). Scans matches in reverse and returns the first one
-    that actually looks like this schema, for the same reason
-    parse_verdict() (orchestrator.py) does: a block should always be
-    trailing, but this is safer against an unrelated ```json block
-    appearing earlier in the draft.
+    "reported_figures": {...}, "downside_breaches_acknowledged": [...],
+    "sources": [...]}) from its drafted CAM (see
+    agents/underwriter_agent.md's Structured Output guideline). Scans
+    matches in reverse and returns the first one that actually looks like
+    this schema, for the same reason parse_verdict() (orchestrator.py)
+    does: a block should always be trailing, but this is safer against an
+    unrelated ```json block appearing earlier in the draft.
 
     Missing or malformed output degrades to an empty structure, which then
     fails every downstream policy check safely (as "nothing included" /
-    "no category covered" / "nothing reported" / "nothing acknowledged")
-    rather than raising or silently skipping enforcement. This includes a
-    field being present but the wrong *type* -- e.g. `risk_categories_covered`
-    as a JSON list instead of an object -- not just a field being absent,
-    since check_draft_compliance() assumes these exact types.
+    "no category covered" / "nothing reported" / "nothing acknowledged" /
+    "no sources cited") rather than raising or silently skipping
+    enforcement. This includes a field being present but the wrong *type*
+    -- e.g. `risk_categories_covered` as a JSON list instead of an object --
+    not just a field being absent, since check_draft_compliance() assumes
+    these exact types.
     """
     for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
         try:
@@ -66,11 +67,13 @@ def parse_underwriter_output(draft_text):
             or "risk_categories_covered" in payload
             or "reported_figures" in payload
             or "downside_breaches_acknowledged" in payload
+            or "sources" in payload
         ):
             cp_ids_included = payload.get("cp_ids_included")
             risk_categories_covered = payload.get("risk_categories_covered")
             reported_figures = payload.get("reported_figures")
             downside_breaches_acknowledged = payload.get("downside_breaches_acknowledged")
+            sources = payload.get("sources")
             return {
                 "cp_ids_included": cp_ids_included if isinstance(cp_ids_included, list) else [],
                 "risk_categories_covered": (
@@ -80,10 +83,11 @@ def parse_underwriter_output(draft_text):
                 "downside_breaches_acknowledged": (
                     downside_breaches_acknowledged if isinstance(downside_breaches_acknowledged, list) else []
                 ),
+                "sources": sources if isinstance(sources, list) else [],
             }
     return {
         "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [],
+        "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
@@ -280,6 +284,21 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
                     f"breaches threshold in {breach['year']} under stress but is not "
                     "addressed in the draft."
                 )
+
+        # A lighter-weight companion to the CP/taxonomy/figure checks above:
+        # this doesn't verify a citation's *accuracy* (a narrative claim like
+        # "founded in 1990" can't be checked the way a numeric ratio can),
+        # only that the Underwriter declared at least one source for the
+        # narrative claims (company history, management, market/competitive)
+        # its own Grounding guideline requires it to cite. An empty list
+        # means either no sources were actually used (a real grounding gap)
+        # or they were used but never declared -- both are worth catching.
+        if not [s for s in underwriter_output["sources"] if str(s).strip()]:
+            reasons.append(
+                "Missing Narrative Sources: no citation sources were declared for this "
+                "draft's narrative claims (company history, management, market/competitive) "
+                "-- see agents/underwriter_agent.md's Structured Output guideline."
+            )
 
     for result in policy_state.get("covenant_results", []):
         if result["status"] in ("FAIL", "UNRESOLVABLE"):

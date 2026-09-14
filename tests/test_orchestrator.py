@@ -29,11 +29,13 @@ from orchestrator import (
     _DEFAULT_MODEL,
     _apply_deterministic_policy_checks,
     _check_reported_figures,
+    _completion_kwargs,
     _compute_collateral_cover_pct,
+    _content_hash,
     _ground_truth_figures,
-    _load_model_name,
     _load_multi_period_financials,
     _normalize_category,
+    _resolve_maker_checker_config,
     _values_match,
     evaluate_financial_model,
     parse_underwriter_output,
@@ -45,15 +47,20 @@ from state_manager import read_state, state_path, write_state
 
 class MockClient:
     """Stand-in for anthropic.Anthropic: returns each response in `responses`,
-    in order, from successive .messages.create() calls."""
+    in order, from successive .messages.create() calls. Also records every
+    call's kwargs (self.calls) so a test can assert on what model/
+    temperature/etc. a given call actually received -- e.g. confirming the
+    Maker and Checker calls used different configured models."""
 
     def __init__(self, responses):
         self.responses = list(responses)
         self.call_count = 0
+        self.calls = []
         self.messages = SimpleNamespace(create=self._create)
 
     def _create(self, **kwargs):
         self.call_count += 1
+        self.calls.append(kwargs)
         if not self.responses:
             raise AssertionError("MockClient received more calls than responses were queued")
         text = self.responses.pop(0)
@@ -76,37 +83,105 @@ def project_root(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _load_model_name(): config/settings.json's "model" field is the documented
-# single source of truth -- must never silently drift from a hardcoded
-# constant duplicated here.
+# _resolve_maker_checker_config()/_completion_kwargs(): the Maker and
+# Checker are independently configurable model/temperature knobs, read from
+# config/settings.json fresh on every call rather than a hardcoded constant.
 # ---------------------------------------------------------------------------
 
-def test_load_model_name_reads_from_config_settings_json(project_root):
+def test_resolve_maker_checker_config_defaults_when_no_config_file(project_root):
+    config = _resolve_maker_checker_config()
+    assert config["maker_model"] == _DEFAULT_MODEL
+    assert config["checker_model"] == _DEFAULT_MODEL  # falls back to the same model as Maker
+    assert config["maker_temperature"] is None
+    assert config["checker_temperature"] is None
+
+
+def test_resolve_maker_checker_config_reads_model_from_settings(project_root):
     config_dir = project_root / "config"
     config_dir.mkdir()
-    (config_dir / "settings.json").write_text(
-        json.dumps({"model": "claude-custom-model-v9"}), encoding="utf-8",
-    )
-    assert _load_model_name() == "claude-custom-model-v9"
+    (config_dir / "settings.json").write_text(json.dumps({"model": "claude-custom-v9"}), encoding="utf-8")
+
+    config = _resolve_maker_checker_config()
+    assert config["maker_model"] == "claude-custom-v9"
+    assert config["checker_model"] == "claude-custom-v9"  # still no separate override given
 
 
-def test_load_model_name_falls_back_to_default_when_config_missing(project_root):
-    # project_root has no config/settings.json at all.
-    assert _load_model_name() == _DEFAULT_MODEL
+def test_resolve_maker_checker_config_checker_model_independent_of_maker(project_root):
+    """The core of the model-independence fix: an explicit checker_model
+    must NOT be overridden by the maker's model."""
+    config_dir = project_root / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(json.dumps({
+        "model": "claude-maker-model",
+        "checker_model": "claude-checker-model",
+        "maker_temperature": 0.2,
+        "checker_temperature": 0.0,
+    }), encoding="utf-8")
+
+    config = _resolve_maker_checker_config()
+    assert config["maker_model"] == "claude-maker-model"
+    assert config["checker_model"] == "claude-checker-model"
+    assert config["maker_temperature"] == 0.2
+    assert config["checker_temperature"] == 0.0
 
 
-def test_load_model_name_falls_back_to_default_when_config_malformed(project_root):
+def test_resolve_maker_checker_config_falls_back_on_malformed_settings(project_root):
     config_dir = project_root / "config"
     config_dir.mkdir()
     (config_dir / "settings.json").write_text("{not valid json", encoding="utf-8")
-    assert _load_model_name() == _DEFAULT_MODEL
+
+    config = _resolve_maker_checker_config()
+    assert config["maker_model"] == _DEFAULT_MODEL
+    assert config["checker_model"] == _DEFAULT_MODEL
 
 
-def test_load_model_name_falls_back_to_default_when_model_key_missing(project_root):
+def test_completion_kwargs_omits_temperature_when_none():
+    assert _completion_kwargs("some-model", None) == {"model": "some-model"}
+
+
+def test_completion_kwargs_includes_temperature_when_given():
+    assert _completion_kwargs("some-model", 0.3) == {"model": "some-model", "temperature": 0.3}
+
+
+def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project_root):
+    """End-to-end proof, not just the config-parsing function in isolation:
+    with checker_model configured differently, the actual client.messages
+    .create() calls for the draft/revision (Maker) vs audit (Checker) steps
+    receive different `model` kwargs."""
     config_dir = project_root / "config"
     config_dir.mkdir()
-    (config_dir / "settings.json").write_text(json.dumps({"max_tokens": 4000}), encoding="utf-8")
-    assert _load_model_name() == _DEFAULT_MODEL
+    (config_dir / "settings.json").write_text(json.dumps({
+        "model": "claude-maker-model", "checker_model": "claude-checker-model",
+    }), encoding="utf-8")
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    assert client.calls[0]["model"] == "claude-maker-model"   # [1/3] draft
+    assert client.calls[1]["model"] == "claude-checker-model"  # [2/3] audit
+
+
+# ---------------------------------------------------------------------------
+# _content_hash()/model_provenance: which model and which exact version of
+# each prompt file produced a deal's draft/audit must be recoverable later,
+# even if the model or the prompt changes afterward.
+# ---------------------------------------------------------------------------
+
+def test_content_hash_is_stable_and_distinguishes_different_content():
+    assert _content_hash("MAKER PROMPT") == _content_hash("MAKER PROMPT")
+    assert _content_hash("MAKER PROMPT") != _content_hash("MAKER PROMPT v2")
+
+
+def test_run_pipeline_records_model_provenance_on_state(project_root):
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    provenance = state["model_provenance"]
+    assert provenance["maker_model"] == _DEFAULT_MODEL
+    assert provenance["checker_model"] == _DEFAULT_MODEL
+    assert provenance["underwriter_prompt_hash"] == _content_hash("MAKER PROMPT")
+    assert provenance["risk_reviewer_prompt_hash"] == _content_hash("CHECKER PROMPT")
 
 
 def _approved_json(notes=None):
@@ -125,7 +200,7 @@ ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIR
 
 
 def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS,
-                      risk_categories=None, reported_figures=None):
+                      risk_categories=None, reported_figures=None, sources=None):
     """A draft whose trailing structured JSON block satisfies every
     deterministic policy check by default (see agents/underwriter_agent.md's
     Structured Output guideline) -- for tests where the draft is expected to
@@ -134,11 +209,18 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS,
     reported_figures defaults to empty: per the Structured Output guideline,
     omitting a metric entirely (rather than reporting an unverifiable guess)
     is always compliant, and most tests below have no financial data behind
-    them for a reported figure to be checked against anyway."""
+    them for a reported figure to be checked against anyway.
+
+    sources defaults to non-empty (unlike reported_figures) since the
+    Missing Narrative Sources check requires at least one citation to be
+    declared whenever a draft exists at all -- an empty list is never
+    compliant, so a test exercising that specific check must override it
+    explicitly rather than relying on this default."""
     payload = {
         "cp_ids_included": list(cp_ids),
         "risk_categories_covered": risk_categories if risk_categories is not None else ALL_CATEGORIES_COVERED,
         "reported_figures": reported_figures if reported_figures is not None else {},
+        "sources": sources if sources is not None else ["Test Source"],
     }
     return body + "\n\n```json\n" + json.dumps(payload) + "\n```"
 
@@ -236,7 +318,7 @@ def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     result = parse_underwriter_output("# Draft CAM with no trailing JSON block")
     assert result == {
         "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [],
+        "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
@@ -244,7 +326,7 @@ def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     result = parse_underwriter_output('# Draft\n```json\n{"cp_ids_included": [\n```')
     assert result == {
         "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [],
+        "downside_breaches_acknowledged": [], "sources": [],
     }
 
 
@@ -270,7 +352,7 @@ def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_typ
     result = parse_underwriter_output(draft)
     assert result == {
         "cp_ids_included": [], "risk_categories_covered": {}, "reported_figures": {},
-        "downside_breaches_acknowledged": [],
+        "downside_breaches_acknowledged": [], "sources": [],
     }
 
 

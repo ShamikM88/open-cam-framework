@@ -22,6 +22,7 @@ review_trail: append_review_trail() is the one exception to write_state()'s
 plain shallow-merge semantics baked into this module itself, rather than
 left to each caller -- see its docstring.
 """
+import argparse
 import glob
 import json
 import os
@@ -363,3 +364,62 @@ def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
         })
         fields = dict(extra_fields, review_verdict=verdict, review_trail=trail)
         return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
+
+
+def required_steps_completed(steps_completed, required):
+    """Return the subset of `required` that is missing from `steps_completed`
+    (empty list if nothing is missing).
+
+    This exists so step-order enforcement (e.g. "don't let /assemble draft
+    before /spread has run") can be a code-level check against state.json's
+    recorded `steps_completed`, rather than living purely in a slash
+    command's prose instructions -- prose enforcement is easy for a session
+    to drift past (a compacted conversation, a resumed session, a user who
+    insists they already ran the step). This function stays a pure list
+    comparison with no opinion on *which* steps are required for which
+    command -- that's a policy call left to the caller (see
+    .claude/commands/assemble.md, which currently hard-requires only
+    "spread" and deliberately leaves "triage"/"collateral" as prompt-level
+    reminders rather than hard gates, since a deal can legitimately have no
+    collateral or skip triage in favor of user-supplied info).
+
+    Order-preserving and duplicate-tolerant: iterates `required` in the
+    order given (so the caller's own list order is what a human sees when
+    this is printed) and includes an entry at most once even if `required`
+    itself repeats it.
+    """
+    completed = set(steps_completed or [])
+    missing = []
+    for step in required:
+        if step not in completed and step not in missing:
+            missing.append(step)
+    return missing
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Check whether a deal's state.json has recorded all of a given set of "
+                     "required steps in steps_completed. Prints JSON ({\"missing_steps\": [...], "
+                     "\"ok\": true/false}) to stdout and always exits 0 -- this project doesn't "
+                     "use exit codes as its enforcement mechanism (see policy_check.py); the "
+                     "caller (a slash command's Bash step, read by the Claude session running "
+                     "it) is the one that decides whether to stop and tell the user what's "
+                     "missing. No Anthropic dependency -- callable from a slash command's Bash "
+                     "step."
+    )
+    parser.add_argument("--check-steps", action="store_true", required=True,
+                         help="The only supported mode right now -- reserved so future "
+                              "state_manager CLI subcommands don't have to guess this flag's "
+                              "absence means something else.")
+    parser.add_argument("--company", required=True)
+    parser.add_argument("--proposal", required=True)
+    parser.add_argument("--required", required=True,
+                         help="Comma-separated list of steps that must appear in this deal's "
+                              "steps_completed, e.g. spread,collateral")
+    args = parser.parse_args()
+
+    required = [s.strip() for s in args.required.split(",") if s.strip()]
+    state = read_state(args.company, args.proposal) or {}
+    missing = required_steps_completed(state.get("steps_completed") or [], required)
+
+    print(json.dumps({"missing_steps": missing, "ok": len(missing) == 0}, indent=2))

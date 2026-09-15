@@ -23,7 +23,7 @@ open-cam-framework/
 │   ├── underwriter_agent.md
 │   └── risk_reviewer_agent.md
 ├── config/
-│   ├── settings.json            Model name, token limit, default currency, I/O + template directories --
+│   ├── settings.json            maker_model, token limit, default currency, I/O + template directories --
 │   │                            also optional checker_model/maker_temperature/checker_temperature to
 │   │                            independently configure the Risk Reviewer vs the Underwriter (both
 │   │                            default to the Underwriter's own model/no override when unset)

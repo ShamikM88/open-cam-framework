@@ -23,16 +23,17 @@ from spreading_builder import evaluate_downside_case, evaluate_financial_model
 from state_manager import write_state, append_review_trail, read_state, state_path, resolve_date_str
 from template_resolver import cam_template_path
 
-_DEFAULT_MODEL = "claude-3-7-sonnet-20250219"
-
-
 def _load_settings():
     """config/settings.json's full contents -- the documented single
     source of truth per CLAUDE.md for the Maker/Checker model and
     temperature configuration below, so neither can silently drift from a
     hardcoded constant. Falls back to {} if the config file is missing or
-    malformed (e.g. a test's minimal fake project root) rather than
-    raising -- a missing config file shouldn't itself break the pipeline.
+    malformed rather than raising here -- _resolve_maker_checker_config()
+    below is the one that decides whether an empty/incomplete result is
+    actually fatal (it is, for a missing maker_model); other settings this
+    file may also hold (max_tokens, output_directory, ...) are read
+    elsewhere with their own fallback handling and shouldn't be blocked by
+    a maker_model-specific failure mode living in this shared loader.
     """
     try:
         with open("config/settings.json", encoding="utf-8") as f:
@@ -57,9 +58,27 @@ def _resolve_maker_checker_config():
     convention) rather than freezing the result at import time, both for
     consistency with the rest of this codebase and so a config change is
     picked up by the very next deal run without needing a process restart.
+
+    Raises RuntimeError if "maker_model" isn't set (missing key, missing
+    file, or malformed JSON -- all indistinguishable from the caller's
+    perspective: there's no model to draft with). config/settings.json is
+    checked into the repo with maker_model already set, so a fork gets a
+    working config automatically -- a missing value here means the
+    checked-in config was deleted, corrupted, or deliberately edited to
+    remove it, not "a fresh install that hasn't configured it yet". A
+    silent hardcoded fallback would let a real deal draft on an
+    unconfigured, untracked model with no indication anything was
+    wrong -- exactly the config-drift failure mode issue #34 was about.
     """
     settings = _load_settings()
-    maker_model = settings.get("model") or _DEFAULT_MODEL
+    maker_model = settings.get("maker_model")
+    if not maker_model:
+        raise RuntimeError(
+            "config/settings.json is missing 'maker_model' (the file may also be "
+            "missing or malformed). This framework requires an explicit maker_model "
+            "-- see CLAUDE.md's Execution scripts section -- rather than silently "
+            "drafting a deal on an unconfigured default model."
+        )
     return {
         "maker_model": maker_model,
         "checker_model": settings.get("checker_model") or maker_model,

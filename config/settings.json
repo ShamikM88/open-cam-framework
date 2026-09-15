@@ -1,5 +1,6 @@
 {
-  "model": "claude-3-7-sonnet-20250219",
+  "maker_model": "claude-sonnet-5",
+  "checker_model": "claude-opus-5",
   "max_tokens": 4000,
   "default_currency": "GBP",
   "output_directory": "deals",

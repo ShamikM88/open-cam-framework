@@ -1,6 +1,6 @@
 ---
-description: Extract and spread 3-5 years of P&L/Balance Sheet data into the core credit ratios (see config/skills_registry.md).
-argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [P&L and Balance Sheet figures, or a path to the source document]"
+description: Extract and spread 3-5 years of P&L/Balance Sheet data into the core credit ratios, or record an analyst-supplied pre-spread snapshot as-is (see config/skills_registry.md).
+argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [P&L and Balance Sheet figures, or a path to the source document] [OR a pre-spread financials/ratios snapshot]"
 disable-model-invocation: true
 ---
 
@@ -21,13 +21,35 @@ never re-derive a number from a summarized/compacted conversation when state.jso
 it. If none exists, this is the first step run for this deal.
 
 **Primary inputs** (ask the user for whatever's missing and isn't already in state): 3-5 years
-of Profit & Loss and Balance Sheet data.
+of Profit & Loss and Balance Sheet data. **Or**, if this analyst already spreads against their
+own company-approved template (organizations often treat certain line items differently than
+this framework's own raw schema -- e.g. Depreciation charged within Cost of Goods Sold rather
+than as its own line, common for asset-hire businesses), they may instead supply that template's
+own already-computed figures and ratios directly -- see "Analyst-supplied pre-spread figures"
+below. Ask which applies before assuming which mode this is.
+
+### Default: spread from raw P&L/Balance Sheet data
 
 Extract and spread the line items, then calculate: Tangible Net Worth (TNW), EBITDA, Debt
 Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %,
 Current Ratio, FCF Conversion %, and Working Capital Days. Show which raw line items each ratio
 comes from so it can be checked, and never estimate a figure that isn't in the source data
 provided.
+
+### Alternative: analyst-supplied pre-spread figures
+
+If the analyst supplies already-computed subtotals and ratios from their own template rather
+than raw line items, **record them exactly as given -- never recompute, adjust, or reconcile
+them against this framework's own raw schema.** Don't try to map their line items onto the raw
+schema below if their own conventions differ (e.g. Depreciation embedded in Cost of Goods Sold);
+trying to force a fit is how a real figure gets silently altered. If they also give you a raw
+line-item breakdown, still record it (useful context, and it can still populate the exported
+workbook's raw-input cells for whichever labels happen to match), but the subtotals/ratios you
+write below always come from what they supplied, not from recalculating those raw lines
+yourself. This deliberately skips the audit guarantee the default mode provides (every ratio
+independently recomputed from raw inputs) in exchange for respecting the analyst's own
+house-approved methodology -- see the `financials_source` flag below, which is what tells
+`/assemble` to disclose this tradeoff in the CAM.
 
 ## State: write
 
@@ -68,6 +90,12 @@ never drop a field another step already recorded):
 - Also set a `ratios` object, keyed by the same periods, each holding: `dscr`, `gross_leverage`,
   `net_debt_to_ebitda` (Gross Leverage's debt aggregate, netted against Cash), `current_ratio`,
   `gearing`, `ebit_interest_cover`, `ebitda_interest_cover`, `fcf_conversion_pct` (`fcf` / `ebitda`)
-  — all calculated from the `financials` figures above (show your working in your response; store
-  only the final numbers here).
+  — under the default mode, all calculated from the `financials` figures above (show your working
+  in your response; store only the final numbers here); under the analyst-supplied mode, exactly
+  the values the analyst gave you.
+- Set `financials_source` to `"framework-computed"` (default mode) or `"analyst-supplied"`
+  (alternative mode above) — the Underwriter reads this during `/assemble`'s drafting step to
+  decide whether the CAM needs the analyst-supplied caveat (see
+  `agents/underwriter_agent.md`'s Guideline 9). Applies to the whole deal, not per-period — if
+  any period's figures were analyst-supplied, set it to `"analyst-supplied"`.
 - Append `"spread"` to `steps_completed` if it isn't already there.

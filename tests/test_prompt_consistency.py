@@ -111,6 +111,17 @@ def test_underwriter_prompt_references_the_real_downside_grounding_context_heade
     assert header_match.group(0) in underwriter_prompt
 
 
+def test_underwriter_prompt_requires_the_analyst_supplied_spreading_caveat(underwriter_prompt):
+    """Regression guard for issue #55's caveat requirement (Guideline 9):
+    when a deal's spreading was analyst-supplied rather than
+    framework-computed, the Underwriter must disclose that in the CAM --
+    this only checks the instruction still exists in the prompt (an LLM
+    behavior, not something pytest can otherwise verify), so a future edit
+    can't silently drop the requirement."""
+    assert "financials_source" in underwriter_prompt
+    assert "analyst-supplied" in underwriter_prompt
+
+
 # ---------------------------------------------------------------------------
 # agents/risk_reviewer_agent.md's verdict JSON schema
 # ---------------------------------------------------------------------------

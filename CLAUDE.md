@@ -89,6 +89,7 @@ Minimal schema (additional step-specific keys are fine; this is a floor, not a c
   "company": "...", "proposal": "...", "deal_type": "...", "date": "YYYY-MM-DD",
   "inputs": {"pd": "...", "lgd": "...", "experian_score": "..."},
   "financials": {"...": "..."},
+  "financials_source": "framework-computed",
   "steps_completed": ["triage", "spread", "..."],
   "review_verdict": "...",
   "draft_path": "...",
@@ -103,6 +104,14 @@ Minimal schema (additional step-specific keys are fine; this is a floor, not a c
 audited this deal and a short content hash of `agents/underwriter_agent.md`/`risk_reviewer_agent.md`
 at that moment -- so a historical deal stays identifiable even after the model or a prompt file
 changes later (a model-risk-management concern; see the gap-analysis issue this closed).
+
+`financials_source` is `"framework-computed"` (default -- every ratio independently recomputed
+from raw line items via `scripts/spreading_builder.py`) or `"analyst-supplied"` (`/spread`'s
+alternative mode -- an analyst's own pre-spread template figures, recorded exactly as given
+rather than reconciled against this framework's raw schema, since institutions often treat
+certain line items differently, e.g. Depreciation embedded in Cost of Goods Sold). When
+`"analyst-supplied"`, `agents/underwriter_agent.md`'s Guideline 9 requires the CAM to carry an
+explicit caveat disclosing this reduced audit guarantee.
 
 **Checkpoint after every step.** `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`,
 `/project`, `/review`, `/assemble`, and each of `orchestrator.py`'s two agent calls (draft, then

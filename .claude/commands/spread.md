@@ -94,8 +94,8 @@ never drop a field another step already recorded):
   in your response; store only the final numbers here); under the analyst-supplied mode, exactly
   the values the analyst gave you.
 - Set `financials_source` to `"framework-computed"` (default mode) or `"analyst-supplied"`
-  (alternative mode above) — `/assemble` reads this to decide whether the CAM needs the
-  analyst-supplied caveat (see `agents/underwriter_agent.md`'s Grounding guideline). Applies to
-  the whole deal, not per-period — if any period's figures were analyst-supplied, set it to
-  `"analyst-supplied"`.
+  (alternative mode above) — the Underwriter reads this during `/assemble`'s drafting step to
+  decide whether the CAM needs the analyst-supplied caveat (see
+  `agents/underwriter_agent.md`'s Guideline 9). Applies to the whole deal, not per-period — if
+  any period's figures were analyst-supplied, set it to `"analyst-supplied"`.
 - Append `"spread"` to `steps_completed` if it isn't already there.

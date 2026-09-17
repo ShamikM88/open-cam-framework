@@ -6,31 +6,35 @@ Execute the following actions when triggered by their respective slash commands:
    - Primary Inputs: Company Registration Number, Credit Bureau Summary, Mortgages/Charges register.
    - Core Action: Validate legal identity, identify Parent/UBO structure, verify active charges, and output an initial Go/No-Go screening status.
 
-2. `/spread`
+2. `/research` (standalone alternative to the full pipeline)
+   - Primary Inputs: Everything `/triage` and `/commercial` each ask for.
+   - Core Action: Combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector research into one step and one exported standalone brief -- for a deal that doesn't (yet, or ever) need a full CAM. Writes the exact same `triage`/`commercial` state.json keys those two commands would, so the deal can still continue into `/spread` → ... → `/assemble` later without redoing anything.
+
+3. `/spread`
    - Primary Inputs: 3–5 years of Profit & Loss and Balance Sheet data.
    - Core Action: Extract and spread line items. Calculate key financial metrics: Tangible Net Worth (TNW), EBITDA, Debt Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Gearing %, Current Ratio, and Working Capital Days.
 
-3. `/commercial`
+4. `/commercial`
    - Primary Inputs: Sector name, management bios, customer/supplier notes, business model description.
    - Core Action: Draft Company History, Executive Management overview, Parent/UBO Support analysis, Sector Dynamics, Customer/Supplier Concentration, and Competitive Landscape.
 
-4. `/collateral`
+5. `/collateral`
    - Primary Inputs: Asset Description, Valuation/Invoice Amount, Down Payment %, Loss Given Default (LGD) Grade & %, Residual Value (RV) %, Probability of Default (PD) Grade.
    - Core Action: Calculate Gross/Net Exposure, RV Exposure, Collateral Coverage %, LGD %, and Estimated Net Uncovered Risk.
 
-5. `/project`
+6. `/project`
    - Primary Inputs: Forward-year (FY+1-FY+3) P&L/Balance Sheet forecasts, stress-test assumptions (revenue haircut %, opex increase %, interest rate bump bps), covenants, and guarantees. Every piece is independently optional.
    - Core Action: Spreads forward-year financials the same way `/spread` does for historical years, deterministically derives a downside (stressed) case from any stress assumptions given, and records any covenants/guarantees for `/assemble`'s code-enforced policy checks.
 
-6. `/assemble`
+7. `/assemble`
    - Primary Inputs: Aggregated outputs from steps `/triage` through `/project`.
    - Core Action: Synthesize all data into the target Markdown CAM template (Header Tables, Facility T&Cs, Spreading Table, Risk/Mitigant Matrix, and Final Recommendation), invoking `/review` before export.
 
-7. `/review`
+8. `/review`
    - Primary Inputs: A drafted CAM (from `/assemble`, or pasted directly).
    - Core Action: Runs the Risk Reviewer ("Checker") agent — re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, and returns a verdict of `APPROVED` or `REJECTED` with revision notes. This is the Maker-Checker loop's audit step made runnable; `/assemble` calls it automatically, but it can also be run standalone against any draft.
 
-8. `/calibrate`
+9. `/calibrate`
    - Primary Inputs: Sample CAM PDFs in `inputs/calibration_samples/`.
    - Core Action: Reads the samples directly (no API key needed), extracts writing style/tone into `config/style_guide.md`, and derives a generic CAM template into `templates/local/cam/<type>_cam.md` that overrides the shipped default for that deal type.
 

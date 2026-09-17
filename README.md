@@ -10,10 +10,10 @@ your house writing style and your own CAM layouts, rather than assuming any one 
 
 **Two ways to run it**, covered in full under [Getting started](#getting-started):
 
-- **Claude Code slash commands** (primary, recommended) — `/calibrate`, `/triage`, `/spread`,
-  `/commercial`, `/collateral`, `/project`, `/assemble`, `/review`, run interactively inside a
-  Claude Code session pointed at this repo. Uses whatever Claude Code session/subscription
-  you're already running in — **no separate `ANTHROPIC_API_KEY` required.**
+- **Claude Code slash commands** (primary, recommended) — `/calibrate`, `/triage`, `/research`,
+  `/spread`, `/commercial`, `/collateral`, `/project`, `/assemble`, `/review`, run interactively
+  inside a Claude Code session pointed at this repo. Uses whatever Claude Code session/
+  subscription you're already running in — **no separate `ANTHROPIC_API_KEY` required.**
 - **Headless Python scripts** (`scripts/calibrate.py`, `scripts/orchestrator.py`) — for
   automation, CI, or batch runs outside an interactive session. These call the Anthropic API
   directly, so they need their own `ANTHROPIC_API_KEY` (a separate cost from a Claude Code
@@ -39,6 +39,12 @@ confidentiality rules — pick whichever fits how you work.
    in supplied source documents and user-provided risk inputs (never fabricated figures), and
    the **Risk Reviewer Agent** independently audits that draft — re-checking the ratio math,
    flagging unsourced claims, and challenging weak risk mitigants — before it's exported.
+
+   Don't need a full CAM yet? Run `/research` instead — it covers `/triage`'s Go/No-Go screen
+   and `/commercial`'s company/sector research in one step, with no financials required, and
+   exports a standalone brief in a few minutes. Nothing it captures is wasted if the deal later
+   needs a full CAM: it writes the same state.json `/triage` and `/commercial` would, so you can
+   just continue on to `/spread` → `/collateral` → `/project` → `/assemble` from there.
 3. **Output:** a `.docx` CAM (so you can edit it like any Word document — much easier than
    editing a PDF) and an `.xlsx` financial spreading workbook (so the numbers are auditable, not
    just narrative), written to a per-deal folder:
@@ -89,6 +95,7 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | :--- | :--- | :--- |
 | `/calibrate` | Sample CAM PDFs in `inputs/calibration_samples/` | `config/style_guide.md` + a derived template override |
 | `/triage` | Registration number, credit bureau summary, charges register | Legal identity / UBO check, Go/No-Go screen |
+| `/research` (standalone alternative) | Everything `/triage` + `/commercial` each ask for | `/triage`'s Go/No-Go screen and `/commercial`'s company/sector research, combined into one exported research brief -- no financials needed |
 | `/spread` | 3–5 years of P&L and Balance Sheet | TNW, EBITDA, DSCR, EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, Working Capital Days |
 | `/commercial` | Sector, management bios, customer/supplier notes | Company History, Management, Sector Dynamics, Concentration, Competitive Landscape |
 | `/collateral` | Asset description, valuation, LGD/RV/PD grades | Gross/Net Exposure, RV Exposure, Collateral Coverage %, Net Uncovered Risk |
@@ -96,13 +103,15 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |
 | `/review` | A drafted CAM (usually called automatically by `/assemble`) | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent, made runnable for the first time |
 
-`/triage`, `/spread`, `/commercial`, `/collateral`, and `/project` each load
+`/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, and `/project` each load
 [`agents/underwriter_agent.md`](agents/underwriter_agent.md)'s role; `/review` loads
 [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md)'s. `/assemble` resolves the
 right CAM template (local override, else shipped default), drafts into it, loops `/review` until
 `APPROVED`, then calls [`scripts/deal_export.py`](scripts/deal_export.py) — the folder-creation
 and `.docx`/`.xlsx` export logic, factored out of `orchestrator.py` specifically so it has no
-`anthropic` dependency and can run from a slash command's Bash step.
+`anthropic` dependency and can run from a slash command's Bash step. `/research` calls the
+lighter [`scripts/research_export.py`](scripts/research_export.py) instead, so a research-only
+deal never triggers the full-CAM side effects (template auto-save, `.xlsx` export).
 
 ## Templates
 
@@ -177,6 +186,13 @@ Open this repo in Claude Code (or the desktop app's Code tab) — the commands u
    `/assemble` drafts the CAM into the resolved template, runs `/review` (the Risk Reviewer
    agent) until it's `APPROVED`, then exports it. Output lands in
    `deals/Acme Corp/Fleet Loan_<date>/`.
+
+   Just need research, not a full CAM yet? Skip straight to:
+   ```
+   /research --company "Acme Corp" --proposal "Fleet Loan" <registration number, credit bureau summary, charges register, sector, management bios, customer/supplier notes>
+   ```
+   This exports a standalone research brief in the same folder and writes the same state.json
+   `/triage` + `/commercial` would, so you can pick up with `/spread` onward later if needed.
 
 ### Option B: Headless Python scripts (scriptable, needs `ANTHROPIC_API_KEY`)
 

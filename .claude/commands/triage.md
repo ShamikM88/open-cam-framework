@@ -6,6 +6,12 @@ disable-model-invocation: true
 
 ## Task: /triage
 
+**Before starting:** if this deal only needs company/sector research and a Go/No-Go screen --
+not a full CAM -- use `/research` instead. It covers the same legal-identity/Go-No-Go ground as
+this step plus `/commercial`'s company/sector research, exports a standalone research brief in a
+few minutes, and writes the exact same state.json this step would, so the deal can still be
+upgraded to a full CAM later without redoing anything.
+
 Read `agents/underwriter_agent.md` and act according to that role for the rest of this task.
 
 **Arguments:** `--company "<Name>" --proposal "<Proposal name>"`, followed by whatever inputs

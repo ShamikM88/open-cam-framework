@@ -1,3 +1,4 @@
+import json
 import os
 import glob
 import argparse
@@ -6,6 +7,42 @@ from pypdf import PdfReader
 from template_resolver import local_cam_template_path
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+_DEFAULT_MODEL = "claude-sonnet-5"
+
+
+def _load_settings():
+    """config/settings.json's full contents -- mirrors orchestrator.py's
+    own _load_settings(). Falls back to {} if the config file is missing
+    or malformed rather than raising.
+    """
+    try:
+        with open("config/settings.json", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _resolve_calibrate_model():
+    """Calibration (style/tone extraction, template derivation) is a
+    different task profile from drafting/reviewing a CAM, so it gets its
+    own optional "calibrate_model" override in config/settings.json --
+    but defaults to "maker_model" (the Underwriter's own configured
+    model) rather than a separate hardcoded constant, since there's no
+    institutional-governance reason for calibration to need a
+    structurally different model the way the Checker does (see #31):
+    calibration never independently audits the Maker's own work.
+
+    Unlike orchestrator.py's _resolve_maker_checker_config(), a missing
+    or malformed config here falls back to _DEFAULT_MODEL rather than
+    raising: calibration is a one-time setup step deriving a style
+    guide/template, not drafting a real credit memo, so a friendlier
+    default is appropriate where orchestrator.py's fail-loud behavior
+    (see #34) would just be an unnecessary obstacle to a first-run
+    `--mock` smoke test.
+    """
+    settings = _load_settings()
+    return settings.get("calibrate_model") or settings.get("maker_model") or _DEFAULT_MODEL
 
 STYLE_PROMPT = (
     "Analyze these sample CAMs and extract writing style, tone, and standard "
@@ -80,9 +117,11 @@ def run_calibration(deal_type, mock=False):
         print(f"[MOCK] Wrote placeholder template to {template_path}.")
         return
 
+    model = _resolve_calibrate_model()
+
     print("[1/2] Extracting writing style and tone...")
     style_response = client.messages.create(
-        model="claude-3-7-sonnet-20250219",
+        model=model,
         max_tokens=3000,
         messages=[{"role": "user", "content": STYLE_PROMPT.format(text=text_content[:12000])}]
     )
@@ -92,7 +131,7 @@ def run_calibration(deal_type, mock=False):
 
     print(f"[2/2] Deriving a '{deal_type}' CAM template from your samples...")
     template_response = client.messages.create(
-        model="claude-3-7-sonnet-20250219",
+        model=model,
         max_tokens=3000,
         messages=[{"role": "user", "content": TEMPLATE_PROMPT.format(text=text_content[:12000])}]
     )

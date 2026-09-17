@@ -26,7 +26,6 @@ import pytest
 from orchestrator import (
     MAX_REVIEW_ITERATIONS,
     REQUIRED_RISK_TAXONOMY,
-    _DEFAULT_MODEL,
     _apply_deterministic_policy_checks,
     _check_reported_figures,
     _completion_kwargs,
@@ -67,6 +66,14 @@ class MockClient:
         return SimpleNamespace(content=[SimpleNamespace(text=text)])
 
 
+# config/settings.json ships checked into the real repo with maker_model
+# already set (a fork gets a working config automatically) -- this fixture
+# mirrors that so every test gets a resolvable config by default, same as
+# production. Tests specifically about a missing/malformed config (below)
+# override or remove this file themselves.
+DEFAULT_TEST_MAKER_MODEL = "claude-test-maker-model"
+
+
 @pytest.fixture
 def project_root(tmp_path, monkeypatch):
     agents_dir = tmp_path / "agents"
@@ -78,6 +85,12 @@ def project_root(tmp_path, monkeypatch):
     cam_dir.mkdir(parents=True)
     (cam_dir / "corporate_credit_cam.md").write_text("TEMPLATE", encoding="utf-8")
 
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(
+        json.dumps({"maker_model": DEFAULT_TEST_MAKER_MODEL}), encoding="utf-8",
+    )
+
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -88,18 +101,27 @@ def project_root(tmp_path, monkeypatch):
 # config/settings.json fresh on every call rather than a hardcoded constant.
 # ---------------------------------------------------------------------------
 
-def test_resolve_maker_checker_config_defaults_when_no_config_file(project_root):
-    config = _resolve_maker_checker_config()
-    assert config["maker_model"] == _DEFAULT_MODEL
-    assert config["checker_model"] == _DEFAULT_MODEL  # falls back to the same model as Maker
-    assert config["maker_temperature"] is None
-    assert config["checker_temperature"] is None
+def test_resolve_maker_checker_config_raises_when_no_config_file_at_all(tmp_path, monkeypatch):
+    """config/settings.json ships checked into the repo with maker_model
+    already set -- a fork gets a working config automatically. No config
+    file at all (as opposed to project_root's normal fixture setup) means
+    it was deleted or this is some other genuinely broken setup, not "a
+    fresh install that hasn't configured it yet" -- silently substituting
+    a hardcoded fallback model would let a real deal draft on an
+    unconfigured, untracked model with no indication anything was wrong
+    (the config-drift failure mode issue #34 was about). Uses a bare
+    tmp_path/monkeypatch rather than project_root, since the whole point
+    here is the *absence* of config/settings.json -- project_root's own
+    fixture setup always creates one."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(RuntimeError, match="maker_model"):
+        _resolve_maker_checker_config()
 
 
 def test_resolve_maker_checker_config_reads_model_from_settings(project_root):
-    config_dir = project_root / "config"
-    config_dir.mkdir()
-    (config_dir / "settings.json").write_text(json.dumps({"model": "claude-custom-v9"}), encoding="utf-8")
+    (project_root / "config" / "settings.json").write_text(
+        json.dumps({"maker_model": "claude-custom-v9"}), encoding="utf-8",
+    )
 
     config = _resolve_maker_checker_config()
     assert config["maker_model"] == "claude-custom-v9"
@@ -109,10 +131,8 @@ def test_resolve_maker_checker_config_reads_model_from_settings(project_root):
 def test_resolve_maker_checker_config_checker_model_independent_of_maker(project_root):
     """The core of the model-independence fix: an explicit checker_model
     must NOT be overridden by the maker's model."""
-    config_dir = project_root / "config"
-    config_dir.mkdir()
-    (config_dir / "settings.json").write_text(json.dumps({
-        "model": "claude-maker-model",
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-maker-model",
         "checker_model": "claude-checker-model",
         "maker_temperature": 0.2,
         "checker_temperature": 0.0,
@@ -125,14 +145,14 @@ def test_resolve_maker_checker_config_checker_model_independent_of_maker(project
     assert config["checker_temperature"] == 0.0
 
 
-def test_resolve_maker_checker_config_falls_back_on_malformed_settings(project_root):
-    config_dir = project_root / "config"
+def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, monkeypatch):
+    config_dir = tmp_path / "config"
     config_dir.mkdir()
     (config_dir / "settings.json").write_text("{not valid json", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
 
-    config = _resolve_maker_checker_config()
-    assert config["maker_model"] == _DEFAULT_MODEL
-    assert config["checker_model"] == _DEFAULT_MODEL
+    with pytest.raises(RuntimeError, match="maker_model"):
+        _resolve_maker_checker_config()
 
 
 def test_completion_kwargs_omits_temperature_when_none():
@@ -148,10 +168,8 @@ def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project
     with checker_model configured differently, the actual client.messages
     .create() calls for the draft/revision (Maker) vs audit (Checker) steps
     receive different `model` kwargs."""
-    config_dir = project_root / "config"
-    config_dir.mkdir()
-    (config_dir / "settings.json").write_text(json.dumps({
-        "model": "claude-maker-model", "checker_model": "claude-checker-model",
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-maker-model", "checker_model": "claude-checker-model",
     }), encoding="utf-8")
 
     client = MockClient([_compliant_draft(), _approved_json()])
@@ -178,8 +196,8 @@ def test_run_pipeline_records_model_provenance_on_state(project_root):
 
     state = read_state("Acme Corp", "Fleet Loan")
     provenance = state["model_provenance"]
-    assert provenance["maker_model"] == _DEFAULT_MODEL
-    assert provenance["checker_model"] == _DEFAULT_MODEL
+    assert provenance["maker_model"] == DEFAULT_TEST_MAKER_MODEL
+    assert provenance["checker_model"] == DEFAULT_TEST_MAKER_MODEL  # no checker_model configured -- falls back to maker
     assert provenance["underwriter_prompt_hash"] == _content_hash("MAKER PROMPT")
     assert provenance["risk_reviewer_prompt_hash"] == _content_hash("CHECKER PROMPT")
 

@@ -10,6 +10,7 @@ right string).
 """
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,7 +38,7 @@ class MockClient:
     def create(self, **kwargs):
         self.calls.append(kwargs)
         text = self.responses.pop(0)
-        return type("Response", (), {"content": [type("Block", (), {"text": text})()]})()
+        return SimpleNamespace(content=[SimpleNamespace(text=text)])
 
 
 # ---------------------------------------------------------------------------

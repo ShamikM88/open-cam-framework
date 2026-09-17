@@ -44,6 +44,7 @@ def _resolve_calibrate_model():
     settings = _load_settings()
     return settings.get("calibrate_model") or settings.get("maker_model") or _DEFAULT_MODEL
 
+
 STYLE_PROMPT = (
     "Analyze these sample CAMs and extract writing style, tone, and standard "
     "risk phrasing:\n{text}"

@@ -203,6 +203,8 @@ FIELD_LABELS = {
     "other_current_liabilities": "Other Current Liabilities",
     "long_term_debt": "Long Term Debt",
     "loan_notes": "Loan Notes / Preference Shares",
+    "other_long_term_liabilities": "Other Long Term Liabilities",
+    "provisions": "Provisions",
     "share_capital": "Share Capital",
     "retained_profit": "Retained Profit",
 }
@@ -375,6 +377,8 @@ def evaluate_financial_model(multi_period_data):
         current_debt = g("current_debt")
         long_term_debt = g("long_term_debt")
         loan_notes = g("loan_notes")
+        other_long_term_liabilities = g("other_long_term_liabilities")
+        provisions = g("provisions")
         share_capital = g("share_capital")
         retained_profit = g("retained_profit")
 
@@ -382,7 +386,12 @@ def evaluate_financial_model(multi_period_data):
         total_fixed_assets = tangible_assets + intangible_assets + other_fixed_assets
         total_assets = current_assets + total_fixed_assets
         current_liabilities = trade_creditors + current_debt + overdraft + other_current_liabilities
-        long_term_liabilities = long_term_debt + loan_notes
+        # Provisions aren't interest-bearing debt, so they belong here (and in
+        # total_liabilities below) but deliberately never in total_debt --
+        # see the Gross Leverage/Gearing/Net Debt-EBITDA comments below, all
+        # of which are built from total_debt alone and so stay unaffected by
+        # this addition.
+        long_term_liabilities = long_term_debt + loan_notes + other_long_term_liabilities + provisions
         total_liabilities = current_liabilities + long_term_liabilities
         total_equity = share_capital + retained_profit
         tangible_net_worth = total_equity - intangible_assets

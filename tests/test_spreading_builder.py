@@ -511,6 +511,52 @@ def test_evaluate_financial_model_capex_is_optional_and_defaults_to_zero():
     assert ratios["fcf_conversion_pct"] == pytest.approx((600 - 0 - 40 - 30 + 5) / 600)
 
 
+def test_evaluate_financial_model_includes_provisions_and_other_long_term_liabilities_in_total_liabilities():
+    """Issue #52: "Provisions" and "Other Long Term Liabilities" had no
+    backing raw field in FIELD_LABELS at all, so they silently never
+    reached total_liabilities even though the Excel "Total Long Term
+    Liabilities" formula already summed them structurally -- the formula
+    was correct, only the raw-input population/calculation path was
+    broken. Confirms both now flow through, and that total_debt and every
+    ratio built from it (gross_leverage, gearing, net_debt_to_ebitda) are
+    completely unaffected, since provisions/other LT liabilities are not
+    interest-bearing debt."""
+    period_without = dict(SAMPLE_PERIOD)
+    period_with = dict(SAMPLE_PERIOD, other_long_term_liabilities=40, provisions=60)
+
+    result_without = evaluate_financial_model({"FY-Current": period_without})
+    result_with = evaluate_financial_model({"FY-Current": period_with})
+
+    financials_without = result_without["financials"]["FY-Current"]
+    financials_with = result_with["financials"]["FY-Current"]
+    ratios_without = result_without["ratios"]["FY-Current"]
+    ratios_with = result_with["ratios"]["FY-Current"]
+
+    assert financials_with["total_liabilities"] == financials_without["total_liabilities"] + 100
+
+    assert financials_with["total_debt"] == financials_without["total_debt"]
+    assert ratios_with["gross_leverage"] == ratios_without["gross_leverage"]
+    assert ratios_with["gearing"] == ratios_without["gearing"]
+    assert ratios_with["net_debt_to_ebitda"] == ratios_without["net_debt_to_ebitda"]
+
+
+def test_export_to_xlsx_populates_provisions_and_other_long_term_liabilities_cells(tmp_path):
+    """The Excel raw-input cells for these two rows must actually populate
+    from financial_data -- this is the half of issue #52 that was broken
+    even though evaluate_financial_model() is fixed above (a separate,
+    parallel population path via FIELD_LABELS/_build_label_to_field)."""
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path), financial_data={
+        "FY-Current": {"other_long_term_liabilities": 40, "provisions": 60},
+    })
+
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+
+    assert ws.cell(row=label_to_row["Other Long Term Liabilities"], column=4).value == 40  # D = FY-Current
+    assert ws.cell(row=label_to_row["Provisions"], column=4).value == 60
+
+
 def test_evaluate_financial_model_net_debt_to_ebitda_and_fcf_conversion_pct_are_none_not_zero_when_ebitda_is_zero():
     """A zero-EBITDA period makes both net_debt_to_ebitda and
     fcf_conversion_pct undefined -- must be None, not a misleading 0."""

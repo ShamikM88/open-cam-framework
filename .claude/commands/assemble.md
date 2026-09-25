@@ -86,16 +86,26 @@ guarantees to condition on; don't treat its absence as a missing step.
 8. Report the output folder to the user, then delete the temporary `<proposal>_draft.md` file —
    the real output now lives in the dated folder as a proper `.docx`/`.xlsx`.
 9. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's
-   own `review_trail` (already read in "State: read" above). Filter to REJECTED entries whose
-   `notes` reflect a genuine, reusable insight about this borrower or this institution —
-   explicitly **excluding** any code-enforced deterministic reason (recognizable by its own
-   fixed wording — "Missing Required CP...", "Narrative/Ground-Truth Mismatch...", "Missing
-   Analyst-Supplied Spreading Disclosure...", "Missing Credit Policy Consideration..." — these
-   are bugs in *this* draft, never a standing fact worth remembering) and excluding anything
-   already routed through `/review`'s own "Persisting a policy-interpretation correction" step
-   (never double-capture the same correction in two places). If any candidates remain, surface
-   them **as one batch**, not a prompt per item: *"This deal's review surfaced N correction(s)
-   that might be worth remembering for future deals: [list]. Persist any of these?"* For each one
+   own `review_trail` (already read in "State: read" above). A REJECTED entry's `notes` can mix
+   two very different kinds of content in the same string: code-enforced deterministic reasons
+   (from `scripts/policy_checks.py`'s `check_draft_compliance()`, folded in verbatim per
+   `/review`'s own instructions) and the Reviewer's own free-form qualitative paragraph. Don't
+   filter whole entries in or out — pull out only the individual insights that are genuinely
+   reusable facts about this borrower or this institution, discarding the deterministic portions
+   alongside them even when they share the same `notes` string. A deterministic reason is
+   recognizable by its own rigid, templated wording — it always names a specific `cp_id`/
+   `cs_id`/`breach_id`/asset/metric/computed value (e.g. "Missing Required CP...", "Missing
+   Required Condition Subsequent...", "Missing or malformed Risk Category...", "Undisclosed
+   Downside Breach...", "Missing Narrative Sources...", "Covenant FAIL/UNRESOLVABLE...",
+   "Uncharged Asset..." or another security-gap line, "UNRESOLVABLE_REPORTED_FIGURE...",
+   "Narrative/Ground-Truth Mismatch...", "Missing Analyst-Supplied Spreading Disclosure...",
+   "Missing Credit Policy Consideration..." — `check_draft_compliance()` is the authoritative,
+   full list, since this framework may add more of these over time) — these are bugs in *this*
+   draft, never a standing fact worth remembering. Also exclude anything already routed through
+   `/review`'s own "Persisting a policy-interpretation correction" step (never double-capture the
+   same correction in two places). If any candidates remain, surface them **as one batch**, not a
+   prompt per item: *"This deal's review surfaced N correction(s) that might be worth remembering
+   for future deals: [list]. Persist any of these?"* For each one
    the analyst confirms, ask explicitly **"Is this specific to `<company>`, or does it apply
    across every borrower?"** (same question `/spread`'s own persisted-convention step asks) and
    append a dated entry to the matching file — `deals/<company>/_learnings.md` (borrower-specific)

@@ -146,6 +146,36 @@ def test_compute_passes_disclosed_analyst_supplied_financials(tmp_path, monkeypa
     assert result["reasons"] == []
 
 
+def test_compute_reports_cam_data_absent_for_a_research_only_deal(tmp_path, monkeypatch):
+    """Issue #87: a deal that only ran /research (triage/commercial, never
+    /spread) has no financials/ratios/covenants/security_package at all --
+    cam_data_present must be False, so a caller can't mistake an empty
+    "reasons" list for real, verified compliance."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", triage={"go_no_go": "Go"}, commercial={"sources": []})
+
+    result = compute("Acme Corp", "Fleet Loan")
+    assert result["cam_data_present"] is False
+    assert result["compliant"] is True  # nothing applicable was found to flag -- not "verified sound"
+
+
+def test_compute_reports_cam_data_present_once_financials_exist(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials={"FY-Current": {"revenue": 1000}})
+
+    result = compute("Acme Corp", "Fleet Loan")
+    assert result["cam_data_present"] is True
+
+
+def test_compute_reports_cam_data_present_once_covenants_exist_even_without_financials(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan",
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}])
+
+    result = compute("Acme Corp", "Fleet Loan")
+    assert result["cam_data_present"] is True
+
+
 def test_compute_ignores_credit_policy_consideration_when_none_calibrated(tmp_path, monkeypatch):
     """No config/credit_policy.md exists in this fork (tmp_path has none) --
     compute() must not require credit_policy_considered even though it's

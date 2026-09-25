@@ -8,7 +8,7 @@ Execute the following actions when triggered by their respective slash commands:
 
 2. `/research` (standalone alternative to the full pipeline)
    - Primary Inputs: Everything `/triage` and `/commercial` each ask for.
-   - Core Action: Combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector research into one step and one exported standalone brief -- for a deal that doesn't (yet, or ever) need a full CAM. Writes the exact same `triage`/`commercial` state.json keys those two commands would, so the deal can still continue into `/spread` → ... → `/assemble` later without redoing anything.
+   - Core Action: Combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector research into one step and one exported standalone brief -- for a deal that doesn't (yet, or ever) need a full CAM. Writes the exact same `triage`/`commercial` state.json keys those two commands would, so the deal can still continue into `/spread` → ... → `/assemble` later without redoing anything. Loops `/review --research-brief` until APPROVED before exporting, giving it its own scoped-down Checker pass.
 
 3. `/spread`
    - Primary Inputs: 3–5 years of Profit & Loss and Balance Sheet data.

@@ -199,3 +199,11 @@ def test_risk_reviewer_verdict_examples_are_valid_json_and_recognized_by_parse_v
         verdicts_found.add(verdict)
 
     assert verdicts_found == {"APPROVED", "REJECTED"}
+
+
+def test_risk_reviewer_prompt_documents_research_brief_handling(risk_reviewer_prompt):
+    """Regression guard for issue #87: the Reviewer role must know a
+    /research brief is a distinct case from both a CAM with policy_state
+    and a CAM without one."""
+    assert "/research" in risk_reviewer_prompt
+    assert "research brief" in risk_reviewer_prompt

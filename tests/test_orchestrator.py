@@ -29,6 +29,7 @@ from orchestrator import (
     _apply_deterministic_policy_checks,
     _build_grounding_context,
     _check_reported_figures,
+    _xml_block,
     _completion_kwargs,
     _compute_collateral_cover_pct,
     _content_hash,
@@ -1385,3 +1386,60 @@ def test_run_pipeline_omits_deal_learnings_section_when_none_exist(project_root)
     checker_prompt = client.calls[1]["messages"][0]["content"]
     assert "Deal Learnings" not in maker_prompt
     assert "Deal Learnings" not in checker_prompt
+
+
+# ---------------------------------------------------------------------------
+# Issue #91: grounding-context content is embedded via XML-style tags, not
+# fixed Markdown triple-backtick fences -- a fence breaks if the embedded
+# content itself contains a ``` sequence, a real risk once analyst-writable
+# free text (credit_policy_notes, deal learnings) started flowing through
+# _build_grounding_context(), not just vetted calibrated documents.
+# ---------------------------------------------------------------------------
+
+def test_xml_block_wraps_content_containing_a_stray_fence_marker_without_corruption():
+    content_with_fence = "Some analyst note.\n```\nSELECT * FROM accounts;\n```\nMore text."
+    block = _xml_block("institutional_credit_policy", content_with_fence)
+
+    assert block == f"<institutional_credit_policy>\n{content_with_fence}\n</institutional_credit_policy>"
+    # The embedded ``` sequence does not prematurely close anything -- the
+    # tag's own open/close delimiters are still present exactly once each,
+    # unlike a triple-backtick fence which the same content would corrupt.
+    assert block.count("<institutional_credit_policy>") == 1
+    assert block.count("</institutional_credit_policy>") == 1
+
+
+def test_build_grounding_context_keeps_fence_breaking_content_isolated_from_what_follows():
+    """End-to-end: credit_policy content containing a stray ``` sequence
+    must not corrupt or bleed into the financials/ratios blocks that follow
+    it in the same grounding context string -- the exact failure mode a
+    fixed triple-backtick fence was vulnerable to."""
+    tricky_policy = "No facility above 2.5x leverage.\n```\nsome pasted code\n```\nAlso see appendix."
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {"FY-Current": {"revenue": 1000}}, "ratios": {}}, [],
+        credit_policy=tricky_policy,
+    )
+
+    assert "<institutional_credit_policy>" in context
+    assert "</institutional_credit_policy>" in context
+    assert tricky_policy in context
+    # The financials block that follows is still intact and independently
+    # tagged -- not swallowed or corrupted by the credit policy's own
+    # embedded ``` sequence.
+    assert "<financials>" in context
+    assert '"revenue": 1000' in context
+
+
+def test_build_grounding_context_no_longer_uses_markdown_fences_for_analyst_writable_content():
+    """Regression guard: none of the analyst-writable sections (credit
+    policy, credit policy notes, deal learnings) should ever regress back
+    to a fixed ``` fence."""
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        credit_policy="A policy document.",
+        credit_policy_notes="A confirmed interpretation note.",
+        company_learnings="A borrower-specific learning.",
+        enterprise_learnings="An enterprise-wide learning.",
+    )
+    assert "```" not in context

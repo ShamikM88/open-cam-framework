@@ -131,20 +131,28 @@ def save_source(company, proposal, *, step, claim, source_path, url=None, filena
     directory = sources_dir(company, proposal, date_str=date_str, base_dir=base_dir)
     os.makedirs(directory, exist_ok=True)
 
-    resolved_filename = _unique_dest_path(directory, _derive_filename(url, source_path, filename))
-    dest_path = os.path.join(directory, resolved_filename)
-    shutil.copyfile(source_path, dest_path)
-
-    entry = {
-        "filename": resolved_filename,
-        "url": url,
-        "step": step,
-        "claim": claim,
-        "fetched_date": fetched_date or date.today().isoformat(),
-    }
-
+    # One lock covers the *whole* filename-collision-check -> copy ->
+    # manifest-append sequence, not just the manifest write at the end --
+    # two concurrent save_source() calls (e.g. two sessions touching the
+    # same deal at once, exactly the scenario _FileLock exists for; see
+    # state_manager.py's own docstring) could otherwise both pass
+    # _unique_dest_path()'s existence check for the same derived filename
+    # before either copies its file, and the second copy would silently
+    # overwrite the first's document.
     manifest_path = os.path.join(directory, "manifest.json")
     with _FileLock(manifest_path, timeout=LOCK_TIMEOUT_SECONDS):
+        resolved_filename = _unique_dest_path(directory, _derive_filename(url, source_path, filename))
+        dest_path = os.path.join(directory, resolved_filename)
+        shutil.copyfile(source_path, dest_path)
+
+        entry = {
+            "filename": resolved_filename,
+            "url": url,
+            "step": step,
+            "claim": claim,
+            "fetched_date": fetched_date or date.today().isoformat(),
+        }
+
         manifest = []
         if os.path.exists(manifest_path):
             with open(manifest_path, encoding="utf-8") as f:

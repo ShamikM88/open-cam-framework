@@ -1,8 +1,12 @@
 import json
 import os
+import threading
+import time
+from unittest.mock import patch
 
 import pytest
 
+import source_manifest
 from source_manifest import read_manifest, save_source, sources_dir
 from state_manager import write_state
 
@@ -169,6 +173,61 @@ def test_save_source_reuses_the_dated_folder_state_json_already_wrote(tmp_path):
     directory = sources_dir("Acme Corp", "Fleet Loan", base_dir=base)
     assert "Fleet Loan_2025-06-01" in directory
     assert os.path.isfile(os.path.join(directory, entry["filename"]))
+
+
+def test_concurrent_save_source_calls_do_not_clobber_each_others_file(tmp_path):
+    """Without a lock covering the whole filename-collision-check -> copy
+    sequence (not just the manifest write), two concurrent save_source()
+    calls deriving the same filename could both pass
+    _unique_dest_path()'s existence check before either copies its file,
+    and the second copy would silently overwrite the first's document --
+    exactly the failure mode _FileLock exists to prevent (see
+    state_manager.py's own concurrent-write tests).
+
+    A real copyfile() is too fast for plain thread-scheduling luck to
+    reliably land two threads inside that window, so this patches in an
+    artificial delay to widen it deterministically -- this does not risk a
+    deadlock either way: with the fix, the second thread simply blocks on
+    the lock for the whole (slowed) critical section and correctly derives
+    a distinct filename afterwards; without it, the delay gives the second
+    thread's _unique_dest_path() call time to run *before* the first
+    thread's copy lands, reliably reproducing the clobber.
+    """
+    base = str(tmp_path)
+    file_a = _local_file(tmp_path, name="a.pdf", content=b"content A")
+    file_b = _local_file(tmp_path, name="b.pdf", content=b"content B")
+
+    real_copyfile = source_manifest.shutil.copyfile
+
+    def slow_copyfile(*args, **kwargs):
+        time.sleep(0.1)
+        return real_copyfile(*args, **kwargs)
+
+    def saver(source_path):
+        save_source("Acme Corp", "Fleet Loan", step="triage", claim="Concurrent fetch",
+                     source_path=source_path, filename="shared.pdf",
+                     date_str="2026-01-15", base_dir=base)
+
+    with patch.object(source_manifest.shutil, "copyfile", side_effect=slow_copyfile):
+        t1 = threading.Thread(target=saver, args=(file_a,))
+        t2 = threading.Thread(target=saver, args=(file_b,))
+        t1.start()
+        time.sleep(0.02)  # ensure t1 enters its critical section first
+        t2.start()
+        t1.join()
+        t2.join()
+
+    manifest = read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert len(manifest) == 2
+    filenames = {e["filename"] for e in manifest}
+    assert filenames == {"shared.pdf", "shared_2.pdf"}
+
+    directory = sources_dir("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    contents = set()
+    for fn in filenames:
+        with open(os.path.join(directory, fn), "rb") as f:
+            contents.add(f.read())
+    assert contents == {b"content A", b"content B"}
 
 
 def test_sources_dir_does_not_create_the_directory_by_itself(tmp_path):

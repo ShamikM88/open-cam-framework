@@ -169,10 +169,11 @@ that same git-ignore wholesale — no new confidentiality gap, same as `state.js
 Every convention adjustment an analyst confirms is otherwise deal-scoped and one-shot: if a
 borrower's accounts embed Depreciation inside Cost of Goods Sold (see `/spread`'s analyst-supplied
 mode), or the Risk Reviewer repeatedly flags the same credit-policy interpretation gap (see
-`/calibrate-policy`), the analyst would have to re-confirm or re-correct it fresh on every new
-deal from that same source. [`scripts/conventions.py`](scripts/conventions.py) closes that gap —
-a **deterministic, file-based local memory**, explicitly not a model-training/fine-tuning loop
-and not the framework "learning" in an ML sense.
+`/review`'s Audit Checklist item 4, against a policy calibrated by `/calibrate-policy`), the
+analyst would have to re-confirm or re-correct it fresh on every new deal from that same source.
+[`scripts/conventions.py`](scripts/conventions.py) closes the first gap; `/review`'s own direct
+file write closes the second (see below) — both are a **deterministic, file-based local memory**,
+explicitly not a model-training/fine-tuning loop and not the framework "learning" in an ML sense.
 
 **Two independent halves, two independent scopes.**
 - Spreading conventions (`/spread`'s "Check for a persisted convention" step): borrower-specific

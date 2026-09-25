@@ -102,10 +102,23 @@ def _completion_kwargs(model, temperature):
     """kwargs for client.messages.create() -- temperature is only included
     when actually configured, so omitting it from config/settings.json
     preserves the Anthropic API's own default rather than this module
-    silently picking one."""
+    silently picking one.
+
+    Routed through `extra_body` rather than a direct `temperature=` kwarg:
+    the anthropic Python SDK (>=1.x) dropped `temperature`/`top_p`/`top_k`
+    from `Messages.create()`'s own typed signature -- passing it directly
+    now raises `TypeError: unexpected keyword argument 'temperature'`
+    before any request is even sent, not a deprecation warning. `extra_body`
+    is the SDK's own documented escape hatch for a still-valid API field
+    that isn't (or is no longer) exposed as a named parameter. This bug
+    can't be caught by this project's own test suite -- MockClient accepts
+    arbitrary **kwargs, so it never validates against the real SDK's
+    signature -- confirmed by hand against the installed SDK before writing
+    this fix (see PR discussion, issue tied to the anthropic dependency bump).
+    """
     kwargs = {"model": model}
     if temperature is not None:
-        kwargs["temperature"] = temperature
+        kwargs["extra_body"] = {"temperature": temperature}
     return kwargs
 
 

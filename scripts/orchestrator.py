@@ -193,7 +193,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
 
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                               collateral_data, policy_state=None, downside_case=None,
-                              financials_source=None, credit_policy=None):
+                              financials_source=None, credit_policy=None,
+                              financials_source_note=None, credit_policy_notes=None):
     """The only place raw financials/ratios/collateral/policy data are
     injected into either agent's prompt -- both the Maker (draft + revision
     calls) and the Checker (audit call) receive exactly this block, so the
@@ -228,6 +229,27 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     and the Risk Reviewer (mandatory, Audit Checklist item 4) receive it
     automatically from the one grounding_context object both already reuse,
     with no separate Checker-specific injection point needed.
+
+    `financials_source_note` (issue #58) is a persisted, analyst-confirmed
+    description of *what* convention made this deal analyst-supplied (e.g.
+    "Depreciation embedded in Cost of Goods Sold") -- see scripts/
+    conventions.py and /spread's "Check for a persisted convention" step.
+    Unlike `credit_policy`, this genuinely is deal-scoped state (it's
+    resolved once per deal at /spread time and copied into that deal's own
+    state.json as `financials_source_note`, exactly like `financials_source`
+    itself), not a fresh fork-wide file read on every call -- the headless
+    pipeline can inherit it from `existing_state` even though it can never
+    originate analyst-supplied mode on its own (see run_pipeline()'s own
+    financials_source resolution). Only meaningful when `financials_source`
+    is `"analyst-supplied"`; ignored otherwise.
+
+    `credit_policy_notes` (issue #58) is this fork's own accumulated,
+    analyst-confirmed corrections to how specific `config/credit_policy.md`
+    clauses have been interpreted -- see /review's "Persisting a
+    policy-interpretation correction" step. Fork-wide, not deal-specific,
+    exactly like `credit_policy` itself -- same read-fresh-every-call
+    pattern, same shared-parts-list placement so both agents receive it
+    with no separate Checker-specific injection point needed.
     """
     parts = [
         f"\nCompany: {company}",
@@ -244,6 +266,8 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "visible caveat disclosing this, and your structured output must set "
             "financials_source_disclosed: true once you have -- a code-enforced check rejects "
             "the draft otherwise."
+            + (f" The confirmed convention: {financials_source_note}. Cite this verbatim in "
+               "your caveat." if financials_source_note else "")
         )
     if credit_policy:
         parts.append(
@@ -257,6 +281,14 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "Underwriter declared:"
         )
         parts.append(f"```\n{credit_policy}\n```")
+    if credit_policy_notes:
+        parts.append(
+            "\nCredit Policy Interpretation Notes (analyst-confirmed corrections to how "
+            "specific policy clauses have been interpreted in past deals -- see /review. "
+            "Apply these interpretations rather than re-flagging an already-resolved point; "
+            "never extend a note beyond what it explicitly covers):"
+        )
+        parts.append(f"```\n{credit_policy_notes}\n```")
     parts += [
         "\nGrounded multi-period financials -- historical and forward-year "
         "base case alike (from state.json -- the only source of truth for "
@@ -360,6 +392,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     if credit_policy_present:
         with open("config/credit_policy.md") as f: credit_policy = f.read()
 
+    credit_policy_notes = ""
+    if os.path.exists("config/credit_policy_notes.md"):
+        with open("config/credit_policy_notes.md") as f: credit_policy_notes = f.read()
+
     # A calibration-derived override under templates/local/cam/ (see
     # scripts/calibrate.py, or the /calibrate slash command) takes
     # precedence over the shipped default under templates/cam/; neither
@@ -402,10 +438,20 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # framework-computed default even if a prior slash-command step
         # had flagged the deal analyst-supplied.
         financials_source = "framework-computed"
+        # Same reasoning -- a stale note from a prior analyst-supplied run
+        # must not linger, even though it's currently inert (the caveat
+        # trigger below already gates on financials_source itself).
+        financials_source_note = ""
     else:
         financials = existing_state.get("financials", {})
         ratios = existing_state.get("ratios", {})
         financials_source = existing_state.get("financials_source", "framework-computed")
+        # Unlike financials_source itself, this headless pipeline can never
+        # *originate* a convention note (see scripts/conventions.py's own
+        # docstring -- there's no analyst here to confirm one), but it can
+        # legitimately *inherit* one an earlier interactive /spread step
+        # already confirmed and checkpointed to this deal's state.json.
+        financials_source_note = existing_state.get("financials_source_note", "")
 
     collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
 
@@ -463,7 +509,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral,
-                financials_source=financials_source,
+                financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
                 multi_period_financials=multi_period_financials_to_persist,
                 policy_state=policy_state, steps_completed=steps_completed,
@@ -474,6 +520,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         {"financials": financials, "ratios": ratios}, collateral, policy_state, downside_case,
         financials_source=financials_source,
         credit_policy=credit_policy,
+        financials_source_note=financials_source_note,
+        credit_policy_notes=credit_policy_notes,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")

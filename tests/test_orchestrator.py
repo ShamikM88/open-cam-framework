@@ -1169,3 +1169,141 @@ def test_run_pipeline_omits_credit_policy_section_when_none_calibrated(project_r
     checker_prompt = client.calls[1]["messages"][0]["content"]
     assert "Institutional Credit Policy" not in maker_prompt
     assert "Institutional Credit Policy" not in checker_prompt
+
+
+# ---------------------------------------------------------------------------
+# Issue #58: persisted analyst-confirmed conventions -- see scripts/
+# conventions.py, .claude/commands/spread.md's "Check for a persisted
+# convention" step, and .claude/commands/review.md's "Persisting a
+# policy-interpretation correction" step. Two new grounding-context pieces:
+# financials_source_note (deal-scoped, inherited from state.json -- see
+# run_pipeline()'s own financials_source resolution) and credit_policy_notes
+# (fork-wide, same dual-path pattern as credit_policy itself).
+# ---------------------------------------------------------------------------
+
+def test_build_grounding_context_cites_financials_source_note_in_the_caveat_when_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        financials_source="analyst-supplied",
+        financials_source_note="Depreciation embedded in Cost of Goods Sold, per prior confirmation on 2026-01-15.",
+    )
+    assert "analyst-supplied" in context
+    assert "Depreciation embedded in Cost of Goods Sold, per prior confirmation on 2026-01-15." in context
+
+
+def test_build_grounding_context_omits_financials_source_note_text_when_not_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        financials_source="analyst-supplied",
+    )
+    assert "The confirmed convention" not in context
+
+
+def test_run_pipeline_resets_financials_source_note_when_fresh_financials_given(project_root):
+    """A fresh --financials/--spread run always resets financials_source to
+    framework-computed (see run_pipeline()'s own comment) -- a stale note
+    from a prior analyst-supplied run must not linger in state.json either,
+    even though it's currently inert while financials_source itself is reset."""
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+                financials_source_note="Stale note from a prior run.")
+    client = MockClient([_compliant_draft(), _approved_json()])
+    multi_period_financials = {
+        "FY-Current": {
+            "revenue": 1000, "cost_of_sales": 400, "admin_expenses": 100,
+            "depreciation": 50, "amortisation": 20, "other_income": 10,
+            "interest_paid": 30, "scheduled_principal": 70,
+        }
+    }
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials=multi_period_financials, client=client)
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials_source"] == "framework-computed"
+    assert state.get("financials_source_note", "") == ""
+
+
+def test_run_pipeline_inherits_financials_source_note_from_existing_state_when_no_fresh_financials_given(project_root):
+    """The headless pipeline can never originate an analyst-supplied
+    convention note (no analyst present to confirm one -- see
+    scripts/conventions.py's own docstring), but it must inherit one an
+    earlier interactive /spread step already confirmed and checkpointed --
+    this is the whole reason financials_source_note needs the same
+    threading financials_source itself already has."""
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+                financials_source_note="Depreciation embedded in Cost of Goods Sold, "
+                                        "per prior confirmation for this borrower on 2026-01-15.")
+    client = MockClient([
+        _compliant_draft(financials_source_disclosed=True),
+        _approved_json(),
+    ])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_prompt = client.calls[0]["messages"][0]["content"]
+    assert "Depreciation embedded in Cost of Goods Sold, per prior confirmation for this " \
+           "borrower on 2026-01-15." in maker_prompt
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials_source_note"] == (
+        "Depreciation embedded in Cost of Goods Sold, per prior confirmation for this "
+        "borrower on 2026-01-15."
+    )
+
+
+def test_build_grounding_context_includes_credit_policy_notes_section_when_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        credit_policy_notes="2026-01-15 -- Acme Corp/Fleet Loan: 'Key Man' does not apply to "
+                             "committee-managed borrowers per confirmed interpretation.",
+    )
+    assert "Credit Policy Interpretation Notes" in context
+    assert "'Key Man' does not apply to committee-managed borrowers" in context
+
+
+def test_build_grounding_context_omits_credit_policy_notes_section_when_not_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+    )
+    assert "Credit Policy Interpretation Notes" not in context
+
+
+def test_run_pipeline_threads_credit_policy_notes_into_both_maker_and_checker_prompts(project_root):
+    """Same shared-grounding-context design as credit_policy itself (#57) --
+    both the draft call and the audit call must receive the notes file."""
+    (project_root / "config" / "credit_policy_notes.md").write_text(
+        "# Credit Policy Interpretation Notes\n\n"
+        "## 2026-01-15 -- Acme Corp/Fleet Loan\n"
+        "**Policy point:** Key Man risk criterion\n"
+        "**Correction:** Does not apply to committee-managed borrowers.",
+        encoding="utf-8",
+    )
+    client = MockClient([
+        _compliant_draft(credit_policy_considered=True),
+        _approved_json(),
+    ])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_prompt = client.calls[0]["messages"][0]["content"]
+    checker_prompt = client.calls[1]["messages"][0]["content"]
+    assert "Does not apply to committee-managed borrowers." in maker_prompt
+    assert "Does not apply to committee-managed borrowers." in checker_prompt
+
+
+def test_run_pipeline_omits_credit_policy_notes_section_when_none_exist(project_root):
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_prompt = client.calls[0]["messages"][0]["content"]
+    checker_prompt = client.calls[1]["messages"][0]["content"]
+    assert "Credit Policy Interpretation Notes" not in maker_prompt
+    assert "Credit Policy Interpretation Notes" not in checker_prompt

@@ -122,6 +122,40 @@ def test_underwriter_prompt_requires_the_analyst_supplied_spreading_caveat(under
     assert "analyst-supplied" in underwriter_prompt
 
 
+def test_underwriter_prompt_references_financials_source_note(underwriter_prompt):
+    """Regression guard for issue #58: Guideline 9 must instruct the
+    Underwriter to cite a persisted convention description (state.json's
+    financials_source_note, or the equivalent headless grounding-context
+    text) verbatim in the caveat, not just declare that a caveat exists."""
+    assert "financials_source_note" in underwriter_prompt
+
+
+def test_underwriter_and_risk_reviewer_prompts_reference_credit_policy_notes(
+    underwriter_prompt, risk_reviewer_prompt,
+):
+    """Regression guard for issue #58: both agent prompts must know to
+    check config/credit_policy_notes.md alongside config/credit_policy.md
+    itself (Guideline 10 / Audit Checklist item 4)."""
+    assert "credit_policy_notes.md" in underwriter_prompt
+    assert "credit_policy_notes.md" in risk_reviewer_prompt
+
+
+def test_risk_reviewer_prompt_references_the_real_credit_policy_notes_grounding_context_header(
+    risk_reviewer_prompt,
+):
+    """Positive counterpart: derive the actual "Credit Policy Interpretation
+    Notes" section header from the real _build_grounding_context() and
+    confirm Audit Checklist item 4 references it."""
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        credit_policy_notes="A confirmed interpretation note.",
+    )
+    header_match = re.search(r"Credit Policy Interpretation Notes", context)
+    assert header_match, "expected _build_grounding_context() to emit a Credit Policy Interpretation Notes header"
+    assert header_match.group(0) in risk_reviewer_prompt
+
+
 # ---------------------------------------------------------------------------
 # agents/risk_reviewer_agent.md's verdict JSON schema
 # ---------------------------------------------------------------------------

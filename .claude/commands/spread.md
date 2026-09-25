@@ -20,6 +20,25 @@ date). If found, read it and treat every figure already recorded there as the so
 never re-derive a number from a summarized/compacted conversation when state.json already has
 it. If none exists, this is the first step run for this deal.
 
+### Check for a persisted convention
+
+Before asking which mode applies, check whether a spreading convention is already on file for
+this borrower or this institution (see issue #58) -- neither is ever auto-applied without an
+explicit response, but surfacing what's on file avoids re-deriving/re-asking from scratch every
+time:
+```
+python scripts/conventions.py --enterprise --read
+python scripts/conventions.py --company "<company>" --read
+```
+If either returns `"found": true`, tell the analyst what's on file (the confirmed date, the
+mode, and the free-text note) before asking which mode applies to this deal -- e.g. "On file:
+enterprise-wide default is analyst-supplied ('this institution always supplies its own pre-spread
+figures'); no borrower-specific override for `<company>`. Apply this, or does this deal differ?"
+Always require an explicit response before setting anything, even when both are absent or both
+agree -- never auto-apply silently, and never merge or auto-pick between the two scopes yourself
+if they conflict (that's the analyst's call, not something to infer -- mirrors #55's own explicit
+"never infer an institution's proprietary accounting treatment" principle).
+
 **Primary inputs** (ask the user for whatever's missing and isn't already in state): 3-5 years
 of Profit & Loss and Balance Sheet data. **Or**, if this analyst already spreads against their
 own company-approved template (organizations often treat certain line items differently than
@@ -50,6 +69,11 @@ yourself. This deliberately skips the audit guarantee the default mode provides 
 independently recomputed from raw inputs) in exchange for respecting the analyst's own
 house-approved methodology -- see the `financials_source` flag below, which is what tells
 `/assemble` to disclose this tradeoff in the CAM.
+
+Once confirmed, also capture a short free-text description of the convention itself (e.g.
+"Depreciation embedded in Cost of Goods Sold") and ask explicitly: **"Is this specific to
+`<company>`, or an enterprise-wide convention that applies across every borrower?"** This decides
+which store to persist it to in "State: write" below -- never guess or infer the scope.
 
 ## Source material
 
@@ -113,4 +137,25 @@ never drop a field another step already recorded):
   decide whether the CAM needs the analyst-supplied caveat (see
   `agents/underwriter_agent.md`'s Guideline 9). Applies to the whole deal, not per-period — if
   any period's figures were analyst-supplied, set it to `"analyst-supplied"`.
+- If this deal's `financials_source` is `"analyst-supplied"`: set a new `financials_source_note`
+  field to the confirmed convention description, phrased ready for the CAM's caveat — e.g.
+  "Depreciation embedded in Cost of Goods Sold, per prior confirmation for this borrower on
+  2026-01-15" (borrower-specific) or "Depreciation embedded in Cost of Goods Sold, per this
+  institution's standing convention" (enterprise-wide) — see `agents/underwriter_agent.md`'s
+  Guideline 9. Omit this field entirely for a framework-computed deal.
+- Then persist/refresh the confirmed convention so future deals benefit automatically — only
+  when `financials_source` is `"analyst-supplied"` (nothing borrower- or enterprise-specific to
+  remember for a framework-computed deal). Borrower-specific:
+  ```
+  python scripts/conventions.py --company "<company>" --write --financials-source analyst-supplied \
+      --note "<the confirmed convention description>" --proposal "<proposal>"
+  ```
+  or, if the analyst said this is an enterprise-wide convention:
+  ```
+  python scripts/conventions.py --enterprise --write --financials-source analyst-supplied \
+      --note "<the confirmed convention description>"
+  ```
+  Run this every time analyst-supplied mode is confirmed for this deal (new, reconfirmed
+  unchanged, or corrected) — `conventions.py` always overwrites the current fields and appends to
+  history, so there's no need to first check whether anything actually changed.
 - Append `"spread"` to `steps_completed` if it isn't already there.

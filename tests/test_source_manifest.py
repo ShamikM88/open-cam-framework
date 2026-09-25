@@ -285,3 +285,12 @@ def test_missing_saved_sources_deal_level_not_matched_by_exact_step_name():
              "commercial": {"sources": ["https://example.com/b"]}}
     manifest = [{"step": "research", "filename": "a.html", "claim": "x", "url": None, "fetched_date": "2026-01-15"}]
     assert missing_saved_sources(state, manifest) is False
+
+
+def test_missing_saved_sources_degrades_safely_on_a_malformed_section():
+    """A triage/commercial value that's present but the wrong type (e.g. a
+    list instead of an object) must not raise -- treated as nothing
+    declared, matching parse_underwriter_output()'s identical handling of
+    a wrong-typed field elsewhere in this framework."""
+    state = {"triage": ["not", "a", "dict"], "commercial": "also not a dict"}
+    assert missing_saved_sources(state, manifest=[]) is False

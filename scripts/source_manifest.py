@@ -203,12 +203,19 @@ def missing_saved_sources(state, manifest):
     "at least one, not exhaustive coverage" discipline
     policy_checks.check_draft_compliance()'s existing "Missing Narrative
     Sources" check already applies to the CAM draft's own declared sources.
+
+    A `triage`/`commercial` value that's present but the wrong type (e.g. a
+    list instead of an object -- malformed state.json) is treated as
+    "nothing declared" rather than raising, matching
+    policy_checks.parse_underwriter_output()'s identical degrade-safely
+    handling of a wrong-typed field elsewhere in this framework.
     """
-    declared = any(
-        str(s).strip()
-        for section_name in ("triage", "commercial")
-        for s in ((state.get(section_name) or {}).get("sources") or [])
-    )
+    citations = []
+    for section_name in ("triage", "commercial"):
+        section = state.get(section_name)
+        if isinstance(section, dict):
+            citations.extend(section.get("sources") or [])
+    declared = any(str(s).strip() for s in citations)
     return declared and not manifest
 
 

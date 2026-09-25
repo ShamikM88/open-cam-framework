@@ -80,6 +80,15 @@ never drop a field another step already recorded):
   seamlessly continue into `/spread` → `/collateral` → `/project` → `/assemble` later if it turns
   out a full CAM is needed after all — nothing done here needs to be redone.
 
+Then run:
+```
+python scripts/source_manifest.py --check-sources --company "<company>" --proposal "<proposal>"
+```
+If `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
+of the material behind them (see issue #72) — go back and save at least one via the Source
+material step above before finishing, or tell the user explicitly that no source material was
+saved for this step and why (e.g. every source was unsaveable) rather than silently moving on.
+
 ## Export the Research Brief
 
 Assemble a standalone Markdown document combining the Go/No-Go screen and the company/sector

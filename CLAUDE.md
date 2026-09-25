@@ -272,6 +272,17 @@ document instead of rendering as separate lines.
   python scripts/source_manifest.py --company "Acme Corp" --proposal "Fleet Loan" --step triage \
       --claim "Legal identity and PSC filing" --file /path/to/downloaded.pdf --url https://...
   ```
+  `missing_saved_sources(state, manifest)` is the code-enforced check `/triage`, `/research`, and
+  `/commercial` each run at the end of their own "State: write" step (see issue #72): true when
+  `state`'s `triage`/`commercial` sections declare at least one citation but the manifest has
+  zero entries at all -- i.e. the step cited sources without ever actually saving any of the
+  material behind them, the exact gap that motivated this whole module. Deliberately deal-level
+  (not matched against an exact `triage`/`commercial`/`research` step-name tag -- `/research`'s
+  own combined step tags its entries `"research"`) and floor-level (at least one saved source,
+  not an exhaustive 1:1 match to every citation -- some sources are legitimately unsaveable, e.g.
+  a bot-blocked page). Wired into the same three commands via a `--check-sources` CLI mode
+  (mirrors `state_manager.py`'s own `--check-steps`: prints JSON, always exits 0, the calling
+  command's prose decides what to do with a `true` result).
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.

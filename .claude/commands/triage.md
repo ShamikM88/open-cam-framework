@@ -60,3 +60,12 @@ never drop a field another step already recorded):
   Go/No-Go verdict and rationale, and any bureau/registry figures under `inputs` (e.g.
   `inputs.experian_score`).
 - Append `"triage"` to `steps_completed` if it isn't already there.
+
+Then run:
+```
+python scripts/source_manifest.py --check-sources --company "<company>" --proposal "<proposal>"
+```
+If `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
+of the material behind them (see issue #72) — go back and save at least one via the Source
+material step above before finishing, or tell the user explicitly that no source material was
+saved for this step and why (e.g. every source was unsaveable) rather than silently moving on.

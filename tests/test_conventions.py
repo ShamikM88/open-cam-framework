@@ -55,6 +55,15 @@ def test_write_company_convention_creates_the_file_with_expected_fields(tmp_path
     assert read_company_convention("Acme Corp", base_dir=base) == record
 
 
+def test_write_company_convention_leaves_no_stray_temp_file_behind(tmp_path):
+    base = str(tmp_path)
+    write_company_convention("Acme Corp", financials_source="analyst-supplied", note="A note",
+                              confirmed_date="2026-01-15", base_dir=base)
+
+    company_dir = os.path.dirname(company_convention_path("Acme Corp", base_dir=base))
+    assert os.listdir(company_dir) == ["_conventions.json"]
+
+
 def test_write_company_convention_overwrites_current_and_appends_history(tmp_path):
     base = str(tmp_path)
     write_company_convention("Acme Corp", financials_source="analyst-supplied", note="First note",
@@ -139,6 +148,15 @@ def test_write_enterprise_convention_creates_the_file_with_expected_fields(tmp_p
     assert path == os.path.join(base, "config", "spreading_conventions.json")
 
     assert read_enterprise_convention(base_dir=base) == record
+
+
+def test_write_enterprise_convention_leaves_no_stray_temp_file_behind(tmp_path):
+    base = str(tmp_path)
+    write_enterprise_convention(financials_source="analyst-supplied", note="A note",
+                                 confirmed_date="2026-01-15", base_dir=base)
+
+    config_dir = os.path.dirname(enterprise_convention_path(base_dir=base))
+    assert os.listdir(config_dir) == ["spreading_conventions.json"]
 
 
 def test_write_enterprise_convention_overwrites_current_and_appends_history(tmp_path):

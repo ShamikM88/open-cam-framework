@@ -29,6 +29,7 @@ already covered by the existing wholesale deals/ ignore entry.
 import argparse
 import json
 import os
+import tempfile
 from datetime import date
 
 from state_manager import DEALS_DIR, LOCK_TIMEOUT_SECONDS, _FileLock, sanitize_path_component
@@ -103,10 +104,20 @@ def _write_convention(path, *, financials_source, note=None, confirmed_date=None
             "history": history,
         }
 
-        tmp_path = path + ".tmp"
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(record, f, indent=2)
-        os.replace(tmp_path, path)
+        # Atomic, matching state_manager._merge_and_write()'s exact pattern:
+        # write to a temp file in the same directory (so os.replace() is a
+        # same-filesystem rename) and swap it into place, rather than
+        # truncating the target file directly -- and clean up the temp file
+        # on any failure instead of leaving it orphaned on disk.
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                json.dump(record, f, indent=2)
+            os.replace(tmp_path, path)
+        except BaseException:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
 
     return record
 

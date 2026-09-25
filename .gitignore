@@ -14,6 +14,7 @@ config/style_guide.md
 config/credit_policy.md
 config/credit_policy_notes.md
 config/spreading_conventions.json
+config/deal_learnings.md
 templates/local/
 
 # Generated deal outputs (contain borrower financials — confidential by nature)

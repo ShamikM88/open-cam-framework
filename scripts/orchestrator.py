@@ -199,6 +199,28 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
     return "REJECTED", combined_notes
 
 
+def _xml_block(tag, content):
+    """Wrap `content` in an XML-style tag pair rather than a Markdown
+    triple-backtick fence -- Anthropic's own recommended pattern for
+    demarcating a section of a Claude prompt (see
+    _build_grounding_context() below, this module's only place raw/
+    analyst-writable content is embedded into either agent's prompt).
+
+    A fixed ``` fence breaks if the embedded content itself contains a
+    ``` sequence -- a real risk once free text an analyst typed (a
+    persisted convention note, a credit-policy interpretation correction,
+    a deal learning) started flowing through here, not just vetted
+    calibrated documents or json.dumps() output (see issue #91). Tags
+    narrow, but don't eliminate, this class of risk -- a deliberately
+    crafted `</tag>` sequence in the same content could still break out --
+    but that residual risk matches this framework's existing trust model,
+    which already treats analyst-supplied input as trusted, not
+    adversarial (the same assumption every other Guideline already makes
+    about analyst-provided figures, sources, and narrative content).
+    """
+    return f"<{tag}>\n{content}\n</{tag}>"
+
+
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                               collateral_data, policy_state=None, downside_case=None,
                               financials_source=None, credit_policy=None,
@@ -299,7 +321,7 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "violation as a REJECTED-worthy finding, regardless of what the "
             "Underwriter declared:"
         )
-        parts.append(f"```\n{credit_policy}\n```")
+        parts.append(_xml_block("institutional_credit_policy", credit_policy))
     if credit_policy_notes:
         parts.append(
             "\nCredit Policy Interpretation Notes (analyst-confirmed corrections to how "
@@ -307,7 +329,7 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "Apply these interpretations rather than re-flagging an already-resolved point; "
             "never extend a note beyond what it explicitly covers):"
         )
-        parts.append(f"```\n{credit_policy_notes}\n```")
+        parts.append(_xml_block("credit_policy_interpretation_notes", credit_policy_notes))
     if company_learnings or enterprise_learnings:
         parts.append(
             "\nDeal Learnings (analyst-confirmed takeaways from past deals -- see /assemble. "
@@ -315,22 +337,24 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "claim in this deal's own sources):"
         )
         if enterprise_learnings:
-            parts.append(f"Enterprise-wide:\n```\n{enterprise_learnings}\n```")
+            parts.append("Enterprise-wide:")
+            parts.append(_xml_block("enterprise_deal_learnings", enterprise_learnings))
         if company_learnings:
-            parts.append(f"Borrower-specific ({company}):\n```\n{company_learnings}\n```")
+            parts.append(f"Borrower-specific ({company}):")
+            parts.append(_xml_block("borrower_deal_learnings", company_learnings))
     parts += [
         "\nGrounded multi-period financials -- historical and forward-year "
         "base case alike (from state.json -- the only source of truth for "
         "these figures; never invent, extrapolate, or adjust them):",
-        f"```json\n{json.dumps(model_data.get('financials', {}), indent=2)}\n```",
+        _xml_block("financials", json.dumps(model_data.get('financials', {}), indent=2)),
         "\nProgrammatically calculated ratios, base case, every period "
         "supplied (from state.json -- re-verify the draft's stated figures "
         "against these; never recompute independently):",
-        f"```json\n{json.dumps(model_data.get('ratios', {}), indent=2)}\n```",
+        _xml_block("ratios", json.dumps(model_data.get('ratios', {}), indent=2)),
     ]
     if collateral_data:
         parts.append("\nCollateral / exposure data (from state.json):")
-        parts.append(f"```json\n{json.dumps(collateral_data, indent=2)}\n```")
+        parts.append(_xml_block("collateral", json.dumps(collateral_data, indent=2)))
     if downside_case and (downside_case.get("financials") or downside_case.get("ratios")):
         parts.append(
             "\nDownside (stressed) forward-year financials and ratios (from "
@@ -341,7 +365,7 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "your structured output's `reported_figures` under "
             "`{metric}_{period}_downside` keys, e.g. \"dscr_FY+2_downside\"):"
         )
-        parts.append(f"```json\n{json.dumps(downside_case, indent=2)}\n```")
+        parts.append(_xml_block("downside_case", json.dumps(downside_case, indent=2)))
     if policy_state:
         parts.append(
             "\nRequired Conditions Precedent (from policy_state -- render each one's "
@@ -350,7 +374,10 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "rejects the draft if any required cp_id is missing):"
         )
         parts.append(
-            f"```json\n{json.dumps(policy_state.get('required_conditions_precedent', []), indent=2)}\n```"
+            _xml_block(
+                "required_conditions_precedent",
+                json.dumps(policy_state.get('required_conditions_precedent', []), indent=2),
+            )
         )
         if policy_state.get("required_conditions_subsequent"):
             parts.append(
@@ -362,16 +389,21 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                 "required cs_id is missing):"
             )
             parts.append(
-                f"```json\n{json.dumps(policy_state['required_conditions_subsequent'], indent=2)}\n```"
+                _xml_block(
+                    "required_conditions_subsequent",
+                    json.dumps(policy_state['required_conditions_subsequent'], indent=2),
+                )
             )
         parts.append(
             "\nCovenant compliance results (from policy_state -- already computed; "
             "narrate the headroom or breach in your commentary, do not recompute):"
         )
-        parts.append(f"```json\n{json.dumps(policy_state.get('covenant_results', []), indent=2)}\n```")
+        parts.append(
+            _xml_block("covenant_results", json.dumps(policy_state.get('covenant_results', []), indent=2))
+        )
         if policy_state.get("security_gaps"):
             parts.append("\nSecurity/collateral gaps identified (from policy_state):")
-            parts.append(f"```json\n{json.dumps(policy_state['security_gaps'], indent=2)}\n```")
+            parts.append(_xml_block("security_gaps", json.dumps(policy_state['security_gaps'], indent=2)))
         if policy_state.get("downside_covenant_breaches"):
             parts.append(
                 "\nDownside covenant breaches under stress (from policy_state -- a "
@@ -383,7 +415,12 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                 "`downside_breaches_acknowledged` -- a code-level check rejects the "
                 "draft if any breach_id here is left undisclosed):"
             )
-            parts.append(f"```json\n{json.dumps(policy_state['downside_covenant_breaches'], indent=2)}\n```")
+            parts.append(
+                _xml_block(
+                    "downside_covenant_breaches",
+                    json.dumps(policy_state['downside_covenant_breaches'], indent=2),
+                )
+            )
     return "\n".join(parts)
 
 

@@ -28,6 +28,21 @@ Dynamics, Customer/Supplier Concentration, and Competitive Landscape. Cite the s
 factual claim (company website, filings, a credible public source, or what the user told you
 directly) — never invent a fact about the company, its management, or its market.
 
+## Source material
+
+Whenever you fetch a web page, a filing, or an industry report — or the user hands you a
+document directly — save the actual material — not just its citation — to this deal's `sources/`
+folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step commercial \
+    --claim "<short description of what this backs, e.g. 'UK fire and security sector M&A review'>" \
+    --file <path to the downloaded/saved file> [--url <source URL, if any>]
+```
+This preserves the source of record for later audit (see issue #67) — a citation is only as
+checkable as the document it points to, and a web page can change or disappear after the fact.
+Don't save incidental scratch/intermediate artifacts (e.g. a page render used only to OCR a
+figure) — only the source documents themselves.
+
 ## State: write
 
 Update this deal's state file with this step's results (merge with whatever you read above —

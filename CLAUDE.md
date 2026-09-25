@@ -39,6 +39,7 @@ open-cam-framework/
 │   ├── deal_export.py           Folder creation + template auto-save + .docx/.xlsx export (no anthropic dependency; shared by orchestrator.py and /assemble)
 │   ├── research_export.py       Standalone research-brief -> .docx export (no anthropic dependency; used by /research only -- kept separate from deal_export.py so a research-only deal never triggers CAM-specific side effects)
 │   ├── state_manager.py         Reads/writes deals/<Company>/<Proposal>_<Date>/state.json (no anthropic dependency; see "Context Window & State Management Protocol")
+│   ├── source_manifest.py       Saves fetched/given source material (PDFs, saved pages) into that deal's sources/ subfolder plus a manifest -- see "Source material persistence" below (no anthropic dependency)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   └── template_resolver.py     Resolves default vs. calibrated-override CAM template paths
@@ -47,7 +48,7 @@ open-cam-framework/
 │   ├── spreading/               default_spreading_template.xlsx -- reference copy of the spreading workbook layout
 │   └── local/cam/               Calibrated overrides / auto-saved new-type templates (gitignored, see below)
 ├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence)
-├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json
+├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json and a sources/ subfolder (see "Source material persistence" below)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
 ├── requirements-dev.txt         requirements.txt + pytest
@@ -132,6 +133,32 @@ structured disk artifacts (in `state.json`), never only in chat history.
 
 **Confidentiality.** `state.json` lives under `deals/`, which is already git-ignored (see the
 confidentiality rule below) — this introduces no new confidentiality gap.
+
+## Source material persistence
+
+`state.json`'s `sources` lists (written by `/triage`, `/research`, `/commercial`, and any other
+step that cites a claim) only ever record the citation *string* — a URL, a filing name. That is
+not enough on its own: a citation is only as auditable as the document it points to, and a web
+page can change or disappear after the fact. [`scripts/source_manifest.py`](scripts/source_manifest.py)
+closes that gap by persisting the actual source material itself.
+
+**Per-step, not batched.** Matching the state-management protocol above, whichever step
+(`/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project`) fetches or is given
+source material saves it as part of that step's own checkpoint — see each command's own "Source
+material" section. `save_source()` copies an already-downloaded/saved file into
+`deals/<Company>/<Proposal>_<Date>/sources/` and appends an entry — `filename`, `url` (if any),
+`step`, `claim`, `fetched_date` — to `sources/manifest.json`. It never fetches anything itself
+(no network/browser dependency, matching `state_manager.py`'s own dependency-free pattern); the
+session doing the fetching (a slash command's Claude session) hands it a file that already exists
+on disk.
+
+**Only the source of record, not scratch artifacts.** Save the actual document a claim was
+grounded in — a downloaded filing, a saved web page, an analyst-provided document — never an
+incidental intermediate artifact a step happened to produce along the way (e.g. an OCR page
+render used only to extract a figure).
+
+**Confidentiality.** `sources/` lives under `deals/<Company>/<Proposal>_<Date>/`, so it inherits
+that same git-ignore wholesale — no new confidentiality gap, same as `state.json` above.
 
 ## Slash commands (primary interface)
 
@@ -225,6 +252,17 @@ environments don't, and the Read-tool approach works everywhere regardless of sh
   `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
   any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
   (reusing an existing one per the auto-discovery above), and returns the full merged state.
+- **`scripts/source_manifest.py`** — no `anthropic` dependency, same testability pattern as
+  `state_manager.py` (reuses its date-resolution/locking/sanitization directly rather than
+  duplicating it). `save_source(company, proposal, *, step, claim, source_path, url=None,
+  filename=None)` copies an already-downloaded/saved file into
+  `deals/<Company>/<Proposal>_<Date>/sources/` and appends an entry to `sources/manifest.json`;
+  `read_manifest(company, proposal)` returns that manifest as a list (`[]` if nothing's been
+  saved yet). See "Source material persistence" above. Callable from a slash command's Bash step:
+  ```
+  python scripts/source_manifest.py --company "Acme Corp" --proposal "Fleet Loan" --step triage \
+      --claim "Legal identity and PSC filing" --file /path/to/downloaded.pdf --url https://...
+  ```
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.

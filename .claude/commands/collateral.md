@@ -39,6 +39,19 @@ this asset already has one) — this is the join key `scripts/policy_engine.py` 
 reference this asset against its security/charge record, so it must stay the same across
 re-runs of this command for the same asset.
 
+## Source material
+
+Whenever you're given a source document directly — a valuation report, an invoice, a charge
+registration/security document — save the actual document, not just a citation to it, to this
+deal's `sources/` folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step collateral \
+    --claim "<short description, e.g. 'AST-001 valuation report'>" --file <path to the document>
+```
+This preserves the source of record for later audit (see issue #67) — so a valuation or charge
+detail can be spot-checked against the exact document later. Don't save incidental scratch/
+intermediate artifacts — only the source documents themselves.
+
 ## State: write
 
 Update this deal's state file with this step's results (merge with whatever you read above —

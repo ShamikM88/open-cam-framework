@@ -87,6 +87,14 @@ research above into one readable brief (your own structure is fine — this isn'
 template; a short header with company/proposal/date, then the Go/No-Go verdict and rationale,
 then the company/sector sections reads naturally).
 
+**Formatting for `scripts/docx_builder.py`'s export:** a single newline is a soft wrap, not a
+paragraph break — consecutive plain lines join into one continuous paragraph in the exported
+`.docx`, matching normal Markdown semantics (this is correct behavior, not a bug to work around).
+This means a short header block (company/proposal/date/facility) or any other list of distinct
+fields must use a bullet list (`- **Label:** value`) or genuinely blank-line-separated paragraphs
+— never a bare run of consecutive `**Label:** value` lines, which will merge into one run-on
+paragraph instead of rendering as separate lines.
+
 Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet),
 then run:
 ```

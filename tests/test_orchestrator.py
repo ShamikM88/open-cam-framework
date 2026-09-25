@@ -161,8 +161,17 @@ def test_completion_kwargs_omits_temperature_when_none():
     assert _completion_kwargs("some-model", None) == {"model": "some-model"}
 
 
-def test_completion_kwargs_includes_temperature_when_given():
-    assert _completion_kwargs("some-model", 0.3) == {"model": "some-model", "temperature": 0.3}
+def test_completion_kwargs_includes_temperature_via_extra_body_when_given():
+    """Routed through extra_body, not a direct temperature= kwarg -- the
+    anthropic SDK (>=1.x) dropped temperature/top_p/top_k from
+    Messages.create()'s own typed signature; a direct kwarg raises
+    TypeError before any request is sent. extra_body is the SDK's own
+    documented escape hatch for this. This project's own test suite can't
+    catch a regression back to the direct-kwarg form on its own (MockClient
+    accepts arbitrary **kwargs), so this test pins the exact shape."""
+    assert _completion_kwargs("some-model", 0.3) == {
+        "model": "some-model", "extra_body": {"temperature": 0.3},
+    }
 
 
 def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project_root):

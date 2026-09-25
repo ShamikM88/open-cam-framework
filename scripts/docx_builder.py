@@ -2,11 +2,17 @@ import re
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.opc.constants import RELATIONSHIP_TYPE
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 HR_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 FENCE_RE = re.compile(r"^\s*```")
+HEADING_RE = re.compile(r"^(#{1,3}) ")
+BULLET_RE = re.compile(r"^- ")
+NUMBERED_RE = re.compile(r"^\d+\.\s")
 INLINE_SPAN = r"\S(?:.*?\S)?"  # non-whitespace at both ends -- keeps a lone
 # trailing/leading `*` used as a footnote marker (e.g. "Net Income* is...")
 # from being misread as an emphasis delimiter, since a real emphasis span
@@ -16,6 +22,7 @@ INLINE_RE = re.compile(
     r"|\*\*(" + INLINE_SPAN + r")\*\*"       # **bold**
     r"|\*(" + INLINE_SPAN + r")\*"           # *italic*
     r"|`(.+?)`"                               # `code`
+    r"|\[([^\]]+)\]\(([^)]+)\)"               # [link text](url)
 )
 
 ALIGNMENTS = {
@@ -53,17 +60,50 @@ def _column_alignment(separator_cell):
     return "left"
 
 
+def _add_hyperlink_run(paragraph, url, text, bold=False):
+    """Add a real, clickable Word hyperlink run -- python-docx has no
+    high-level API for this, so it's built directly in OOXML: a
+    w:hyperlink element referencing an external relationship on the
+    paragraph's part, wrapping a w:r styled with the built-in "Hyperlink"
+    character style (Word recognizes this style id even though this
+    document never explicitly defines it in styles.xml).
+    """
+    part = paragraph.part
+    r_id = part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
+
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+
+    run = OxmlElement("w:r")
+    run_pr = OxmlElement("w:rPr")
+    style = OxmlElement("w:rStyle")
+    style.set(qn("w:val"), "Hyperlink")
+    run_pr.append(style)
+    if bold:
+        run_pr.append(OxmlElement("w:b"))
+    run.append(run_pr)
+
+    text_el = OxmlElement("w:t")
+    text_el.set(qn("xml:space"), "preserve")
+    text_el.text = text
+    run.append(text_el)
+
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+
+
 def _add_inline_runs(paragraph, text, base_bold=False):
-    """Split `text` on **bold**/*italic*/`code` markers and add one run per
-    span, preserving `base_bold` (e.g. a table header row) as the default
-    for any plain-text span so callers don't have to re-apply it themselves.
+    """Split `text` on **bold**/*italic*/`code`/[link](url) markers and add
+    one run (or, for a link, a real hyperlink) per span, preserving
+    `base_bold` (e.g. a table header row) as the default for any plain-text
+    span so callers don't have to re-apply it themselves.
     """
     pos = 0
     for match in INLINE_RE.finditer(text):
         if match.start() > pos:
             run = paragraph.add_run(text[pos:match.start()])
             run.bold = base_bold
-        bold_italic_text, bold_text, italic_text, code_text = match.groups()
+        bold_italic_text, bold_text, italic_text, code_text, link_text, link_url = match.groups()
         if bold_italic_text is not None:
             run = paragraph.add_run(bold_italic_text)
             run.bold = True
@@ -75,10 +115,12 @@ def _add_inline_runs(paragraph, text, base_bold=False):
             run = paragraph.add_run(italic_text)
             run.bold = base_bold
             run.italic = True
-        else:
+        elif code_text is not None:
             run = paragraph.add_run(code_text)
             run.bold = base_bold
             run.font.name = "Consolas"
+        else:
+            _add_hyperlink_run(paragraph, link_url, link_text, bold=base_bold)
         pos = match.end()
     if pos < len(text):
         run = paragraph.add_run(text[pos:])
@@ -111,6 +153,30 @@ def _add_table(doc, header_cells, alignments, body_rows):
             _set_cell_text(row.cells[idx], text, alignment)
 
     return table
+
+
+def _is_block_boundary(line):
+    """True when `line` starts (or is) a different block -- a heading,
+    bullet, table row, horizontal rule, fenced code block, or a blank line
+    -- and so must never be absorbed into a preceding plain-text paragraph.
+
+    Used to find where a soft-wrapped paragraph ends: Markdown (like every
+    other renderer -- browsers, GitHub, Word itself) treats a single
+    newline inside a block as a soft wrap, not a paragraph break -- only a
+    blank line (or the start of a new block) ends the paragraph. Line-by-
+    line source text wrapped at some column width must still join back
+    into one continuous paragraph, not fragment into one Word paragraph
+    per source line.
+    """
+    return (
+        not line.strip()
+        or HEADING_RE.match(line)
+        or BULLET_RE.match(line)
+        or NUMBERED_RE.match(line)
+        or FENCE_RE.match(line)
+        or HR_RE.match(line)
+        or _is_table_row(line)
+    )
 
 
 def export_to_docx(markdown_text, output_path):
@@ -148,10 +214,15 @@ def export_to_docx(markdown_text, output_path):
             i = close_idx + 1 if close_idx is not None else i + 1
         elif HR_RE.match(line):
             i += 1  # a markdown horizontal rule has no meaningful docx equivalent here
-        elif line.startswith("- "):
+        elif BULLET_RE.match(line):
+            para_lines = [line[2:].strip()]
+            j = i + 1
+            while j < n and not _is_block_boundary(lines[j]):
+                para_lines.append(lines[j].strip())
+                j += 1
             paragraph = doc.add_paragraph(style="List Bullet")
-            _add_inline_runs(paragraph, line[2:])
-            i += 1
+            _add_inline_runs(paragraph, " ".join(para_lines))
+            i = j
         elif _is_table_row(line) and i + 1 < n and _is_separator_row(_split_row(lines[i + 1])):
             header_cells = _split_row(line)
             alignments = [_column_alignment(c) for c in _split_row(lines[i + 1])]
@@ -164,8 +235,15 @@ def export_to_docx(markdown_text, output_path):
             i = j
         else:
             if line.strip():
+                para_lines = [line.strip()]
+                j = i + 1
+                while j < n and not _is_block_boundary(lines[j]):
+                    para_lines.append(lines[j].strip())
+                    j += 1
                 paragraph = doc.add_paragraph()
-                _add_inline_runs(paragraph, line)
-            i += 1
+                _add_inline_runs(paragraph, " ".join(para_lines))
+                i = j
+            else:
+                i += 1
 
     doc.save(output_path)

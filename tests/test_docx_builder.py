@@ -1,5 +1,6 @@
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 
 from docx_builder import export_to_docx
 
@@ -194,3 +195,114 @@ def test_triple_asterisk_renders_as_a_single_bold_italic_run(tmp_path):
     assert paragraph.runs[0].bold is True
     assert paragraph.runs[0].italic is True
     assert "*" not in paragraph.text
+
+
+# ---------------------------------------------------------------------------
+# Soft-wrapped source lines must join into one continuous Word paragraph
+# (matching normal Markdown semantics -- a single newline is a soft wrap,
+# only a blank line or a new block starts a fresh paragraph), not fragment
+# into one Word paragraph per source line.
+# ---------------------------------------------------------------------------
+
+def test_wrapped_plain_paragraph_joins_into_one_paragraph(tmp_path):
+    markdown = "This sentence was wrapped\nacross three separate\nsource lines.\n"
+    doc = _build(tmp_path, markdown)
+    assert len(doc.paragraphs) == 1
+    assert doc.paragraphs[0].text == "This sentence was wrapped across three separate source lines."
+
+
+def test_blank_line_still_separates_wrapped_paragraphs(tmp_path):
+    markdown = "First para line one\nfirst para line two.\n\nSecond para line one\nsecond para line two.\n"
+    doc = _build(tmp_path, markdown)
+    assert [p.text for p in doc.paragraphs] == [
+        "First para line one first para line two.",
+        "Second para line one second para line two.",
+    ]
+
+
+def test_heading_ends_a_wrapped_paragraph(tmp_path):
+    markdown = "Body text that wraps\nonto a second line.\n## Next Section\n"
+    doc = _build(tmp_path, markdown)
+    assert doc.paragraphs[0].text == "Body text that wraps onto a second line."
+    assert doc.paragraphs[1].text == "Next Section"
+    assert doc.paragraphs[1].style.name == "Heading 2"
+
+
+def test_wrapped_bullet_item_joins_into_one_bullet(tmp_path):
+    markdown = "- A bullet whose text wraps\n  onto a continuation line.\n"
+    doc = _build(tmp_path, markdown)
+    assert len(doc.paragraphs) == 1
+    assert doc.paragraphs[0].text == "A bullet whose text wraps onto a continuation line."
+    assert doc.paragraphs[0].style.name == "List Bullet"
+
+
+def test_two_wrapped_bullets_stay_separate(tmp_path):
+    markdown = "- First bullet wraps\n  onto a second line.\n- Second bullet, single line.\n"
+    doc = _build(tmp_path, markdown)
+    assert [p.text for p in doc.paragraphs] == [
+        "First bullet wraps onto a second line.",
+        "Second bullet, single line.",
+    ]
+
+
+def test_numbered_list_items_are_not_merged_together(tmp_path):
+    """A numbered-list marker ('1. ', '2. ', ...) must still end the
+    previous item's paragraph even though it isn't a bullet/heading/table
+    row -- otherwise every item in the list collapses into one paragraph."""
+    markdown = (
+        "1. First item, short.\n"
+        "2. Second item wraps\n"
+        "   onto a continuation line.\n"
+        "3. Third item, short.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    assert [p.text for p in doc.paragraphs] == [
+        "1. First item, short.",
+        "2. Second item wraps onto a continuation line.",
+        "3. Third item, short.",
+    ]
+
+
+def test_table_still_ends_a_preceding_wrapped_paragraph(tmp_path):
+    markdown = "Intro text that wraps\nonto a second line.\n" + MARKDOWN_TABLE
+    doc = _build(tmp_path, markdown)
+    assert doc.paragraphs[0].text == "Intro text that wraps onto a second line."
+    assert len(doc.tables) == 1
+
+
+# ---------------------------------------------------------------------------
+# Markdown links ([text](url)) must render as real, clickable Word
+# hyperlinks -- not pass through as literal bracket/paren text.
+# ---------------------------------------------------------------------------
+
+def _hyperlink_targets(doc, paragraph):
+    """The external relationship URL(s) referenced by every w:hyperlink
+    element in `paragraph`, resolved via the document part's relationship
+    table (python-docx has no high-level API for reading hyperlinks back)."""
+    rels = paragraph.part.rels
+    return [
+        rels[el.get(qn("r:id"))].target_ref
+        for el in paragraph._p.findall(qn("w:hyperlink"))
+    ]
+
+
+def test_markdown_link_renders_as_a_real_hyperlink(tmp_path):
+    doc = _build(tmp_path, "See [Companies House](https://example.com/company/123) for details.\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "See Companies House for details."
+    assert "[" not in paragraph.text and "(" not in paragraph.text
+    assert _hyperlink_targets(doc, paragraph) == ["https://example.com/company/123"]
+
+
+def test_markdown_link_in_a_bullet_item_renders_as_a_hyperlink(tmp_path):
+    doc = _build(tmp_path, "- [Source A](https://example.com/a)\n- [Source B](https://example.com/b)\n")
+    assert [p.text for p in doc.paragraphs] == ["Source A", "Source B"]
+    assert _hyperlink_targets(doc, doc.paragraphs[0]) == ["https://example.com/a"]
+    assert _hyperlink_targets(doc, doc.paragraphs[1]) == ["https://example.com/b"]
+
+
+def test_multiple_links_in_one_paragraph(tmp_path):
+    doc = _build(tmp_path, "See [A](https://example.com/a) and [B](https://example.com/b).\n")
+    paragraph = doc.paragraphs[0]
+    assert paragraph.text == "See A and B."
+    assert _hyperlink_targets(doc, paragraph) == ["https://example.com/a", "https://example.com/b"]

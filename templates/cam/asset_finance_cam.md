@@ -139,6 +139,8 @@
 
 Full line-by-line figures live in the accompanying spreading workbook (see `scripts/spreading_builder.py`). The summary table below is a floor, not a ceiling — for anything beyond a small/immaterial facility, this section should also cover: the full income statement (every P&L line, not just EBITDA/DSCR), the debt structure and funding sources (what kind of debt, who holds it, how the balance sheet is actually funded), dividend/distribution history with payout ratios, and working-capital component detail (stock/debtor/creditor days individually, not just the net cycle number) — expand with additional sub-tables/sub-sections as the deal size and complexity warrant.
 
+*When this facility has more than one borrower/obligor (e.g. two related entities co-borrowing under one group facility), repeat this entire section — table, commentary, and the two sections below it (Ultimate Parent and Credit Bureau / Legal Charges) — once per borrower, each under its own sub-heading naming that borrower. Never merge two borrowers' figures into one table.*
+
 | Metric | FY-2 | FY-1 | FY-Current |
 | :--- | ---: | ---: | ---: |
 | Revenue | | | |
@@ -152,17 +154,56 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 
 **Analyst commentary:** [Trend narrative on revenue, margin, leverage and liquidity — every figure must trace back to the audited accounts or management information used for the spreading.]
 
-## 14. Credit Bureau / Legal Charges
+## 14. Ultimate Parent — Consolidated Key Figures & Credit Analysis
+
+*Include this section whenever the borrower's own repayment capacity leans on group/parent support (see Guideline on Parent/UBO Support in `agents/underwriter_agent.md`) — i.e. whenever section 7's Group Structure names a parent the borrower is financially reliant on, not only when the borrower is itself a subsidiary of a listed group. Omit entirely when the borrower stands genuinely independent of any parent.*
+
+| Performance Highlight | FY-Current | FY-1 | Change |
+| :--- | ---: | ---: | ---: |
+| Group Sales | | | |
+| Adjusted Operating Profit | | | |
+| Operating Profit (statutory) | | | |
+| Adjusted Diluted EPS | | | |
+| Dividend per Share | | | |
+| Free Cash Flow | | | |
+| Net Debt | | | |
+| Fixed Rate Debt % | | | |
+| Average Interest Rate on Senior Unsecured Debt | | | |
+
+**Credit Analysis:** [Short prose, written the same numbers-led way as the borrower's own commentary above — cover operating performance and profitability quality (adjusted vs. statutory, and why they diverge if they do), leverage and liquidity (net debt direction, cash/short-term investment cushion, fixed vs. floating debt mix, interest cost trend), and an overall credit-profile conclusion. This is the parent's *own* standalone credit standing, not a restatement of the borrower's figures.]
+
+## 15. Credit Bureau / Legal Charges
+
+*When this facility has more than one borrower, repeat this section once per borrower, each under its own sub-heading.*
 
 - **Registered charges / mortgages:** [Detail, or "None identified"]
-- **Credit bureau summary (e.g. CAIS-equivalent):** [Score, active accounts, delinquencies, judgments. This framework has no live bureau integration -- a bureau score (e.g. Experian) is normally a user-supplied input, so ask the user for it before finalizing this document rather than writing "N/A"/"Not provided" unasked. If the user confirms none is available or applicable, that's a valid, citable answer.]
+- **Credit bureau summary (e.g. CAIS-equivalent):** [Score, active accounts, delinquencies, judgments, days-beyond-terms vs. industry average. This framework has no live bureau integration -- a bureau score (e.g. Experian) is normally a user-supplied input, so ask the user for it before finalizing this document rather than writing "N/A"/"Not provided" unasked. If the user confirms none is available or applicable, that's a valid, citable answer.]
 - **External credit score (e.g. bureau-provided):** [Score, or "N/A" -- only after asking, per above]
 
-## 15. Secondary Source of Repayment
+| Latest Bureau/CAIS Value | Date of Bureau/CAIS Value | Date of Last Accounts Filed | Debt per Last Accounts | Bureau/CAIS Value at Time of Accounts |
+| :--- | :--- | :--- | :--- | :--- |
+| | | | | |
+
+## 16. Secondary Source of Repayment
 
 [For an asset finance facility, default to the financed asset itself (repossession/resale) -- that is the norm for this product type. If that fallback doesn't actually apply to this deal (e.g. no charge is held over the asset), say so explicitly here as a structural risk point in its own right, rather than substituting general trading cash flow as if that were the normal secondary source. Other options (parent/group guarantee, refinance) apply only when actually present -- state the rationale either way.]
 
-## 16. Risks & Mitigants
+## 17. PD Rating Commentary
+
+*When this facility has more than one borrower, repeat the per-borrower block once per borrower.*
+
+**[Borrower Name]**
+- New PD Rating: [Grade] ([%])
+- Previous rating and reason for change: [Grade — state "unchanged" explicitly if it is, don't just repeat the current value]
+- Method of rating: [e.g. model name + any overlay/implicit-support adjustment]
+- Year of financials used: [Year]
+- Key drivers of rating: [Short phrase — the metric(s) actually driving the grade]
+- Override reason: [Detail, or "N/A"]
+
+**Parent Rating (based on consolidated accounts)**
+- [Any rating-agency action on the parent (upgrade/downgrade, date, agency), what it's attributed to, and how it maps to this framework's own PD grade for the parent.]
+
+## 18. Risks & Mitigants
 
 | Risk | Mitigant |
 | :--- | :--- |

@@ -62,6 +62,25 @@ Checklist. End with a clear verdict, exactly as specified by the role: **APPROVE
 **REJECTED**, with specific, actionable revision notes for anything rejected (folding in the
 code-enforced reasons above, if any, per step 4).
 
+## Persisting a policy-interpretation correction (optional — only on explicit confirmation)
+
+If your verdict is **REJECTED** specifically because of a credit-policy violation you flagged
+under Audit Checklist item 4, and the analyst — in the conversation that follows — corrects your
+interpretation of the policy clause rather than agreeing the draft itself needs to change, ask
+explicitly: *"Persist this as a standing interpretation note for future deals?"* Only on a clear
+**yes**, append an entry to `config/credit_policy_notes.md` (create it with a `# Credit Policy
+Interpretation Notes` heading if it doesn't exist yet) recording the date, the company/proposal,
+the specific policy point, and the confirmed interpretation, e.g.:
+```markdown
+## 2026-01-15 — Acme Corp/Fleet Loan
+**Policy point:** Key Man risk criterion
+**Correction:** Does not apply to committee-managed borrowers.
+```
+Never write to this file without an explicit yes, and never infer consent from the analyst
+simply continuing the conversation or moving on to a revision — see issue #58's "deterministic,
+analyst-confirmed, never silently assumed" principle. This is independent of the "State: write"
+section below, which always runs regardless of whether a note was persisted here.
+
 ## State: write
 
 If `--company`/`--proposal` were given: update this deal's state file (merge with whatever you

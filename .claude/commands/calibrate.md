@@ -16,6 +16,15 @@ $ARGUMENTS
 3. **Extract style.** Identify the writing tone, structure, and standard risk phrasing used
    across the samples. Write it to `config/style_guide.md` as a `# Calibrated Style Guide`
    document.
+   **Apply editorial judgment, don't mirror uncritically:** capture genuine house conventions --
+   terseness, fact density, what information is required and in what order, standard phrasing for
+   grades/ratings -- but don't encode a stylistic quirk as house style just because the samples
+   happen to do it, if it actually hurts readability. In particular, don't extract a rule that
+   eliminates all connective prose from narrative sections in favor of disconnected one-line
+   bullets, or that reduces figure-grounded commentary to bare number call-outs with no explained
+   relationship between them ("Revenue: -4%. Margin: +2%.") — a short paragraph connecting related
+   facts, still grounded in specific figures, is clearer than fragments of the same information,
+   and terse/information-dense is the actual goal, not maximally fragmented.
 4. **Derive a template.** Analyze the *structure* of the samples (section headings, table
    columns, the order information is presented in) and produce a generic Markdown CAM template
    mirroring that structure exactly.

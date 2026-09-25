@@ -12,6 +12,8 @@ venv/
 inputs/
 config/style_guide.md
 config/credit_policy.md
+config/credit_policy_notes.md
+config/spreading_conventions.json
 templates/local/
 
 # Generated deal outputs (contain borrower financials — confidential by nature)

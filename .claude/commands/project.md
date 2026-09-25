@@ -70,6 +70,20 @@ from that year's base case. Then recompute the same subtotals/ratios as above fr
 figures — the downside case is evaluated by the identical row-chain the base case uses, just fed
 shocked inputs, never a separately hand-derived formula.
 
+## Source material
+
+Whenever you're given a source document directly — a budget/forecast document, a facility
+agreement (for covenant terms), a guarantee document — save the actual document, not just a
+citation to it, to this deal's `sources/` folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step project \
+    --claim "<short description, e.g. 'FY+1-FY+3 budget' or 'facility agreement covenant schedule'>" \
+    --file <path to the document>
+```
+This preserves the source of record for later audit (see issue #67) — so a forecast figure or
+covenant threshold can be spot-checked against the exact document later. Don't save incidental
+scratch/intermediate artifacts — only the source documents themselves.
+
 ## State: write
 
 Update this deal's state file with this step's results (merge with whatever you read above —

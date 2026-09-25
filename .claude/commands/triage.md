@@ -35,6 +35,21 @@ rationale. Ground every claim in a source the user has provided or a credible pu
 (e.g. a companies registry) — never invent a registration detail, charge, or UBO relationship
 you cannot source.
 
+## Source material
+
+Whenever you download a filing (e.g. a companies registry page/PDF) or the user hands you a
+document directly, save the actual material — not just its citation — to this deal's `sources/`
+folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step triage \
+    --claim "<short description of what this backs, e.g. 'SC315671 legal identity and PSC filing'>" \
+    --file <path to the downloaded/saved file> [--url <source URL, if any>]
+```
+This preserves the source of record for later audit (see issue #67) — a citation is only as
+checkable as the document it points to, and a web page can change or disappear after the fact.
+Don't save incidental scratch/intermediate artifacts (e.g. a page render used only to OCR a
+figure) — only the source documents themselves.
+
 ## State: write
 
 Update this deal's state file with this step's results (merge with whatever you read above —

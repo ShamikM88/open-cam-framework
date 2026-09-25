@@ -51,6 +51,21 @@ independently recomputed from raw inputs) in exchange for respecting the analyst
 house-approved methodology -- see the `financials_source` flag below, which is what tells
 `/assemble` to disclose this tradeoff in the CAM.
 
+## Source material
+
+Whenever you're given a source document directly — the P&L/Balance Sheet document itself, or (in
+the alternative mode) the analyst's own pre-spread template — save the actual document, not just
+a citation to it, to this deal's `sources/` folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step spread \
+    --claim "<short description, e.g. 'FY2023-2025 P&L and Balance Sheet' or 'Analyst pre-spread template'>" \
+    --file <path to the document>
+```
+This preserves the source of record for later audit (see issue #67) -- so the analyst can spot-
+check a figure or re-run a step's numbers by hand against the exact document that was spread,
+not just a description of it. Don't save incidental scratch/intermediate artifacts (e.g. an OCR
+page render used only to extract a figure) -- only the source document itself.
+
 ## State: write
 
 Update this deal's state file with this step's results (merge with whatever you read above —

@@ -1,7 +1,7 @@
 ---
 description: Standalone research deliverable -- legal identity/Go-No-Go screen plus company/sector/competitive research, no financial spreading (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [registration number, credit bureau summary, charges register] [sector, management bios, customer/supplier notes]"
-allowed-tools: Bash(python scripts/research_export.py *)
+allowed-tools: Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
 disable-model-invocation: true
 ---
 
@@ -48,6 +48,22 @@ Draft: Company History, Executive Management overview, Parent/UBO Support analys
 Dynamics, Customer/Supplier Concentration, and Competitive Landscape. Cite the source for every
 factual claim (company website, filings, a credible public source, or what the user told you
 directly) — never invent a fact about the company, its management, or its market.
+
+## Source material
+
+Whenever you download a filing, fetch a web page or industry report, or the user hands you a
+document directly — for either the legal-identity/Go-No-Go screen above or the company/sector
+research above — save the actual material — not just its citation — to this deal's `sources/`
+folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step research \
+    --claim "<short description of what this backs>" \
+    --file <path to the downloaded/saved file> [--url <source URL, if any>]
+```
+This preserves the source of record for later audit (see issue #67) — a citation is only as
+checkable as the document it points to, and a web page can change or disappear after the fact.
+Don't save incidental scratch/intermediate artifacts (e.g. a page render used only to OCR a
+figure) — only the source documents themselves.
 
 ## State: write
 

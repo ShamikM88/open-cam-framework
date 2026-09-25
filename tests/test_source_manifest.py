@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 
 import source_manifest
-from source_manifest import read_manifest, save_source, sources_dir
+from source_manifest import missing_saved_sources, read_manifest, save_source, sources_dir
 from state_manager import write_state
 
 
@@ -237,3 +237,60 @@ def test_sources_dir_does_not_create_the_directory_by_itself(tmp_path):
     base = str(tmp_path)
     directory = sources_dir("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
     assert not os.path.exists(directory)
+
+
+# ---------------------------------------------------------------------------
+# missing_saved_sources(): the code-enforced check (see issue #72) that
+# catches a deal declaring citations in state.json without ever actually
+# calling save_source() for any of them.
+# ---------------------------------------------------------------------------
+
+def test_missing_saved_sources_true_when_citations_declared_but_nothing_saved():
+    state = {"triage": {"sources": ["https://example.com/a"]}}
+    assert missing_saved_sources(state, manifest=[]) is True
+
+
+def test_missing_saved_sources_false_when_at_least_one_source_saved():
+    state = {"triage": {"sources": ["https://example.com/a"]}}
+    manifest = [{"step": "triage", "filename": "a.html", "claim": "x", "url": None, "fetched_date": "2026-01-15"}]
+    assert missing_saved_sources(state, manifest) is False
+
+
+def test_missing_saved_sources_false_when_no_citations_declared_at_all():
+    """A deal that never cited anything (e.g. hasn't run /triage or
+    /commercial yet) is not a violation -- there's nothing to have saved."""
+    assert missing_saved_sources({}, manifest=[]) is False
+    assert missing_saved_sources({"triage": {"sources": []}}, manifest=[]) is False
+
+
+def test_missing_saved_sources_checks_both_triage_and_commercial_sections():
+    assert missing_saved_sources({"commercial": {"sources": ["x"]}}, manifest=[]) is True
+
+
+def test_missing_saved_sources_treats_blank_strings_as_no_real_citation():
+    """A declared-but-empty citation (whitespace, or an empty string) is
+    the same as not declaring one at all -- matches
+    policy_checks.check_draft_compliance()'s identical treatment of the
+    CAM draft's own declared sources."""
+    state = {"triage": {"sources": ["", "   "]}}
+    assert missing_saved_sources(state, manifest=[]) is False
+
+
+def test_missing_saved_sources_deal_level_not_matched_by_exact_step_name():
+    """/research tags its manifest entries step="research", not
+    "triage"/"commercial" (see research.md) -- a /research-only deal that
+    saved its sources correctly must not be flagged just because no entry
+    is literally tagged "triage" or "commercial"."""
+    state = {"triage": {"sources": ["https://example.com/a"]},
+             "commercial": {"sources": ["https://example.com/b"]}}
+    manifest = [{"step": "research", "filename": "a.html", "claim": "x", "url": None, "fetched_date": "2026-01-15"}]
+    assert missing_saved_sources(state, manifest) is False
+
+
+def test_missing_saved_sources_degrades_safely_on_a_malformed_section():
+    """A triage/commercial value that's present but the wrong type (e.g. a
+    list instead of an object) must not raise -- treated as nothing
+    declared, matching parse_underwriter_output()'s identical handling of
+    a wrong-typed field elsewhere in this framework."""
+    state = {"triage": ["not", "a", "dict"], "commercial": "also not a dict"}
+    assert missing_saved_sources(state, manifest=[]) is False

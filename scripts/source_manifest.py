@@ -180,24 +180,79 @@ def read_manifest(company, proposal, date_str=None, base_dir=None):
         return json.load(f)
 
 
+def missing_saved_sources(state, manifest):
+    """True when `state`'s `triage`/`commercial` sections declare at least
+    one non-empty citation but `manifest` (this deal's sources/manifest.json,
+    as read_manifest() returns it) has zero entries at all -- i.e. every
+    declared citation is a bare string with nothing on disk backing any of
+    them (see issue #72: the prompt instruction to save source material is
+    easy for a session to silently skip; this is the code-enforced check
+    that catches it).
+
+    Deliberately deal-level, not a strict per-step-name match against
+    `state`'s `triage`/`commercial` keys: /research's own combined step
+    tags its manifest entries `step="research"` rather than
+    `"triage"`/`"commercial"` (see research.md's own source_manifest.py
+    invocation), so requiring an exact section-name match would spuriously
+    flag a /research-only deal that in fact saved its sources correctly.
+
+    Also deliberately a floor-level check ("did *something* get saved for
+    *some* declared citation"), not an exhaustive 1:1 audit matching every
+    single citation to its own manifest entry -- a step legitimately can't
+    always save every source (e.g. a bot-blocked page) -- matching the same
+    "at least one, not exhaustive coverage" discipline
+    policy_checks.check_draft_compliance()'s existing "Missing Narrative
+    Sources" check already applies to the CAM draft's own declared sources.
+
+    A `triage`/`commercial` value that's present but the wrong type (e.g. a
+    list instead of an object -- malformed state.json) is treated as
+    "nothing declared" rather than raising, matching
+    policy_checks.parse_underwriter_output()'s identical degrade-safely
+    handling of a wrong-typed field elsewhere in this framework.
+    """
+    citations = []
+    for section_name in ("triage", "commercial"):
+        section = state.get(section_name)
+        if isinstance(section, dict):
+            citations.extend(section.get("sources") or [])
+    declared = any(str(s).strip() for s in citations)
+    return declared and not manifest
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Save a piece of fetched/given source material into this deal's "
                      "deals/<Company>/<Proposal>_<Date>/sources/ folder and record it in "
-                     "sources/manifest.json. Callable from a slash command's Bash step, once "
-                     "Claude has already downloaded/saved the material itself -- this script "
-                     "never fetches anything on its own."
+                     "sources/manifest.json, or (--check-sources) check whether this deal has "
+                     "saved anything at all despite declaring citations. Callable from a slash "
+                     "command's Bash step, once Claude has already downloaded/saved the "
+                     "material itself -- this script never fetches anything on its own."
     )
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
-    parser.add_argument("--step", required=True, help='e.g. triage, research, spread, commercial, collateral, project')
-    parser.add_argument("--claim", required=True, help="Short description of what this source backs")
-    parser.add_argument("--file", required=True, dest="source_path",
-                         help="Path to the already-downloaded/saved source file")
+    parser.add_argument("--check-sources", action="store_true",
+                         help="Check mode instead of saving: prints "
+                              '{"missing_saved_sources": true/false} and always exits 0 -- the '
+                              "caller (a slash command's own prose) decides whether to warn the "
+                              "user. See missing_saved_sources()'s docstring for what this does "
+                              "and deliberately does not check.")
+    parser.add_argument("--step", help='e.g. triage, research, spread, commercial, collateral, project')
+    parser.add_argument("--claim", help="Short description of what this source backs")
+    parser.add_argument("--file", dest="source_path", help="Path to the already-downloaded/saved source file")
     parser.add_argument("--url", help="The source URL, if this came from the web")
     parser.add_argument("--filename", help="Override the destination filename (default: derived from --file/--url)")
     args = parser.parse_args()
 
-    entry = save_source(args.company, args.proposal, step=args.step, claim=args.claim,
-                         source_path=args.source_path, url=args.url, filename=args.filename)
-    print(json.dumps(entry, indent=2))
+    if args.check_sources:
+        from state_manager import read_state
+        state = read_state(args.company, args.proposal) or {}
+        manifest = read_manifest(args.company, args.proposal)
+        print(json.dumps({"missing_saved_sources": missing_saved_sources(state, manifest)}, indent=2))
+    else:
+        missing = [name for name in ("step", "claim", "source_path") if not getattr(args, name)]
+        if missing:
+            parser.error(f"the following arguments are required unless --check-sources is given: "
+                         f"{', '.join('--file' if m == 'source_path' else f'--{m}' for m in missing)}")
+        entry = save_source(args.company, args.proposal, step=args.step, claim=args.claim,
+                             source_path=args.source_path, url=args.url, filename=args.filename)
+        print(json.dumps(entry, indent=2))

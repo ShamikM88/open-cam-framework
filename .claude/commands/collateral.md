@@ -30,9 +30,10 @@ Calculate: Gross/Net Exposure, RV Exposure, Collateral Coverage %, LGD %, and Es
 Uncovered Risk. Show the formula and inputs used for each figure. PD, LGD, and any bureau score
 are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
 exactly what's given; never invent or adjust a grade or score yourself. Always ask for the
-bureau score explicitly before this deal's CAM is finalized (Section 14 of the CAM template)
-rather than defaulting it to "N/A"/"Not provided" unasked — if the user confirms none is
-available or applicable, that's a valid, citable answer in its own right.
+bureau score explicitly before this deal's CAM is finalized (the CAM template's Credit Bureau /
+Legal Charges section — its section number varies by deal type/template) rather than defaulting
+it to "N/A"/"Not provided" unasked — if the user confirms none is available or applicable, that's
+a valid, citable answer in its own right.
 
 Assign each asset a stable `asset_id` (e.g. `"AST-001"`, or reuse one already in state.json if
 this asset already has one) — this is the join key `scripts/policy_engine.py` uses to cross-

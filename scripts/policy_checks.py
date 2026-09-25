@@ -260,7 +260,7 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
     check (see agents/underwriter_agent.md's Guideline 10). Whether the
     draft actually *complies* with the policy document is the Risk
     Reviewer's own independent, qualitative audit responsibility (see
-    agents/risk_reviewer_agent.md's Audit Checklist item 5) -- that
+    agents/risk_reviewer_agent.md's Audit Checklist item 4) -- that
     judgment isn't and can't be code-enforced the way a numeric threshold
     or an exact-ID match can.
 

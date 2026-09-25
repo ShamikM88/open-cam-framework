@@ -32,5 +32,5 @@ Once calibrated, every future `/assemble`/`/review` run (and `orchestrator.py`'s
 pipeline) automatically picks this up: the Underwriter drafts with awareness of it (advisory —
 see `agents/underwriter_agent.md`'s Guideline 10), and the Risk Reviewer audits the draft against
 it and flags any violation as a REJECTED-worthy finding (mandatory — see
-`agents/risk_reviewer_agent.md`'s Audit Checklist item 5). No further action is needed here to
+`agents/risk_reviewer_agent.md`'s Audit Checklist item 4). No further action is needed here to
 wire a specific deal to it — it applies to every deal in this fork automatically once present.

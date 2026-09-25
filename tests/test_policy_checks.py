@@ -29,7 +29,8 @@ ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIR
 
 
 def _compliant_draft(cp_ids=("KYC-AML",), cs_ids=("MI-REPORTING",), reported_figures=None,
-                      downside_breaches_acknowledged=None, sources=None):
+                      downside_breaches_acknowledged=None, sources=None,
+                      financials_source_disclosed=None):
     import json
     payload = {
         "cp_ids_included": list(cp_ids),
@@ -39,6 +40,8 @@ def _compliant_draft(cp_ids=("KYC-AML",), cs_ids=("MI-REPORTING",), reported_fig
         "downside_breaches_acknowledged": list(downside_breaches_acknowledged or []),
         "sources": list(sources) if sources is not None else ["Test Source"],
     }
+    if financials_source_disclosed is not None:
+        payload["financials_source_disclosed"] = financials_source_disclosed
     return "# Draft\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
@@ -199,6 +202,30 @@ def test_check_draft_compliance_skips_narrative_sources_check_when_no_draft_yet(
     not flag a missing-sources reason against a draft that doesn't exist yet."""
     reasons = check_draft_compliance(None, _policy_state(), {})
     assert not any("Missing Narrative Sources" in r for r in reasons)
+
+
+def test_check_draft_compliance_flags_undisclosed_analyst_supplied_financials():
+    """See agents/underwriter_agent.md's Guideline 9 -- an analyst-supplied
+    deal whose draft never set financials_source_disclosed must be flagged
+    regardless of how compliant the rest of the draft is."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"])  # financials_source_disclosed omitted
+    reasons = check_draft_compliance(draft, _policy_state(), {}, financials_source="analyst-supplied")
+    assert any("Missing Analyst-Supplied Spreading Disclosure" in r for r in reasons)
+
+
+def test_check_draft_compliance_passes_disclosed_analyst_supplied_financials():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], financials_source_disclosed=True)
+    reasons = check_draft_compliance(draft, _policy_state(), {}, financials_source="analyst-supplied")
+    assert reasons == []
+
+
+def test_check_draft_compliance_ignores_disclosure_flag_for_framework_computed():
+    """The caveat check is specific to financials_source == "analyst-supplied"
+    -- framework-computed (the default) and unspecified must never require it,
+    even though financials_source_disclosed is omitted from the draft."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    assert check_draft_compliance(draft, _policy_state(), {}, financials_source="framework-computed") == []
+    assert check_draft_compliance(draft, _policy_state(), {}, financials_source=None) == []
 
 
 def test_check_draft_compliance_flags_missing_cs():

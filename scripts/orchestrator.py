@@ -164,14 +164,15 @@ def parse_verdict(response_text):
     return "REJECTED", response_text
 
 
-def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures):
+def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures,
+                                        financials_source=None):
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
-    verdict: covenant/security/CP/taxonomy/narrative-accuracy compliance is
-    checked exactly, every time (via policy_checks.check_draft_compliance(),
-    also usable from the /assemble and /review slash commands' own
-    Bash-invoked checks via a standalone CLI wrapping this same module --
-    not yet wired up as of this commit), and can only ever move a verdict
-    from APPROVED to REJECTED -- never the reverse.
+    verdict: covenant/security/CP/taxonomy/narrative-accuracy/analyst-
+    supplied-disclosure compliance is checked exactly, every time (via
+    policy_checks.check_draft_compliance(), also usable from the /assemble
+    and /review slash commands' own Bash-invoked checks via
+    scripts/policy_check.py), and can only ever move a verdict from
+    APPROVED to REJECTED -- never the reverse.
 
     Every reason found here is folded into the same `notes` string
     append_review_trail() already records an LLM-originated rejection
@@ -179,7 +180,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
     re-prompts the Underwriter through the exact same revision path as a
     Reviewer-originated one.
     """
-    reasons = check_draft_compliance(draft_text, policy_state, ground_truth_figures)
+    reasons = check_draft_compliance(draft_text, policy_state, ground_truth_figures,
+                                      financials_source=financials_source)
 
     if not reasons:
         return verdict, notes
@@ -189,7 +191,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
 
 
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
-                              collateral_data, policy_state=None, downside_case=None):
+                              collateral_data, policy_state=None, downside_case=None,
+                              financials_source=None):
     """The only place raw financials/ratios/collateral/policy data are
     injected into either agent's prompt -- both the Maker (draft + revision
     calls) and the Checker (audit call) receive exactly this block, so the
@@ -203,12 +206,33 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     spreading_builder.evaluate_downside_case()) -- never mixed into the
     base-case financials/ratios above, so the Underwriter can never
     mistake one for the other.
+
+    `financials_source` mirrors state.json's own field of the same name.
+    Unlike the slash-command interface, where agents/underwriter_agent.md's
+    Guideline 9 can just say "check state.json's financials_source field"
+    because the model reads that file directly, this headless pipeline
+    never hands state.json itself to the model -- only this prompt. So when
+    it's `"analyst-supplied"`, that fact is spelled out explicitly below;
+    without this, the Underwriter/Risk Reviewer running headless would have
+    no way to know the caveat Guideline 9 requires is even needed.
     """
     parts = [
         f"\nCompany: {company}",
         f"Proposal: {proposal}",
         f"PD: {pd_score}",
         f"LGD: {lgd_score}",
+    ]
+    if financials_source == "analyst-supplied":
+        parts.append(
+            "\nThis deal's financials_source is \"analyst-supplied\": the figures/ratios below "
+            "were recorded exactly as the analyst provided them from their own institution's "
+            "spreading template, not independently recomputed by this framework from raw line "
+            "items. Per Guideline 9, the Financial Analysis section must carry an explicit, "
+            "visible caveat disclosing this, and your structured output must set "
+            "financials_source_disclosed: true once you have -- a code-enforced check rejects "
+            "the draft otherwise."
+        )
+    parts += [
         "\nGrounded multi-period financials -- historical and forward-year "
         "base case alike (from state.json -- the only source of truth for "
         "these figures; never invent, extrapolate, or adjust them):",
@@ -337,9 +361,18 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         model_data = evaluate_financial_model(multi_period_financials)
         financials, ratios = model_data["financials"], model_data["ratios"]
         steps_completed = _add_step(steps_completed, "spread")
+        # This call just independently recomputed every ratio from raw
+        # line items -- "analyst-supplied" (see #55's /spread alternative
+        # mode) only ever comes from a hand-edited state.json, never from
+        # this headless recomputation path, so a fresh --financials/
+        # --spread run always resets financials_source back to the
+        # framework-computed default even if a prior slash-command step
+        # had flagged the deal analyst-supplied.
+        financials_source = "framework-computed"
     else:
         financials = existing_state.get("financials", {})
         ratios = existing_state.get("ratios", {})
+        financials_source = existing_state.get("financials_source", "framework-computed")
 
     collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
 
@@ -397,6 +430,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral,
+                financials_source=financials_source,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
                 multi_period_financials=multi_period_financials_to_persist,
                 policy_state=policy_state, steps_completed=steps_completed,
@@ -405,6 +439,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     grounding_context = _build_grounding_context(
         company, proposal, pd_score, lgd_score,
         {"financials": financials, "ratios": ratios}, collateral, policy_state, downside_case,
+        financials_source=financials_source,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
@@ -416,7 +451,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     ).content[0].text
     steps_completed = _add_step(steps_completed, "draft")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed,
-                model_provenance=model_provenance)
+                financials_source=financials_source, model_provenance=model_provenance)
 
     deal_dir = os.path.dirname(state_path(company, proposal, date_str=date_str))
     os.makedirs(deal_dir, exist_ok=True)
@@ -440,6 +475,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         verdict, notes = parse_verdict(audit_response)
         verdict, notes = _apply_deterministic_policy_checks(
             verdict, notes, draft, policy_state, ground_truth_figures,
+            financials_source=financials_source,
         )
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
@@ -464,7 +500,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
-                    date_str=date_str, steps_completed=steps_completed, model_provenance=model_provenance)
+                    date_str=date_str, steps_completed=steps_completed,
+                    financials_source=financials_source, model_provenance=model_provenance)
         print(f"[FAILED] No APPROVED draft after {max_iterations} review iteration(s). "
               "Exiting without export.")
         sys.exit(1)

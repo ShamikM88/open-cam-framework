@@ -25,14 +25,16 @@ def compute(company, proposal, draft_path=None):
     covenant results, security gaps -- with `reasons` limited to
     deal-structural issues (covenant/security) that don't depend on a draft.
     Call with `draft_path` (e.g. /review auditing a finished draft) to also
-    run the CP-completeness, risk-taxonomy, and narrative-accuracy checks
-    against that draft's trailing structured JSON block.
+    run the CP-completeness, risk-taxonomy, narrative-accuracy, and (when
+    this deal's own `financials_source` is `"analyst-supplied"`) caveat-
+    disclosure checks against that draft's trailing structured JSON block.
     """
     state = read_state(company, proposal) or {}
     financials = state.get("financials") or {}
     ratios = state.get("ratios") or {}
     collateral = state.get("collateral") or []
     downside_case = state.get("downside_case") or {}
+    financials_source = state.get("financials_source")
 
     policy_state = evaluate_deal_policy({
         "ratios": ratios,
@@ -51,6 +53,7 @@ def compute(company, proposal, draft_path=None):
     reasons = check_draft_compliance(
         draft_text, policy_state,
         ground_truth_figures(financials, ratios, collateral, downside_case),
+        financials_source=financials_source,
     )
 
     return {

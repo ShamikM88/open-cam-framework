@@ -39,8 +39,8 @@ def parse_underwriter_output(draft_text):
     """Extract the Underwriter's trailing structured JSON block
     ({"cp_ids_included": [...], "cs_ids_included": [...],
     "risk_categories_covered": {...}, "reported_figures": {...},
-    "downside_breaches_acknowledged": [...], "sources": [...]}) from its
-    drafted CAM (see
+    "downside_breaches_acknowledged": [...], "sources": [...],
+    "financials_source_disclosed": true}) from its drafted CAM (see
     agents/underwriter_agent.md's Structured Output guideline). Scans
     matches in reverse and returns the first one that actually looks like
     this schema, for the same reason parse_verdict() (orchestrator.py)
@@ -50,11 +50,11 @@ def parse_underwriter_output(draft_text):
     Missing or malformed output degrades to an empty structure, which then
     fails every downstream policy check safely (as "nothing included" /
     "no category covered" / "nothing reported" / "nothing acknowledged" /
-    "no sources cited") rather than raising or silently skipping
-    enforcement. This includes a field being present but the wrong *type*
-    -- e.g. `risk_categories_covered` as a JSON list instead of an object --
-    not just a field being absent, since check_draft_compliance() assumes
-    these exact types.
+    "no sources cited" / "not disclosed") rather than raising or silently
+    skipping enforcement. This includes a field being present but the wrong
+    *type* -- e.g. `risk_categories_covered` as a JSON list instead of an
+    object -- not just a field being absent, since check_draft_compliance()
+    assumes these exact types.
     """
     for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
         try:
@@ -70,6 +70,7 @@ def parse_underwriter_output(draft_text):
             or "reported_figures" in payload
             or "downside_breaches_acknowledged" in payload
             or "sources" in payload
+            or "financials_source_disclosed" in payload
         ):
             cp_ids_included = payload.get("cp_ids_included")
             cs_ids_included = payload.get("cs_ids_included")
@@ -88,10 +89,12 @@ def parse_underwriter_output(draft_text):
                     downside_breaches_acknowledged if isinstance(downside_breaches_acknowledged, list) else []
                 ),
                 "sources": sources if isinstance(sources, list) else [],
+                "financials_source_disclosed": payload.get("financials_source_disclosed") is True,
             }
     return {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
+        "financials_source_disclosed": False,
     }
 
 
@@ -225,13 +228,25 @@ def check_reported_figures(reported_figures, ground_truth_figures_dict):
     return reasons
 
 
-def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
+def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, financials_source=None):
     """The single source of truth for "why would this draft be
     code-enforced-REJECTED": covenant FAIL/UNRESOLVABLE, any security gap,
     and -- only when a draft is actually being audited -- missing required
     CPs, missing required CSs, missing/malformed risk-taxonomy coverage,
-    undisclosed downside covenant breaches, and narrative/ground-truth
-    figure mismatches (base-case and downside alike).
+    undisclosed downside covenant breaches, narrative/ground-truth figure
+    mismatches (base-case and downside alike), and an undisclosed
+    analyst-supplied spreading caveat (see below).
+
+    `financials_source` is this deal's state.json field of the same name
+    (`"analyst-supplied"`, `"framework-computed"`, or `None`/absent --
+    everything except `"analyst-supplied"` is treated identically, matching
+    agents/underwriter_agent.md's Guideline 9). Only when it's exactly
+    `"analyst-supplied"` does the Underwriter's own self-declared
+    `financials_source_disclosed` get checked -- self-declared and only
+    verified for presence, not wording, exactly like `sources` above;
+    matches Guideline 9's own "the CAM must carry an explicit caveat"
+    requirement with the same code-enforcement discipline every other
+    Guideline 5 field already has.
 
     A downside covenant breach itself (policy_state's
     `downside_covenant_breaches`) never forces a reason on its own -- a
@@ -310,6 +325,21 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict):
                 "Missing Narrative Sources: no citation sources were declared for this "
                 "draft's narrative claims (company history, management, market/competitive) "
                 "-- see agents/underwriter_agent.md's Structured Output guideline."
+            )
+
+        # Guideline 9 requires a visible caveat in the CAM whenever this
+        # deal's spreading was analyst-supplied rather than independently
+        # recomputed -- a real, deliberate reduction in audit guarantee that
+        # must never go unnoticed. Only checked for this one specific
+        # financials_source value: "framework-computed" and absent/None are
+        # both the normal case and need no disclosure at all.
+        if financials_source == "analyst-supplied" and not underwriter_output["financials_source_disclosed"]:
+            reasons.append(
+                "Missing Analyst-Supplied Spreading Disclosure: this deal's financials_source "
+                "is 'analyst-supplied', but the draft did not declare "
+                "financials_source_disclosed=true -- see agents/underwriter_agent.md's "
+                "Guideline 9 (the CAM's Financial Analysis section must carry an explicit "
+                "caveat when spreading wasn't independently recomputed by the framework)."
             )
 
     for result in policy_state.get("covenant_results", []):

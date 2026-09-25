@@ -14,7 +14,8 @@ from policy_check import compute
 from state_manager import write_state
 
 
-def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION"), cs_ids=("MI-REPORTING",)):
+def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION"), cs_ids=("MI-REPORTING",),
+                      financials_source_disclosed=None):
     payload = {
         "cp_ids_included": list(cp_ids),
         "cs_ids_included": list(cs_ids),
@@ -26,6 +27,8 @@ def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION"), cs_ids=("MI-REPOR
         "reported_figures": {},
         "sources": ["Test Source"],
     }
+    if financials_source_disclosed is not None:
+        payload["financials_source_disclosed"] = financials_source_disclosed
     return "# Draft CAM\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
@@ -113,3 +116,28 @@ def test_compute_checks_reported_figures_against_state_when_draft_given(tmp_path
     assert result["compliant"] is False
     assert any("Narrative/Ground-Truth Mismatch: reported dscr 5.0 vs computed 1.05" in r
                for r in result["reasons"])
+
+
+def test_compute_flags_undisclosed_analyst_supplied_financials(tmp_path, monkeypatch):
+    """See issue #62 / agents/underwriter_agent.md's Guideline 9 -- compute()
+    must read state.json's financials_source and reject a draft that never
+    declared financials_source_disclosed for an analyst-supplied deal."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(_compliant_draft(), encoding="utf-8")  # disclosure omitted
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    assert result["compliant"] is False
+    assert any("Missing Analyst-Supplied Spreading Disclosure" in r for r in result["reasons"])
+
+
+def test_compute_passes_disclosed_analyst_supplied_financials(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(_compliant_draft(financials_source_disclosed=True), encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    assert result["compliant"] is True
+    assert result["reasons"] == []

@@ -220,7 +220,8 @@ ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIR
 
 
 def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD_CS_IDS,
-                      risk_categories=None, reported_figures=None, sources=None):
+                      risk_categories=None, reported_figures=None, sources=None,
+                      financials_source_disclosed=None):
     """A draft whose trailing structured JSON block satisfies every
     deterministic policy check by default (see agents/underwriter_agent.md's
     Structured Output guideline) -- for tests where the draft is expected to
@@ -235,7 +236,12 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD
     Missing Narrative Sources check requires at least one citation to be
     declared whenever a draft exists at all -- an empty list is never
     compliant, so a test exercising that specific check must override it
-    explicitly rather than relying on this default."""
+    explicitly rather than relying on this default.
+
+    financials_source_disclosed defaults to omitted from the payload
+    entirely (unlike the other fields), matching a real Maker draft for a
+    framework-computed deal, where the key is simply irrelevant -- only a
+    test exercising the analyst-supplied caveat check needs to pass it."""
     payload = {
         "cp_ids_included": list(cp_ids),
         "cs_ids_included": list(cs_ids),
@@ -243,6 +249,8 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD
         "reported_figures": reported_figures if reported_figures is not None else {},
         "sources": sources if sources is not None else ["Test Source"],
     }
+    if financials_source_disclosed is not None:
+        payload["financials_source_disclosed"] = financials_source_disclosed
     return body + "\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
@@ -340,6 +348,7 @@ def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     assert result == {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
+        "financials_source_disclosed": False,
     }
 
 
@@ -348,6 +357,7 @@ def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     assert result == {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
+        "financials_source_disclosed": False,
     }
 
 
@@ -374,6 +384,7 @@ def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_typ
     assert result == {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
+        "financials_source_disclosed": False,
     }
 
 
@@ -506,6 +517,38 @@ def test_apply_deterministic_policy_checks_overrides_on_security_gap():
     verdict, notes = _apply_deterministic_policy_checks("APPROVED", None, draft, policy_state, {})
     assert verdict == "REJECTED"
     assert "Uncharged Asset: AST-002" in notes
+
+
+def test_apply_deterministic_policy_checks_overrides_on_undisclosed_analyst_supplied_financials():
+    """An analyst-supplied deal whose draft never set financials_source_disclosed
+    must be force-rejected -- see agents/underwriter_agent.md's Guideline 9."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"])  # financials_source_disclosed omitted
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), {}, financials_source="analyst-supplied",
+    )
+    assert verdict == "REJECTED"
+    assert "Missing Analyst-Supplied Spreading Disclosure" in notes
+
+
+def test_apply_deterministic_policy_checks_accepts_disclosed_analyst_supplied_financials():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], financials_source_disclosed=True)
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), {}, financials_source="analyst-supplied",
+    )
+    assert verdict == "APPROVED"
+    assert notes is None
+
+
+def test_apply_deterministic_policy_checks_ignores_disclosure_flag_when_framework_computed():
+    """The caveat check only applies to analyst-supplied deals -- an omitted
+    financials_source_disclosed must never trip it for the framework-computed
+    (or unspecified) default."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"])  # financials_source_disclosed omitted
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, draft, _policy_state(), {}, financials_source="framework-computed",
+    )
+    assert verdict == "APPROVED"
+    assert notes is None
 
 
 def test_apply_deterministic_policy_checks_combines_llm_notes_with_code_enforced_reasons():

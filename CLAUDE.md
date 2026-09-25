@@ -71,7 +71,10 @@ Two independent agent prompts drive every deal, invoked in sequence by `scripts/
 - **[agents/risk_reviewer_agent.md](agents/risk_reviewer_agent.md)** — the "Checker". Acts as an
   independent Credit Risk Officer: re-verifies the Maker's ratio calculations, flags ungrounded
   assertions or missing sources, challenges weak risk mitigants, and returns a verdict of
-  `APPROVED` or `REJECTED` with revision notes.
+  `APPROVED` or `REJECTED` with revision notes. `/research` (a Go/No-Go screen, not a full CAM)
+  gets a scoped-down Checker pass too — grounding/narrative checks apply, credit-policy and
+  risk-mitigant checks don't, since no lending decision or structuring exists yet (see `/review`'s
+  `--research-brief` mode, issue #87).
 
 Keep these two prompts independent — the Checker's value comes from auditing the Maker without
 sharing its reasoning, so avoid merging them or having one import the other's context.
@@ -198,8 +201,9 @@ enterprise-wide) where a scope question applies.**
   compacted by deal's end. Surfaced as one batch, not a prompt per candidate. Unlike the other two
   mechanisms, this is **purely advisory** (`agents/underwriter_agent.md`'s Guideline 11 only —
   no corresponding Risk Reviewer checklist item, no structured-output declaration, never
-  code-enforced). `/research` has no equivalent yet — deferred as #89, pending #87 (it has no
-  `/review` loop to source candidates from).
+  code-enforced). `/research` has no equivalent yet — filed as #89. Since `/research` now gets its
+  own `/review` pass (see the Maker-Checker agents section above, issue #87), a research-only deal
+  has a `review_trail` to source candidates from as of that fix; #89 itself is still unimplemented.
 
 **Always confirmed, always disclosed, never silently assumed.** `/spread` surfaces whatever
 convention is on file and requires an explicit analyst response before applying it — even an
@@ -248,7 +252,9 @@ native Claude Code commands, run in an interactive session with no `ANTHROPIC_AP
   ever) need a full CAM: combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector
   research into one step, writing the exact same `triage`/`commercial` state.json keys those two
   commands would (so the deal can still continue into the full pipeline later without redoing
-  anything), then exports a standalone brief via
+  anything). Loops `/review --research-brief` until APPROVED before exporting (issue #87), mirroring
+  `/assemble`'s own review loop but scoped to what applies before any credit structuring exists —
+  then exports a standalone brief via
   `python scripts/research_export.py --company ... --proposal ... --brief ...` as its Bash step.
 - **`/review`** — loads the Risk Reviewer role (`agents/risk_reviewer_agent.md`) and audits a
   draft, returning `APPROVED`/`REJECTED`. This is the Checker half of Maker-Checker actually

@@ -1,6 +1,6 @@
 ---
-description: Run the Risk Reviewer ("Checker") agent against a drafted CAM, auditing it before it's finalized (see config/skills_registry.md).
-argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [paste the draft to review, or leave blank to review the most recent draft in this conversation]"
+description: Run the Risk Reviewer ("Checker") agent against a drafted CAM or (with --research-brief) a /research brief, auditing it before it's finalized (see config/skills_registry.md).
+argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [--research-brief, if auditing a /research brief rather than a full CAM draft] [paste the draft to review, or leave blank to review the most recent draft in this conversation]"
 allowed-tools: Bash(python scripts/policy_check.py *)
 ---
 
@@ -19,12 +19,19 @@ If `--company`/`--proposal` were given, glob `deals/<company>/<proposal>_*/state
 found, read it — the draft being reviewed should already be consistent with the figures recorded
 there; flag it as a finding if it isn't.
 
-Review the CAM draft given above. If none was given as an argument, review the most recently
-drafted CAM content earlier in this conversation.
+Review the draft given above -- a CAM, or (if `--research-brief` was given) a `/research` brief.
+If none was given as an argument, review the most recently drafted content earlier in this
+conversation.
 
 ## Code-enforced check (run this before forming your verdict)
 
-If `--company`/`--proposal` were given, run the deterministic check:
+If `--research-brief` was given, skip this whole section -- there is no CAM draft, financials,
+ratios, or `policy_state` to check against; this deal never ran `/spread`. Tell
+`agents/risk_reviewer_agent.md`'s role explicitly that you're reviewing a `/research` brief, not
+a full CAM (see its own preamble note on this), and proceed directly to the qualitative
+checklist below, whose items 2/3 already adapt for a research brief and item 4 doesn't apply.
+
+If `--company`/`--proposal` were given (and `--research-brief` wasn't), run the deterministic check:
 1. Save the draft (Markdown and its trailing structured JSON block together) to
    `deals/<company>/<proposal>_draft.md` (create the folder if needed). Skip the write only when
    a file already exists at that path *and* its content already matches the draft being reviewed

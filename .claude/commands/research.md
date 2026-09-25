@@ -89,7 +89,7 @@ of the material behind them (see issue #72) — go back and save at least one vi
 material step above before finishing, or tell the user explicitly that no source material was
 saved for this step and why (e.g. every source was unsaveable) rather than silently moving on.
 
-## Export the Research Brief
+## Review and export the brief
 
 Assemble a standalone Markdown document combining the Go/No-Go screen and the company/sector
 research above into one readable brief (your own structure is fine — this isn't the CAM
@@ -104,12 +104,21 @@ fields must use a bullet list (`- **Label:** value`) or genuinely blank-line-sep
 — never a bare run of consecutive `**Label:** value` lines, which will merge into one run-on
 paragraph instead of rendering as separate lines.
 
-Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet),
-then run:
-```
-python scripts/research_export.py --company "<company>" --proposal "<proposal>" --brief "deals/<company>/<proposal>_brief.md"
-```
-This creates the dated deal folder — reusing one that already exists for this company/proposal,
-exactly like `/triage`/`/commercial` do — and exports the brief as
-`<Company>_<Proposal>_Research_Brief.docx`. Report the output path to the user, then delete the
-temporary `<proposal>_brief.md` file — the real output now lives in the dated folder.
+1. Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet).
+2. **Run `/review --company "<company>" --proposal "<proposal>" --research-brief`** against that
+   brief (see issue #87 — this gives `/research` the same independent Checker audit `/assemble`
+   already gets, scoped to what actually applies before any credit structuring has happened). If
+   the verdict is REJECTED, revise the brief per the notes, **overwrite**
+   `deals/<company>/<proposal>_brief.md` with the revised Markdown (never leave the stale,
+   rejected version on disk), and run `/review` again — repeat until APPROVED. `/review`'s own
+   file-reuse step only skips a rewrite when the on-disk file already matches the brief being
+   reviewed; a revision always changed it, so always overwrite here.
+3. **Export it.** Once approved, run:
+   ```
+   python scripts/research_export.py --company "<company>" --proposal "<proposal>" --brief "deals/<company>/<proposal>_brief.md"
+   ```
+   This creates the dated deal folder — reusing one that already exists for this company/proposal,
+   exactly like `/triage`/`/commercial` do — and exports the brief as
+   `<Company>_<Proposal>_Research_Brief.docx`.
+4. Report the output path to the user, then delete the temporary `<proposal>_brief.md` file — the
+   real output now lives in the dated folder.

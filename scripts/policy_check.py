@@ -19,7 +19,7 @@ from state_manager import read_state
 
 
 def compute(company, proposal, draft_path=None):
-    """Returns {"policy_state", "reasons", "compliant"}.
+    """Returns {"policy_state", "reasons", "compliant", "cam_data_present"}.
 
     Call without `draft_path` before a draft exists (e.g. /assemble
     building its drafting context) to get `policy_state` -- required CPs,
@@ -31,13 +31,29 @@ def compute(company, proposal, draft_path=None):
     disclosure, and (when this fork has a calibrated `config/credit_policy.md`
     -- see /calibrate-policy) credit-policy-consideration checks against
     that draft's trailing structured JSON block.
+
+    `cam_data_present` (issue #87) is `False` for a research-only deal
+    (see /research) -- one whose state.json has never had `financials`,
+    `ratios`, `covenants`, or `security_package` written to it, because it
+    never ran `/spread`. This is a defense-in-depth signal, not the primary
+    mechanism: /review's own --research-brief mode already knows not to
+    call this function at all for a research brief (see review.md's
+    "Code-enforced check" guard). Without this flag, a caller that invoked
+    this function against a research-only deal anyway would have no way to
+    tell "compliant": true apart from a real, verified CAM -- every CP/
+    covenant/taxonomy/figure check would simply find nothing applicable to
+    flag, not because the brief is actually sound, but because none of
+    that data exists yet for this deal.
     """
     state = read_state(company, proposal) or {}
     financials = state.get("financials") or {}
     ratios = state.get("ratios") or {}
     collateral = state.get("collateral") or []
+    covenants = state.get("covenants") or []
+    security_package = state.get("security_package") or []
     downside_case = state.get("downside_case") or {}
     financials_source = state.get("financials_source")
+    cam_data_present = bool(financials or ratios or covenants or security_package)
     # Fork-wide fact, not deal-specific state.json data -- same reasoning
     # as orchestrator.py's own read of config/style_guide.md.
     credit_policy_present = os.path.exists("config/credit_policy.md")
@@ -45,8 +61,8 @@ def compute(company, proposal, draft_path=None):
     policy_state = evaluate_deal_policy({
         "ratios": ratios,
         "collateral": collateral,
-        "covenants": state.get("covenants") or [],
-        "security_package": state.get("security_package") or [],
+        "covenants": covenants,
+        "security_package": security_package,
         "guarantees": state.get("guarantees") or [],
         "downside_case": downside_case,
     })
@@ -67,6 +83,7 @@ def compute(company, proposal, draft_path=None):
         "policy_state": policy_state,
         "reasons": reasons,
         "compliant": len(reasons) == 0,
+        "cam_data_present": cam_data_present,
     }
 
 

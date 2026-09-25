@@ -156,6 +156,27 @@ def test_risk_reviewer_prompt_references_the_real_credit_policy_notes_grounding_
     assert header_match.group(0) in risk_reviewer_prompt
 
 
+def test_underwriter_prompt_references_deal_learnings_files(underwriter_prompt):
+    """Regression guard for issue #86: Guideline 11 must know to check both
+    deals/<Company>/_learnings.md and config/deal_learnings.md."""
+    assert "_learnings.md" in underwriter_prompt
+    assert "deal_learnings.md" in underwriter_prompt
+
+
+def test_underwriter_prompt_references_the_real_deal_learnings_grounding_context_header(underwriter_prompt):
+    """Positive counterpart: derive the actual "Deal Learnings" section
+    header from the real _build_grounding_context() and confirm
+    Guideline 11 references it."""
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        enterprise_learnings="A confirmed learning.",
+    )
+    header_match = re.search(r"Deal Learnings", context)
+    assert header_match, "expected _build_grounding_context() to emit a Deal Learnings header"
+    assert header_match.group(0) in underwriter_prompt
+
+
 # ---------------------------------------------------------------------------
 # agents/risk_reviewer_agent.md's verdict JSON schema
 # ---------------------------------------------------------------------------

@@ -193,17 +193,18 @@ enterprise-wide) where a scope question applies.**
   `config/credit_policy.md` itself is (see `agents/underwriter_agent.md`'s Guideline 10 and
   `agents/risk_reviewer_agent.md`'s Audit Checklist item 4) — **mandatory** for the Risk Reviewer
   to check.
-- Deal learnings (`/assemble`'s "Surface end-of-deal learnings" step, issue #86): borrower-specific
-  (`deals/<Company>/_learnings.md`) or enterprise-wide (`config/deal_learnings.md`). Sourced only
-  from what's already checkpointed on disk by the end of a deal (`review_trail`'s REJECTED-verdict
-  notes, excluding any code-enforced deterministic reason — those are bugs in that specific draft,
-  never a standing fact) — never freshly re-mined from a conversation that may already be
-  compacted by deal's end. Surfaced as one batch, not a prompt per candidate. Unlike the other two
-  mechanisms, this is **purely advisory** (`agents/underwriter_agent.md`'s Guideline 11 only —
-  no corresponding Risk Reviewer checklist item, no structured-output declaration, never
-  code-enforced). `/research` has no equivalent yet — filed as #89. Since `/research` now gets its
-  own `/review` pass (see the Maker-Checker agents section above, issue #87), a research-only deal
-  has a `review_trail` to source candidates from as of that fix; #89 itself is still unimplemented.
+- Deal learnings (`/assemble`'s and `/research`'s own "Surface end-of-deal learnings" steps,
+  issues #86/#89): borrower-specific (`deals/<Company>/_learnings.md`) or enterprise-wide
+  (`config/deal_learnings.md`). Sourced only from what's already checkpointed on disk by the end
+  of a deal (`review_trail`'s REJECTED-verdict notes) — never freshly re-mined from a conversation
+  that may already be compacted by deal's end. `/assemble`'s version must exclude any
+  code-enforced deterministic reason mixed into the same `notes` string (those are bugs in that
+  specific draft, never a standing fact) — `/research`'s version doesn't need this filter at all,
+  since `--research-brief` mode skips `/review`'s Code-enforced check section entirely (issue #87),
+  so every REJECTED entry there is already purely the Reviewer's own qualitative judgment. Both
+  surface candidates as one batch, not a prompt per candidate. Unlike the other two mechanisms,
+  this is **purely advisory** (`agents/underwriter_agent.md`'s Guideline 11 only — no corresponding
+  Risk Reviewer checklist item, no structured-output declaration, never code-enforced).
 
 **Always confirmed, always disclosed, never silently assumed.** `/spread` surfaces whatever
 convention is on file and requires an explicit analyst response before applying it — even an

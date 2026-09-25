@@ -122,3 +122,29 @@ paragraph instead of rendering as separate lines.
    `<Company>_<Proposal>_Research_Brief.docx`.
 4. Report the output path to the user, then delete the temporary `<proposal>_brief.md` file — the
    real output now lives in the dated folder.
+5. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's
+   own `review_trail` (populated by the review loop above, if any REJECTED verdicts occurred).
+   Unlike `/assemble`'s version of this step (see issue #86), a research brief's `review_trail`
+   entries never mix in code-enforced deterministic reasons — `--research-brief` mode skips
+   `/review`'s whole Code-enforced check section (see issue #87), so every REJECTED entry's
+   `notes` here is already purely the Reviewer's own qualitative judgment; there's no deterministic
+   portion to separate out first. Filter to REJECTED entries whose `notes` reflect a genuine,
+   reusable insight about this borrower or this institution — as opposed to a narrow, one-off fix
+   with no standing value (e.g. "add a citation for this one claim" isn't a reusable insight, but
+   "this borrower's registered office recently changed and Companies House filings lag two weeks"
+   is). If any candidates remain, surface them **as one batch**, not a prompt per item: *"This
+   deal's review surfaced N correction(s) that might be worth remembering for future deals:
+   [list]. Persist any of these?"* For each one the analyst confirms, ask explicitly **"Is this
+   specific to `<company>`, or does it apply across every borrower?"** (same question `/spread`'s
+   own persisted-convention step asks) and append a dated entry to the matching file —
+   `deals/<company>/_learnings.md` (borrower-specific) or `config/deal_learnings.md`
+   (enterprise-wide) — creating it with a `# Deal Learnings` heading if it doesn't exist yet, e.g.:
+   ```markdown
+   ## 2026-01-15 — Acme Corp/Fleet Loan
+   **Learning:** New CFO has a banking background; always cross-reference their prior institution
+   in Executive Management commentary.
+   ```
+   Never write without an explicit yes, and never infer consent from the analyst simply moving on
+   — see issue #58's "deterministic, analyst-confirmed, never silently assumed" principle. This is
+   independent of "State: write" above, which already ran regardless of whether anything is
+   persisted here.

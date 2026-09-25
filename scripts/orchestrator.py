@@ -20,7 +20,15 @@ from policy_checks import (
 )
 from policy_engine import evaluate_deal_policy
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
-from state_manager import write_state, append_review_trail, read_state, state_path, resolve_date_str
+from state_manager import (
+    DEALS_DIR,
+    sanitize_path_component,
+    write_state,
+    append_review_trail,
+    read_state,
+    state_path,
+    resolve_date_str,
+)
 from template_resolver import cam_template_path
 
 def _load_settings():
@@ -194,7 +202,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                               collateral_data, policy_state=None, downside_case=None,
                               financials_source=None, credit_policy=None,
-                              financials_source_note=None, credit_policy_notes=None):
+                              financials_source_note=None, credit_policy_notes=None,
+                              company_learnings=None, enterprise_learnings=None):
     """The only place raw financials/ratios/collateral/policy data are
     injected into either agent's prompt -- both the Maker (draft + revision
     calls) and the Checker (audit call) receive exactly this block, so the
@@ -250,6 +259,16 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     exactly like `credit_policy` itself -- same read-fresh-every-call
     pattern, same shared-parts-list placement so both agents receive it
     with no separate Checker-specific injection point needed.
+
+    `company_learnings`/`enterprise_learnings` (issue #86) are persisted,
+    analyst-confirmed takeaways from past deals -- see /assemble's "Surface
+    end-of-deal learnings" step, deals/<Company>/_learnings.md (borrower-
+    specific) and config/deal_learnings.md (enterprise-wide). Purely
+    advisory grounding text for the Underwriter (Guideline 11); the Risk
+    Reviewer has no checklist item referencing this section, so it's
+    harmlessly inert there -- included via the same shared parts list only
+    because that's this module's one existing injection point, not because
+    the Checker is meant to act on it.
     """
     parts = [
         f"\nCompany: {company}",
@@ -289,6 +308,16 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "never extend a note beyond what it explicitly covers):"
         )
         parts.append(f"```\n{credit_policy_notes}\n```")
+    if company_learnings or enterprise_learnings:
+        parts.append(
+            "\nDeal Learnings (analyst-confirmed takeaways from past deals -- see /assemble. "
+            "Purely advisory background for your drafting, never a substitute for grounding a "
+            "claim in this deal's own sources):"
+        )
+        if enterprise_learnings:
+            parts.append(f"Enterprise-wide:\n```\n{enterprise_learnings}\n```")
+        if company_learnings:
+            parts.append(f"Borrower-specific ({company}):\n```\n{company_learnings}\n```")
     parts += [
         "\nGrounded multi-period financials -- historical and forward-year "
         "base case alike (from state.json -- the only source of truth for "
@@ -395,6 +424,15 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     credit_policy_notes = ""
     if os.path.exists("config/credit_policy_notes.md"):
         with open("config/credit_policy_notes.md") as f: credit_policy_notes = f.read()
+
+    enterprise_learnings = ""
+    if os.path.exists("config/deal_learnings.md"):
+        with open("config/deal_learnings.md") as f: enterprise_learnings = f.read()
+
+    company_learnings = ""
+    company_learnings_path = os.path.join(DEALS_DIR, sanitize_path_component(company, "company"), "_learnings.md")
+    if os.path.exists(company_learnings_path):
+        with open(company_learnings_path) as f: company_learnings = f.read()
 
     # A calibration-derived override under templates/local/cam/ (see
     # scripts/calibrate.py, or the /calibrate slash command) takes
@@ -522,6 +560,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         credit_policy=credit_policy,
         financials_source_note=financials_source_note,
         credit_policy_notes=credit_policy_notes,
+        company_learnings=company_learnings,
+        enterprise_learnings=enterprise_learnings,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")

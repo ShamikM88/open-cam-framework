@@ -180,6 +180,20 @@ def _is_block_boundary(line):
 
 
 def export_to_docx(markdown_text, output_path):
+    """Render `markdown_text` as a .docx at `output_path`.
+
+    Follows normal Markdown paragraph semantics: a single newline inside a
+    block is a soft wrap (joined into one continuous paragraph, via
+    _is_block_boundary()'s lookahead below), not a paragraph break -- only
+    a blank line, or the start of a new block (heading/bullet/numbered
+    item/table row/fence/HR), starts a new one. This means source text
+    that lists several distinct fields as consecutive plain lines (e.g.
+    "**Company:** X\\n**Date:** Y") will render as one run-on paragraph,
+    not as separate lines -- authors of Markdown destined for this
+    function (a /research brief, a /assemble CAM draft) should use a
+    bullet list or genuinely blank-line-separated paragraphs for anything
+    meant to read as distinct lines/fields.
+    """
     doc = docx.Document()
     lines = markdown_text.split("\n")
     i, n = 0, len(lines)

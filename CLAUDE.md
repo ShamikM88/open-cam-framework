@@ -196,6 +196,15 @@ according to that role"). Don't reach for `` !`cat ...` `` dynamic context injec
 either unless you've confirmed the target shell actually has `cat` -- some Windows/sandboxed
 environments don't, and the Read-tool approach works everywhere regardless of shell.
 
+**Gotcha when drafting Markdown that gets exported to `.docx`** (a `/research` brief, a
+`/assemble` CAM draft): [`scripts/docx_builder.py`](scripts/docx_builder.py) follows normal
+Markdown paragraph semantics -- a single newline is a soft wrap, not a paragraph break, so
+consecutive plain lines join into one continuous paragraph. A short header/metadata block (e.g.
+company/proposal/date/facility) or any other list of distinct fields must be written as a bullet
+list (`- **Label:** value`) or genuinely blank-line-separated paragraphs -- never a bare run of
+consecutive `**Label:** value` lines, which will merge into one run-on paragraph in the exported
+document instead of rendering as separate lines.
+
 ## Execution scripts
 
 - **`scripts/calibrate.py --type <deal_type>`** (headless; needs `ANTHROPIC_API_KEY`) — reads historical CAM PDFs from

@@ -30,7 +30,7 @@ ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIR
 
 def _compliant_draft(cp_ids=("KYC-AML",), cs_ids=("MI-REPORTING",), reported_figures=None,
                       downside_breaches_acknowledged=None, sources=None,
-                      financials_source_disclosed=None):
+                      financials_source_disclosed=None, credit_policy_considered=None):
     import json
     payload = {
         "cp_ids_included": list(cp_ids),
@@ -42,6 +42,8 @@ def _compliant_draft(cp_ids=("KYC-AML",), cs_ids=("MI-REPORTING",), reported_fig
     }
     if financials_source_disclosed is not None:
         payload["financials_source_disclosed"] = financials_source_disclosed
+    if credit_policy_considered is not None:
+        payload["credit_policy_considered"] = credit_policy_considered
     return "# Draft\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
@@ -226,6 +228,31 @@ def test_check_draft_compliance_ignores_disclosure_flag_for_framework_computed()
     draft = _compliant_draft(cp_ids=["KYC-AML"])
     assert check_draft_compliance(draft, _policy_state(), {}, financials_source="framework-computed") == []
     assert check_draft_compliance(draft, _policy_state(), {}, financials_source=None) == []
+
+
+def test_check_draft_compliance_flags_undeclared_credit_policy_consideration():
+    """See agents/underwriter_agent.md's Guideline 10 -- when this fork has a
+    calibrated credit policy, a draft that never declared
+    credit_policy_considered must be flagged regardless of how compliant the
+    rest of the draft is."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"])  # credit_policy_considered omitted
+    reasons = check_draft_compliance(draft, _policy_state(), {}, credit_policy_present=True)
+    assert any("Missing Credit Policy Consideration" in r for r in reasons)
+
+
+def test_check_draft_compliance_passes_declared_credit_policy_consideration():
+    draft = _compliant_draft(cp_ids=["KYC-AML"], credit_policy_considered=True)
+    reasons = check_draft_compliance(draft, _policy_state(), {}, credit_policy_present=True)
+    assert reasons == []
+
+
+def test_check_draft_compliance_ignores_credit_policy_flag_when_no_policy_calibrated():
+    """The consideration check only applies when this fork actually has a
+    calibrated credit policy -- credit_policy_present=False/None must never
+    require the declaration, even though it's omitted from the draft."""
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    assert check_draft_compliance(draft, _policy_state(), {}, credit_policy_present=False) == []
+    assert check_draft_compliance(draft, _policy_state(), {}, credit_policy_present=None) == []
 
 
 def test_check_draft_compliance_flags_missing_cs():

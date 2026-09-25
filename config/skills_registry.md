@@ -38,7 +38,12 @@ Execute the following actions when triggered by their respective slash commands:
    - Primary Inputs: Sample CAM PDFs in `inputs/calibration_samples/`.
    - Core Action: Reads the samples directly (no API key needed), extracts writing style/tone into `config/style_guide.md`, and derives a generic CAM template into `templates/local/cam/<type>_cam.md` that overrides the shipped default for that deal type.
 
+10. `/calibrate-policy`
+    - Primary Inputs: This institution's own credit policy document(s) in `inputs/credit_policy/`.
+    - Core Action: Reads the documents directly (no API key needed) and extracts lending criteria, required mitigants, structuring norms, and risk appetite boundaries into `config/credit_policy.md`. Org-wide, one-time setup (unlike `/calibrate`, not per-deal-type) — once present, every future `/assemble`/`/review` run (and `orchestrator.py`'s headless pipeline) automatically picks it up: the Underwriter drafts with awareness of it, and the Risk Reviewer audits the draft against it.
+
 See [`.claude/commands/`](../.claude/commands/) for the runnable slash-command implementation of
-each step above. Every step (`/calibrate` excepted) also takes `--company "<Name>" --proposal
-"<Proposal name>"` and checkpoints its results to `deals/<Company>/<Proposal>_<Date>/state.json`
-on completion — see CLAUDE.md's "Context Window & State Management Protocol".
+each step above. Every step (`/calibrate` and `/calibrate-policy` excepted) also takes `--company
+"<Name>" --proposal "<Proposal name>"` and checkpoints its results to
+`deals/<Company>/<Proposal>_<Date>/state.json` on completion — see CLAUDE.md's "Context Window &
+State Management Protocol".

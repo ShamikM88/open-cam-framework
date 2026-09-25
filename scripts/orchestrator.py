@@ -165,14 +165,14 @@ def parse_verdict(response_text):
 
 
 def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures,
-                                        financials_source=None):
+                                        financials_source=None, credit_policy_present=None):
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
     verdict: covenant/security/CP/taxonomy/narrative-accuracy/analyst-
-    supplied-disclosure compliance is checked exactly, every time (via
-    policy_checks.check_draft_compliance(), also usable from the /assemble
-    and /review slash commands' own Bash-invoked checks via
-    scripts/policy_check.py), and can only ever move a verdict from
-    APPROVED to REJECTED -- never the reverse.
+    supplied-disclosure/credit-policy-consideration compliance is checked
+    exactly, every time (via policy_checks.check_draft_compliance(), also
+    usable from the /assemble and /review slash commands' own Bash-invoked
+    checks via scripts/policy_check.py), and can only ever move a verdict
+    from APPROVED to REJECTED -- never the reverse.
 
     Every reason found here is folded into the same `notes` string
     append_review_trail() already records an LLM-originated rejection
@@ -181,7 +181,8 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
     Reviewer-originated one.
     """
     reasons = check_draft_compliance(draft_text, policy_state, ground_truth_figures,
-                                      financials_source=financials_source)
+                                      financials_source=financials_source,
+                                      credit_policy_present=credit_policy_present)
 
     if not reasons:
         return verdict, notes
@@ -192,7 +193,7 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
 
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                               collateral_data, policy_state=None, downside_case=None,
-                              financials_source=None):
+                              financials_source=None, credit_policy=None):
     """The only place raw financials/ratios/collateral/policy data are
     injected into either agent's prompt -- both the Maker (draft + revision
     calls) and the Checker (audit call) receive exactly this block, so the
@@ -215,6 +216,18 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     it's `"analyst-supplied"`, that fact is spelled out explicitly below;
     without this, the Underwriter/Risk Reviewer running headless would have
     no way to know the caveat Guideline 9 requires is even needed.
+
+    `credit_policy` (if given) is this fork's own calibrated institutional
+    credit policy -- see /calibrate-policy and config/credit_policy.md. It's
+    a fork-wide fact, not deal-specific, so unlike `financials_source` it's
+    never persisted to state.json; the caller just reads the file fresh
+    (mirroring config/style_guide.md's own read pattern) and passes its
+    text straight through here. Deliberately appended into this SHARED
+    parts list -- not a Maker-only interpolation like style_guide/
+    template_section -- so both the Underwriter (advisory, Guideline 10)
+    and the Risk Reviewer (mandatory, Audit Checklist item 4) receive it
+    automatically from the one grounding_context object both already reuse,
+    with no separate Checker-specific injection point needed.
     """
     parts = [
         f"\nCompany: {company}",
@@ -232,6 +245,18 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
             "financials_source_disclosed: true once you have -- a code-enforced check rejects "
             "the draft otherwise."
         )
+    if credit_policy:
+        parts.append(
+            "\nInstitutional Credit Policy (this fork's own calibrated lending "
+            "criteria, required mitigants, structuring norms, and risk appetite "
+            "boundaries -- see /calibrate-policy). Underwriter: draft with this in "
+            "mind per Guideline 10 and set credit_policy_considered: true in your "
+            "structured output once you have. Risk Reviewer: independently verify "
+            "the draft against this per Audit Checklist item 4 and flag any "
+            "violation as a REJECTED-worthy finding, regardless of what the "
+            "Underwriter declared:"
+        )
+        parts.append(f"```\n{credit_policy}\n```")
     parts += [
         "\nGrounded multi-period financials -- historical and forward-year "
         "base case alike (from state.json -- the only source of truth for "
@@ -326,6 +351,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     style_guide = ""
     if os.path.exists("config/style_guide.md"):
         with open("config/style_guide.md") as f: style_guide = f.read()
+
+    # Fork-wide fact, not deal-specific state.json data -- see
+    # _build_grounding_context()'s own docstring for why this is derived
+    # fresh here rather than threaded through write_state().
+    credit_policy_present = os.path.exists("config/credit_policy.md")
+    credit_policy = ""
+    if credit_policy_present:
+        with open("config/credit_policy.md") as f: credit_policy = f.read()
 
     # A calibration-derived override under templates/local/cam/ (see
     # scripts/calibrate.py, or the /calibrate slash command) takes
@@ -440,6 +473,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         company, proposal, pd_score, lgd_score,
         {"financials": financials, "ratios": ratios}, collateral, policy_state, downside_case,
         financials_source=financials_source,
+        credit_policy=credit_policy,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
@@ -476,6 +510,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         verdict, notes = _apply_deterministic_policy_checks(
             verdict, notes, draft, policy_state, ground_truth_figures,
             financials_source=financials_source,
+            credit_policy_present=credit_policy_present,
         )
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,

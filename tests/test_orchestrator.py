@@ -1307,3 +1307,81 @@ def test_run_pipeline_omits_credit_policy_notes_section_when_none_exist(project_
     checker_prompt = client.calls[1]["messages"][0]["content"]
     assert "Credit Policy Interpretation Notes" not in maker_prompt
     assert "Credit Policy Interpretation Notes" not in checker_prompt
+
+
+# ---------------------------------------------------------------------------
+# Issue #86: end-of-deal "learnings" -- see /assemble's "Surface end-of-deal
+# learnings" step and agents/underwriter_agent.md's Guideline 11. Two scopes
+# (deals/<Company>/_learnings.md, config/deal_learnings.md), same shared-
+# grounding-context placement as credit_policy_notes -- purely advisory, no
+# structured-output field, so no test here touches parse_underwriter_output()
+# or check_draft_compliance().
+# ---------------------------------------------------------------------------
+
+def test_build_grounding_context_includes_deal_learnings_section_when_either_scope_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        enterprise_learnings="Always benchmark against IBISWorld sector code 12345.",
+    )
+    assert "Deal Learnings" in context
+    assert "Always benchmark against IBISWorld sector code 12345." in context
+
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        company_learnings="New CFO has a banking background.",
+    )
+    assert "Deal Learnings" in context
+    assert "New CFO has a banking background." in context
+
+
+def test_build_grounding_context_omits_deal_learnings_section_when_neither_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+    )
+    assert "Deal Learnings" not in context
+
+
+def test_run_pipeline_threads_deal_learnings_into_both_maker_and_checker_prompts(project_root):
+    """Same shared-grounding-context design as credit_policy_notes (#58) --
+    both the draft call and the audit call must receive both scopes, even
+    though only the Underwriter's prompt (Guideline 11) references it."""
+    (project_root / "config" / "deal_learnings.md").write_text(
+        "# Deal Learnings\n\n"
+        "## 2026-01-10 -- Other Corp/Other Deal\n"
+        "**Learning:** Always benchmark against IBISWorld sector code 12345.",
+        encoding="utf-8",
+    )
+    company_dir = project_root / "deals" / "Acme Corp"
+    company_dir.mkdir(parents=True)
+    (company_dir / "_learnings.md").write_text(
+        "# Deal Learnings\n\n"
+        "## 2026-01-15 -- Acme Corp/Fleet Loan\n"
+        "**Learning:** New CFO has a banking background.",
+        encoding="utf-8",
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_prompt = client.calls[0]["messages"][0]["content"]
+    checker_prompt = client.calls[1]["messages"][0]["content"]
+    assert "Always benchmark against IBISWorld sector code 12345." in maker_prompt
+    assert "New CFO has a banking background." in maker_prompt
+    assert "Always benchmark against IBISWorld sector code 12345." in checker_prompt
+    assert "New CFO has a banking background." in checker_prompt
+
+
+def test_run_pipeline_omits_deal_learnings_section_when_none_exist(project_root):
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_prompt = client.calls[0]["messages"][0]["content"]
+    checker_prompt = client.calls[1]["messages"][0]["content"]
+    assert "Deal Learnings" not in maker_prompt
+    assert "Deal Learnings" not in checker_prompt

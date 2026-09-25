@@ -9,13 +9,14 @@ test would only additionally verify argparse wiring, which is simple enough
 to trust by inspection.
 """
 import json
+import os
 
 from policy_check import compute
 from state_manager import write_state
 
 
 def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION"), cs_ids=("MI-REPORTING",),
-                      financials_source_disclosed=None):
+                      financials_source_disclosed=None, credit_policy_considered=None):
     payload = {
         "cp_ids_included": list(cp_ids),
         "cs_ids_included": list(cs_ids),
@@ -29,6 +30,8 @@ def _compliant_draft(cp_ids=("KYC-AML", "FACILITY-EXECUTION"), cs_ids=("MI-REPOR
     }
     if financials_source_disclosed is not None:
         payload["financials_source_disclosed"] = financials_source_disclosed
+    if credit_policy_considered is not None:
+        payload["credit_policy_considered"] = credit_policy_considered
     return "# Draft CAM\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
@@ -137,6 +140,51 @@ def test_compute_passes_disclosed_analyst_supplied_financials(tmp_path, monkeypa
     write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied")
     draft_path = tmp_path / "draft.md"
     draft_path.write_text(_compliant_draft(financials_source_disclosed=True), encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    assert result["compliant"] is True
+    assert result["reasons"] == []
+
+
+def test_compute_ignores_credit_policy_consideration_when_none_calibrated(tmp_path, monkeypatch):
+    """No config/credit_policy.md exists in this fork (tmp_path has none) --
+    compute() must not require credit_policy_considered even though it's
+    omitted from the draft."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(_compliant_draft(), encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    assert result["compliant"] is True
+    assert result["reasons"] == []
+
+
+def test_compute_flags_undeclared_credit_policy_consideration_when_calibrated(tmp_path, monkeypatch):
+    """See issue #57 / agents/underwriter_agent.md's Guideline 10 -- compute()
+    must detect config/credit_policy.md's presence and reject a draft that
+    never declared credit_policy_considered."""
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("config", exist_ok=True)
+    with open("config/credit_policy.md", "w", encoding="utf-8") as f:
+        f.write("# Institutional Credit Policy (Calibrated)\n")
+    write_state("Acme Corp", "Fleet Loan")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(_compliant_draft(), encoding="utf-8")  # consideration omitted
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    assert result["compliant"] is False
+    assert any("Missing Credit Policy Consideration" in r for r in result["reasons"])
+
+
+def test_compute_passes_declared_credit_policy_consideration_when_calibrated(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    os.makedirs("config", exist_ok=True)
+    with open("config/credit_policy.md", "w", encoding="utf-8") as f:
+        f.write("# Institutional Credit Policy (Calibrated)\n")
+    write_state("Acme Corp", "Fleet Loan")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(_compliant_draft(credit_policy_considered=True), encoding="utf-8")
 
     result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
     assert result["compliant"] is True

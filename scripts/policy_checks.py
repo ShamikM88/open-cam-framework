@@ -40,7 +40,8 @@ def parse_underwriter_output(draft_text):
     ({"cp_ids_included": [...], "cs_ids_included": [...],
     "risk_categories_covered": {...}, "reported_figures": {...},
     "downside_breaches_acknowledged": [...], "sources": [...],
-    "financials_source_disclosed": true}) from its drafted CAM (see
+    "financials_source_disclosed": true, "credit_policy_considered": true})
+    from its drafted CAM (see
     agents/underwriter_agent.md's Structured Output guideline). Scans
     matches in reverse and returns the first one that actually looks like
     this schema, for the same reason parse_verdict() (orchestrator.py)
@@ -71,6 +72,7 @@ def parse_underwriter_output(draft_text):
             or "downside_breaches_acknowledged" in payload
             or "sources" in payload
             or "financials_source_disclosed" in payload
+            or "credit_policy_considered" in payload
         ):
             cp_ids_included = payload.get("cp_ids_included")
             cs_ids_included = payload.get("cs_ids_included")
@@ -90,11 +92,12 @@ def parse_underwriter_output(draft_text):
                 ),
                 "sources": sources if isinstance(sources, list) else [],
                 "financials_source_disclosed": payload.get("financials_source_disclosed") is True,
+                "credit_policy_considered": payload.get("credit_policy_considered") is True,
             }
     return {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
-        "financials_source_disclosed": False,
+        "financials_source_disclosed": False, "credit_policy_considered": False,
     }
 
 
@@ -228,7 +231,8 @@ def check_reported_figures(reported_figures, ground_truth_figures_dict):
     return reasons
 
 
-def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, financials_source=None):
+def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, financials_source=None,
+                            credit_policy_present=None):
     """The single source of truth for "why would this draft be
     code-enforced-REJECTED": covenant FAIL/UNRESOLVABLE, any security gap,
     and -- only when a draft is actually being audited -- missing required
@@ -247,6 +251,18 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
     matches Guideline 9's own "the CAM must carry an explicit caveat"
     requirement with the same code-enforcement discipline every other
     Guideline 5 field already has.
+
+    `credit_policy_present` is a fork-wide fact (does `config/credit_policy.md`
+    exist, per `/calibrate-policy`), not deal-specific state -- callers
+    resolve it themselves (see policy_check.py/orchestrator.py). When
+    truthy, this only checks that the Underwriter's own self-declared
+    `credit_policy_considered` is present -- a floor, not a correctness
+    check (see agents/underwriter_agent.md's Guideline 10). Whether the
+    draft actually *complies* with the policy document is the Risk
+    Reviewer's own independent, qualitative audit responsibility (see
+    agents/risk_reviewer_agent.md's Audit Checklist item 4) -- that
+    judgment isn't and can't be code-enforced the way a numeric threshold
+    or an exact-ID match can.
 
     A downside covenant breach itself (policy_state's
     `downside_covenant_breaches`) never forces a reason on its own -- a
@@ -340,6 +356,22 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
                 "financials_source_disclosed=true -- see agents/underwriter_agent.md's "
                 "Guideline 9 (the CAM's Financial Analysis section must carry an explicit "
                 "caveat when spreading wasn't independently recomputed by the framework)."
+            )
+
+        # Guideline 10 requires the Underwriter to at least declare it
+        # considered this fork's calibrated credit policy whenever one
+        # exists -- a floor-level presence check only, exactly like
+        # financials_source_disclosed above. Whether the draft actually
+        # *complies* with the policy is never checked here -- that's the
+        # Risk Reviewer's own independent, qualitative audit (Audit
+        # Checklist item 5), not something this deterministic layer can
+        # judge.
+        if credit_policy_present and not underwriter_output["credit_policy_considered"]:
+            reasons.append(
+                "Missing Credit Policy Consideration: this fork has a calibrated institutional "
+                "credit policy (config/credit_policy.md), but the draft did not declare "
+                "credit_policy_considered=true -- see agents/underwriter_agent.md's "
+                "Guideline 10."
             )
 
     for result in policy_state.get("covenant_results", []):

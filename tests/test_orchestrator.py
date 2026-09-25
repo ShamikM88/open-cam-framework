@@ -27,6 +27,7 @@ from orchestrator import (
     MAX_REVIEW_ITERATIONS,
     REQUIRED_RISK_TAXONOMY,
     _apply_deterministic_policy_checks,
+    _build_grounding_context,
     _check_reported_figures,
     _completion_kwargs,
     _compute_collateral_cover_pct,
@@ -221,7 +222,7 @@ ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIR
 
 def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD_CS_IDS,
                       risk_categories=None, reported_figures=None, sources=None,
-                      financials_source_disclosed=None):
+                      financials_source_disclosed=None, credit_policy_considered=None):
     """A draft whose trailing structured JSON block satisfies every
     deterministic policy check by default (see agents/underwriter_agent.md's
     Structured Output guideline) -- for tests where the draft is expected to
@@ -251,6 +252,8 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD
     }
     if financials_source_disclosed is not None:
         payload["financials_source_disclosed"] = financials_source_disclosed
+    if credit_policy_considered is not None:
+        payload["credit_policy_considered"] = credit_policy_considered
     return body + "\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
@@ -348,7 +351,7 @@ def test_parse_underwriter_output_defaults_to_empty_when_block_missing():
     assert result == {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
-        "financials_source_disclosed": False,
+        "financials_source_disclosed": False, "credit_policy_considered": False,
     }
 
 
@@ -357,7 +360,7 @@ def test_parse_underwriter_output_defaults_to_empty_on_malformed_json():
     assert result == {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
-        "financials_source_disclosed": False,
+        "financials_source_disclosed": False, "credit_policy_considered": False,
     }
 
 
@@ -384,7 +387,7 @@ def test_parse_underwriter_output_degrades_safely_when_fields_have_the_wrong_typ
     assert result == {
         "cp_ids_included": [], "cs_ids_included": [], "risk_categories_covered": {},
         "reported_figures": {}, "downside_breaches_acknowledged": [], "sources": [],
-        "financials_source_disclosed": False,
+        "financials_source_disclosed": False, "credit_policy_considered": False,
     }
 
 
@@ -1094,3 +1097,75 @@ def test_run_pipeline_narrative_mismatch_triggers_revision_and_matches_review_tr
                               "Acme Corp_Fleet Loan_CAM.docx")
     doc = docx.Document(docx_path)
     assert doc.paragraphs[0].text == "Draft v2 (fixed)"
+
+
+# ---------------------------------------------------------------------------
+# Issue #57: institutional credit policy document -- see /calibrate-policy,
+# config/credit_policy.md, agents/underwriter_agent.md's Guideline 10, and
+# agents/risk_reviewer_agent.md's Audit Checklist item 4. _build_grounding_context()
+# appends the policy text into the SHARED grounding_context object both the
+# Maker and Checker calls reuse, so "both agents read it" requires no
+# separate Checker-specific injection point -- the end-to-end test below is
+# what actually proves that design decision was implemented correctly.
+# ---------------------------------------------------------------------------
+
+def test_build_grounding_context_includes_credit_policy_section_when_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+        credit_policy="No facility above 2.5x Gross Leverage without additional security.",
+    )
+    assert "Institutional Credit Policy" in context
+    assert "No facility above 2.5x Gross Leverage without additional security." in context
+
+
+def test_build_grounding_context_omits_credit_policy_section_when_not_given():
+    context = _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)",
+        {"financials": {}, "ratios": {}}, [],
+    )
+    assert "Institutional Credit Policy" not in context
+
+
+def test_run_pipeline_threads_credit_policy_into_both_maker_and_checker_prompts(project_root):
+    """The whole point of putting credit_policy into the shared
+    grounding_context (rather than a Maker-only interpolation like
+    style_guide) is that both the draft call and the audit call receive it
+    automatically -- verify both actually do, not just that the text exists
+    somewhere in orchestrator.py."""
+    (project_root / "config" / "credit_policy.md").write_text(
+        "# Institutional Credit Policy (Calibrated)\n\n"
+        "No facility above 2.5x Gross Leverage without additional security.",
+        encoding="utf-8",
+    )
+    client = MockClient([
+        _compliant_draft(credit_policy_considered=True),  # [1/3] Underwriter draft
+        _approved_json(),                                   # [2/3] Risk Reviewer audit, iteration 1
+    ])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_call, checker_call = client.calls[0], client.calls[1]
+    maker_prompt = maker_call["messages"][0]["content"]
+    checker_prompt = checker_call["messages"][0]["content"]
+    assert "No facility above 2.5x Gross Leverage without additional security." in maker_prompt
+    assert "No facility above 2.5x Gross Leverage without additional security." in checker_prompt
+
+
+def test_run_pipeline_omits_credit_policy_section_when_none_calibrated(project_root):
+    """project_root's fixture never creates config/credit_policy.md by
+    default -- a fork with no calibrated policy must not have the section
+    injected into either prompt at all."""
+    client = MockClient([
+        _compliant_draft(),
+        _approved_json(),
+    ])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client)
+
+    maker_prompt = client.calls[0]["messages"][0]["content"]
+    checker_prompt = client.calls[1]["messages"][0]["content"]
+    assert "Institutional Credit Policy" not in maker_prompt
+    assert "Institutional Credit Policy" not in checker_prompt

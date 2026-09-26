@@ -32,4 +32,9 @@ jobs:
         run: bandit -r scripts/ -lll
 
       - name: Run test suite
-        run: pytest tests/
+        run: |
+          set -o pipefail
+          pytest tests/ | tee pytest_output.txt
+
+      - name: Verify checked-in test count
+        run: python scripts/check_test_count.py pytest_output.txt

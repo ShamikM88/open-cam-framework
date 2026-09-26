@@ -251,12 +251,12 @@ pytest
 
 The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
 `anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking, and CI itself runs `pytest
-tests/` with no key set at all. Fifteen test files cover the dependency-free modules directly
+tests/` with no key set at all. Sixteen test files cover the dependency-free modules directly
 (`spreading_builder.py`, `docx_builder.py`, `template_resolver.py`, `deal_export.py`,
 `state_manager.py`, `source_manifest.py`, `conventions.py`, `pii_scan.py`,
-`policy_engine.py`/`policy_checks.py`/`policy_check.py`) plus a prompt-consistency suite
-(`test_prompt_consistency.py`) that cross-checks the two agent prompts against the code they're
-meant to stay in sync with.
+`policy_engine.py`/`policy_checks.py`/`policy_check.py`, `check_test_count.py`) plus a
+prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
+against the code they're meant to stay in sync with.
 
 CI also runs `ruff check . --select=E9,F63,F7,F82` and `bandit -r scripts/ -lll` before `pytest` --
 run those locally too if you want to catch what CI will catch before pushing:
@@ -264,6 +264,17 @@ run those locally too if you want to catch what CI will catch before pushing:
 ruff check . --select=E9,F63,F7,F82
 bandit -r scripts/ -lll
 ```
+
+**Test-count badge.** `badges/test-count.json` (`{"passed": <int>}`) is this project's own
+checked-in record of how many tests currently pass -- unlike everything else this framework
+persists, this one is deliberately public and git-tracked, not gitignored, since it's a project
+stat, not derived borrower/institutional data. GitHub's public API exposes merged-PR and
+closed-issue counts directly, but nothing queryable exposes "tests passing," so this repo tracks
+it itself the same way it tracks everything else: code-enforced, not hand-maintained. CI's
+"Verify checked-in test count" step (`scripts/check_test_count.py`) parses the real count out of
+`pytest`'s own summary line and fails the build if it doesn't match this file -- it never
+auto-corrects the value itself (that would mean a bot committing to `main`), so bumping the test
+count means updating `badges/test-count.json` in the same PR.
 
 ### Configuration
 

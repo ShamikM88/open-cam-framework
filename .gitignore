@@ -4,6 +4,9 @@ __pycache__/
 .venv/
 venv/
 
+# CI's own scratch file (see .github/workflows/ci.yml, scripts/check_test_count.py)
+pytest_output.txt
+
 # Environment / secrets
 .env
 *.key

@@ -50,6 +50,7 @@ open-cam-framework/
 │   ├── policy_checks.py         Parses the Underwriter's structured-output JSON and checks a draft's declared figures/CPs/taxonomy against ground truth -- check_draft_compliance() (no anthropic dependency)
 │   ├── policy_check.py          Standalone CLI wrapper around policy_engine.py/policy_checks.py -- compute(); callable from /assemble's and /review's own Bash steps so the slash-command interface gets the same code-enforced governance orchestrator.py's headless pipeline does (no anthropic dependency)
 │   ├── pii_scan.py              Heuristic (UK-shaped) scan for likely-real PII left over in a calibrated template before promoting it upstream -- see the confidentiality rule's "Promoting a local override upstream" note below (no anthropic dependency)
+│   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   └── template_resolver.py     Resolves default vs. calibrated-override CAM template paths
@@ -58,6 +59,8 @@ open-cam-framework/
 │   ├── spreading/               default_spreading_template.xlsx -- reference copy of the spreading workbook layout
 │   └── local/cam/               Calibrated overrides / auto-saved new-type templates (gitignored, see below)
 ├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence)
+├── badges/
+│   └── test-count.json          Checked-in `{"passed": <int>}` record of the currently-passing test count -- deliberately public/git-tracked (a project stat, not derived borrower/institutional data), kept honest by CI's "Verify checked-in test count" step (scripts/check_test_count.py) rather than hand-maintained -- see "Execution scripts" below
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json and a sources/ subfolder (see "Source material persistence" below); a company also optionally holds a `_conventions.json` and a `_learnings.md` one level up, above its dated proposal folders (see "Persisted conventions" below)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
@@ -413,6 +416,24 @@ document instead of rendering as separate lines.
   company names left over in a calibrated `templates/local/cam/*.md` override -- the second line
   of defense (after a by-hand review) before promoting one upstream to the shared `templates/cam/`
   defaults; see the confidentiality rule's "Promoting a local override upstream" note below.
+- **`scripts/check_test_count.py`** — no `anthropic` dependency. `parse_passed_count(pytest_output)`
+  extracts the passed-test count from pytest's own summary line (e.g. `"430 passed in 16.27s"` or
+  `"428 passed, 2 skipped in 12.34s"`); `read_badge_count(badge_path=None)` reads
+  `badges/test-count.json`'s declared count; `check(pytest_output, badge_path=None)` returns
+  `(matches, actual, expected)`. Deliberately doesn't run pytest itself -- it parses an
+  already-captured output file, so CI's own "Run test suite" step (which must pass regardless of
+  this check) and this comparison stay independent, and the suite never runs twice in one CI run.
+  Exists so `badges/test-count.json` (see the directory layout above) can't silently drift the way
+  README.md's/CLAUDE.md's own prose test-count mentions have drifted before (see #101, fixed in
+  #116) -- except here it's code-enforced in CI, not just a documentation-sync PR someone has to
+  remember to write. **Fails CI on a mismatch; never auto-corrects the file** -- a bot committing
+  a corrected value to a PR branch (or, worse, to `main`) would contradict this repo's own
+  "explicit confirmation for every push, zero direct commits to main" governance, so whoever's PR
+  changed the passing-test count must update `badges/test-count.json` in that same PR, and CI is
+  only the thing that catches it if they forget:
+  ```
+  python scripts/check_test_count.py pytest_output.txt
+  ```
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.

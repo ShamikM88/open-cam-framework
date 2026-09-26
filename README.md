@@ -10,10 +10,11 @@ your house writing style and your own CAM layouts, rather than assuming any one 
 
 **Two ways to run it**, covered in full under [Getting started](#getting-started):
 
-- **Claude Code slash commands** (primary, recommended) — `/calibrate`, `/triage`, `/research`,
-  `/spread`, `/commercial`, `/collateral`, `/project`, `/assemble`, `/review`, run interactively
-  inside a Claude Code session pointed at this repo. Uses whatever Claude Code session/
-  subscription you're already running in — **no separate `ANTHROPIC_API_KEY` required.**
+- **Claude Code slash commands** (primary, recommended) — `/calibrate`, `/calibrate-policy`,
+  `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project`, `/assemble`,
+  `/review`, run interactively inside a Claude Code session pointed at this repo. Uses whatever
+  Claude Code session/subscription you're already running in — **no separate
+  `ANTHROPIC_API_KEY` required.**
 - **Headless Python scripts** (`scripts/calibrate.py`, `scripts/orchestrator.py`) — for
   automation, CI, or batch runs outside an interactive session. These call the Anthropic API
   directly, so they need their own `ANTHROPIC_API_KEY` (a separate cost from a Claude Code
@@ -31,20 +32,28 @@ confidentiality rules — pick whichever fits how you work.
    draft), and derives a CAM template from those samples' structure into
    `templates/local/cam/<deal_type>_cam.md`, which **overrides the shipped default** for that
    deal type. `<deal_type>` should match whatever you'll use for `--type` on later runs; it
-   defaults to `corporate_credit`.
+   defaults to `corporate_credit`. Optionally, also run `/calibrate-policy` (Claude Code only, no
+   headless equivalent yet) to calibrate your institution's own credit policy document(s) from
+   `inputs/credit_policy/` into `config/credit_policy.md` — org-wide, one-time, not per-`--type`.
+   Once present, every future draft/audit automatically references it.
 2. **Per deal:** work through `/triage` → `/spread` → `/commercial` → `/collateral` → `/project`
    (optional -- forward financials, stress testing, covenants, guarantees) → `/assemble` (Claude
    Code), or run `scripts/orchestrator.py` (headless) with the
    borrower/company details. Either way, the **Underwriter Agent** drafts the CAM, grounded only
    in supplied source documents and user-provided risk inputs (never fabricated figures), and
    the **Risk Reviewer Agent** independently audits that draft — re-checking the ratio math,
-   flagging unsourced claims, and challenging weak risk mitigants — before it's exported.
+   flagging unsourced claims, challenging weak risk mitigants, and (when a credit policy has been
+   calibrated) flagging any violation of house lending criteria — before it's exported. Along the
+   way, an analyst-confirmed spreading convention or credit-policy interpretation can be persisted
+   for reuse on future deals from the same borrower or institution (see `CLAUDE.md`'s "Persisted
+   conventions" section) — always confirmed explicitly, never silently assumed.
 
    Don't need a full CAM yet? Run `/research` instead — it covers `/triage`'s Go/No-Go screen
-   and `/commercial`'s company/sector research in one step, with no financials required, and
-   exports a standalone brief in a few minutes. Nothing it captures is wasted if the deal later
-   needs a full CAM: it writes the same state.json `/triage` and `/commercial` would, so you can
-   just continue on to `/spread` → `/collateral` → `/project` → `/assemble` from there.
+   and `/commercial`'s company/sector research in one step, with no financials required, gets its
+   own scoped-down Risk Reviewer audit before exporting, and exports a standalone brief in a few
+   minutes. Nothing it captures is wasted if the deal later needs a full CAM: it writes the same
+   state.json `/triage` and `/commercial` would, so you can just continue on to `/spread` →
+   `/collateral` → `/project` → `/assemble` from there.
 3. **Output:** a `.docx` CAM (so you can edit it like any Word document — much easier than
    editing a PDF) and an `.xlsx` financial spreading workbook (so the numbers are auditable, not
    just narrative), written to a per-deal folder:
@@ -68,8 +77,8 @@ layout.
 
 | Agent | File | Role |
 | :--- | :--- | :--- |
-| Underwriter ("Maker") | [`agents/underwriter_agent.md`](agents/underwriter_agent.md) | Drafts the CAM: calculates TNW, EBITDA, DSCR, Gross Leverage, Working Capital Days; cites sources for every qualitative claim; never invents figures. |
-| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md) | Independently audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, and returns `APPROVED` or `REJECTED` with revision notes. |
+| Underwriter ("Maker") | [`agents/underwriter_agent.md`](agents/underwriter_agent.md) | Drafts the CAM: calculates TNW, EBITDA, DSCR, Gross Leverage, Working Capital Days; cites sources for every qualitative claim; never invents figures; discloses when spreading was analyst-supplied rather than independently recomputed; drafts with awareness of a calibrated credit policy and any persisted deal learnings once they exist. |
+| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md) | Independently audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
 
 The two prompts are kept deliberately independent — the Reviewer's value comes from auditing
 the Maker's work cold, not from sharing its reasoning.
@@ -94,14 +103,15 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | Command | Inputs | Produces |
 | :--- | :--- | :--- |
 | `/calibrate` | Sample CAM PDFs in `inputs/calibration_samples/` | `config/style_guide.md` + a derived template override |
+| `/calibrate-policy` (org-wide, one-time) | Your institution's own credit policy document(s) in `inputs/credit_policy/` | `config/credit_policy.md` -- referenced automatically by every future `/assemble`/`/review` run |
 | `/triage` | Registration number, credit bureau summary, charges register | Legal identity / UBO check, Go/No-Go screen |
-| `/research` (standalone alternative) | Everything `/triage` + `/commercial` each ask for | `/triage`'s Go/No-Go screen and `/commercial`'s company/sector research, combined into one exported research brief -- no financials needed |
+| `/research` (standalone alternative) | Everything `/triage` + `/commercial` each ask for | `/triage`'s Go/No-Go screen and `/commercial`'s company/sector research, combined into one exported research brief (with its own scoped Risk Reviewer audit before export) -- no financials needed |
 | `/spread` | 3–5 years of P&L and Balance Sheet | TNW, EBITDA, DSCR, EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, Working Capital Days |
 | `/commercial` | Sector, management bios, customer/supplier notes | Company History, Management, Sector Dynamics, Concentration, Competitive Landscape |
 | `/collateral` | Asset description, valuation, LGD/RV/PD grades | Gross/Net Exposure, RV Exposure, Collateral Coverage %, Net Uncovered Risk |
 | `/project` (optional) | Forward-year P&L/Balance Sheet forecasts, stress-test assumptions, covenants, guarantees | Forward-year ratios, a deterministic downside (stressed) case, and covenant/guarantee records for `/assemble`'s code-enforced policy checks |
 | `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |
-| `/review` | A drafted CAM (usually called automatically by `/assemble`) | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent, made runnable for the first time |
+| `/review` | A drafted CAM (usually called automatically by `/assemble`), or a `/research` brief with `--research-brief` | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent |
 
 `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, and `/project` each load
 [`agents/underwriter_agent.md`](agents/underwriter_agent.md)'s role; `/review` loads
@@ -173,7 +183,14 @@ Open this repo in Claude Code (or the desktop app's Code tab) — the commands u
    Claude reads the PDFs directly (native PDF support), writes `config/style_guide.md`, and
    derives a template at `templates/local/cam/asset_finance_cam.md` that overrides the shipped
    default. Skip this step to use the neutral default tone and templates as-is.
-2. **Run a deal**, working through each step in the same conversation so later steps can see
+2. **(Optional, org-wide, one-time) Calibrate your institution's own credit policy:** put your
+   policy document(s) into `inputs/credit_policy/`, then run:
+   ```
+   /calibrate-policy
+   ```
+   Claude reads them directly and writes `config/credit_policy.md` -- referenced automatically by
+   every future draft/audit, not just those of one `--type`.
+3. **Run a deal**, working through each step in the same conversation so later steps can see
    earlier ones' output:
    ```
    /triage <registration number, credit bureau summary, charges register>
@@ -232,17 +249,29 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-Covers the four modules with no `anthropic` dependency, so no API key or network access is
-needed to run them: `spreading_builder.py` (workbook structure, plus re-evaluating every Excel
-formula against hand-picked inputs, since the library that writes them doesn't evaluate them),
-`docx_builder.py` (markdown → Word table conversion), `template_resolver.py` (local-override vs.
-shipped-default resolution), and `deal_export.py` (folder creation, template auto-save,
-`.docx`/`.xlsx` export — the logic shared by `/assemble` and `orchestrator.py`).
+The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
+`anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking, and CI itself runs `pytest
+tests/` with no key set at all. Fifteen test files cover the dependency-free modules directly
+(`spreading_builder.py`, `docx_builder.py`, `template_resolver.py`, `deal_export.py`,
+`state_manager.py`, `source_manifest.py`, `conventions.py`, `pii_scan.py`,
+`policy_engine.py`/`policy_checks.py`/`policy_check.py`) plus a prompt-consistency suite
+(`test_prompt_consistency.py`) that cross-checks the two agent prompts against the code they're
+meant to stay in sync with.
+
+CI also runs `ruff check . --select=E9,F63,F7,F82` and `bandit -r scripts/ -lll` before `pytest` --
+run those locally too if you want to catch what CI will catch before pushing:
+```bash
+ruff check . --select=E9,F63,F7,F82
+bandit -r scripts/ -lll
+```
 
 ### Configuration
 
-[`config/settings.json`](config/settings.json) sets the model, max token budget, default
-currency, and the output/template directory names. [`config/system_instructions.md`](config/system_instructions.md)
+[`config/settings.json`](config/settings.json) sets `maker_model` (required), plus optional
+`checker_model`/`maker_temperature`/`checker_temperature` to independently configure the Risk
+Reviewer vs. the Underwriter. It also accepts `max_tokens`/`default_currency`/`output_directory`/
+`template_directory`/`spreading_template_directory`, though those aren't read by any script yet
+(tracked in issue #108). [`config/system_instructions.md`](config/system_instructions.md)
 is the shared top-level system prompt both agents inherit (objectivity, metric standardization,
 structured Markdown output).
 
@@ -251,11 +280,19 @@ structured Markdown output).
 This is a **public, forkable framework repo**, not a place to store real deal data. Everything
 under the following paths is git-ignored and must stay that way:
 
-- `inputs/` — your calibration sample PDFs (real historical CAMs — confidential by nature)
+- `inputs/` — your calibration sample PDFs and credit policy documents (real historical CAMs and
+  house policy — confidential by nature)
 - `config/style_guide.md` — derived from those samples, so treat it the same way
+- `config/credit_policy.md` — your calibrated institutional credit policy (`/calibrate-policy`)
+- `config/credit_policy_notes.md` — analyst-confirmed corrections to how specific policy clauses
+  have been interpreted
+- `config/spreading_conventions.json` — analyst-confirmed enterprise-wide spreading conventions
+- `config/deal_learnings.md` — analyst-confirmed enterprise-wide end-of-deal takeaways
 - `templates/local/` — calibration-derived or auto-saved template overrides; may reflect real
   deal structure even though the shipped defaults in `templates/cam/` never do
-- `deals/` — generated output for real borrowers (names, financials, PII)
+- `deals/` — generated output for real borrowers (names, financials, PII) — also holds, one level
+  above each dated deal folder, any borrower-specific persisted spreading convention
+  (`_conventions.json`) or deal learnings (`_learnings.md`) for that company
 
 Only the framework itself (agent prompts, scripts, blank templates, config, docs) should ever
 be committed. If you're contributing a template change, make sure every field is a generic

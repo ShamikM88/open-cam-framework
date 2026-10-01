@@ -111,6 +111,30 @@ def test_underwriter_prompt_references_the_real_downside_grounding_context_heade
     assert header_match.group(0) in underwriter_prompt
 
 
+def test_underwriter_prompt_no_longer_tells_the_underwriter_to_self_calculate_working_capital_days(
+    underwriter_prompt,
+):
+    """Regression guard for issue #99: once evaluate_financial_model() computes
+    Working Capital Days itself, Guideline 2 must stop instructing the
+    Underwriter to calculate it by hand -- that carve-out predates the fix
+    and would otherwise keep telling the Underwriter to bypass the now-
+    available pre-calculated, code-enforced figure."""
+    assert "always calculate it yourself" not in underwriter_prompt
+    assert "Working Capital Days" in underwriter_prompt
+
+
+def test_underwriter_prompt_carves_out_unenforced_collateral_metrics_from_reported_figures(
+    underwriter_prompt,
+):
+    """Regression guard for issue #99's collateral-side fallback: Gross/Net
+    Exposure, RV Exposure, and LGD % have no ground-truthed formula
+    (unlike collateral_cover_pct), so the Underwriter must be told not to
+    declare them in reported_figures -- otherwise check_reported_figures()
+    flags every single one as UNRESOLVABLE_REPORTED_FIGURE on every deal."""
+    assert "UNRESOLVABLE_REPORTED_FIGURE" in underwriter_prompt
+    assert "collateral_cover_pct" in underwriter_prompt
+
+
 def test_underwriter_prompt_requires_the_analyst_supplied_spreading_caveat(underwriter_prompt):
     """Regression guard for issue #55's caveat requirement (Guideline 9):
     when a deal's spreading was analyst-supplied rather than

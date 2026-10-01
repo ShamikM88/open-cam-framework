@@ -49,11 +49,32 @@ below. Ask which applies before assuming which mode this is.
 
 ### Default: spread from raw P&L/Balance Sheet data
 
-Extract and spread the line items, then calculate: Tangible Net Worth (TNW), EBITDA, Debt
-Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %,
-Current Ratio, FCF Conversion %, and Working Capital Days. Show which raw line items each ratio
-comes from so it can be checked, and never estimate a figure that isn't in the source data
-provided.
+Extract the raw line items for each period you have (`"FY-2"`, `"FY-1"`, `"FY-Current"` --
+whichever you were given), using these exact field names (omit any field the source data doesn't
+have -- it defaults to `0`, never invented): `revenue`, `cost_of_sales`, `admin_expenses`,
+`depreciation`, `amortisation`, `other_income`, `interest_paid`, `interest_received`,
+`scheduled_principal`, `capex`, `exceptional_costs`, `tax_paid`, `cash`, `trade_debtors`, `stock`,
+`other_current_assets`, `tangible_assets`, `intangible_assets`, `other_fixed_assets`,
+`trade_creditors`, `other_current_liabilities`, `overdraft`, `current_debt`, `long_term_debt`,
+`loan_notes`, `other_long_term_liabilities`, `provisions`, `share_capital`, `retained_profit`.
+
+Write them to a temporary JSON file, e.g. `deals/<company>/<proposal>_financials_input.json`:
+```json
+{"FY-Current": {"revenue": 0, "cost_of_sales": 0, "...": "..."}}
+```
+Then run:
+```
+python scripts/spreading_check.py --company "<company>" --proposal "<proposal>" \
+    --financials "deals/<company>/<proposal>_financials_input.json"
+```
+This computes Tangible Net Worth (TNW), EBITDA, Debt Service Coverage Ratio (DSCR),
+EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, and
+Working Capital Days the same deterministic way `scripts/orchestrator.py`'s headless pipeline
+does (see issue #98), and checkpoints `financials`/`ratios`/`multi_period_financials` straight to
+this deal's `state.json` -- never recalculate or adjust any of these figures yourself, and report
+exactly what the script's printed output (or a re-read of `state.json`) shows. Delete the
+temporary input file afterward -- its content is already preserved in `state.json`'s
+`multi_period_financials`.
 
 ### Alternative: analyst-supplied pre-spread figures
 
@@ -92,17 +113,23 @@ page render used only to extract a figure) -- only the source document itself.
 
 ## State: write
 
-Update this deal's state file with this step's results (merge with whatever you read above —
-never drop a field another step already recorded):
+**Default mode:** `scripts/spreading_check.py` (run above) already checkpointed `financials`,
+`ratios`, `multi_period_financials`, and `financials_source: "framework-computed"` straight to
+this deal's `state.json` — nothing left to write for those fields. Just make sure `company`,
+`proposal`, `date`, and `deal_type` (if known) are set (`write_state()` keeps `company`/
+`proposal`/`date` in sync automatically on any write, including the script's own) and append
+`"spread"` to `steps_completed` — see the bottom of this section.
+
+**Analyst-supplied mode:** update this deal's state file with this step's results yourself
+(merge with whatever you read above — never drop a field another step already recorded):
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
   otherwise write back to the file you found.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), and a `financials` object
   keyed by period (`"FY-2"`, `"FY-1"`, `"FY-Current"` — whichever periods you were given).
   **Use this exact shape for each period** — it matches what
   `scripts/spreading_builder.py`'s `evaluate_financial_model()` produces, so `/assemble`'s export
-  step can populate the spreading workbook's raw-input cells and re-verify your ratios
-  regardless of whether this deal was run through this command or through the headless
-  `orchestrator.py`:
+  step can populate the spreading workbook's raw-input cells regardless of whether this deal was
+  run through this command's analyst-supplied mode or the headless `orchestrator.py`:
   ```json
   {
     "raw": {
@@ -120,32 +147,24 @@ never drop a field another step already recorded):
     "total_liabilities": 0, "total_equity": 0, "total_debt": 0, "tangible_net_worth": 0
   }
   ```
-  Every key under `raw` is a source figure from the P&L/Balance Sheet you were given (`0` if not
-  applicable — never invented). `scheduled_principal` is a memo line for DSCR only and `capex` is
-  a memo line for FCF only — neither is ever folded into `profit_before_tax`/`net_profit`. Every
-  key alongside `raw` is a subtotal you calculate from those raw figures, using the labels above
-  exactly. `fcf` = EBITDA − Capex − Tax − Interest Paid + Interest Received (never netted against
-  `scheduled_principal`, which DSCR already covers separately).
-- Also set a `ratios` object, keyed by the same periods, each holding: `dscr`, `gross_leverage`,
-  `net_debt_to_ebitda` (Gross Leverage's debt aggregate, netted against Cash), `current_ratio`,
-  `gearing`, `ebit_interest_cover`, `ebitda_interest_cover`, `fcf_conversion_pct` (`fcf` / `ebitda`)
-  — under the default mode, all calculated from the `financials` figures above (show your working
-  in your response; store only the final numbers here); under the analyst-supplied mode, exactly
-  the values the analyst gave you.
-- Set `financials_source` to `"framework-computed"` (default mode) or `"analyst-supplied"`
-  (alternative mode above) — the Underwriter reads this during `/assemble`'s drafting step to
-  decide whether the CAM needs the analyst-supplied caveat (see
-  `agents/underwriter_agent.md`'s Guideline 9). Applies to the whole deal, not per-period — if
-  any period's figures were analyst-supplied, set it to `"analyst-supplied"`.
-- If this deal's `financials_source` is `"analyst-supplied"`: set a new `financials_source_note`
-  field to the confirmed convention description, phrased ready for the CAM's caveat — e.g.
-  "Depreciation embedded in Cost of Goods Sold, per prior confirmation for this borrower on
-  2026-01-15" (borrower-specific) or "Depreciation embedded in Cost of Goods Sold, per this
-  institution's standing convention" (enterprise-wide) — see `agents/underwriter_agent.md`'s
-  Guideline 9. Omit this field entirely for a framework-computed deal.
-- Then persist/refresh the confirmed convention so future deals benefit automatically — only
-  when `financials_source` is `"analyst-supplied"` (nothing borrower- or enterprise-specific to
-  remember for a framework-computed deal). Borrower-specific:
+  Only populate this if the analyst also gave you a raw line-item breakdown alongside their
+  pre-spread figures (useful context, and it can still populate the exported workbook's raw-input
+  cells for whichever labels happen to match) — never back-derive it from their subtotals/ratios.
+- Also set a `ratios` object, keyed by the same periods, each holding exactly the values the
+  analyst gave you: `dscr`, `gross_leverage`, `net_debt_to_ebitda`, `current_ratio`, `gearing`,
+  `ebit_interest_cover`, `ebitda_interest_cover`, `fcf_conversion_pct`.
+- Set `financials_source` to `"analyst-supplied"` — the Underwriter reads this during
+  `/assemble`'s drafting step to decide whether the CAM needs the analyst-supplied caveat (see
+  `agents/underwriter_agent.md`'s Guideline 9). Applies to the whole deal, not per-period — if any
+  period's figures were analyst-supplied, set it to `"analyst-supplied"` even if others in this
+  same deal were framework-computed via the default mode above.
+- Set a new `financials_source_note` field to the confirmed convention description, phrased
+  ready for the CAM's caveat — e.g. "Depreciation embedded in Cost of Goods Sold, per prior
+  confirmation for this borrower on 2026-01-15" (borrower-specific) or "Depreciation embedded in
+  Cost of Goods Sold, per this institution's standing convention" (enterprise-wide) — see
+  `agents/underwriter_agent.md`'s Guideline 9.
+- Then persist/refresh the confirmed convention so future deals benefit automatically.
+  Borrower-specific:
   ```
   python scripts/conventions.py --company "<company>" --write --financials-source analyst-supplied \
       --note "<the confirmed convention description>" --proposal "<proposal>"

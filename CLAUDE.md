@@ -53,6 +53,7 @@ open-cam-framework/
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
+│   ├── spreading_check.py       Standalone CLI wrapper around spreading_builder.py's formula evaluation -- compute(); callable from /spread's and /project's own Bash steps so the slash-command interface gets the same code-enforced subtotal/ratio computation orchestrator.py's headless pipeline does (no anthropic dependency; see "Execution scripts" below)
 │   └── template_resolver.py     Resolves default vs. calibrated-override CAM template paths
 ├── templates/                   Reference templates -- see templates/README.md
 │   ├── cam/                     Shipped default Markdown CAM templates (corporate_credit_cam.md, asset_finance_cam.md)
@@ -256,7 +257,12 @@ native Claude Code commands, run in an interactive session with no `ANTHROPIC_AP
   `/project` is the slash-command capture point for forward-year financials, stress-test
   assumptions (deriving the downside case), covenants, and guarantees -- all four independently
   optional -- mirroring what `orchestrator.py`'s `--financials`/`--stress-assumptions` CLI flags
-  and hand-edited `state.json` already support in the headless pipeline.
+  and hand-edited `state.json` already support in the headless pipeline. `/spread`'s default mode
+  and `/project`'s forward-year/downside-case handling both run
+  `python scripts/spreading_check.py --company ... --proposal ... --financials ...
+  [--stress-assumptions ...]` as a Bash step rather than having Claude recalculate the same
+  subtotals/ratios by hand in prose (see issue #98) -- `/spread`'s analyst-supplied alternative
+  mode is unaffected, since that path deliberately skips independent recomputation either way.
 - **`/research`** — standalone alternative to the full pipeline for a deal that doesn't (yet, or
   ever) need a full CAM: combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector
   research into one step, writing the exact same `triage`/`commercial` state.json keys those two
@@ -405,6 +411,22 @@ document instead of rendering as separate lines.
   without either interface reimplementing the logic in prose:
   ```
   python scripts/policy_check.py --company "Acme Corp" --proposal "Fleet Loan" --draft "deals/Acme Corp/Fleet Loan_draft.md"
+  ```
+- **`scripts/spreading_check.py`** — no `anthropic` dependency, same "importable or standalone"
+  duality as `policy_check.py`/`deal_export.py`. `compute(company, proposal,
+  multi_period_financials=None, stress_assumptions=None)` wraps `spreading_builder.py`'s
+  `evaluate_financial_model()`/`evaluate_downside_case()`: merges freshly-given raw periods into
+  whatever this deal's `state.json` already has on file (never a blind replace -- `/spread` and
+  `/project` each supply only the periods they're responsible for, in separate calls), recomputes
+  `financials`/`ratios` for the affected periods, and -- when stress assumptions (freshly given or
+  already on file) and at least one forward period exist -- derives `downside_case` too. This is
+  what gives the slash-command interface (`/spread`'s and `/project`'s own Bash steps) the
+  identical code-enforced formula evaluation `orchestrator.py`'s headless pipeline already has,
+  instead of Claude recalculating the same subtotals/ratios by hand in prose (see issue #98).
+  Deliberately not used by `/spread`'s analyst-supplied mode, which skips independent
+  recomputation entirely (see issue #55):
+  ```
+  python scripts/spreading_check.py --company "Acme Corp" --proposal "Fleet Loan" --financials "deals/Acme Corp/Fleet Loan_financials_input.json"
   ```
 - **`scripts/conventions.py`** — see "Persisted conventions" above for its full behavior; briefly,
   `read_company_convention`/`write_company_convention`/`read_enterprise_convention`/

@@ -123,6 +123,47 @@ def test_financial_data_from_state_ignores_non_dict_period_value():
 
 
 # ---------------------------------------------------------------------------
+# _financial_data_from_state()'s financials_source branch (issue #121): an
+# analyst-supplied deal's raw figures live in their own separate
+# analyst_supplied_financials store, never blended with the
+# framework-computed path's financials[period]["raw"].
+# ---------------------------------------------------------------------------
+
+def test_financial_data_from_state_reads_analyst_supplied_store_when_flagged():
+    state = {
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {"FY-Current": {"revenue": 500}},
+        # Deliberately also present, to prove it's ignored for this deal --
+        # an analyst-supplied deal's financials[period] never has a "raw"
+        # sub-key populated in practice, but this guards against a future
+        # bug that blends the two if it somehow were.
+        "financials": {"FY-Current": {"raw": {"revenue": 999}}},
+    }
+    assert _financial_data_from_state(state) == {"FY-Current": {"revenue": 500}}
+
+
+def test_financial_data_from_state_reads_framework_computed_store_by_default():
+    """financials_source absent, or anything other than "analyst-supplied",
+    must keep reading the pre-existing financials[period]["raw"] path --
+    the framework-computed behavior this function already had before #121,
+    unchanged."""
+    state = {"financials": {"FY-Current": {"raw": {"revenue": 500}}}}
+    assert _financial_data_from_state(state) == {"FY-Current": {"revenue": 500}}
+
+    state["financials_source"] = "framework-computed"
+    assert _financial_data_from_state(state) == {"FY-Current": {"revenue": 500}}
+
+
+def test_financial_data_from_state_analyst_supplied_with_no_raw_breakdown_is_empty():
+    """An analyst-supplied deal where no raw breakdown was ever given (the
+    common case -- it's optional) must export blank raw-input cells rather
+    than falling back to financials[period]["raw"], which this mode never
+    populates anyway."""
+    state = {"financials_source": "analyst-supplied", "financials": {"FY-Current": {}}}
+    assert _financial_data_from_state(state) == {}
+
+
+# ---------------------------------------------------------------------------
 # _downside_financial_data_from_state(): the exported workbook's FY+1/FY+2/
 # FY+3 "(Downside)" columns (see issue #38 / spreading_builder.py's
 # COL_TO_PERIOD_KEY) are populated from this, mirroring how

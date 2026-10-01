@@ -131,6 +131,24 @@ certain line items differently, e.g. Depreciation embedded in Cost of Goods Sold
 `"analyst-supplied"`, `agents/underwriter_agent.md`'s Guideline 9 requires the CAM to carry an
 explicit caveat disclosing this reduced audit guarantee.
 
+**Two separate raw-figure stores, never blended (see issue #121).** A deal's raw line items (if
+recorded at all -- an analyst-supplied deal isn't required to supply them, only their own
+subtotals) live in exactly one of two places depending on `financials_source`, and no code reads
+either one without checking which applies first:
+- `multi_period_financials` -- written only by `scripts/spreading_check.py` (the framework-computed
+  path: `/spread`'s default mode, `/project`), used as its own merge base for a later call and as
+  `evaluate_downside_case()`'s stress-shock input.
+- `analyst_supplied_financials` -- written only by `/spread`'s analyst-supplied mode, when the
+  analyst also gives a raw breakdown alongside their own pre-spread figures. Same per-period raw
+  shape as `multi_period_financials` above, but populated independently -- never merged with it.
+
+`scripts/deal_export.py`'s `_financial_data_from_state()` is the one place that reads "this deal's
+raw figures" for the exported workbook: it checks `financials_source` and reads
+`analyst_supplied_financials` for an analyst-supplied deal, `financials`'s own nested `"raw"`
+sub-key (framework-computed, from `evaluate_financial_model()`'s own output) otherwise -- any
+future consumer needing the same thing must follow the same branch, never assume one store is
+universal.
+
 **Checkpoint after every step.** `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`,
 `/project`, `/review`, `/assemble`, and each of `orchestrator.py`'s two agent calls (draft, then
 audit) write their results to `state.json` on completion. This is "checkpoint at every step

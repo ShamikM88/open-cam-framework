@@ -135,6 +135,21 @@ def test_underwriter_prompt_carves_out_unenforced_collateral_metrics_from_report
     assert "collateral_cover_pct" in underwriter_prompt
 
 
+def test_underwriter_prompt_has_a_parent_ubo_support_guideline(underwriter_prompt):
+    """Regression guard for issue #96: templates/cam/asset_finance_cam.md's
+    Ultimate Parent section promises "Guideline 12: Parent/UBO Support
+    Analysis" exists in agents/underwriter_agent.md -- this was previously a
+    dangling reference to a Guideline that didn't exist at all (zero
+    mentions of "Parent"/"UBO" anywhere in the file). Confirms both the
+    heading itself and the three concrete asks the issue called out: the
+    full ownership chain (not just the immediate parent), ownership
+    percentages, and actively checking for recent ownership changes."""
+    assert "Parent/UBO Support Analysis" in underwriter_prompt
+    assert "ownership chain" in underwriter_prompt
+    assert "ownership percentages" in underwriter_prompt
+    assert "recent ownership change" in underwriter_prompt
+
+
 def test_underwriter_prompt_requires_the_analyst_supplied_spreading_caveat(underwriter_prompt):
     """Regression guard for issue #55's caveat requirement (Guideline 9):
     when a deal's spreading was analyst-supplied rather than

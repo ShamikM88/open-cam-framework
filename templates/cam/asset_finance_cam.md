@@ -156,7 +156,7 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 
 ## 14. Ultimate Parent — Consolidated Key Figures & Credit Analysis
 
-*Include this section whenever the borrower's own repayment capacity leans on group/parent support — i.e. whenever section 7's Group Structure names a parent the borrower is financially reliant on, not only when the borrower is itself a subsidiary of a listed group. Omit entirely when the borrower stands genuinely independent of any parent.*
+*Include this section whenever the borrower's own repayment capacity leans on group/parent support (see Guideline 12: Parent/UBO Support Analysis in `agents/underwriter_agent.md`) — i.e. whenever section 7's Group Structure names a parent the borrower is financially reliant on, not only when the borrower is itself a subsidiary of a listed group. Omit entirely when the borrower stands genuinely independent of any parent.*
 
 | Performance Highlight | FY-Current | FY-1 | Change |
 | :--- | ---: | ---: | ---: |

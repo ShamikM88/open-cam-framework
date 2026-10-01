@@ -47,28 +47,50 @@ facility agreement simply has none to record here):
    "Personal Guarantee", "Corporate Guarantee"), and the `amount` (numeric — omit it entirely for
    an unlimited/uncapped guarantee; never write `0`, which would understate it as a nil guarantee).
 
-## Forward-year financials/ratios: calculate exactly like `/spread`
+## Forward-year financials/ratios, and the downside case: computed by script, not by hand
 
-For each forward year supplied, extract and spread the same raw line items `/spread` uses, then
-calculate the same subtotals and ratios (Gross Profit, Operating Profit, EBITDA, Profit Before
-Tax, Net Profit, FCF, Tangible Net Worth, DSCR, Gross Leverage, Net Debt / EBITDA, Current Ratio,
-Gearing, EBIT/Interest, EBITDA/Interest, FCF Conversion %). These are directly-supplied forecast
-figures (the user's own budget/forecast), never extrapolated or invented by you — there's nothing
-forward-year-specific about the calculation itself, only about where the input numbers come from.
+For each forward year supplied, extract the same raw line items `/spread` uses (`revenue`,
+`cost_of_sales`, `admin_expenses`, `depreciation`, `amortisation`, `other_income`,
+`interest_paid`, `interest_received`, `scheduled_principal`, `capex`, `exceptional_costs`,
+`tax_paid`, and the full Balance Sheet set — see `/spread`'s own field list). These are
+directly-supplied forecast figures (the user's own budget/forecast), never extrapolated or
+invented by you.
 
-## Downside case: apply the stress assumptions deterministically
-
-For each forward year that has both a base case (above) and at least one stress assumption
-supplied, derive its shocked raw figures using exactly these three transformations — never a
-different formula, never an extrapolation of your own:
+Write them to a temporary JSON file, e.g. `deals/<company>/<proposal>_financials_input.json`,
+keyed by whichever forward years you have (`"FY+1"`, `"FY+2"`, `"FY+3"`):
+```json
+{"FY+1": {"revenue": 0, "cost_of_sales": 0, "...": "..."}}
+```
+If stress assumptions were also supplied, write them to a second temporary file, e.g.
+`deals/<company>/<proposal>_stress_input.json` (omit any key not supplied — each independently
+defaults to no shock):
+```json
+{"revenue_haircut_pct": 0, "opex_increase_pct": 0, "interest_rate_bump_bps": 0}
+```
+Then run:
+```
+python scripts/spreading_check.py --company "<company>" --proposal "<proposal>" \
+    --financials "deals/<company>/<proposal>_financials_input.json" \
+    --stress-assumptions "deals/<company>/<proposal>_stress_input.json"
+```
+(omit `--stress-assumptions` entirely if none were supplied this run — it still recomputes the
+downside case against the new base data using whatever stress assumptions `/spread`/`/project`
+already confirmed earlier for this deal, if any). This computes the forward-year subtotals/
+ratios and, when at least one stress assumption and a forward-year base case both exist, derives
+the downside case by applying the three deterministic shocks below to that base case and
+re-running the identical row-chain the base case uses — never a separately hand-derived formula,
+never an extrapolation of your own (see issue #98):
 - `shocked_revenue = base_revenue * (1 - revenue_haircut_pct / 100)`
 - `shocked_admin_expenses = base_admin_expenses * (1 + opex_increase_pct / 100)`
 - `shocked_interest_paid = base_interest_paid + (total_interest_bearing_debt * interest_rate_bump_bps / 10000)`
 
 Every other raw field (the whole Balance Sheet, Tax, Capex, etc.) carries through **unchanged**
-from that year's base case. Then recompute the same subtotals/ratios as above from the shocked
-figures — the downside case is evaluated by the identical row-chain the base case uses, just fed
-shocked inputs, never a separately hand-derived formula.
+from that year's base case. The script checkpoints `financials`, `ratios`,
+`multi_period_financials`, `stress_assumptions`, and `downside_case` straight to this deal's
+`state.json` (merged with whatever `/spread` already wrote for historical periods — never
+erased). Delete the temporary input file(s) afterward — their content is already preserved on
+disk. Report exactly what the script's printed output (or a re-read of `state.json`) shows —
+never recalculate or adjust any of these figures yourself.
 
 ## Source material
 
@@ -86,23 +108,14 @@ scratch/intermediate artifacts — only the source documents themselves.
 
 ## State: write
 
-Update this deal's state file with this step's results (merge with whatever you read above —
-never drop a field another step already recorded):
+`scripts/spreading_check.py` (run above, if forward-year financials were supplied) already
+checkpointed `financials`, `ratios`, `multi_period_financials`, `stress_assumptions`, and
+`downside_case` straight to this deal's `state.json` — nothing left to write for those fields.
+Update the rest of this step's results yourself (merge with whatever you read above — never drop
+a field another step already recorded):
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
   otherwise write back to the file you found.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known).
-- Merge each supplied forward year's raw figures into the existing `financials` object (created
-  by `/spread` if it ran already) under its own period key (`"FY+1"`, `"FY+2"`, `"FY+3"`) — same
-  `{"raw": {...}, ...subtotals}` shape `/spread` uses for historical periods. Merge the
-  corresponding ratios into `ratios` the same way.
-- Also set/update `multi_period_financials`, a **raw-figures-only** dict keyed by period
-  (`{"FY+1": {...raw...}, ...}`, no subtotals) covering every forward year you were given a base
-  case for — this is what lets a later re-run of this command recompute the downside case afresh
-  without needing the base case retyped.
-- If you derived a downside case: set/update `stress_assumptions` (the assumptions as given —
-  omit a key entirely if that particular shock wasn't supplied, rather than writing `0`) and
-  `downside_case`, shaped `{"financials": {period: {...}}, "ratios": {period: {...}}}` for
-  exactly the forward years you actually stressed.
 - If covenants were supplied: set/update `covenants` as a **flat list**, each entry exactly
   `{"metric": "...", "type": "minimum"|"maximum", "threshold": 0}` — matching
   `scripts/policy_engine.py`'s expected shape so `/assemble`'s code-enforced covenant check

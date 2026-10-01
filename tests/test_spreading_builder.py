@@ -176,9 +176,6 @@ RAW_INPUTS = {
     "Provisions": 5,
     "Share Capital": 100,
     "Retained Profit": 200,
-    "Trade Debtor Days": 40,
-    "Trade Creditor Days": 35,
-    "Stock Days": 60,
 }
 
 # Hand-calculated from RAW_INPUTS above.
@@ -211,7 +208,15 @@ EXPECTED = {
     "Gross Leverage": pytest.approx(345 / 510),
     # Net Debt / EBITDA: total interest-bearing debt (345) netted against Cash (60) = 285.
     "Net Debt / EBITDA": pytest.approx(285 / 510),
-    "Working Capital Cycle (days)": 65,
+    # Trade Debtor Days = Accounts Receivable(80)/Revenue(1000)*365; Trade
+    # Creditor Days and Stock Days both divide by Cost of Goods Sold(400) --
+    # see issue #99 (these used to be raw-input rows with no FIELD_LABELS
+    # entry to populate them, so they were permanently blank in the exported
+    # workbook).
+    "Trade Debtor Days": pytest.approx(80 / 1000 * 365),
+    "Trade Creditor Days": pytest.approx(70 / 400 * 365),
+    "Stock Days": pytest.approx(90 / 400 * 365),
+    "Working Capital Cycle (days)": pytest.approx(80 / 1000 * 365 + 90 / 400 * 365 - 70 / 400 * 365),
 }
 
 
@@ -465,6 +470,29 @@ def test_evaluate_financial_model_matches_hand_calculated_workbook_values():
     # Aliases matching the Excel row labels must agree with their snake_case originals.
     assert ratios["EBIT/Interest"] == ratios["ebit_interest_cover"]
     assert ratios["EBITDA/Interest"] == ratios["ebitda_interest_cover"]
+    # Working Capital Days (issue #99) -- trade_debtors(80)/revenue(1000)*365;
+    # trade_creditors(70) and stock(90) both annualized against cost_of_sales(400).
+    assert ratios["trade_debtor_days"] == pytest.approx(80 / 1000 * 365)
+    assert ratios["trade_creditor_days"] == pytest.approx(70 / 400 * 365)
+    assert ratios["stock_days"] == pytest.approx(90 / 400 * 365)
+    assert ratios["working_capital_cycle_days"] == pytest.approx(
+        ratios["trade_debtor_days"] + ratios["stock_days"] - ratios["trade_creditor_days"]
+    )
+
+
+def test_working_capital_days_are_undefined_not_zero_when_revenue_or_cogs_is_zero():
+    """Same zero-denominator discipline as every other ratio -- a pre-revenue
+    or stock-free company has genuinely undefined debtor/stock days, not
+    "0 days", which would misrepresent the situation."""
+    result = evaluate_financial_model({
+        "FY-Current": {"trade_debtors": 80, "stock": 90, "trade_creditors": 70},
+    })
+    ratios = result["ratios"]["FY-Current"]
+
+    assert ratios["trade_debtor_days"] is None  # revenue defaults to 0
+    assert ratios["trade_creditor_days"] is None  # cost_of_sales defaults to 0
+    assert ratios["stock_days"] is None
+    assert ratios["working_capital_cycle_days"] is None
 
 
 def test_evaluate_financial_model_handles_multiple_periods_independently():

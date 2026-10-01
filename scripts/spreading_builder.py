@@ -147,10 +147,16 @@ KEY_METRIC_ROWS = [
      '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash})/{EBITDA},"N/A")'),
 ]
 
+# Debtor/creditor/stock days are themselves derived ratios (a balance-sheet
+# figure divided by a P&L flow, annualized), not raw inputs the way every
+# other row above is -- so unlike those, they get a real formula_template
+# here rather than None/FIELD_LABELS (see issue #99: these three used to
+# have formula_template=None with no FIELD_LABELS entry to populate them
+# from either, so the exported workbook left them permanently blank).
 WORKING_CAPITAL_ROWS = [
-    ("Trade Debtor Days", None),
-    ("Trade Creditor Days", None),
-    ("Stock Days", None),
+    ("Trade Debtor Days", '=IFERROR({Accounts Receivable}/{Revenue}*365,"N/A")'),
+    ("Trade Creditor Days", '=IFERROR({Accounts Payable}/{Cost of Goods Sold}*365,"N/A")'),
+    ("Stock Days", '=IFERROR({Stock}/{Cost of Goods Sold}*365,"N/A")'),
     ("Working Capital Cycle (days)", "={Trade Debtor Days}+{Stock Days}-{Trade Creditor Days}"),
 ]
 
@@ -408,6 +414,13 @@ def evaluate_financial_model(multi_period_data):
             """
             return numerator / denominator if denominator else None
 
+        def safe_div_days(numerator, denominator):
+            """Same undefined-denominator discipline as safe_div() above,
+            annualized -- e.g. zero Cost of Goods Sold makes Stock Days
+            genuinely undefined, not "0 days of stock on hand"."""
+            ratio = safe_div(numerator, denominator)
+            return ratio * 365 if ratio is not None else None
+
         dscr = safe_div(ebitda, interest_paid + scheduled_principal)
         gross_leverage = safe_div(total_debt, ebitda)
         # Same interest-bearing debt aggregate as gross_leverage, netted
@@ -419,6 +432,19 @@ def evaluate_financial_model(multi_period_data):
         ebit_interest_cover = safe_div(operating_profit, interest_paid)
         ebitda_interest_cover = safe_div(ebitda, interest_paid)
         fcf_conversion_pct = safe_div(fcf, ebitda)
+        # See issue #99 -- CLAUDE.md names Working Capital Days as one of
+        # the five core metrics the Underwriter computes, and the shipped
+        # templates mandate a "Working Capital Cycle (days)" row, but
+        # neither had a ground-truthed figure to check a reported value
+        # against until now.
+        trade_debtor_days = safe_div_days(trade_debtors, revenue)
+        trade_creditor_days = safe_div_days(trade_creditors, cost_of_sales)
+        stock_days = safe_div_days(stock, cost_of_sales)
+        working_capital_cycle_days = (
+            trade_debtor_days + stock_days - trade_creditor_days
+            if None not in (trade_debtor_days, stock_days, trade_creditor_days)
+            else None
+        )
 
         financials[period] = {
             "raw": dict(raw),  # a copy -- never share a mutable reference to the caller's dict
@@ -445,6 +471,10 @@ def evaluate_financial_model(multi_period_data):
             "ebit_interest_cover": ebit_interest_cover,
             "ebitda_interest_cover": ebitda_interest_cover,
             "fcf_conversion_pct": fcf_conversion_pct,
+            "trade_debtor_days": trade_debtor_days,
+            "trade_creditor_days": trade_creditor_days,
+            "stock_days": stock_days,
+            "working_capital_cycle_days": working_capital_cycle_days,
             # Aliases matching the Excel row labels, so anything reading
             # `ratios` off state.json can look figures up either way.
             "EBIT/Interest": ebit_interest_cover,

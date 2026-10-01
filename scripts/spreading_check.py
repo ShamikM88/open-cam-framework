@@ -24,7 +24,8 @@ from spreading_builder import evaluate_downside_case, evaluate_financial_model
 from state_manager import read_state, write_state
 
 
-def compute(company, proposal, multi_period_financials=None, stress_assumptions=None):
+def compute(company, proposal, multi_period_financials=None, stress_assumptions=None,
+            update_financials_source=True):
     """Recompute financials/ratios (and, when a downside case is derivable,
     downside_case) from raw line items and checkpoint the result to this
     deal's state.json.
@@ -39,11 +40,40 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     other command already wrote). The same merge-not-replace treatment
     applies to the computed `financials`/`ratios` dicts themselves.
 
-    `stress_assumptions`, if not given, falls back to whatever this deal
-    already has on file -- so a fresh /spread run (financials-only) still
-    recomputes `downside_case` against the *new* base data using the
+    The merge is two levels deep: a period given this call is merged field-by
+    -field into that period's own already-recorded raw dict, not substituted
+    for it wholesale. Without this, re-supplying a period to correct a single
+    figure (e.g. just `revenue`) without re-stating every other raw field
+    would silently discard every other previously-recorded field for that
+    period -- and recompute its subtotals/ratios from the now-incomplete raw
+    data without any warning. A field actually given this call always wins
+    (overwrites whatever was recorded before it); a field simply not
+    mentioned this call is preserved, never reset to 0.
+
+    `update_financials_source` gates whether a fresh computation stamps
+    `financials_source: "framework-computed"` -- pass `False` from /project's
+    own call. `financials_source` is a whole-deal flag, not per-period (see
+    .claude/commands/spread.md): if /spread's analyst-supplied mode already
+    set it for this deal's historical periods, /project later supplying
+    *forward-year* figures through this same script must not silently flip
+    it back to "framework-computed" -- the historicals were never
+    independently recomputed, so the deal's audit-guarantee caveat (Guideline
+    9) still applies regardless of what /project just added. Only /spread
+    (the command that actually owns this mode decision) passes the default
+    `True`.
+
+    `stress_assumptions`, if not given at all, falls back to whatever this
+    deal already has on file -- so a fresh /spread run (financials-only)
+    still recomputes `downside_case` against the *new* base data using the
     already-confirmed stress assumptions, matching orchestrator.py's own
-    "recompute whenever either input changes" behavior.
+    "recompute whenever either input changes" behavior. When fresh
+    `stress_assumptions` *is* given, it's merged key-by-key over whatever's
+    already on file, not substituted wholesale -- /project's own prose
+    deliberately tells the analyst to omit a shock key entirely when it
+    isn't being changed this run ("each independently defaults to no shock"),
+    so a fresh dict that only re-confirms one shock (e.g. a revised
+    `revenue_haircut_pct`) must not silently drop an already-confirmed
+    `opex_increase_pct`/`interest_rate_bump_bps` it didn't mention.
 
     Raises ValueError if neither fresh `multi_period_financials` nor any
     already on file exist -- nothing to compute.
@@ -52,10 +82,16 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     state_manager.write_state()).
     """
     existing_state = read_state(company, proposal) or {}
+    existing_multi_period = existing_state.get("multi_period_financials") or {}
 
-    merged_multi_period = dict(existing_state.get("multi_period_financials") or {})
+    merged_multi_period = dict(existing_multi_period)
+    touched_periods = {}
     if multi_period_financials:
-        merged_multi_period.update(multi_period_financials)
+        for period, raw in multi_period_financials.items():
+            merged_period = dict(existing_multi_period.get(period) or {})
+            merged_period.update(raw or {})
+            merged_multi_period[period] = merged_period
+            touched_periods[period] = merged_period
 
     if not merged_multi_period:
         raise ValueError(
@@ -64,8 +100,12 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
         )
 
     fields = {}
-    if multi_period_financials:
-        model_data = evaluate_financial_model(multi_period_financials)
+    if touched_periods:
+        # Computed from the merged (not fresh-only) per-period raw dicts --
+        # see the docstring above -- so a partial correction's subtotals/
+        # ratios are derived from the period's complete recorded figures,
+        # not just whichever fields this particular call happened to supply.
+        model_data = evaluate_financial_model(touched_periods)
 
         merged_financials = dict(existing_state.get("financials") or {})
         merged_financials.update(model_data["financials"])
@@ -75,13 +115,14 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
         fields["financials"] = merged_financials
         fields["ratios"] = merged_ratios
         fields["multi_period_financials"] = merged_multi_period
-        # A fresh recomputation from raw line items is, by definition, the
-        # framework-computed path -- analyst-supplied mode never calls this
-        # script at all (see module docstring), so there's no case where
-        # this script runs and the result should be flagged otherwise.
-        fields["financials_source"] = "framework-computed"
+        if update_financials_source:
+            fields["financials_source"] = "framework-computed"
 
-    stress_assumptions = stress_assumptions or existing_state.get("stress_assumptions") or {}
+    existing_stress_assumptions = existing_state.get("stress_assumptions") or {}
+    merged_stress_assumptions = dict(existing_stress_assumptions)
+    if stress_assumptions:
+        merged_stress_assumptions.update(stress_assumptions)
+    stress_assumptions = merged_stress_assumptions
     if stress_assumptions:
         downside_case = evaluate_downside_case(merged_multi_period, stress_assumptions)
         if downside_case.get("financials") or downside_case.get("ratios"):
@@ -116,6 +157,13 @@ def main(argv=None):
                          help='Path to a JSON file: {"revenue_haircut_pct": ..., '
                               '"opex_increase_pct": ..., "interest_rate_bump_bps": ...} -- all '
                               "optional within it, defaulting to no shock")
+    parser.add_argument("--no-update-financials-source", dest="update_financials_source",
+                         action="store_false",
+                         help="Don't stamp financials_source: \"framework-computed\" on this "
+                              "call -- pass this from /project's own call, since "
+                              "financials_source is a whole-deal flag /spread owns the decision "
+                              "for, not something /project's forward-year figures should ever "
+                              "silently flip (e.g. away from an already-set \"analyst-supplied\")")
     args = parser.parse_args(argv)
 
     multi_period_financials = None
@@ -128,7 +176,8 @@ def main(argv=None):
         with open(args.stress_assumptions, encoding="utf-8") as f:
             stress_assumptions = json.load(f)
 
-    state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions)
+    state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
+                     update_financials_source=args.update_financials_source)
     print(json.dumps({
         "financials": state.get("financials"),
         "ratios": state.get("ratios"),

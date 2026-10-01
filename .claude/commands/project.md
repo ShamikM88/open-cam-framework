@@ -71,8 +71,16 @@ Then run:
 ```
 python scripts/spreading_check.py --company "<company>" --proposal "<proposal>" \
     --financials "deals/<company>/<proposal>_financials_input.json" \
-    --stress-assumptions "deals/<company>/<proposal>_stress_input.json"
+    --stress-assumptions "deals/<company>/<proposal>_stress_input.json" \
+    --no-update-financials-source
 ```
+**Always pass `--no-update-financials-source` here** — `financials_source` is a whole-deal flag
+`/spread` owns the decision for (see its own "State: write" section), not something this
+command's forward-year figures should ever silently flip. Without it, this call would stamp
+`"framework-computed"` even on a deal whose historicals were recorded via `/spread`'s
+analyst-supplied mode, silently dropping the Guideline 9 caveat requirement for figures that were
+never actually independently recomputed.
+
 (omit `--stress-assumptions` entirely if none were supplied this run — it still recomputes the
 downside case against the new base data using whatever stress assumptions `/spread`/`/project`
 already confirmed earlier for this deal, if any). This computes the forward-year subtotals/

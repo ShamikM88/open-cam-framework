@@ -24,7 +24,8 @@ from spreading_builder import evaluate_downside_case, evaluate_financial_model
 from state_manager import read_state, write_state
 
 
-def compute(company, proposal, multi_period_financials=None, stress_assumptions=None):
+def compute(company, proposal, multi_period_financials=None, stress_assumptions=None,
+            update_financials_source=True):
     """Recompute financials/ratios (and, when a downside case is derivable,
     downside_case) from raw line items and checkpoint the result to this
     deal's state.json.
@@ -38,6 +39,18 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     `financials={...}` would otherwise silently erase whatever periods the
     other command already wrote). The same merge-not-replace treatment
     applies to the computed `financials`/`ratios` dicts themselves.
+
+    `update_financials_source` gates whether a fresh computation stamps
+    `financials_source: "framework-computed"` -- pass `False` from /project's
+    own call. `financials_source` is a whole-deal flag, not per-period (see
+    .claude/commands/spread.md): if /spread's analyst-supplied mode already
+    set it for this deal's historical periods, /project later supplying
+    *forward-year* figures through this same script must not silently flip
+    it back to "framework-computed" -- the historicals were never
+    independently recomputed, so the deal's audit-guarantee caveat (Guideline
+    9) still applies regardless of what /project just added. Only /spread
+    (the command that actually owns this mode decision) passes the default
+    `True`.
 
     `stress_assumptions`, if not given, falls back to whatever this deal
     already has on file -- so a fresh /spread run (financials-only) still
@@ -75,11 +88,8 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
         fields["financials"] = merged_financials
         fields["ratios"] = merged_ratios
         fields["multi_period_financials"] = merged_multi_period
-        # A fresh recomputation from raw line items is, by definition, the
-        # framework-computed path -- analyst-supplied mode never calls this
-        # script at all (see module docstring), so there's no case where
-        # this script runs and the result should be flagged otherwise.
-        fields["financials_source"] = "framework-computed"
+        if update_financials_source:
+            fields["financials_source"] = "framework-computed"
 
     stress_assumptions = stress_assumptions or existing_state.get("stress_assumptions") or {}
     if stress_assumptions:
@@ -116,6 +126,13 @@ def main(argv=None):
                          help='Path to a JSON file: {"revenue_haircut_pct": ..., '
                               '"opex_increase_pct": ..., "interest_rate_bump_bps": ...} -- all '
                               "optional within it, defaulting to no shock")
+    parser.add_argument("--no-update-financials-source", dest="update_financials_source",
+                         action="store_false",
+                         help="Don't stamp financials_source: \"framework-computed\" on this "
+                              "call -- pass this from /project's own call, since "
+                              "financials_source is a whole-deal flag /spread owns the decision "
+                              "for, not something /project's forward-year figures should ever "
+                              "silently flip (e.g. away from an already-set \"analyst-supplied\")")
     args = parser.parse_args(argv)
 
     multi_period_financials = None
@@ -128,7 +145,8 @@ def main(argv=None):
         with open(args.stress_assumptions, encoding="utf-8") as f:
             stress_assumptions = json.load(f)
 
-    state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions)
+    state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
+                     update_financials_source=args.update_financials_source)
     print(json.dumps({
         "financials": state.get("financials"),
         "ratios": state.get("ratios"),

@@ -114,6 +114,38 @@ def test_compute_omits_downside_case_when_no_forward_period_exists_yet(tmp_path,
     assert "downside_case" not in state
 
 
+def test_compute_does_not_flip_analyst_supplied_flag_when_update_financials_source_is_false(
+    tmp_path, monkeypatch,
+):
+    """Regression guard: /project supplying forward-year figures on a deal
+    whose historicals were recorded via /spread's analyst-supplied mode must
+    never silently flip the deal's financials_source back to
+    "framework-computed" -- the historicals were never independently
+    recomputed, so Guideline 9's caveat requirement still applies regardless
+    of what /project just added. /project's own call always passes
+    update_financials_source=False for exactly this reason."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+                financials={"FY-Current": {"raw": {}}})
+
+    state = compute("Acme Corp", "Fleet Loan",
+                     multi_period_financials={"FY+1": {"revenue": 1000}},
+                     update_financials_source=False)
+
+    assert state["financials_source"] == "analyst-supplied"
+    assert "FY+1" in state["financials"]  # the forward-year data still gets written
+
+
+def test_compute_sets_framework_computed_by_default(tmp_path, monkeypatch):
+    """Positive counterpart -- /spread's own call (update_financials_source
+    left at its True default) must still set the flag as before."""
+    monkeypatch.chdir(tmp_path)
+    state = compute("Acme Corp", "Fleet Loan",
+                     multi_period_financials={"FY-Current": {"revenue": 1000}})
+
+    assert state["financials_source"] == "framework-computed"
+
+
 def test_compute_preexisting_multi_period_financials_allows_stress_only_call(tmp_path, monkeypatch):
     """/project supplying stress assumptions in a later call than the one
     that supplied the forward-year base case (e.g. the analyst decides on

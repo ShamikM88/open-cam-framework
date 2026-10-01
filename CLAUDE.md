@@ -414,20 +414,27 @@ document instead of rendering as separate lines.
   ```
 - **`scripts/spreading_check.py`** — no `anthropic` dependency, same "importable or standalone"
   duality as `policy_check.py`/`deal_export.py`. `compute(company, proposal,
-  multi_period_financials=None, stress_assumptions=None)` wraps `spreading_builder.py`'s
-  `evaluate_financial_model()`/`evaluate_downside_case()`: merges freshly-given raw periods into
-  whatever this deal's `state.json` already has on file (never a blind replace -- `/spread` and
-  `/project` each supply only the periods they're responsible for, in separate calls), recomputes
-  `financials`/`ratios` for the affected periods, and -- when stress assumptions (freshly given or
-  already on file) and at least one forward period exist -- derives `downside_case` too. This is
-  what gives the slash-command interface (`/spread`'s and `/project`'s own Bash steps) the
-  identical code-enforced formula evaluation `orchestrator.py`'s headless pipeline already has,
-  instead of Claude recalculating the same subtotals/ratios by hand in prose (see issue #98).
-  Deliberately not used by `/spread`'s analyst-supplied mode, which skips independent
-  recomputation entirely (see issue #55):
+  multi_period_financials=None, stress_assumptions=None, update_financials_source=True)` wraps
+  `spreading_builder.py`'s `evaluate_financial_model()`/`evaluate_downside_case()`: merges
+  freshly-given raw periods into whatever this deal's `state.json` already has on file (never a
+  blind replace -- `/spread` and `/project` each supply only the periods they're responsible for,
+  in separate calls), recomputes `financials`/`ratios` for the affected periods, and -- when
+  stress assumptions (freshly given or already on file) and at least one forward period exist --
+  derives `downside_case` too. This is what gives the slash-command interface (`/spread`'s and
+  `/project`'s own Bash steps) the identical code-enforced formula evaluation `orchestrator.py`'s
+  headless pipeline already has, instead of Claude recalculating the same subtotals/ratios by
+  hand in prose (see issue #98). Deliberately not used by `/spread`'s analyst-supplied mode, which
+  skips independent recomputation entirely (see issue #55):
   ```
   python scripts/spreading_check.py --company "Acme Corp" --proposal "Fleet Loan" --financials "deals/Acme Corp/Fleet Loan_financials_input.json"
   ```
+  `update_financials_source` (CLI: `--no-update-financials-source` to disable) gates whether a
+  fresh computation stamps `financials_source: "framework-computed"` -- `financials_source` is a
+  whole-deal flag `/spread` owns the decision for, not per-period, so `/project`'s own call always
+  passes this flag: without it, `/project` supplying forward-year figures on a deal whose
+  historicals were recorded via `/spread`'s analyst-supplied mode would silently flip the deal's
+  flag back to `"framework-computed"`, dropping the Guideline 9 caveat requirement for figures
+  that were never actually independently recomputed.
 - **`scripts/conventions.py`** — see "Persisted conventions" above for its full behavior; briefly,
   `read_company_convention`/`write_company_convention`/`read_enterprise_convention`/
   `write_enterprise_convention` back the borrower-specific and enterprise-wide spreading-convention

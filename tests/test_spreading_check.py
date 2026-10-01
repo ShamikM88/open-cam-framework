@@ -75,6 +75,23 @@ def test_compute_recomputes_a_period_given_again_rather_than_duplicating(tmp_pat
     assert len(state["financials"]) == 1
 
 
+def test_compute_merges_a_partial_period_correction_field_by_field(tmp_path, monkeypatch):
+    """Regression guard: correcting just one raw field for an already-
+    recorded period must not silently discard every other field already on
+    file for that period -- the merge must be two levels deep (period, then
+    field), not a whole-period replace."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": {"revenue": 1000, "cost_of_sales": 600}})
+
+    state = compute("Acme Corp", "Fleet Loan",
+                     multi_period_financials={"FY-Current": {"revenue": 1050}})  # only revenue corrected
+
+    raw = state["multi_period_financials"]["FY-Current"]
+    assert raw == {"revenue": 1050, "cost_of_sales": 600}
+    assert state["financials"]["FY-Current"]["gross_profit"] == 450  # 1050 - 600, not 1050 - 0
+
+
 def test_compute_derives_downside_case_when_stress_assumptions_given(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     state = compute(
@@ -103,6 +120,23 @@ def test_compute_reuses_stress_assumptions_already_on_file(tmp_path, monkeypatch
                      multi_period_financials={"FY+1": {"revenue": 2000}})  # revised base case
 
     assert state["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 1600
+
+
+def test_compute_merges_a_partial_stress_assumptions_correction_key_by_key(tmp_path, monkeypatch):
+    """Regression guard: /project's own prose tells the analyst to omit a
+    shock key entirely when it isn't being changed this run ("each
+    independently defaults to no shock") -- a fresh dict that only
+    re-confirms one shock must not silently drop an already-confirmed one it
+    didn't mention."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY+1": {"revenue": 1000}},
+            stress_assumptions={"revenue_haircut_pct": 10, "opex_increase_pct": 5})
+
+    state = compute("Acme Corp", "Fleet Loan",
+                     stress_assumptions={"revenue_haircut_pct": 15})  # only this one revised
+
+    assert state["stress_assumptions"] == {"revenue_haircut_pct": 15, "opex_increase_pct": 5}
 
 
 def test_compute_omits_downside_case_when_no_forward_period_exists_yet(tmp_path, monkeypatch):

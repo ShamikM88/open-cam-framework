@@ -420,7 +420,13 @@ document instead of rendering as separate lines.
   blind replace -- `/spread` and `/project` each supply only the periods they're responsible for,
   in separate calls), recomputes `financials`/`ratios` for the affected periods, and -- when
   stress assumptions (freshly given or already on file) and at least one forward period exist --
-  derives `downside_case` too. This is what gives the slash-command interface (`/spread`'s and
+  derives `downside_case` too. The merge is two levels deep for both inputs: a period's raw
+  figures are merged field-by-field into whatever that period already had on file (a correction to
+  just `revenue` doesn't discard the period's other already-recorded fields), and fresh
+  `stress_assumptions` are merged key-by-key the same way (re-confirming one shock doesn't drop
+  another already-confirmed one left unmentioned) -- caught in post-merge review of the PR that
+  introduced this script, where the first version replaced each wholesale instead. This is what
+  gives the slash-command interface (`/spread`'s and
   `/project`'s own Bash steps) the identical code-enforced formula evaluation `orchestrator.py`'s
   headless pipeline already has, instead of Claude recalculating the same subtotals/ratios by
   hand in prose (see issue #98). Deliberately not used by `/spread`'s analyst-supplied mode, which

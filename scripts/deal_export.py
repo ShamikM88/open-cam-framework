@@ -35,6 +35,18 @@ def _raw_financials(financials):
 
 
 def _financial_data_from_state(state):
+    """The raw multi-period figures to write into the exported workbook's
+    input cells -- sourced from whichever of this deal's two raw-figure
+    stores actually matches its `financials_source` (see issue #121):
+    `analyst_supplied_financials` (already in the plain `{period: {raw}}`
+    shape `export_to_xlsx()` wants, no reduction needed) for an
+    analyst-supplied deal, or `financials`'s own nested `"raw"` sub-key
+    (via `_raw_financials()`) for a framework-computed one -- never a blend
+    of the two, and never guessed from whichever happens to be present.
+    """
+    if state.get("financials_source") == "analyst-supplied":
+        analyst_supplied = state.get("analyst_supplied_financials")
+        return analyst_supplied if isinstance(analyst_supplied, dict) else {}
     return _raw_financials(state.get("financials"))
 
 

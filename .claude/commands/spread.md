@@ -125,31 +125,41 @@ this deal's `state.json` — nothing left to write for those fields. Just make s
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
   otherwise write back to the file you found.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), and a `financials` object
-  keyed by period (`"FY-2"`, `"FY-1"`, `"FY-Current"` — whichever periods you were given).
-  **Use this exact shape for each period** — it matches what
-  `scripts/spreading_builder.py`'s `evaluate_financial_model()` produces, so `/assemble`'s export
-  step can populate the spreading workbook's raw-input cells regardless of whether this deal was
-  run through this command's analyst-supplied mode or the headless `orchestrator.py`:
+  keyed by period (`"FY-2"`, `"FY-1"`, `"FY-Current"` — whichever periods you were given), each
+  holding exactly the subtotals the analyst's own template supplied — **use these exact field
+  names**, since `ground_truth_figures()` reads this shape as this deal's ground truth for
+  whatever the Underwriter later cites (see `agents/underwriter_agent.md`'s Guideline 5):
   ```json
   {
-    "raw": {
-      "revenue": 0, "cost_of_sales": 0, "admin_expenses": 0, "depreciation": 0,
-      "amortisation": 0, "other_income": 0, "interest_paid": 0, "interest_received": 0,
-      "scheduled_principal": 0, "capex": 0, "exceptional_costs": 0, "tax_paid": 0,
-      "cash": 0, "trade_debtors": 0, "stock": 0, "other_current_assets": 0,
-      "tangible_assets": 0, "intangible_assets": 0, "other_fixed_assets": 0,
-      "trade_creditors": 0, "other_current_liabilities": 0, "overdraft": 0,
-      "current_debt": 0, "long_term_debt": 0, "loan_notes": 0,
-      "share_capital": 0, "retained_profit": 0
-    },
     "gross_profit": 0, "operating_profit": 0, "ebitda": 0, "profit_before_tax": 0,
     "net_profit": 0, "fcf": 0, "current_assets": 0, "current_liabilities": 0, "total_assets": 0,
     "total_liabilities": 0, "total_equity": 0, "total_debt": 0, "tangible_net_worth": 0
   }
   ```
-  Only populate this if the analyst also gave you a raw line-item breakdown alongside their
-  pre-spread figures (useful context, and it can still populate the exported workbook's raw-input
-  cells for whichever labels happen to match) — never back-derive it from their subtotals/ratios.
+  Omit any subtotal the analyst's own template doesn't separately break out — never back-derive
+  one yourself from their other figures.
+- If the analyst **also** gave you a raw line-item breakdown alongside their pre-spread figures
+  (useful context, even though it's not required): set/update a separate top-level
+  `analyst_supplied_financials` object, keyed by the same periods, each holding just the raw
+  figures given — **not** nested inside `financials` above, and never back-derived from the
+  analyst's own subtotals/ratios:
+  ```json
+  {
+    "revenue": 0, "cost_of_sales": 0, "admin_expenses": 0, "depreciation": 0,
+    "amortisation": 0, "other_income": 0, "interest_paid": 0, "interest_received": 0,
+    "scheduled_principal": 0, "capex": 0, "exceptional_costs": 0, "tax_paid": 0,
+    "cash": 0, "trade_debtors": 0, "stock": 0, "other_current_assets": 0,
+    "tangible_assets": 0, "intangible_assets": 0, "other_fixed_assets": 0,
+    "trade_creditors": 0, "other_current_liabilities": 0, "overdraft": 0,
+    "current_debt": 0, "long_term_debt": 0, "loan_notes": 0,
+    "share_capital": 0, "retained_profit": 0
+  }
+  ```
+  `scripts/deal_export.py` reads this (rather than `financials`'s own raw figures, which this mode
+  never populates) to fill the exported workbook's raw-input cells for whichever labels happen to
+  match, whenever this deal's `financials_source` is `"analyst-supplied"` (see issue #121) — kept
+  as its own separate store rather than nested alongside the framework-computed path's own raw
+  figures, so the two can never be blended or mistaken for each other.
 - Also set a `ratios` object, keyed by the same periods, each holding exactly the values the
   analyst gave you: `dscr`, `gross_leverage`, `net_debt_to_ebitda`, `current_ratio`, `gearing`,
   `ebit_interest_cover`, `ebitda_interest_cover`, `fcf_conversion_pct`.

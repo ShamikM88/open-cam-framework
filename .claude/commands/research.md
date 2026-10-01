@@ -49,6 +49,12 @@ Dynamics, Customer/Supplier Concentration, and Competitive Landscape. Cite the s
 factual claim (company website, filings, a credible public source, or what the user told you
 directly) — never invent a fact about the company, its management, or its market.
 
+**Parent/UBO Support analysis specifically:** follow `agents/underwriter_agent.md`'s Guideline 12
+— trace the *full* ownership chain (not just the immediate parent), capture ownership
+percentages where disclosed, and actively check for any recent ownership change or investment
+rather than only reporting one if it happens to come up. Guideline 12 also covers the judgment
+call on whether this deal needs the full Ultimate Parent template section or just a brief note.
+
 ## Source material
 
 Whenever you download a filing, fetch a web page or industry report, or the user hands you a

@@ -156,7 +156,7 @@ def test_h4_heading_ends_a_wrapped_paragraph(tmp_path):
 def test_seven_hashes_or_no_space_is_not_a_heading(tmp_path):
     doc = _build(tmp_path, "####### Too deep\n\n#hashtag\n")
     assert [p.text for p in doc.paragraphs] == ["####### Too deep", "#hashtag"]
-    assert all(p.style.name != "Heading 3" for p in doc.paragraphs)
+    assert not any(p.style.name.startswith("Heading") for p in doc.paragraphs)
 
 
 def test_bold_in_plain_paragraph_renders_as_a_bold_run(tmp_path):

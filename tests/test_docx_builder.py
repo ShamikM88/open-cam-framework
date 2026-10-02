@@ -238,6 +238,29 @@ def test_json_tagged_fence_is_still_skipped_entirely(tmp_path):
     assert texts == ["RENDER ME"]
 
 
+def test_unterminated_untagged_fence_does_not_swallow_the_trailing_json_block(tmp_path):
+    """Regression guard (found in review of the #113 work): an untagged fence
+    whose closing ``` was forgotten must not be "closed" by the opening line
+    of the Underwriter's trailing ```json block -- that would render the
+    narrative in between as monospace and leak the structured-output JSON
+    body into the client-facing document. A tagged fence line can only open
+    a block, never close one."""
+    markdown = (
+        "Intro.\n"
+        "```\n"
+        "[Borrower] (UK)\n"
+        "Narrative that must stay normal prose.\n"
+        "```json\n"
+        '{"cp_ids_included": []}\n'
+        "```\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert not any("cp_ids_included" in t for t in texts)
+    narrative = next(p for p in doc.paragraphs if "Narrative that must stay normal prose." in p.text)
+    assert narrative.runs[0].font.name != "Consolas"
+
+
 def test_unterminated_fence_does_not_discard_the_rest_of_the_document(tmp_path):
     """A stray/odd ``` (e.g. from truncation) must not silently swallow
     every line through EOF -- only a genuinely closed fence gets skipped."""

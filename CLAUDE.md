@@ -321,7 +321,10 @@ CAM). Any other fenced block (untagged, or tagged anything else) renders as a re
 block instead -- one paragraph per line, Consolas font, whitespace preserved exactly -- see issue
 #113 (the ownership-tree diagram in `agents/underwriter_agent.md`'s Guideline 12 is the first use
 of this). Using ```` ```json ```` for anything you actually want to appear in the document (the
-ownership tree included) would silently delete it.
+ownership tree included) would silently delete it. A tagged fence line only ever *opens* a block,
+never closes one (as in CommonMark) -- so a tree whose closing ```` ``` ```` was forgotten can't be
+"closed" by the trailing ```` ```json ```` block's opening line, which would otherwise render the
+narrative between them as monospace and leak the structured-output JSON into the document.
 
 **Third gotcha, same function:** a standalone `![alt](path)` line embeds that image as its own
 block (see issue #114) -- scaled down, never up, to the page's text width, with `alt` as both its
@@ -333,7 +336,10 @@ missing file, an unsupported type such as SVG, an unreadable image -- never cras
 is never silently dropped: it becomes a visible `[Image not embedded: ...]` placeholder paragraph
 in the document plus a stderr warning, because the Risk Reviewer audits the Markdown (where the
 image line still looks fine), not the exported file, so nothing else would catch a missing chart.
-An image reference must be a line of its own -- inline mid-sentence images aren't supported.
+An image reference must be a line of its own -- inline mid-sentence images aren't supported. The
+path is not restricted to `deals/` (an analyst's own screenshot may live anywhere), but it is
+model-written Markdown text, so an image line pointing outside the deal's `sources/` folder is worth
+a second look in review.
 
 ## Execution scripts
 

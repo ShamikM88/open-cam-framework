@@ -232,6 +232,22 @@ def _add_image(doc, alt, path):
         caption.add_run(alt).italic = True
 
 
+def _find_closing_fence(lines, open_idx):
+    """Index of the bare ``` line that closes the fence opened at
+    `open_idx`, or None if there isn't one. A fence line carrying a tag
+    (```json) can only ever *open* a block, never close one (as in
+    CommonMark): otherwise an unterminated untagged fence -- e.g. an
+    ownership tree whose closing ``` was forgotten -- would be "closed" by
+    the opening line of the Underwriter's trailing ```json block, rendering
+    the narrative in between as monospace and leaking that block's JSON body
+    into the client-facing document.
+    """
+    for k in range(open_idx + 1, len(lines)):
+        if FENCE_RE.match(lines[k]):
+            return None if FENCE_OPEN_RE.match(lines[k]).group(1) else k
+    return None
+
+
 def _is_block_boundary(line):
     """True when `line` starts (or is) a different block -- a heading,
     bullet, table row, horizontal rule, fenced code block, image, or a blank
@@ -265,7 +281,7 @@ def export_to_docx(markdown_text, output_path):
     block is a soft wrap (joined into one continuous paragraph, via
     _is_block_boundary()'s lookahead below), not a paragraph break -- only
     a blank line, or the start of a new block (heading/bullet/numbered
-    item/table row/fence/HR), starts a new one. This means source text
+    item/table row/fence/image/HR), starts a new one. This means source text
     that lists several distinct fields as consecutive plain lines (e.g.
     "**Company:** X\\n**Date:** Y") will render as one run-on paragraph,
     not as separate lines -- authors of Markdown destined for this
@@ -304,11 +320,7 @@ def export_to_docx(markdown_text, output_path):
             # a real fenced block when a real closing fence exists --
             # otherwise treat this line as a lone stray marker and keep
             # processing normally.
-            close_idx = None
-            for k in range(i + 1, n):
-                if FENCE_RE.match(lines[k]):
-                    close_idx = k
-                    break
+            close_idx = _find_closing_fence(lines, i)
             if close_idx is not None:
                 tag_match = FENCE_OPEN_RE.match(line)
                 tag = tag_match.group(1).lower() if tag_match else ""

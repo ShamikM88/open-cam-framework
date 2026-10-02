@@ -157,12 +157,13 @@ client. `--live` additionally needs `ANTHROPIC_API_KEY`.
 A baseline summary records only the *category* of an abort ("call cap", "consecutive errors",
 "interrupted"), never the free-text reason, because that text can embed an API or exception message
 and the file is meant to be copied into a tracked path. It also records, per case, how many runs
-errored, were interrupted, returned no text, or were cut off at `max_tokens`, and the anthropic SDK
-version (but not the endpoint).
+errored, were interrupted, returned no text, ended incomplete, or ended with a refusal stop reason; the
+model the API reports it actually served for each case, beside the requested model; and the anthropic
+SDK version (but not the endpoint).
 
 A comparison first says whether the model, prompt hashes, input hashes, the prompts each live run
 actually assembled, the harness version, the repeat count, the anthropic SDK version, the set of cases
-selected and the dataset content all match (and says plainly when it is **not** like-for-like); each
+selected, the served model and the dataset content all match (and says plainly when it is **not** like-for-like); each
 row also shows errored / truncated / no-text counts, and a partial run (either side) is labelled as
 such. Its regression flag is informational (a drop of 40
 points or more), its threshold is arbitrary until run-to-run variance is known, and it gates nothing.
@@ -204,12 +205,26 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
     in `output_text` and the error names only the exception type); three in a row abort the evaluation;
   - `no_text` -- the model returned no text (for example a refusal): a result in its own right, shown
     as such in the pack and never counted toward the error streak;
-  - `interrupted` -- Ctrl-C arrived while a call was in flight: the call counted against the cap but no
-    model result was observed. (Ctrl-C before any call is in flight records no run at all, because
-    nothing was spent.)
+  - `interrupted` -- Ctrl-C arrived after a call was attempted but before its result was recorded. If
+    the call was still in flight, no model result was observed; if it had completed and Ctrl-C hit
+    during scoring, the output is kept in `output_text` but was never scored. Either way the call is
+    recorded and counted. (Ctrl-C before any call is in flight records no run at all, because nothing
+    was spent.) Ctrl-C while a finished run is being appended to `runs.jsonl` or reported as progress
+    keeps that run in the record and stops the evaluation; a disk-write failure there does the same
+    (`abort_category: "write error"`).
+
+  Separately from `status`, every response has a **stop state**, derived from the API's `stop_reason`:
+  `complete` (`end_turn`, `stop_sequence`), `refusal` (the model declined; any text it returned is
+  still scored, and a refusal is a result in its own right, so it does not make a baseline partial),
+  or `incomplete` (`max_tokens`, the context limit, `pause_turn`, `tool_use`, or any reason this
+  harness does not know: the scored text may be only part of the answer, so the pack flags the row and
+  a baseline containing one is partial).
   The model's reply is read by joining its text blocks, not `content[0].text`, so a leading thinking
   block or an empty refusal does not crash a run. Error strings are defensively scrubbed of the
-  configured API key and anything shaped like one before they are recorded.
+  configured API key and anything shaped like one (the whole message is scrubbed first and only then cut
+  to length, so a key straddling the cut cannot leave a fragment) before they are recorded.
+  The residual window is a *second* Ctrl-C arriving while the first is being handled, which cannot be
+  recovered from; the paid-for runs already in `runs.jsonl` survive it, but `results.json` may not be written.
 - **Progress and interruption.** One line per finished run goes to stderr (case id, repeat, pass/FAIL/
   ERROR, stop reason -- never model text). Ctrl-C stops the run cleanly: the record is still written
   (`abort_category: "interrupted"`), everything already paid for is kept, and the review pack names the

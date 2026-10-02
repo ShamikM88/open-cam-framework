@@ -40,6 +40,7 @@ from eval_report import (
     prepare_run_dir,
     prompt_hashes,
     scripted_run,
+    stop_state,
     write_results,
 )
 from eval_runner import RunnerSetupError
@@ -177,9 +178,12 @@ def run_live_command(dataset, args):
                           ("interrupted", "interrupted")):
         if status in statuses:
             print(f"{statuses.count(status)} run(s) {label} (counted as non-passes).")
-    truncated = sum(1 for c in record["cases"] for r in c["runs"] if r.get("stop_reason") == "max_tokens")
-    if truncated:
-        print(f"{truncated} run(s) were cut off at max_tokens: not necessarily the model's behaviour.")
+    stops = [stop_state(r.get("stop_reason")) for c in record["cases"] for r in c["runs"]]
+    if stops.count("incomplete"):
+        print(f"{stops.count('incomplete')} run(s) ended incomplete (cut off at max_tokens, the context limit, or "
+              "paused): not necessarily the model's behaviour.")
+    if stops.count("refusal"):
+        print(f"{stops.count('refusal')} run(s) ended with a refusal stop reason (scored on any text returned).")
     if record["aborted"]:
         print(f"ABORTED early ({record['abort_category']}): {record['abort_reason']}", file=sys.stderr)
     print(DISCLAIMER)

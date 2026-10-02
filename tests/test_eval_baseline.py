@@ -241,3 +241,51 @@ def test_the_baseline_records_the_sdk_version_and_nothing_about_the_endpoint():
                                                                         "base_url": "https://private.invalid"}))
     assert summary["environment"] == {"anthropic_sdk_version": "1.9.0"}
     assert "private.invalid" not in json.dumps(summary)
+
+# ---------------------------------------------------------------------------
+# Fifth round: stop states and the served model in baselines and comparisons.
+# ---------------------------------------------------------------------------
+
+def test_a_refusal_stop_is_counted_but_does_not_make_a_baseline_partial():
+    record = live_record({"a": (3, 3)})
+    record["cases"][0]["runs"][0]["stop_reason"] = "refusal"
+    summary = export_baseline(record)  # a refusal is a result, not a data-quality problem
+    assert summary["partial"] is False and summary["per_case"][0]["refusals"] == 1
+
+
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "pause_turn", "model_context_window_exceeded", "tool_use"])
+def test_any_incomplete_stop_makes_a_baseline_partial(stop_reason):
+    record = live_record({"a": (3, 3)})
+    record["cases"][0]["runs"][0]["stop_reason"] = stop_reason
+    with pytest.raises(BaselineError, match="ended incomplete"):
+        export_baseline(record)
+    assert export_baseline(record, allow_partial=True)["per_case"][0]["truncated"] == 1
+
+
+def test_the_baseline_records_the_model_the_api_says_it_served_beside_the_requested_one():
+    record = live_record({"a": (2, 2), "b": (1, 1)})
+    for run in record["cases"][0]["runs"]:
+        run["served_model"] = "served-model-1"
+    summary = export_baseline(record)
+    assert summary["served_models_by_case"] == {"a": ["served-model-1"], "b": []}
+    assert summary["models"] == MODELS  # the requested models are still there
+
+
+def test_a_silent_change_of_the_served_model_is_flagged_even_if_the_requested_model_is_unchanged():
+    baseline_record = live_record({"a": (2, 2)})
+    for run in baseline_record["cases"][0]["runs"]:
+        run["served_model"] = "served-model-1"
+    current = live_record({"a": (2, 2)}, run_id="run-2")
+    for run in current["cases"][0]["runs"]:
+        run["served_model"] = "served-model-2"
+    result = compare(export_baseline(baseline_record), current)
+    assert not result["like_for_like"] and any("model the API reports" in m for m in result["mismatches"])
+    # ...and a baseline that never recorded one (or a run with none) is not flagged for lack of data
+    assert compare(export_baseline(live_record({"a": (2, 2)})), current)["like_for_like"]
+
+
+def test_the_comparison_shows_refusal_stops_per_case():
+    baseline = export_baseline(live_record({"a": (5, 5)}))
+    current = live_record({"a": (5, 5)}, run_id="run-2")
+    current["cases"][0]["runs"][0]["stop_reason"] = "refusal"
+    assert "now: 1 refusal-stop" in render_comparison(compare(baseline, current))

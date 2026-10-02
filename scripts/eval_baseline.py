@@ -17,7 +17,7 @@ No `anthropic` dependency and no I/O beyond reading the JSON files it is handed.
 import json
 from datetime import datetime, timezone
 
-from eval_report import DISCLAIMER, HARNESS_VERSION, pass_rate
+from eval_report import DISCLAIMER, HARNESS_VERSION, pass_rate, stop_state
 
 BASELINE_KIND = "evaluation-baseline-summary"
 REGRESSION_DROP = 0.4  # informational: an observed pass-rate drop of 40 points or more
@@ -45,14 +45,14 @@ def partial_reasons(record):
         reasons.append(f"the run was aborted early ({record.get('abort_category') or 'unknown'})")
     errored = sum(1 for r in runs if r.get("status") == "error")
     interrupted = sum(1 for r in runs if r.get("status") == "interrupted")
-    truncated = sum(1 for r in runs if r.get("stop_reason") == "max_tokens")
+    truncated = sum(1 for r in runs if stop_state(r.get("stop_reason")) == "incomplete")
     short = sum(1 for c in record["cases"] if c.get("runs_planned") and len(c["runs"]) < c["runs_planned"])
     if errored:
         reasons.append(f"{errored} run(s) errored")
     if interrupted:
         reasons.append(f"{interrupted} run(s) interrupted")
     if truncated:
-        reasons.append(f"{truncated} run(s) were cut off at max_tokens")
+        reasons.append(f"{truncated} run(s) ended incomplete (cut off at max_tokens, the context limit, or paused)")
     if short:
         reasons.append(f"{short} case(s) have fewer runs than planned")
     return reasons
@@ -71,7 +71,8 @@ def export_baseline(record, allow_partial=False):
 def _health(case):
     """Short text for a per-case row: only the non-zero counts of runs that are not clean passes/fails."""
     bits = [(case.get("errored"), "err"), (case.get("interrupted"), "interrupted"),
-            (case.get("truncated"), "truncated"), (case.get("no_text"), "no-text")]
+            (case.get("truncated"), "truncated"), (case.get("no_text"), "no-text"),
+            (case.get("refusals"), "refusal-stop")]
     return ", ".join(f"{n} {label}" for n, label in bits if n)
 
 
@@ -88,7 +89,8 @@ def _export_baseline(record, allow_partial=False):
                          "errored": sum(1 for r in runs if r.get("status") == "error"),
                          "interrupted": sum(1 for r in runs if r.get("status") == "interrupted"),
                          "no_text": sum(1 for r in runs if r.get("status") == "no_text"),
-                         "truncated": sum(1 for r in runs if r.get("stop_reason") == "max_tokens"),
+                         "truncated": sum(1 for r in runs if stop_state(r.get("stop_reason")) == "incomplete"),
+                         "refusals": sum(1 for r in runs if stop_state(r.get("stop_reason")) == "refusal"),
                          "runs_planned": case.get("runs_planned", rate["total"])})
         bucket = per_category.setdefault(case["category"], {"passed": 0, "total": 0})
         bucket["passed"] += rate["passed"]
@@ -120,6 +122,11 @@ def _export_baseline(record, allow_partial=False):
         # context, the policy engine) is invisible to the file hashes but changes these.
         "prompt_hashes_by_case": {
             c["id"]: sorted({r["prompt_hash"] for r in c["runs"] if r.get("prompt_hash")})
+            for c in record["cases"]},
+        # The model the API reports it actually used, beside the requested one in `models`: a silent
+        # alias change would otherwise be invisible.
+        "served_models_by_case": {
+            c["id"]: sorted({r["served_model"] for r in c["runs"] if r.get("served_model")})
             for c in record["cases"]},
         "selected_case_ids": record.get("selected_case_ids", [c["id"] for c in record["cases"]]),
         "per_case": per_case,
@@ -168,6 +175,13 @@ def _compare(baseline, record):
     if changed_prompts:
         mismatches.append(f"the assembled prompts for {len(changed_prompts)} case(s) "
                           "(the code that builds them changed)")
+    base_served = baseline.get("served_models_by_case") or {}
+    changed_served = sorted(
+        case_id for case_id, served in current["served_models_by_case"].items()
+        if served and base_served.get(case_id) and base_served[case_id] != served)
+    if changed_served:
+        mismatches.append(f"the model the API reports it served for {len(changed_served)} case(s) "
+                          "(the requested model may be unchanged)")
     rows = []
     by_id = {c["id"]: c for c in current["per_case"]}
     for base in baseline["per_case"]:

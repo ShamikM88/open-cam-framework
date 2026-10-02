@@ -335,7 +335,7 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     except SystemExit as exc:  # run_pipeline() exits on a REJECTED verdict; the runner stops it first,
         error = f"SystemExit: the pipeline exited unexpectedly (code {exc.code})"  # so this is an anomaly
     except Exception as exc:  # noqa: BLE001 - an API or runner failure is a recorded, non-passing run
-        error = redact(f"{type(exc).__name__}: {str(exc)[:300]}")
+        error = redact(f"{type(exc).__name__}: {exc}")[:300]  # redact the WHOLE message, then cut it
     finally:
         os.chdir(original)
         if not keep_work:
@@ -376,6 +376,10 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             excerpt = f"verdict: {verdict} (parsed from the response: {output.verdict_parsed})\n{raw}"
         results = evaluate_case(case, output, ctx)
         return live_run(label, results, excerpt, extra=extra, output_text=raw)
+    except KeyboardInterrupt:  # the call finished and was paid for; keep its output, say it was not scored
+        return live_run(label, [], status="interrupted", extra=extra, output_text=raw,
+                        error="interrupted (Ctrl-C) after the model call completed; the output is kept but was "
+                              "not scored")
     except Exception as exc:  # noqa: BLE001 - a paid-for output must survive a scoring bug
         # The error text names the exception type only (its message could quote model output); the whole
         # output is kept in output_text so nothing paid for is lost and a person can still read it.
@@ -419,11 +423,20 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
                 aborted, abort_category = True, "interrupted"
                 abort_reason = "interrupted by the operator (Ctrl-C)"
                 break
-            runs.append(run)
-            append_run_line(run_dir, case["id"], run)
-            done += 1
-            if progress is not None:
-                progress(done, total_runs, case["id"], run)
+            runs.append(run)  # in the in-memory record before anything below can fail
+            try:
+                append_run_line(run_dir, case["id"], run)
+                done += 1
+                if progress is not None:
+                    progress(done, total_runs, case["id"], run)
+            except KeyboardInterrupt:
+                aborted, abort_category = True, "interrupted"
+                abort_reason = "interrupted by the operator (Ctrl-C) while a finished run was being recorded"
+                break
+            except OSError as exc:  # e.g. disk full: stop, and keep what is in memory
+                aborted, abort_category = True, "write error"
+                abort_reason = f"could not append to runs.jsonl ({type(exc).__name__}); stopped so no paid-for run is lost"
+                break
             if run["status"] == "interrupted":   # Ctrl-C while a call was in flight: recorded, then stop
                 aborted, abort_category = True, "interrupted"
                 abort_reason = "interrupted by the operator (Ctrl-C) while a model call was in flight"

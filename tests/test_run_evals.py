@@ -596,3 +596,38 @@ def test_the_review_pack_labels_refusals_interruptions_and_the_environment(monke
     (run_dir,) = list(tmp_path.iterdir())
     pack = (run_dir / "review_pack.md").read_text(encoding="utf-8")
     assert "NO TEXT (`refusal`)" in pack and "- Environment: anthropic SDK " in pack
+
+# ---------------------------------------------------------------------------
+# Fifth round: the CLI summary names refusals, no-text runs and incomplete stops.
+# ---------------------------------------------------------------------------
+
+def test_the_cli_summary_reports_no_text_incomplete_and_refusal_stops(monkeypatch, tmp_path, capsys):
+    from eval_fakes import FakeClient, dataset_case, good_maker_text
+    case = dataset_case("fab-no-financials")
+    stops = iter(["refusal", "max_tokens", "end_turn"])
+
+    class Scripted(FakeClient):
+        def _create(self, **kwargs):
+            response = super()._create(**kwargs)
+            response.stop_reason = next(stops)
+            return response
+
+    monkeypatch.setattr(run_evals, "make_client", lambda: Scripted(lambda kw: good_maker_text(case)))
+    run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "3", "--yes", "--out", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert "1 run(s) ended incomplete" in out and "1 run(s) ended with a refusal stop reason" in out
+
+
+def test_the_cli_summary_reports_runs_that_returned_no_text(monkeypatch, tmp_path, capsys):
+    from eval_fakes import FakeClient
+
+    class Empty(FakeClient):
+        def _create(self, **kwargs):
+            response = super()._create(**kwargs)
+            response.content = []
+            response.stop_reason = "refusal"
+            return response
+
+    monkeypatch.setattr(run_evals, "make_client", lambda: Empty(lambda kw: ""))
+    run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "2", "--yes", "--out", str(tmp_path)])
+    assert "2 run(s) returned no text (e.g. a refusal)" in capsys.readouterr().out

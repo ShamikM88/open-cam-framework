@@ -85,6 +85,21 @@ def scripted_run(label, results, output_excerpt="", expected_pass=None):
             "expected_pass": expected_pass, "status": "ok", "output_excerpt": clip(output_excerpt)}
 
 
+COMPLETE_STOPS = (None, "end_turn", "stop_sequence")
+
+
+def stop_state(stop_reason):
+    """How a live response ended: "complete" (the model finished), "refusal" (the API says it declined;
+    any text it did return is still scored, and a refusal is a result in its own right) or "incomplete"
+    (cut off or paused -- max_tokens, the context limit, pause_turn, tool_use, or any reason this harness
+    does not know -- so the scored text may be only part of what the model would have said)."""
+    if stop_reason in COMPLETE_STOPS:
+        return "complete"
+    if stop_reason == "refusal":
+        return "refusal"
+    return "incomplete"
+
+
 def live_run(label, results, output_excerpt="", status="ok", error=None, extra=None, output_text=None):
     """A run record for a live (model) output. A run that errored (status != "ok")
     is never a pass, and still counts in the pass-rate denominator. `extra` carries
@@ -232,8 +247,14 @@ def _row_result(run):
     if run.get("status", "ok") != "ok":
         return f"ERROR {_cell(run.get('error') or run['status'])}"
     outcome = "pass" if run["passed"] else "FAIL"
+    state = stop_state(run.get("stop_reason"))
     if run.get("stop_reason") == "max_tokens":
         outcome += " (OUTPUT TRUNCATED at max_tokens -- not necessarily the model's behaviour)"
+    elif state == "incomplete":
+        outcome += (f" (OUTPUT INCOMPLETE: stop_reason {_cell(run.get('stop_reason'))} -- the text scored may be "
+                    "only part of the answer; not necessarily the model's behaviour)")
+    elif state == "refusal":
+        outcome += " (REFUSAL stop reason: the model declined; scored on the text it did return)"
     return outcome
 
 

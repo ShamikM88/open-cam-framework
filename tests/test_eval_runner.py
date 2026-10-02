@@ -815,3 +815,151 @@ def test_prepare_run_dir_refuses_to_reuse_an_existing_run_id(tmp_path):
     with pytest.raises(ResultsPathError, match="already exists"):
         prepare_run_dir("20260101T000000Z", out_root=str(tmp_path))
     assert os.path.isfile(os.path.join(first, "runs.jsonl"))  # the earlier run is untouched
+
+# ---------------------------------------------------------------------------
+# Fifth round: Ctrl-C after a paid call, write failures, refusal/incomplete stop states, redaction order.
+# ---------------------------------------------------------------------------
+
+def test_ctrl_c_during_scoring_keeps_the_paid_output_and_is_recorded_as_interrupted(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+
+    def interrupted_oracle(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(eval_runner, "evaluate_case", interrupted_oracle)
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    assert run["status"] == "interrupted" and not run["passed"] and budget.calls == 1
+    assert run["output_text"] == good_maker_text(case) and run["live_calls"] == 1
+    assert "after the model call completed" in run["error"] and "not scored" in run["error"]
+
+
+def test_ctrl_c_during_scoring_inside_a_run_stops_it_with_the_accounting_intact(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    real = eval_runner.evaluate_case
+    calls = {"n": 0}
+
+    def sometimes_interrupted(case, output, ctx):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return real(case, output, ctx)
+
+    monkeypatch.setattr(eval_runner, "evaluate_case", sometimes_interrupted)
+    record = run_live(dataset, cases, 5, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"])
+    runs = record["cases"][0]["runs"]
+    assert [r["status"] for r in runs] == ["ok", "interrupted"] and record["abort_category"] == "interrupted"
+    assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 2
+
+
+def test_ctrl_c_in_the_progress_callback_keeps_the_finished_run_and_returns_a_record(env):
+    dataset, cases = _dataset("fab-no-financials")
+    seen = {"n": 0}
+
+    def progress(done, total, case_id, run):
+        seen["n"] += 1
+        if seen["n"] == 2:
+            raise KeyboardInterrupt
+
+    record = run_live(dataset, cases, 5, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"], progress=progress)
+    runs = record["cases"][0]["runs"]
+    assert len(runs) == 2 and record["aborted"] and record["abort_category"] == "interrupted"
+    assert "while a finished run was being recorded" in record["abort_reason"]
+    assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 2
+
+
+def test_ctrl_c_while_appending_to_runs_jsonl_keeps_the_run_in_the_record(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+
+    def interrupted_append(run_dir, case_id, run):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(eval_runner, "append_run_line", interrupted_append)
+    record = run_live(dataset, cases, 3, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"])
+    assert len(record["cases"][0]["runs"]) == 1 and record["abort_category"] == "interrupted"
+    assert record["usage"]["calls"] == 1
+
+
+def test_a_write_failure_stops_the_evaluation_but_keeps_every_paid_run_in_the_record(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    real = eval_runner.append_run_line
+    calls = {"n": 0}
+
+    def failing_append(run_dir, case_id, run):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError(28, "No space left on device")
+        return real(run_dir, case_id, run)
+
+    monkeypatch.setattr(eval_runner, "append_run_line", failing_append)
+    record = run_live(dataset, cases, 5, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"])
+    runs = record["cases"][0]["runs"]
+    assert len(runs) == 2 and record["aborted"] and record["abort_category"] == "write error"
+    assert "OSError" in record["abort_reason"] and "No space" not in record["abort_reason"]
+    assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 2
+
+
+def test_a_key_straddling_the_300_character_cut_is_not_left_as_a_fragment(env, monkeypatch):
+    key = "an-odd-shaped-key-ABCDEFGHIJ0123456789"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    case = dataset_case("fab-no-financials")
+
+    def respond(kwargs):
+        raise RuntimeError("x" * 270 + key + " tail")  # the key would be cut mid-way by a naive [:300]
+
+    run, _ = one_run(env, case, FakeClient(respond))
+    assert key[:6] not in run["error"] and len(run["error"]) <= 300 and "[REDACTED]" in run["error"]
+
+
+def test_whitespace_only_text_is_a_no_text_outcome(env):
+    case = dataset_case("fab-no-financials")
+    run, _ = one_run(env, case, ShapedClient(lambda kwargs: _resp([_block("  \n\t ")])))
+    assert run["status"] == "no_text"
+
+
+@pytest.mark.parametrize("stop_reason, state", [
+    ("end_turn", "complete"), ("stop_sequence", "complete"), (None, "complete"), ("refusal", "refusal"),
+    ("max_tokens", "incomplete"), ("pause_turn", "incomplete"), ("model_context_window_exceeded", "incomplete"),
+    ("tool_use", "incomplete"), ("some_future_reason", "incomplete"),
+])
+def test_stop_state_classifies_how_a_response_ended(stop_reason, state):
+    from eval_report import stop_state
+    assert stop_state(stop_reason) == state
+
+
+def test_a_refusal_stop_with_text_is_scored_on_its_text_but_recorded_as_a_refusal(env):
+    case = dataset_case("fab-no-financials")
+    client = ShapedClient(lambda kwargs: _resp([_block(good_maker_text(case))], stop_reason="refusal"))
+    run, _ = one_run(env, case, client)
+    assert run["status"] == "ok" and run["stop_reason"] == "refusal" and run["passed"]
+    from eval_report import _row_result
+    assert "REFUSAL stop reason" in _row_result(run) and "scored on the text it did return" in _row_result(run)
+
+
+@pytest.mark.parametrize("stop_reason", ["pause_turn", "model_context_window_exceeded"])
+def test_a_paused_or_context_limited_response_is_flagged_incomplete(env, stop_reason):
+    case = dataset_case("fab-no-financials")
+    client = ShapedClient(lambda kwargs: _resp([_block(good_maker_text(case))], stop_reason=stop_reason))
+    run, _ = one_run(env, case, client)
+    from eval_report import _row_result
+    assert run["status"] == "ok" and f"OUTPUT INCOMPLETE: stop_reason `{stop_reason}`" in _row_result(run)
+
+
+def test_a_run_dir_that_already_holds_paid_results_is_never_removed_after_a_crash(monkeypatch, tmp_path):
+    import run_evals
+    from eval_fakes import FakeClient
+    monkeypatch.setattr(run_evals, "make_client", lambda: FakeClient(lambda kw: ""))
+
+    def crash_after_writing(dataset, cases, repeats, max_calls, run_dir, client, **kwargs):
+        with open(os.path.join(run_dir, "runs.jsonl"), "w", encoding="utf-8") as f:
+            f.write('{"paid": "for"}\n')
+        raise RuntimeError("unexpected crash")
+
+    monkeypatch.setattr(eval_runner, "run_live", crash_after_writing)
+    with pytest.raises(RuntimeError, match="unexpected crash"):
+        run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "1", "--yes", "--out", str(tmp_path)])
+    (run_dir,) = list(tmp_path.iterdir())
+    assert (run_dir / "runs.jsonl").read_text(encoding="utf-8") == '{"paid": "for"}\n'

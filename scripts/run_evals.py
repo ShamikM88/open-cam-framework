@@ -11,7 +11,9 @@ them or by orchestrator.py.
                                  with YOUR ANTHROPIC_API_KEY. Prints the plan first, refuses one
                                  over the call cap, and asks for confirmation (unless --yes)
   --export-baseline RESULTS      summarise a live results.json into baseline_summary.json (no
-                                 model text) next to it; you copy it into evals/baselines/ by hand
+                                 model text) next to it; you copy it into evals/baselines/ by hand.
+                                 Refuses a partial run (aborted / errored / truncated) unless
+                                 --allow-partial
   --compare BASELINE RESULTS     line a live run up against a committed baseline
 
 `--live` spends real money: at most --max-calls calls (default 80, never above 250), one per
@@ -23,6 +25,7 @@ its judgement; see evals/README.md.
 import argparse
 import os
 import sys
+import tempfile
 
 import eval_budget
 from eval_baseline import BaselineError
@@ -44,7 +47,9 @@ from eval_runner import RunnerSetupError
 
 def _progress_line(done, total, case_id, run):
     """One line per finished run on stderr: ids and statuses only, never model text."""
-    outcome = ("ERROR" if run.get("status", "ok") != "ok" else "pass" if run["passed"] else "FAIL")
+    status = run.get("status", "ok")
+    outcome = {"error": "ERROR", "no_text": "NO-TEXT", "interrupted": "INTERRUPTED"}.get(
+        status, "pass" if run["passed"] else "FAIL")
     detail = f" [{run['stop_reason']}]" if run.get("stop_reason") else ""
     print(f"[{done}/{total}] {case_id} {run['label']}: {outcome}{detail}", file=sys.stderr, flush=True)
 
@@ -105,12 +110,41 @@ def _select_cases(dataset, wanted):
     return [known[i] for i in dict.fromkeys(ids)]
 
 
+def _print_plan_details(selected, repeats):
+    """What 'yes' will actually spend it on: the models, the output-token limits, the endpoint. Read from
+    an isolated copy of the same files a run uses; makes no call and needs no key."""
+    import eval_runner
+    with tempfile.TemporaryDirectory() as scratch:
+        models = eval_runner.describe_inputs(eval_runner.REPO_ROOT, scratch)["models"]
+    makers = sum(1 for c in selected if c["mode"] == "maker")
+    checkers = len(selected) - makers
+    print(f"  Maker cases ({makers}): model {models['maker_model']}, temperature {models['maker_temperature']}, "
+          f"max_tokens {eval_runner.MAKER_MAX_TOKENS}")
+    print(f"  Checker cases ({checkers}): model {models['checker_model']}, temperature "
+          f"{models['checker_temperature']}, max_tokens {eval_runner.CHECKER_MAX_TOKENS}")
+    bound = repeats * (makers * eval_runner.MAKER_MAX_TOKENS + checkers * eval_runner.CHECKER_MAX_TOKENS)
+    print(f"  Output is bounded at {bound} tokens in total (calls x max_tokens). Input size is not bounded "
+          "here: it depends on each case's prompt.")
+    print(f"  Requests go to {eval_runner.effective_base_url()} "
+          f"(anthropic SDK {eval_runner.sdk_version() or 'not installed'}).")
+
+
+def _remove_empty_run_dir(run_dir):
+    """A run that failed before anything was written leaves no empty directory behind."""
+    for path in (os.path.join(run_dir, "work"), run_dir):
+        try:
+            os.rmdir(path)  # only succeeds when empty
+        except OSError:
+            pass
+
+
 def run_live_command(dataset, args):
     selected = _select_cases(dataset, args.cases)
     planned = eval_budget.planned_calls(len(selected), args.repeats)
     print(f"Plan: {len(selected)} cases x {args.repeats} repeats = {planned} LIVE model calls "
           f"(cap {args.max_calls}, absolute ceiling {eval_budget.ABSOLUTE_MAX_CALLS}), one per case per repeat.")
     eval_budget.check_plan(planned, args.max_calls)  # refused here, before any key is touched
+    _print_plan_details(selected, args.repeats)
 
     if not args.yes:
         try:
@@ -125,8 +159,12 @@ def run_live_command(dataset, args):
     import eval_runner
     client = make_client()
     run_dir = prepare_run_dir(new_run_id(), out_root=args.out)
-    record = eval_runner.run_live(dataset, selected, args.repeats, args.max_calls, run_dir, client,
-                                  keep_work=args.keep_work, progress=_progress_line)
+    try:
+        record = eval_runner.run_live(dataset, selected, args.repeats, args.max_calls, run_dir, client,
+                                      keep_work=args.keep_work, progress=_progress_line)
+    except BaseException:
+        _remove_empty_run_dir(run_dir)
+        raise
     out_dir = write_results(record, out_root=args.out)
 
     print(f"Model calls made: {record['usage']['calls']} of a planned {planned} "
@@ -134,9 +172,14 @@ def run_live_command(dataset, args):
     print("Observed pass rates (live runs; k passed / n runs):")
     for category, rate in sorted(record["summary"]["observed_pass_rate_by_category"].items()):
         print(f"  {category:22} {rate['passed']} / {rate['total']}")
-    errored = sum(1 for c in record["cases"] for r in c["runs"] if r.get("status", "ok") != "ok")
-    if errored:
-        print(f"{errored} run(s) errored (counted as non-passes).")
+    statuses = [r.get("status", "ok") for c in record["cases"] for r in c["runs"]]
+    for status, label in (("error", "errored"), ("no_text", "returned no text (e.g. a refusal)"),
+                          ("interrupted", "interrupted")):
+        if status in statuses:
+            print(f"{statuses.count(status)} run(s) {label} (counted as non-passes).")
+    truncated = sum(1 for c in record["cases"] for r in c["runs"] if r.get("stop_reason") == "max_tokens")
+    if truncated:
+        print(f"{truncated} run(s) were cut off at max_tokens: not necessarily the model's behaviour.")
     if record["aborted"]:
         print(f"ABORTED early ({record['abort_category']}): {record['abort_reason']}", file=sys.stderr)
     print(DISCLAIMER)
@@ -145,10 +188,10 @@ def run_live_command(dataset, args):
     return 1 if record["aborted"] else 0
 
 
-def export_baseline_command(results_path):
+def export_baseline_command(results_path, allow_partial=False):
     import eval_baseline
     record = eval_baseline.load_json(results_path)
-    summary = eval_baseline.export_baseline(record)
+    summary = eval_baseline.export_baseline(record, allow_partial=allow_partial)
     out_dir = os.path.dirname(os.path.abspath(results_path))
     assert_results_dir_is_ignored(out_dir, probe_names=("baseline_summary.json",))
     target = os.path.join(out_dir, "baseline_summary.json")
@@ -158,6 +201,9 @@ def export_baseline_command(results_path):
     with open(target, "x", encoding="utf-8") as f:  # "x": never overwrite, even if it appears after the check
         json.dump(summary, f, indent=2, ensure_ascii=False)
         f.write("\n")
+    if summary["partial"]:
+        print("WARNING: this baseline is PARTIAL (" + "; ".join(summary["partial_reasons"]) + "). It is marked as "
+              "such in the file; do not adopt it as the reference unless you accept that.", file=sys.stderr)
     print(f"Wrote {target}\nIt holds pass rates, hashes and the model -- no model text. To adopt it as a "
           "baseline, copy it by hand to evals/baselines/ and commit it in its own reviewed PR; this "
           "harness never writes a tracked file.")
@@ -188,6 +234,9 @@ def main(argv=None):
                         help="with --live: keep each run's isolated working directory (inside the results dir)")
     parser.add_argument("--export-baseline", metavar="RESULTS_JSON", default=None,
                         help="summarise a live results.json into baseline_summary.json (no model text)")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="with --export-baseline: export even a partial run (aborted, errored, interrupted "
+                             "or truncated); the summary is marked partial")
     parser.add_argument("--compare", nargs=2, metavar=("BASELINE_JSON", "RESULTS_JSON"), default=None,
                         help="compare a live results.json against a baseline summary")
     parser.add_argument("--repeats", type=int, default=eval_budget.DEFAULT_REPEATS,
@@ -207,6 +256,8 @@ def main(argv=None):
         print("Nothing to do. Use --validate, --list, --dry-run, --live, --export-baseline or --compare.",
               file=sys.stderr)
         return 2
+    if args.allow_partial and not args.export_baseline:
+        parser.error("--allow-partial only applies to --export-baseline")
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
     if args.max_calls < 1:
@@ -214,7 +265,7 @@ def main(argv=None):
 
     try:
         if args.export_baseline:
-            return export_baseline_command(args.export_baseline)
+            return export_baseline_command(args.export_baseline, allow_partial=args.allow_partial)
         if args.compare:
             return compare_command(*args.compare)
     except (BaselineError, ResultsPathError, FileExistsError) as exc:  # a bad file/guard: clean error, no traceback

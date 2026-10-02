@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 from eval_oracles import run_passed
 
-HARNESS_VERSION = "0.2-pr2"
+HARNESS_VERSION = "0.3-pr2"
 RESULTS_ROOT = os.path.join("evals", "results")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCERPT_LIMIT = 24000  # chars: a Maker's max_tokens=4000 is ~16k characters
@@ -128,7 +128,7 @@ def summarize(cases):
 
 def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned_live_calls=0,
                  usage=None, call_cap=None, input_hashes=None, repeats=None, aborted=False, abort_reason=None,
-                 abort_category=None):
+                 abort_category=None, environment=None):
     return {
         "harness_version": HARNESS_VERSION,
         "run_id": run_id,
@@ -143,6 +143,7 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
         "aborted": aborted,
         "abort_reason": abort_reason,
         "abort_category": abort_category,
+        "environment": environment or {},
         "planned_live_calls": planned_live_calls,
         "call_cap": call_cap,
         "usage": usage or {"calls": 0, "input_tokens": 0, "output_tokens": 0},
@@ -212,6 +213,8 @@ def _run_details(run):
     bits = [f"{run.get('input_tokens', 0)} in / {run.get('output_tokens', 0)} out"]
     if run.get("stop_reason"):
         bits.append(str(run["stop_reason"]))
+    if run.get("served_model") and run.get("model") and run["served_model"] != run["model"]:
+        bits.append(f"served as {run['served_model']}")
     return ", " + ", ".join(bits)
 
 
@@ -220,6 +223,12 @@ def _row_result(run):
         if run["passed"] == run["expected_pass"]:
             return "pass" if run["passed"] else "caught (expected)"
         return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
+    if run.get("status") == "interrupted":
+        return ("INTERRUPTED -- the call was in flight when the operator pressed Ctrl-C; it counted against the "
+                "cap but produced no result (counted as a non-pass)")
+    if run.get("status") == "no_text":
+        return (f"NO TEXT ({_cell(run.get('stop_reason') or 'no stop reason')}) -- the model returned no text, "
+                "e.g. a refusal; read it as its own outcome, counted as a non-pass")
     if run.get("status", "ok") != "ok":
         return f"ERROR {_cell(run.get('error') or run['status'])}"
     outcome = "pass" if run["passed"] else "FAIL"
@@ -240,6 +249,9 @@ def render_review_pack(record):
         f"checker {_cell(record['models'].get('checker_model'))}",
         f"- Prompt hashes: {_cell(json.dumps(record['prompt_hashes']), limit=400)}",
         f"- Harness version: {record['harness_version']}",
+        *([f"- Environment: anthropic SDK {_cell(record['environment'].get('anthropic_sdk_version'))}, "
+           f"base URL {_cell(record['environment'].get('base_url'))}"]
+          if record.get("environment") else []),
         f"- Model calls: {record['usage']['calls']} made (planned for a live run: {record['planned_live_calls']}, "
         f"cap: {record['call_cap']})",
         *([f"- **ABORTED EARLY ({record.get('abort_category') or 'unknown'}):** "

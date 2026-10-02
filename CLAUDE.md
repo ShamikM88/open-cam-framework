@@ -609,9 +609,16 @@ a second look in review.
   `config/settings.json`, `templates/cam/` only -- never `templates/local/`) and runs serially because it
   `chdir`s; the live client is a `BudgetedClient` with `max_retries=0` that wraps only the live client;
   each finished run is appended to `runs.jsonl` immediately; a run that errors stays in the pass-rate
-  denominator, and three errors in a row abort (Ctrl-C also yields a written, `interrupted` record; the
-  per-run `stop_reason`/token counts are recorded, truncation at `max_tokens` is flagged in the pack, and a
-  baseline keeps only an abort *category*, never the free-text reason). Three result types are kept apart: **deterministic
+  denominator, and three errors in a row abort. Every non-`ok` run status (`error`, including a scoring
+  failure after a paid-for call, whose output is still kept; `no_text`, e.g. a refusal; `interrupted`, a
+  call in flight at Ctrl-C) is a recorded non-pass, so per-run call counts always sum to the budget; the
+  reply is read by joining text blocks, error strings are scrubbed of the API key, and the per-run
+  `stop_reason`/token counts/served model are recorded, with truncation at `max_tokens` flagged in the
+  pack. The plan shows the models, `max_tokens`, output-token bound and endpoint before the `yes`, and the
+  runner refuses an installed `anthropic` older than `requirements.txt`'s floor (the installed version is
+  recorded). A baseline keeps only an abort *category* (never the free-text reason), and
+  `--export-baseline` **refuses a partial run** (aborted, errored, interrupted, truncated or incomplete)
+  unless `--allow-partial`, which marks the file `partial`. Three result types are kept apart: **deterministic
   oracle results** (an assertion marked `"scored": false` is an observation that never counts toward
   pass/fail), **observed pass rates** over repeated live runs (never described as "proven safe"), and
   **human-review observations** (no pass/fail). **Most oracles are format / self-declaration checks, not

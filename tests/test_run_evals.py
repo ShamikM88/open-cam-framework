@@ -407,8 +407,10 @@ def test_ctrl_c_still_writes_the_record_and_exits_non_zero(monkeypatch, tmp_path
     code = run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "4", "--yes", "--out", str(tmp_path)])
     assert code == 1 and "ABORTED early (interrupted)" in capsys.readouterr().err
     (run_dir,) = list(tmp_path.iterdir())
+    pack = (run_dir / "review_pack.md").read_text(encoding="utf-8")
+    assert "INTERRUPTED -- the call was in flight" in pack and "ABORTED EARLY (interrupted)" in pack
     record = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
-    assert record["aborted"] and record["abort_category"] == "interrupted" and len(record["cases"][0]["runs"]) == 1
+    assert record["aborted"] and record["abort_category"] == "interrupted" and len(record["cases"][0]["runs"]) == 2
 
 
 def test_an_aborted_pack_says_so_and_lists_the_unreached_cases(monkeypatch, tmp_path):
@@ -482,3 +484,115 @@ def test_the_baseline_file_is_opened_exclusively_even_if_it_appears_after_the_ex
     code = run_evals.main(["--export-baseline", str(results)])
     assert code == 1 and "File exists" in capsys.readouterr().err  # a clean error, not a traceback
     assert target.read_text(encoding="utf-8") == "{}"
+
+# ---------------------------------------------------------------------------
+# Fourth review round: plan visibility, partial-export CLI, empty run dir cleanup, statuses in output.
+# ---------------------------------------------------------------------------
+
+def test_the_plan_shows_models_token_limits_and_endpoint_before_asking_for_confirmation(monkeypatch, tmp_path, capsys):
+    import eval_runner
+    _forbid_client(monkeypatch)
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://user:secretpw@proxy.invalid/v1")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "no")
+    code = run_evals.main(["--live", "--cases", "fab-no-financials,fab-single-period,chk-clean-control",
+                           "--repeats", "2", "--out", str(tmp_path)])
+    out = capsys.readouterr().out
+    assert code == 2 and list(tmp_path.iterdir()) == []
+    assert "Maker cases (2): model " in out and f"max_tokens {eval_runner.MAKER_MAX_TOKENS}" in out
+    assert "Checker cases (1): model " in out and f"max_tokens {eval_runner.CHECKER_MAX_TOKENS}" in out
+    expected_bound = 2 * (2 * eval_runner.MAKER_MAX_TOKENS + eval_runner.CHECKER_MAX_TOKENS)
+    assert f"Output is bounded at {expected_bound} tokens" in out
+    assert "https://proxy.invalid/v1" in out and "secretpw" not in out
+
+
+def test_the_plan_names_the_checker_model_that_a_real_run_would_use(monkeypatch, tmp_path, capsys):
+    import json as _json
+    _forbid_client(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "no")
+    run_evals.main(["--live", "--cases", "chk-clean-control", "--repeats", "1", "--out", str(tmp_path)])
+    settings = _json.loads((REPO_ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
+    out = capsys.readouterr().out
+    assert settings.get("checker_model", settings["maker_model"]) in out
+
+
+def test_a_setup_failure_leaves_no_empty_run_directory_behind(monkeypatch, tmp_path, capsys):
+    import eval_runner
+    from eval_fakes import FakeClient
+    monkeypatch.setattr(run_evals, "make_client", lambda: FakeClient(lambda kw: ""))
+
+    def fail(*args, **kwargs):
+        raise eval_runner.RunnerSetupError("settings missing")
+
+    monkeypatch.setattr(eval_runner, "run_live", fail)
+    code = run_evals.main([*LIVE, "--out", str(tmp_path)])
+    assert code == 2 and "settings missing" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_progress_lines_name_the_distinct_statuses(capsys):
+    run_evals._progress_line(1, 4, "c", {"label": "r1", "status": "no_text", "passed": False,
+                                         "stop_reason": "refusal"})
+    run_evals._progress_line(2, 4, "c", {"label": "r2", "status": "interrupted", "passed": False})
+    run_evals._progress_line(3, 4, "c", {"label": "r3", "status": "error", "passed": False})
+    err = capsys.readouterr().err
+    assert "r1: NO-TEXT [refusal]" in err and "r2: INTERRUPTED" in err and "r3: ERROR" in err
+
+
+def test_export_baseline_refuses_a_partial_run_on_the_command_line_unless_allowed(monkeypatch, tmp_path, capsys):
+    from eval_fakes import dataset_case
+    _fake_client_factory(monkeypatch, lambda kw: (_ for _ in ()).throw(RuntimeError("down")))
+    out = tmp_path / "a"
+    run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "3", "--yes", "--out", str(out)])
+    (run_dir,) = list(out.iterdir())
+    results = run_dir / "results.json"
+    capsys.readouterr()
+    assert run_evals.main(["--export-baseline", str(results)]) == 1
+    err = capsys.readouterr().err
+    assert "refusing to export a partial baseline" in err and not (run_dir / "baseline_summary.json").exists()
+    assert dataset_case("fab-no-financials")["id"]  # (dataset still loads; nothing above touched it)
+
+
+def test_allow_partial_exports_a_marked_baseline_with_a_loud_warning(monkeypatch, tmp_path, capsys):
+    calls = {"n": 0}
+
+    def respond(kw):
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("down")
+        from eval_fakes import dataset_case, good_maker_text
+        return good_maker_text(dataset_case("fab-no-financials"))
+
+    _fake_client_factory(monkeypatch, respond)
+    out = tmp_path / "a"
+    run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "3", "--yes", "--out", str(out)])
+    (run_dir,) = list(out.iterdir())
+    capsys.readouterr()
+    assert run_evals.main(["--export-baseline", str(run_dir / "results.json"), "--allow-partial"]) == 0
+    assert "WARNING: this baseline is PARTIAL" in capsys.readouterr().err
+    summary = json.loads((run_dir / "baseline_summary.json").read_text(encoding="utf-8"))
+    assert summary["partial"] is True and summary["partial_reasons"]
+
+
+def test_allow_partial_only_applies_to_export_baseline(tmp_path):
+    with pytest.raises(SystemExit) as raised:
+        run_evals.main(["--dry-run", "--allow-partial", "--out", str(tmp_path)])  # --out: never the real dir
+    assert raised.value.code == 2
+    assert list(tmp_path.iterdir()) == []  # refused before anything ran or was written
+
+
+def test_the_review_pack_labels_refusals_interruptions_and_the_environment(monkeypatch, tmp_path):
+    from eval_fakes import FakeClient
+
+    class Refusing(FakeClient):
+        def _create(self, **kwargs):
+            response = super()._create(**kwargs)
+            response.content = []
+            response.stop_reason = "refusal"
+            return response
+
+    client = Refusing(lambda kw: "")
+    monkeypatch.setattr(run_evals, "make_client", lambda: client)
+    run_evals.main([*LIVE, "--out", str(tmp_path)])
+    (run_dir,) = list(tmp_path.iterdir())
+    pack = (run_dir / "review_pack.md").read_text(encoding="utf-8")
+    assert "NO TEXT (`refusal`)" in pack and "- Environment: anthropic SDK " in pack

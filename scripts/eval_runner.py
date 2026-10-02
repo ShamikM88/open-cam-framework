@@ -32,9 +32,11 @@ is appended, XML-tagged, to the end of the Maker's message. That is a prompt-lev
 what `/research` and `/commercial` read -- not an end-to-end test of the slash-command path.
 """
 import hashlib
+import importlib.metadata
 import io
 import json
 import os
+import re
 import shutil
 import tempfile
 from contextlib import redirect_stdout
@@ -46,7 +48,17 @@ from eval_report import REPO_ROOT, append_run_line, build_record, live_run
 from policy_checks import FENCED_JSON_RE
 
 MAX_CONSECUTIVE_ERRORS = 3
+# The SDK's per-phase httpx timeout (connect / read / write each), NOT a wall-clock cap on a call.
 CLIENT_TIMEOUT_SECONDS = 180
+# Must equal requirements.txt's `anthropic>=...` (a test keeps the two in step): an older SDK is refused
+# at client construction rather than silently producing a baseline nobody can reproduce.
+MIN_ANTHROPIC_VERSION = (1, 7, 0)
+# The output-token limits orchestrator.run_pipeline() sets for its two calls (a test checks they match
+# what the routing client actually sees); shown in the plan so the cost bound is visible up front.
+MAKER_MAX_TOKENS = 4000
+CHECKER_MAX_TOKENS = 2000
+DEFAULT_BASE_URL = "https://api.anthropic.com"
+_KEY_RE = re.compile(r"sk-ant-[A-Za-z0-9_\-]{6,}")
 CONFIG_FILE_PATHS = {
     "style_guide": os.path.join("config", "style_guide.md"),
     "credit_policy": os.path.join("config", "credit_policy.md"),
@@ -68,14 +80,77 @@ def short_hash(text):
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
 
 
+def redact(text):
+    """Defensive: strip the configured API key (and anything shaped like one) from a string that is about
+    to be recorded or printed. SDK error messages do not echo the key today; this keeps it that way."""
+    text = str(text)
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if key and len(key) >= 8:
+        text = text.replace(key, "[REDACTED]")
+    return _KEY_RE.sub("[REDACTED]", text)
+
+
+def parse_version(text):
+    """The leading numeric components of a version string, e.g. '1.11.0rc1' -> (1, 11, 0)."""
+    parts = []
+    for piece in str(text).split("."):
+        match = re.match(r"\d+", piece)
+        if not match:
+            break
+        parts.append(int(match.group()))
+    return tuple(parts)
+
+
+def sdk_version():
+    """The installed anthropic SDK's version, or None -- read from package metadata, without importing it."""
+    try:
+        return importlib.metadata.version("anthropic")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+_INSTALLED = object()  # "look it up"; distinct from None, which means "no SDK installed"
+
+
+def check_sdk_version(version=_INSTALLED):
+    version = sdk_version() if version is _INSTALLED else version
+    if version is None or parse_version(version) < MIN_ANTHROPIC_VERSION:
+        needed = ".".join(str(n) for n in MIN_ANTHROPIC_VERSION)
+        raise RunnerSetupError(f"the installed anthropic SDK is {version or 'missing'}; this harness needs "
+                               f">= {needed} (see requirements.txt). Run: pip install -U \"anthropic>={needed}\"")
+    return version
+
+
+def effective_base_url():
+    """Where a live run's requests will go -- the SDK honours ANTHROPIC_BASE_URL -- shown in the plan
+    (credentials, if someone put any in the URL, are stripped)."""
+    url = os.environ.get("ANTHROPIC_BASE_URL") or DEFAULT_BASE_URL
+    return re.sub(r"//[^/@]*@", "//", url)
+
+
 def make_client():
     """The real Anthropic client: `max_retries=0` so the budget counts logical calls only."""
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RunnerSetupError("ANTHROPIC_API_KEY is not set in your environment; a live run needs your own key "
                                "(it is never stored or sent anywhere except to Anthropic).")
+    check_sdk_version()
     import anthropic  # lazy: the rest of the harness never imports it
     return anthropic.Anthropic(api_key=key, max_retries=0, timeout=CLIENT_TIMEOUT_SECONDS)
+
+
+def response_text(response):
+    """The text of a model response: every text block, joined. Not `content[0].text`, which breaks on a
+    refusal with no content or a response that opens with a thinking block. None when there is no text."""
+    parts = []
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", "text") != "text":
+            continue
+        text = getattr(block, "text", None)
+        if isinstance(text, str):
+            parts.append(text)
+    joined = "".join(parts)
+    return joined if joined.strip() else None
 
 
 def verdict_parsed(raw_text):
@@ -135,7 +210,8 @@ class RoutingClient:
         # Recorded BEFORE the call: a call that fails was still attempted, still counts against the
         # cap, and its model and prompt hash belong in the errored run's record.
         entry = {"role": role, "live": True, "model": kwargs.get("model"), "prompt_hash": short_hash(message),
-                 "stop_reason": None, "input_tokens": 0, "output_tokens": 0}
+                 "max_tokens": kwargs.get("max_tokens"), "stop_reason": None, "served_model": None,
+                 "input_tokens": 0, "output_tokens": 0, "no_text": False}
         self.calls.append(entry)
         self.live_message = message
         response = self.live.messages.create(**kwargs)
@@ -143,11 +219,16 @@ class RoutingClient:
         entry["stop_reason"] = getattr(response, "stop_reason", None)
         entry["input_tokens"] = getattr(usage, "input_tokens", 0) or 0
         entry["output_tokens"] = getattr(usage, "output_tokens", 0) or 0
-        text = response.content[0].text
+        served = getattr(response, "model", None)
+        entry["served_model"] = served if isinstance(served, str) else None
+        text = response_text(response)
+        if text is None:               # a refusal / empty answer: a result in its own right, not a crash
+            entry["no_text"] = True
+            raise StopRun()
         self.responses[role] = text
         if role == "checker":
             raise StopRun()            # checker case: nothing after the verdict is needed
-        return response
+        return _response(text)         # normalised, so the pipeline never meets a non-text first block
 
 
 def prepare_workdir(case, repo_root, workdir):
@@ -225,7 +306,7 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     workdir = tempfile.mkdtemp(prefix=f"{case['id']}-", dir=work_root)
     original = os.getcwd()
     router = RoutingClient(case, live_client)
-    error = None
+    error, interrupted = None, False
     try:
         prepare_workdir(case, repo_root, workdir)
         os.chdir(workdir)
@@ -249,10 +330,12 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             pass
     except CallCapExceeded:
         raise
+    except KeyboardInterrupt:  # decided below, once the attempted-call record and the cwd are in hand
+        interrupted = True
     except SystemExit as exc:  # run_pipeline() exits on a REJECTED verdict; the runner stops it first,
         error = f"SystemExit: the pipeline exited unexpectedly (code {exc.code})"  # so this is an anomaly
     except Exception as exc:  # noqa: BLE001 - an API or runner failure is a recorded, non-passing run
-        error = f"{type(exc).__name__}: {str(exc)[:300]}"
+        error = redact(f"{type(exc).__name__}: {str(exc)[:300]}")
     finally:
         os.chdir(original)
         if not keep_work:
@@ -263,24 +346,46 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     # stop_reason matters: output cut off at max_tokens (4000 for the Maker, 2000 for the Checker) would
     # otherwise be indistinguishable from the model misbehaving.
     extra = {"prompt_hash": first.get("prompt_hash"), "model": first.get("model"), "live_calls": len(live_calls),
+             "served_model": first.get("served_model"), "max_tokens": first.get("max_tokens"),
              "stop_reason": first.get("stop_reason"), "input_tokens": first.get("input_tokens", 0),
              "output_tokens": first.get("output_tokens", 0)}
     role = case["mode"]
-    if error or role not in router.responses:
+    if interrupted:
+        if not live_calls:   # nothing was in flight and nothing was spent: there is no call to account for
+            raise KeyboardInterrupt
+        # The call WAS attempted (and counted against the cap) but never completed: record it as exactly
+        # that, so per-run call counts still sum to the budget. No model observation exists for this run.
+        return live_run(label, [], status="interrupted", extra=extra, output_text=router.responses.get(role),
+                        error="interrupted (Ctrl-C) while the call was in flight; no model result was observed")
+    if error or (role not in router.responses and not first.get("no_text")):
         return live_run(label, [], status="error", error=error or "the live call produced no response", extra=extra)
+    if first.get("no_text"):
+        return live_run(label, [], status="no_text", extra=extra, output_text="",
+                        error=f"the model returned no text (stop_reason: {first.get('stop_reason')})")
 
     raw = router.responses[role]
-    if role == "maker":
-        output = RunOutput(draft_text=raw)
-        excerpt = raw
-    else:
-        verdict, notes = orchestrator.parse_verdict(raw)
-        output = RunOutput(draft_text=case["scripted"]["maker_draft"], verdict=verdict,
-                           notes=notes if isinstance(notes, str) else "", raw_text=raw,
-                           verdict_parsed=verdict_parsed(raw))
-        excerpt = f"verdict: {verdict} (parsed from the response: {output.verdict_parsed})\n{raw}"
-    results = evaluate_case(case, output, ctx)
-    return live_run(label, results, excerpt, extra=extra, output_text=raw)
+    try:
+        if role == "maker":
+            output = RunOutput(draft_text=raw)
+            excerpt = raw
+        else:
+            verdict, notes = orchestrator.parse_verdict(raw)
+            output = RunOutput(draft_text=case["scripted"]["maker_draft"], verdict=verdict,
+                               notes=notes if isinstance(notes, str) else "", raw_text=raw,
+                               verdict_parsed=verdict_parsed(raw))
+            excerpt = f"verdict: {verdict} (parsed from the response: {output.verdict_parsed})\n{raw}"
+        results = evaluate_case(case, output, ctx)
+        return live_run(label, results, excerpt, extra=extra, output_text=raw)
+    except Exception as exc:  # noqa: BLE001 - a paid-for output must survive a scoring bug
+        # The error text names the exception type only (its message could quote model output); the whole
+        # output is kept in output_text so nothing paid for is lost and a person can still read it.
+        return live_run(label, [], status="error", extra=extra, output_text=raw,
+                        error=f"scoring failed ({type(exc).__name__}); the paid-for output is kept in output_text")
+
+
+def _client_base_url(client):
+    url = getattr(client, "base_url", None)
+    return None if url is None else re.sub(r"//[^/@]*@", "//", str(url))
 
 
 def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False, progress=None):
@@ -319,7 +424,12 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
             done += 1
             if progress is not None:
                 progress(done, total_runs, case["id"], run)
-            consecutive_errors = consecutive_errors + 1 if run["status"] != "ok" else 0
+            if run["status"] == "interrupted":   # Ctrl-C while a call was in flight: recorded, then stop
+                aborted, abort_category = True, "interrupted"
+                abort_reason = "interrupted by the operator (Ctrl-C) while a model call was in flight"
+                break
+            # Only infrastructure/scoring errors build the streak; a refusal ("no_text") is a response.
+            consecutive_errors = consecutive_errors + 1 if run["status"] == "error" else 0
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
                 aborted, abort_category = True, "consecutive errors"
                 abort_reason = f"{MAX_CONSECUTIVE_ERRORS} consecutive errored runs (last: {run.get('error')})"
@@ -342,6 +452,7 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
         hashes=inputs["prompt_hashes"], planned_live_calls=len(cases) * repeats,
         usage={"calls": budget.calls, "input_tokens": budget.input_tokens, "output_tokens": budget.output_tokens},
         call_cap=max_calls, input_hashes=inputs["input_hashes"], repeats=repeats,
-        aborted=aborted, abort_reason=abort_reason, abort_category=abort_category)
+        aborted=aborted, abort_reason=abort_reason, abort_category=abort_category,
+        environment={"anthropic_sdk_version": sdk_version(), "base_url": _client_base_url(client)})
     record["selected_case_ids"] = [c["id"] for c in cases]
     return record

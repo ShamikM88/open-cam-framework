@@ -331,9 +331,11 @@ def test_ctrl_c_returns_a_record_marked_interrupted_with_everything_already_paid
     record = run_live(dataset, cases, 5, 20, env["run_dir"], FakeClient(respond), repo_root=env["repo"])
 
     assert record["aborted"] and record["abort_category"] == "interrupted" and "Ctrl-C" in record["abort_reason"]
-    assert [len(c["runs"]) for c in record["cases"]] == [2, 0]  # the second case is listed, never reached
+    # Two finished runs plus the one whose call was in flight when Ctrl-C hit; the second case never ran.
+    assert [len(c["runs"]) for c in record["cases"]] == [3, 0]
+    assert [r["status"] for r in record["cases"][0]["runs"]] == ["ok", "ok", "interrupted"]
     lines = open(os.path.join(env["run_dir"], "runs.jsonl"), encoding="utf-8").read().splitlines()
-    assert len(lines) == 2 and all(json.loads(line)["case_id"] == "fab-no-financials" for line in lines)
+    assert len(lines) == 3 and all(json.loads(line)["case_id"] == "fab-no-financials" for line in lines)
     assert os.getcwd() == before and listing(env["work"]) == []
 
 
@@ -346,6 +348,7 @@ def test_the_real_client_is_built_without_sdk_retries_and_never_touches_the_netw
     seen = {}
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
     monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: seen.update(kwargs) or "client")
+    monkeypatch.setattr(eval_runner, "sdk_version", lambda: "1.7.0")
     assert eval_runner.make_client() == "client"
     assert seen["max_retries"] == 0 and seen["api_key"] == "test-key-not-real" and seen["timeout"] > 0
 
@@ -559,3 +562,256 @@ def test_progress_lines_carry_ids_and_statuses_but_never_model_text(env, capsys)
     run_evals._progress_line(*seen[0])
     err = capsys.readouterr().err
     assert "[1/2] fab-no-financials repeat-1: " in err and secret not in err
+
+# ---------------------------------------------------------------------------
+# Fourth review round: scoring failures, response shapes, in-flight interrupts, redaction, SDK pin.
+# ---------------------------------------------------------------------------
+
+class ShapedClient:
+    """A client returning hand-built response objects, to exercise the shapes a real model can return."""
+
+    def __init__(self, make_response):
+        self.make_response = make_response
+        self.calls = []
+        from types import SimpleNamespace
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.make_response(kwargs)
+
+
+def _resp(content, stop_reason="end_turn", model=None, input_tokens=5, output_tokens=3):
+    from types import SimpleNamespace
+    return SimpleNamespace(content=content, stop_reason=stop_reason, model=model,
+                           usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens))
+
+
+def _block(text, type_="text"):
+    from types import SimpleNamespace
+    return SimpleNamespace(type=type_, text=text)
+
+
+def test_a_scoring_exception_after_a_paid_call_keeps_the_output_and_records_an_error(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    secret = "MODEL-TEXT-QUOTED-IN-AN-EXCEPTION-MESSAGE"
+
+    def exploding_oracle(*args, **kwargs):
+        raise ValueError(secret)
+
+    monkeypatch.setattr(eval_runner, "evaluate_case", exploding_oracle)
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    assert run["status"] == "error" and not run["passed"] and budget.calls == 1
+    assert run["output_text"] == good_maker_text(case)  # the paid-for output survives
+    assert run["live_calls"] == 1 and run["model"] and run["prompt_hash"]
+    assert "scoring failed (ValueError)" in run["error"] and secret not in run["error"]
+
+
+def test_a_scoring_exception_in_the_middle_of_an_evaluation_does_not_lose_the_results_file(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    real = eval_runner.evaluate_case
+    calls = {"n": 0}
+
+    def flaky(case, output, ctx):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RecursionError("deeply nested")
+        return real(case, output, ctx)
+
+    monkeypatch.setattr(eval_runner, "evaluate_case", flaky)
+    record = run_live(dataset, cases, 3, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"])
+    statuses = [r["status"] for r in record["cases"][0]["runs"]]
+    assert statuses == ["ok", "error", "ok"] and not record["aborted"]
+    assert record["usage"]["calls"] == 3 and record["cases"][0]["runs"][1]["output_text"]
+
+
+def test_a_refusal_with_no_content_is_a_distinct_outcome_not_an_infrastructure_error(env):
+    case = dataset_case("inj-source-block-obfuscated")
+    run, budget = one_run(env, case, ShapedClient(lambda kwargs: _resp([], stop_reason="refusal")))
+    assert run["status"] == "no_text" and not run["passed"] and run["stop_reason"] == "refusal"
+    assert "no text" in run["error"] and "refusal" in run["error"]
+    assert run["live_calls"] == 1 and budget.calls == 1 and run["input_tokens"] == 5
+
+
+def test_a_checker_case_that_gets_no_text_is_also_a_distinct_outcome(env):
+    case = dataset_case("chk-clean-control")
+    run, _ = one_run(env, case, ShapedClient(lambda kwargs: _resp([_block("", "thinking")], "refusal")))
+    assert run["status"] == "no_text" and run["live_calls"] == 1
+
+
+def test_a_leading_thinking_block_and_several_text_blocks_are_handled(env):
+    case = dataset_case("fab-no-financials")
+    text = good_maker_text(case)
+    half = len(text) // 2
+    from types import SimpleNamespace
+    thinking = SimpleNamespace(type="thinking", thinking="hidden reasoning")  # like the real block: no `.text`
+    content = [thinking, _block(text[:half]), _block(text[half:])]
+    run, _ = one_run(env, case, ShapedClient(lambda kwargs: _resp(content)))
+    assert run["status"] == "ok" and run["passed"] and run["output_text"] == text
+
+
+def test_a_non_text_block_that_carries_a_text_attribute_is_not_part_of_the_answer(env):
+    case = dataset_case("fab-no-financials")
+    text = good_maker_text(case)
+    content = [_block("PRIVATE REASONING THAT IS NOT THE ANSWER", "thinking"), _block(text)]
+    run, _ = one_run(env, case, ShapedClient(lambda kwargs: _resp(content)))
+    assert run["output_text"] == text and "PRIVATE REASONING" not in json.dumps(run)
+
+
+def test_refusals_do_not_trip_the_consecutive_error_abort(env):
+    dataset, cases = _dataset("fab-no-financials")
+    client = ShapedClient(lambda kwargs: _resp([], stop_reason="refusal"))
+    record = run_live(dataset, cases, 5, 10, env["run_dir"], client, repo_root=env["repo"])
+    assert not record["aborted"] and [r["status"] for r in record["cases"][0]["runs"]] == ["no_text"] * 5
+
+
+def test_the_served_model_and_max_tokens_are_recorded(env):
+    case = dataset_case("fab-no-financials")
+    client = ShapedClient(lambda kwargs: _resp([_block(good_maker_text(case))], model="claude-served-x"))
+    run, _ = one_run(env, case, client)
+    assert run["served_model"] == "claude-served-x" and run["max_tokens"] == eval_runner.MAKER_MAX_TOKENS
+
+
+def test_the_plan_s_max_tokens_constants_match_what_the_pipeline_really_sends(env):
+    maker, checker = dataset_case("fab-no-financials"), dataset_case("chk-clean-control")
+    seen = FakeClient(lambda kwargs: good_maker_text(maker))
+    one_run(env, maker, seen)
+    assert seen.calls[0]["max_tokens"] == eval_runner.MAKER_MAX_TOKENS
+    seen = FakeClient(lambda kwargs: verdict_text("APPROVED", ""))
+    one_run(env, checker, seen)
+    assert seen.calls[0]["max_tokens"] == eval_runner.CHECKER_MAX_TOKENS
+
+
+def test_a_call_in_flight_when_ctrl_c_hits_is_recorded_as_interrupted_and_counted(env):
+    case = dataset_case("fab-no-financials")
+
+    def respond(kwargs):
+        raise KeyboardInterrupt
+
+    run, budget = one_run(env, case, FakeClient(respond))
+    assert run["status"] == "interrupted" and not run["passed"]
+    assert run["live_calls"] == 1 and budget.calls == 1 and run["model"] and run["prompt_hash"]
+    assert "in flight" in run["error"] and "no model result" in run["error"]
+
+
+def test_the_accounting_invariant_holds_for_every_outcome_including_an_interrupt(env):
+    dataset, cases = _dataset("fab-no-financials")
+    calls = {"n": 0}
+
+    def respond(kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("boom")
+        if calls["n"] == 4:
+            raise KeyboardInterrupt
+        return good_maker_text(cases[0])
+
+    record = run_live(dataset, cases, 6, 10, env["run_dir"], FakeClient(respond), repo_root=env["repo"])
+    runs = record["cases"][0]["runs"]
+    assert [r["status"] for r in runs] == ["ok", "error", "ok", "interrupted"] and record["aborted"]
+    assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 4
+
+
+def test_an_interrupt_before_any_call_is_in_flight_records_no_run(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    real = eval_runner.prepare_workdir
+
+    def interrupted_prep(case, repo_root, workdir):
+        if case is not None:
+            raise KeyboardInterrupt
+        return real(case, repo_root, workdir)
+
+    monkeypatch.setattr(eval_runner, "prepare_workdir", interrupted_prep)
+    before = os.getcwd()
+    record = run_live(dataset, cases, 3, 10, env["run_dir"], FakeClient(lambda kw: "never called"),
+                      repo_root=env["repo"])
+    assert record["aborted"] and record["abort_category"] == "interrupted"
+    assert record["cases"][0]["runs"] == [] and record["usage"]["calls"] == 0 and os.getcwd() == before
+
+
+def test_an_api_key_in_an_error_message_is_redacted_everywhere_it_could_be_recorded(env, monkeypatch):
+    key = "sk-ant-api03-FAKEKEYFORTESTINGONLY0123456789"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    case = dataset_case("fab-no-financials")
+
+    def respond(kwargs):
+        raise RuntimeError(f"401 for key {key}; also a stray sk-ant-api03-ANOTHER_ONE_abcdef in a header")
+
+    run, _ = one_run(env, case, FakeClient(respond))
+    assert run["status"] == "error" and key not in json.dumps(run) and "sk-ant-api03" not in json.dumps(run)
+    assert "[REDACTED]" in run["error"]
+
+
+def test_a_key_that_does_not_look_like_an_anthropic_key_is_still_redacted(env, monkeypatch):
+    key = "an-odd-shaped-key-0123456789"  # no sk-ant- prefix: only the exact-value replacement can catch it
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    case = dataset_case("fab-no-financials")
+
+    def respond(kwargs):
+        raise RuntimeError(f"upstream said: bad credentials {key}")
+
+    run, _ = one_run(env, case, FakeClient(respond))
+    assert key not in json.dumps(run) and "[REDACTED]" in run["error"]
+
+
+def test_redact_handles_a_short_or_missing_key_and_leaves_ordinary_text_alone(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "abc")  # too short to be worth blanking out of ordinary words
+    assert eval_runner.redact("abc and more") == "abc and more"
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert eval_runner.redact("plain error") == "plain error"
+
+
+@pytest.mark.parametrize("version, ok", [("1.7.0", True), ("1.11.0", True), ("2.0.0rc1", True), ("1.5.0", False),
+                                         ("1.6.9", False), ("0.99.0", False), (None, False)])
+def test_the_sdk_floor_is_compared_numerically_not_as_text(version, ok):
+    if ok:
+        assert eval_runner.check_sdk_version(version) == version
+    else:
+        with pytest.raises(RunnerSetupError, match="anthropic"):
+            eval_runner.check_sdk_version(version)
+
+
+def test_the_real_client_is_refused_on_a_too_old_sdk_before_anything_is_built(monkeypatch):
+    import anthropic
+    built = []
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: built.append(kwargs))
+    monkeypatch.setattr(eval_runner, "sdk_version", lambda: "1.5.0")
+    with pytest.raises(RunnerSetupError, match="pip install"):
+        eval_runner.make_client()
+    assert built == []
+
+
+def test_the_harness_floor_matches_requirements_txt():
+    import re
+    from eval_fakes import REPO_ROOT
+    text = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+    match = re.search(r"^anthropic\s*>=\s*([\d.]+)\s*$", text, re.M)
+    assert match and eval_runner.parse_version(match.group(1)) == eval_runner.MIN_ANTHROPIC_VERSION
+
+
+def test_the_record_carries_the_sdk_version_and_a_credential_free_base_url(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    monkeypatch.setattr(eval_runner, "sdk_version", lambda: "9.9.9")
+    client = FakeClient(lambda kw: good_maker_text(cases[0]))
+    client.base_url = "https://user:hunter2@example.invalid/v1"
+    record = run_live(dataset, cases, 1, 5, env["run_dir"], client, repo_root=env["repo"])
+    assert record["environment"] == {"anthropic_sdk_version": "9.9.9", "base_url": "https://example.invalid/v1"}
+    assert "hunter2" not in json.dumps(record)
+
+
+def test_the_effective_base_url_honours_the_environment_and_strips_credentials(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
+    assert eval_runner.effective_base_url() == eval_runner.DEFAULT_BASE_URL
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://u:pw@proxy.invalid:8443/x")
+    assert eval_runner.effective_base_url() == "https://proxy.invalid:8443/x"
+
+
+def test_prepare_run_dir_refuses_to_reuse_an_existing_run_id(tmp_path):
+    from eval_report import ResultsPathError, prepare_run_dir
+    first = prepare_run_dir("20260101T000000Z", out_root=str(tmp_path))
+    (tmp_path / "20260101T000000Z" / "runs.jsonl").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ResultsPathError, match="already exists"):
+        prepare_run_dir("20260101T000000Z", out_root=str(tmp_path))
+    assert os.path.isfile(os.path.join(first, "runs.jsonl"))  # the earlier run is untouched

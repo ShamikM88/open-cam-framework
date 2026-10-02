@@ -141,7 +141,9 @@ python scripts/run_evals.py --live --yes --keep-work       # skip the prompt; ke
 # Baselines (deliberate, manual):
 python scripts/run_evals.py --export-baseline evals/results/<run id>/results.json
 #   -> writes baseline_summary.json beside it (rates, hashes, model; NO model text). To adopt it, copy it
-#      by hand into evals/baselines/ and commit it in its own reviewed PR.
+#      by hand into evals/baselines/ and commit it in its own reviewed PR. It REFUSES a partial run
+#      (aborted, errored, interrupted, cut off at max_tokens, or fewer runs than planned) unless you add
+#      --allow-partial, in which case the file is marked `partial` with the reasons.
 python scripts/run_evals.py --compare evals/baselines/<file>.json evals/results/<run id>/results.json
 ```
 
@@ -154,11 +156,15 @@ client. `--live` additionally needs `ANTHROPIC_API_KEY`.
 
 A baseline summary records only the *category* of an abort ("call cap", "consecutive errors",
 "interrupted"), never the free-text reason, because that text can embed an API or exception message
-and the file is meant to be copied into a tracked path.
+and the file is meant to be copied into a tracked path. It also records, per case, how many runs
+errored, were interrupted, returned no text, or were cut off at `max_tokens`, and the anthropic SDK
+version (but not the endpoint).
 
 A comparison first says whether the model, prompt hashes, input hashes, the prompts each live run
-actually assembled, the harness version, the repeat count and the dataset content all match (and says
-plainly when it is **not** like-for-like); its regression flag is informational (a drop of 40
+actually assembled, the harness version, the repeat count, the anthropic SDK version, the set of cases
+selected and the dataset content all match (and says plainly when it is **not** like-for-like); each
+row also shows errored / truncated / no-text counts, and a partial run (either side) is labelled as
+such. Its regression flag is informational (a drop of 40
 points or more), its threshold is arbitrary until run-to-run variance is known, and it gates nothing.
 
 ## How the live runner works
@@ -181,16 +187,36 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
   calls included) built with `max_retries=0`, so the cap counts logical calls and a retry loop cannot
   overspend. It wraps only the live client, so scripted calls never count. The plan is refused over the
   cap before the API key is even read; the results directory is created and guarded before the first
-  call; and the run stops, recording why, if the cap is spent or three runs in a row error.
+  call; and the run stops, recording why, if the cap is spent or three runs in a row error. The plan
+  also shows -- before you type `yes` -- the maker and checker model IDs (a Checker case uses the
+  checker model, which may be a larger one), each call's `max_tokens`, the resulting bound on *output*
+  tokens, and the endpoint requests will go to (`ANTHROPIC_BASE_URL` is honoured by the SDK). Input
+  tokens are not bounded by the plan; they depend on each case's prompt.
 - **Recorded per run:** model IDs and temperatures from the isolated `settings.json`, prompt hashes and
   input hashes of the files actually used (computed with orchestrator's own `_content_hash`, so they
   equal `model_provenance`), the dataset version *and content hash*, each live prompt's hash, and the
   call's `stop_reason` and input/output token counts. A run whose output stopped at `max_tokens` is
-  flagged as truncated in the review pack. A failed run is `status: "error"` (it stays in the
-  denominator) and still records the call that was attempted, so per-run call counts always sum to the
-  budget's total.
+  flagged as truncated in the review pack, and the model that actually served the call is recorded
+  next to the requested one. Every run has a `status`, and each non-`ok` status stays in the pass-rate
+  denominator as a non-pass and still records the call that was attempted, so per-run call counts sum to
+  the budget's total:
+  - `error` -- the API call failed, or *scoring* failed after a paid-for call (the whole output is kept
+    in `output_text` and the error names only the exception type); three in a row abort the evaluation;
+  - `no_text` -- the model returned no text (for example a refusal): a result in its own right, shown
+    as such in the pack and never counted toward the error streak;
+  - `interrupted` -- Ctrl-C arrived while a call was in flight: the call counted against the cap but no
+    model result was observed. (Ctrl-C before any call is in flight records no run at all, because
+    nothing was spent.)
+  The model's reply is read by joining its text blocks, not `content[0].text`, so a leading thinking
+  block or an empty refusal does not crash a run. Error strings are defensively scrubbed of the
+  configured API key and anything shaped like one before they are recorded.
 - **Progress and interruption.** One line per finished run goes to stderr (case id, repeat, pass/FAIL/
   ERROR, stop reason -- never model text). Ctrl-C stops the run cleanly: the record is still written
   (`abort_category: "interrupted"`), everything already paid for is kept, and the review pack names the
-  cases that were never reached. There is no resume; the SDK timeout is 180 s per call, so a worst case
-  of a hung connection is 180 s per call with no retry (`max_retries=0`).
+  cases that were never reached. There is no resume. The client has `max_retries=0` and a 180 s SDK
+  timeout, which httpx applies per phase (connect, read, write) -- not as a wall-clock limit on a whole
+  call -- so a stalled connection is bounded only approximately; Ctrl-C is the backstop.
+- **SDK version.** `requirements.txt` asks for `anthropic>=1.7.0` and the runner refuses an older
+  installed SDK at client construction (`pip install -U "anthropic>=1.7.0"`), so a baseline cannot come
+  from an unreproducible environment; the installed version is recorded in `results.json`
+  (`environment`), the review pack and the baseline, and a comparison flags a difference.

@@ -59,13 +59,13 @@ def test_a_record_with_no_completed_live_runs_cannot_be_a_baseline():
 def test_errored_runs_are_counted_in_the_baseline_denominator():
     record = live_record({"a": (3, 3)})
     record["cases"][0]["runs"].append(live_run("repeat-4", [], status="error", error="boom"))
-    summary = export_baseline(record)
+    summary = export_baseline(record, allow_partial=True)
     assert summary["per_case"][0] == {**summary["per_case"][0], "passed": 3, "total": 4, "errored": 1}
 
 
 def test_an_aborted_run_is_flagged_in_its_baseline_by_category_only():
     summary = export_baseline(live_record({"a": (2, 2)}, aborted=True, abort_reason="call cap: spent",
-                                          abort_category="call cap"))
+                                          abort_category="call cap"), allow_partial=True)
     assert summary["aborted"] is True and summary["abort_category"] == "call cap"
     assert "abort_reason" not in summary and "spent" not in json.dumps(summary)
 
@@ -105,7 +105,7 @@ def test_new_and_missing_cases_are_reported_not_crashed_on():
 
 
 def test_the_rendering_is_labelled_informational_and_never_claims_proof():
-    baseline = export_baseline(live_record({"a": (5, 5)}, aborted=True, abort_reason="x"))
+    baseline = export_baseline(live_record({"a": (5, 5)}, aborted=True, abort_reason="x"), allow_partial=True)
     text = render_comparison(compare(baseline, live_record({"a": (3, 5)}, run_id="run-2", aborted=True)))
     assert "informational" in text and "gates nothing" in text and "was aborted" in text
     for phrase in ("proven", "is safe", "guaranteed"):
@@ -126,7 +126,7 @@ def test_api_error_text_can_never_reach_a_baseline_through_the_abort_reason():
                          abort_category="consecutive errors")
     for run in record["cases"][0]["runs"]:
         run["error"] = secret
-    text = json.dumps(export_baseline(record))
+    text = json.dumps(export_baseline(record, allow_partial=True))
     assert secret not in text and "consecutive errors" in text
 
 
@@ -173,3 +173,71 @@ def test_a_malformed_results_file_is_a_baseline_error_not_a_traceback(broken):
         export_baseline(broken)
     with pytest.raises(BaselineError):
         compare(export_baseline(live_record({"a": (1, 1)})), broken)
+
+# ---------------------------------------------------------------------------
+# Fourth review round: a partial run is never silently exported; the comparison shows run health.
+# ---------------------------------------------------------------------------
+
+def _with_run(record, **kwargs):
+    record["cases"][0]["runs"].append(live_run("repeat-x", [], **kwargs))
+    return record
+
+
+@pytest.mark.parametrize("mutate, phrase", [
+    (lambda r: r.update(aborted=True, abort_category="call cap"), "aborted early (call cap)"),
+    (lambda r: _with_run(r, status="error", error="boom"), "1 run(s) errored"),
+    (lambda r: _with_run(r, status="interrupted", error="ctrl-c"), "1 run(s) interrupted"),
+    (lambda r: r["cases"][0]["runs"][0].update(stop_reason="max_tokens"), "cut off at max_tokens"),
+    (lambda r: r["cases"][0].update(runs_planned=9), "fewer runs than planned"),
+])
+def test_a_partial_run_is_refused_as_a_baseline_unless_explicitly_allowed(mutate, phrase):
+    record = live_record({"a": (3, 3)})
+    mutate(record)
+    with pytest.raises(BaselineError, match="refusing to export a partial baseline") as raised:
+        export_baseline(record)
+    assert phrase in str(raised.value) and "--allow-partial" in str(raised.value)
+    summary = export_baseline(record, allow_partial=True)
+    assert summary["partial"] is True and any(phrase in reason for reason in summary["partial_reasons"])
+
+
+def test_a_clean_complete_run_is_not_marked_partial_and_a_refusal_alone_does_not_make_it_so():
+    record = live_record({"a": (3, 3)})
+    record["cases"][0]["runs"].append(live_run("repeat-4", [], status="no_text", extra={"stop_reason": "refusal"}))
+    record["cases"][0]["runs_planned"] = 4
+    summary = export_baseline(record)  # no refusal is an outcome of its own, not a data-quality problem
+    assert summary["partial"] is False and summary["partial_reasons"] == []
+    assert summary["per_case"][0]["no_text"] == 1 and summary["per_case"][0]["total"] == 4
+
+
+def test_per_case_health_counts_are_recorded():
+    record = live_record({"a": (2, 2)})
+    record["cases"][0]["runs"] += [live_run("e", [], status="error", error="x"),
+                                   live_run("t", [], extra={"stop_reason": "max_tokens"})]
+    entry = export_baseline(record, allow_partial=True)["per_case"][0]
+    assert (entry["errored"], entry["truncated"], entry["interrupted"], entry["no_text"]) == (1, 1, 0, 0)
+
+
+def test_the_comparison_shows_errored_truncated_and_partial_status():
+    baseline = export_baseline(live_record({"a": (5, 5)}))
+    current = live_record({"a": (3, 5)}, run_id="run-2")
+    current["cases"][0]["runs"][0]["status"] = "error"
+    current["cases"][0]["runs"][1]["stop_reason"] = "max_tokens"
+    text = render_comparison(compare(baseline, current))
+    assert "this run is PARTIAL" in text and "1 run(s) errored" in text
+    assert "now: 1 err, 1 truncated" in text
+
+
+def test_a_different_case_subset_or_sdk_version_is_flagged_as_not_like_for_like():
+    baseline = export_baseline(live_record({"a": (5, 5), "b": (5, 5)}, environment={"anthropic_sdk_version": "1.7.0"}))
+    current = live_record({"a": (5, 5)}, run_id="run-2", environment={"anthropic_sdk_version": "1.11.0"})
+    result = compare(baseline, current)
+    assert not result["like_for_like"]
+    assert any("set of cases selected" in m for m in result["mismatches"])
+    assert "anthropic SDK version" in result["mismatches"]
+
+
+def test_the_baseline_records_the_sdk_version_and_nothing_about_the_endpoint():
+    summary = export_baseline(live_record({"a": (1, 1)}, environment={"anthropic_sdk_version": "1.9.0",
+                                                                        "base_url": "https://private.invalid"}))
+    assert summary["environment"] == {"anthropic_sdk_version": "1.9.0"}
+    assert "private.invalid" not in json.dumps(summary)

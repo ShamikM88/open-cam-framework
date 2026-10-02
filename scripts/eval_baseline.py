@@ -37,30 +37,68 @@ def load_json(path):
         raise BaselineError(f"{path}: {exc}") from exc
 
 
-def export_baseline(record):
-    """A baseline summary of a live results record (never contains model or exception text)."""
+def partial_reasons(record):
+    """Why a live record is not a complete, clean sample (empty list: it is). Counts only -- no text."""
+    reasons = []
+    runs = [r for c in record["cases"] for r in c["runs"]]
+    if record.get("aborted"):
+        reasons.append(f"the run was aborted early ({record.get('abort_category') or 'unknown'})")
+    errored = sum(1 for r in runs if r.get("status") == "error")
+    interrupted = sum(1 for r in runs if r.get("status") == "interrupted")
+    truncated = sum(1 for r in runs if r.get("stop_reason") == "max_tokens")
+    short = sum(1 for c in record["cases"] if c.get("runs_planned") and len(c["runs"]) < c["runs_planned"])
+    if errored:
+        reasons.append(f"{errored} run(s) errored")
+    if interrupted:
+        reasons.append(f"{interrupted} run(s) interrupted")
+    if truncated:
+        reasons.append(f"{truncated} run(s) were cut off at max_tokens")
+    if short:
+        reasons.append(f"{short} case(s) have fewer runs than planned")
+    return reasons
+
+
+def export_baseline(record, allow_partial=False):
+    """A baseline summary of a live results record (never contains model or exception text). Refuses a
+    record that is aborted, has errored/interrupted/truncated runs, or is missing planned runs, unless
+    `allow_partial` -- in which case the summary says so (`partial`, `partial_reasons`)."""
     try:
-        return _export_baseline(record)
+        return _export_baseline(record, allow_partial)
     except (KeyError, TypeError, AttributeError) as exc:
         raise BaselineError(f"not a usable live results record ({type(exc).__name__}: {str(exc)[:120]})") from exc
 
 
-def _export_baseline(record):
+def _health(case):
+    """Short text for a per-case row: only the non-zero counts of runs that are not clean passes/fails."""
+    bits = [(case.get("errored"), "err"), (case.get("interrupted"), "interrupted"),
+            (case.get("truncated"), "truncated"), (case.get("no_text"), "no-text")]
+    return ", ".join(f"{n} {label}" for n, label in bits if n)
+
+
+def _export_baseline(record, allow_partial=False):
     if record.get("mode") != "live":
         raise BaselineError("only a live run can be a baseline (this record is "
                             f"{record.get('mode')!r}: a dry run makes no model calls)")
     per_case, per_category = [], {}
     for case in record["cases"]:
         rate = pass_rate(case["runs"])
-        errors = sum(1 for r in case["runs"] if r.get("status", "ok") != "ok")
+        runs = case["runs"]
         per_case.append({"id": case["id"], "category": case["category"], "mode": case["mode"],
-                         "passed": rate["passed"], "total": rate["total"], "errored": errors,
+                         "passed": rate["passed"], "total": rate["total"],
+                         "errored": sum(1 for r in runs if r.get("status") == "error"),
+                         "interrupted": sum(1 for r in runs if r.get("status") == "interrupted"),
+                         "no_text": sum(1 for r in runs if r.get("status") == "no_text"),
+                         "truncated": sum(1 for r in runs if r.get("stop_reason") == "max_tokens"),
                          "runs_planned": case.get("runs_planned", rate["total"])})
         bucket = per_category.setdefault(case["category"], {"passed": 0, "total": 0})
         bucket["passed"] += rate["passed"]
         bucket["total"] += rate["total"]
     if not any(c["total"] for c in per_case):
         raise BaselineError("this record has no completed live runs, so there is nothing to baseline")
+    reasons = partial_reasons(record)
+    if reasons and not allow_partial:
+        raise BaselineError("refusing to export a partial baseline: " + "; ".join(reasons) + ". Re-run for a "
+                            "clean sample, or pass --allow-partial to export it anyway (it is marked partial).")
     return {
         "kind": BASELINE_KIND,
         "harness_version": record.get("harness_version", HARNESS_VERSION),
@@ -72,6 +110,9 @@ def _export_baseline(record):
         "input_hashes": record.get("input_hashes", {}),
         "repeats": record.get("repeats"),
         "aborted": bool(record.get("aborted")),
+        "partial": bool(reasons),
+        "partial_reasons": reasons,
+        "environment": {"anthropic_sdk_version": (record.get("environment") or {}).get("anthropic_sdk_version")},
         # The CATEGORY only: the free-text reason can embed an API/exception message, and this file is
         # meant to be copied into a tracked path.
         "abort_category": record.get("abort_category"),
@@ -103,7 +144,7 @@ def compare(baseline, record):
 def _compare(baseline, record):
     if baseline.get("kind") != BASELINE_KIND:
         raise BaselineError("the first file is not an evaluation baseline summary")
-    current = export_baseline(record)
+    current = export_baseline(record, allow_partial=True)  # a partial run can still be compared, and is labelled
     mismatches = []
     if baseline.get("harness_version") != current.get("harness_version"):
         mismatches.append("harness version")
@@ -112,6 +153,12 @@ def _compare(baseline, record):
     for key, label in COMPARED_FIELDS:
         if baseline.get(key) != current.get(key):
             mismatches.append(label)
+    if (baseline.get("environment") or {}).get("anthropic_sdk_version") != \
+            current["environment"]["anthropic_sdk_version"]:
+        mismatches.append("anthropic SDK version")
+    if baseline.get("selected_case_ids") is not None and \
+            sorted(baseline["selected_case_ids"]) != sorted(current["selected_case_ids"]):
+        mismatches.append("the set of cases selected (a subset was run)")
     if baseline["dataset"].get("content_hash") != current["dataset"].get("content_hash"):
         mismatches.append("dataset content (a case was added, removed or edited)")
     changed_prompts = sorted(
@@ -139,7 +186,9 @@ def _compare(baseline, record):
         rows.append({"id": case_id, "status": "new case (no baseline)", "baseline": None, "current": by_id[case_id]})
     return {"like_for_like": not mismatches, "mismatches": mismatches, "rows": rows,
             "baseline_run": baseline.get("source_run_id"), "current_run": record["run_id"],
-            "baseline_aborted": baseline.get("aborted", False), "current_aborted": current["aborted"]}
+            "baseline_aborted": baseline.get("aborted", False), "current_aborted": current["aborted"],
+            "baseline_partial": baseline.get("partial_reasons") or [],
+            "current_partial": current["partial_reasons"]}
 
 
 def render_comparison(result):
@@ -152,12 +201,18 @@ def render_comparison(result):
     for side, key in (("baseline", "baseline_aborted"), ("this run", "current_aborted")):
         if result[key]:
             lines.append(f"Note: the {side} was aborted part-way, so some cases have fewer runs.")
+    for side, key in (("baseline", "baseline_partial"), ("this run", "current_partial")):
+        if result[key]:
+            lines.append(f"Note: the {side} is PARTIAL: " + "; ".join(result[key]) + ".")
     lines.append("")
     lines.append(f"{'case':44} {'baseline':>9} {'now':>9}  note")
     for row in result["rows"]:
         base, now = row["baseline"], row["current"]
         fmt = lambda c: "-" if c is None else f"{c['passed']}/{c['total']}"  # noqa: E731
         note = row["status"] if row["status"] != "compared" else (row.get("flag") or "")
+        health = [f"{label}: {_health(c)}" for label, c in (("baseline", base), ("now", now)) if c and _health(c)]
+        if health:
+            note = (note + " " if note else "") + "[" + "; ".join(health) + "]"
         lines.append(f"{row['id']:44} {fmt(base):>9} {fmt(now):>9}  {note}")
     lines += ["", "Observed pass rates on small samples of a non-deterministic model; the flag is "
                   "informational (threshold arbitrary until run-to-run variance is known) and gates nothing."]

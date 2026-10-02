@@ -12,7 +12,7 @@ from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import export_to_xlsx
-from state_manager import read_state, sanitize_path_component
+from state_manager import read_state, resolve_date_str, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
 
@@ -126,7 +126,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     return output_dir
 
 
-if __name__ == "__main__":
+def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -140,10 +140,28 @@ if __name__ == "__main__":
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--type", default="corporate_credit")
     parser.add_argument("--draft", required=True, help="Path to the drafted CAM Markdown file")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--date-str", default=None,
+        help="YYYY-MM-DD suffix of the deal's dated folder to export into. Defaults to "
+             "this deal's existing dated folder if one exists (so a multi-day deal's "
+             ".docx/.xlsx land next to its own state.json/sources/ -- issue #97), "
+             "else today's date for a brand-new deal.",
+    )
+    args = parser.parse_args(argv)
 
     with open(args.draft, encoding="utf-8") as f:
         draft_markdown = f.read()
 
-    output_dir = export_deal(args.company, args.proposal, args.type, draft_markdown)
+    # Sanitize before resolving: resolve_date_str() globs the deals/ tree with
+    # these values, and export_deal()'s own sanitization would otherwise only
+    # run after that glob.
+    company = sanitize_path_component(args.company, "company")
+    proposal = sanitize_path_component(args.proposal, "proposal")
+    date_str = resolve_date_str(company, proposal, date_str=args.date_str)
+
+    output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
     print(f"Done! Files generated in {output_dir}")
+
+
+if __name__ == "__main__":
+    main()

@@ -4,7 +4,7 @@ import docx
 import openpyxl
 import pytest
 
-from deal_export import _downside_financial_data_from_state, _financial_data_from_state, export_deal
+from deal_export import _downside_financial_data_from_state, _financial_data_from_state, export_deal, main
 
 
 def _write(path, content="content"):
@@ -220,3 +220,71 @@ def test_export_deal_populates_downside_columns_in_the_exported_workbook(tmp_pat
     ws = wb["Financial Spreading"]
     label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
     assert ws.cell(row=label_to_row["Revenue"], column=8).value == 950  # H = FY+1 (Downside)
+
+
+# ---------------------------------------------------------------------------
+# CLI (/assemble's Bash step): which dated folder does it export into? Issue
+# #97 -- a multi-day deal's output must land next to its own state.json, not
+# in a new folder dated whenever the export happened to run.
+# ---------------------------------------------------------------------------
+
+def _cli_draft(tmp_path):
+    draft = tmp_path / "draft.md"
+    draft.write_text("# Draft", encoding="utf-8")
+    return str(draft)
+
+
+def test_cli_exports_into_the_deals_existing_dated_folder(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.chdir(tmp_path)
+    existing = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10"
+    existing.mkdir(parents=True)
+    (existing / "state.json").write_text("{}", encoding="utf-8")
+
+    main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
+          "--draft", _cli_draft(tmp_path)])
+
+    assert (existing / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert (existing / "Acme Corp_Fleet Loan_Spreading.xlsx").exists()
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert not (tmp_path / "deals" / "Acme Corp" / f"Fleet Loan_{today}").exists()
+
+
+def test_cli_picks_the_most_recent_of_several_existing_dated_folders(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    for date in ("2025-01-10", "2026-01-10"):
+        (tmp_path / "deals" / "Acme Corp" / f"Fleet Loan_{date}").mkdir(parents=True)
+
+    main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
+          "--draft", _cli_draft(tmp_path)])
+
+    assert (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert not (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2025-01-10" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+
+
+def test_cli_date_str_flag_overrides_discovery(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10").mkdir(parents=True)
+
+    main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
+          "--draft", _cli_draft(tmp_path), "--date-str", "2026-03-01"])
+
+    assert (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-03-01" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+
+
+def test_cli_brand_new_deal_gets_a_folder_dated_today(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.chdir(tmp_path)
+
+    main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
+          "--draft", _cli_draft(tmp_path)])
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert (tmp_path / "deals" / "Acme Corp" / f"Fleet Loan_{today}" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+
+
+def test_cli_rejects_an_unsafe_company_before_touching_the_deals_tree(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError):
+        main(["--company", "../evil", "--proposal", "Fleet Loan", "--type", "asset_finance",
+              "--draft", _cli_draft(tmp_path)])

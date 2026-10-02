@@ -213,6 +213,39 @@ def test_run_pipeline_records_model_provenance_on_state(project_root):
     assert provenance["risk_reviewer_prompt_hash"] == _content_hash("CHECKER PROMPT")
 
 
+def test_run_pipeline_exports_into_the_deals_existing_dated_folder(project_root):
+    """Issue #97: a deal started on an earlier day must export its .docx/.xlsx
+    next to its own state.json, not into a fresh folder dated today."""
+    from datetime import datetime
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit")
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    original = project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10"
+    assert (original / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert (original / "Acme Corp_Fleet Loan_Spreading.xlsx").exists()
+    assert (original / "state.json").exists()
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert not (project_root / "deals" / "Acme Corp" / f"Fleet Loan_{today}").exists()
+
+
+def test_run_pipeline_new_review_exports_into_todays_folder_alongside_its_state(project_root):
+    from datetime import datetime
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit")
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    fresh = project_root / "deals" / "Acme Corp" / f"Fleet Loan_{today}"
+    assert (fresh / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert (fresh / "state.json").exists()
+    # Last year's folder is left exactly as it was -- no export leaked into it.
+    assert not (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+
+
 def _approved_json(notes=None):
     return '```json\n' + json.dumps({"verdict": "APPROVED", "notes": notes}) + '\n```'
 

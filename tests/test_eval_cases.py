@@ -471,3 +471,147 @@ def test_an_empty_multi_period_financials_object_is_rejected(dataset):
     case = base_case(dataset)
     case["deal"]["multi_period_financials"] = {}
     assert "multi_period_financials must be a non-empty object" in problems_text(case)
+
+# ---------------------------------------------------------------------------
+# Third independent review of the PR for #151: the Checker memos must be grounded in what the
+# Checker is actually shown, and the validator's remaining leniencies.
+# ---------------------------------------------------------------------------
+
+import re
+
+DERIVED_NUMBERS = {  # arithmetic on shown figures, each checked below
+    "11.1", "16.7", "20.0", "55", "83.3", "0.75", "1.45", "1.21", "250000", "300000",
+}
+
+
+def _checker_context(case):
+    """The grounding context the real pipeline builds for this case: what the Checker is shown."""
+    import orchestrator
+    from eval_oracles import build_context
+    ctx, deal = build_context(case), case["deal"]
+    return orchestrator._build_grounding_context(
+        deal["company"], deal["proposal"], deal["pd"], deal["lgd"],
+        {"financials": ctx["financials"], "ratios": ctx["ratios"]}, ctx["collateral"],
+        ctx["policy_state"], ctx["downside_case"], financials_source=ctx["financials_source"])
+
+
+def _ungrounded_numbers(prose, context):
+    """Numbers in `prose` that appear neither in the Checker's context nor in the audited
+    arithmetic above (single digits and section numbers are ignored)."""
+    found = []
+    for token in re.findall(r"\d[\d,]*(?:\.\d+)?", prose):
+        plain = token.replace(",", "").rstrip(".")
+        if "." not in plain and int(plain) < 10:
+            continue
+        if plain in DERIVED_NUMBERS or plain in context or token in context:
+            continue
+        found.append(plain)
+    return found
+
+
+def _prose(draft):
+    return draft.split("```json")[0]
+
+
+def test_every_number_in_the_clean_memo_is_in_the_checkers_context_or_audited_arithmetic(dataset):
+    case = base_case(dataset, "chk-clean-control")
+    assert _ungrounded_numbers(_prose(case["scripted"]["maker_draft"]), _checker_context(case)) == []
+
+
+def test_the_grounding_check_itself_detects_an_invented_figure(dataset):
+    case = base_case(dataset, "chk-clean-control")
+    tampered = _prose(case["scripted"]["maker_draft"]) + "\nOrder book of 999,999 confirmed."
+    assert _ungrounded_numbers(tampered, _checker_context(case)) == ["999999"]
+
+
+def test_the_derived_arithmetic_in_the_memos_is_actually_right():
+    assert round((1000000 / 900000 - 1) * 100, 1) == 11.1
+    assert (round(150000 / 900000 * 100, 1), round(200000 / 1000000 * 100, 1)) == (16.7, 20.0)
+    assert round(250000 / 300000 * 100, 1) == 83.3 and round(110000 / 200000 * 100) == 55
+    assert round(2.0 - 1.25, 2) == 0.75 and round(3.5 - 2.05, 2) == 1.45
+    assert round(410000 / 340000, 2) == 1.21
+
+
+@pytest.mark.parametrize("phrase", ["perfected", "first-ranking", "first ranking", "term facility",
+                                    "security schedule", "ranking"])
+def test_the_checker_memos_never_assert_what_the_checker_is_not_shown(dataset, phrase):
+    """The security package is not in the Checker's prompt; the memos once claimed it anyway."""
+    for case in (c for c in dataset["cases"] if c["mode"] == "checker"):
+        assert phrase not in _prose(case["scripted"]["maker_draft"]).lower(), (case["id"], phrase)
+
+
+def test_the_collateral_is_described_only_as_the_rows_show_it(dataset):
+    for case in (c for c in dataset["cases"] if c["mode"] == "checker"):
+        context = _checker_context(case)
+        assert "Registered" in context and "perfection_status" in context
+        assert "Registered" in _prose(case["scripted"]["maker_draft"])
+
+
+def test_the_flawed_memo_no_longer_contradicts_itself(dataset):
+    flawed = _prose(base_case(dataset, "chk-unsupported-claim")["scripted"]["maker_draft"]).lower()
+    for phrase in ("no business", "not assessed", "none is assumed", "no market"):
+        assert phrase not in flawed, phrase  # every other section is silent on commercial matters
+    assert "undisputed market leader" in flawed
+
+
+def test_every_risk_category_is_addressed_in_the_prose_of_every_memo(dataset):
+    from policy_checks import REQUIRED_RISK_TAXONOMY
+    for case in (c for c in dataset["cases"] if c["mode"] == "checker"):
+        prose = _prose(case["scripted"]["maker_draft"]).lower()
+        for category in REQUIRED_RISK_TAXONOMY:
+            assert category.lower() in prose, (case["id"], category)
+
+
+# ---- remaining validator leniencies the review listed ----------------------------------------
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_raw_figures_are_rejected(dataset, value):
+    case = base_case(dataset)
+    case["deal"]["multi_period_financials"]["FY-Current"]["revenue"] = value
+    assert "non-numeric values for ['revenue']" in problems_text(case)
+
+
+def test_an_empty_period_is_rejected(dataset):
+    case = base_case(dataset)
+    case["deal"]["multi_period_financials"]["FY-Current"] = {}
+    assert "must be a non-empty object of raw figures" in problems_text(case)
+
+
+@pytest.mark.parametrize("mutate, expected", [
+    (lambda c: c["deal"].update(financials={"FY-Current": {"ebitda": "lots"}}), "deal.financials must be an object of period"),
+    (lambda c: c["deal"].update(ratios={"FY-Current": {"dscr": float("nan")}}), "deal.ratios must be an object of period"),
+    (lambda c: c["deal"].update(collateral=[{"exposure": "x"}]), "collateral exposure must be a finite number >= 0"),
+    (lambda c: c["deal"].update(collateral=[{"collateral_value": -5}]), "collateral collateral_value must be a finite number >= 0"),
+    (lambda c: c["deal"].update(covenants=[{"metric": "dscr", "threshold": "high"}]), "covenant threshold must be a finite number"),
+    (lambda c: c["deal"].update(deal_type="bespoke"), "no shipped template in templates/cam"),
+    (lambda c: c["deal"].update(company="Synthetic Borrower One\n"), "invented name starting with 'Synthetic '"),
+    (lambda c: c["canary"].update(parts=[" "]), "canary.parts must be a non-empty list of non-empty strings"),
+])
+def test_remaining_leniencies_are_closed(dataset, mutate, expected):
+    case = base_case(dataset)
+    mutate(case)
+    assert expected in problems_text(case)
+
+
+def test_a_very_long_id_is_truncated_in_problem_strings(dataset):
+    case = base_case(dataset)
+    case["id"] = "x" * 100000
+    assert len(problems_text(case)) < 6000
+
+
+def _write_case_dataset(tmp_path, case_text):
+    (tmp_path / "v1" / "cases").mkdir(parents=True)
+    (tmp_path / "v1" / "dataset.json").write_text(json.dumps({"version": "v1"}), encoding="utf-8")
+    (tmp_path / "v1" / "cases" / "x.json").write_text(case_text, encoding="utf-8")
+    return str(tmp_path)
+
+
+@pytest.mark.parametrize("text, expected", [
+    ('{"id": "a", "id": "b"}', "duplicate JSON keys"),
+    ('{"id": NaN}', "not valid JSON data"),
+    pytest.param("[" * 100000 + "]" * 100000, "RecursionError", id="deeply-nested"),
+    ("{not json", "JSONDecodeError"),
+])
+def test_unsafe_case_files_are_a_clean_dataset_error(tmp_path, text, expected):
+    with pytest.raises(DatasetError, match=expected):
+        load_dataset("v1", root=_write_case_dataset(tmp_path, text))

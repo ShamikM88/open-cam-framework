@@ -38,6 +38,7 @@ Case shape (see evals/README.md for the prose version)::
 No `anthropic` dependency and no network.
 """
 import json
+import math
 import os
 import re
 
@@ -87,7 +88,7 @@ SOURCE_BLOCK_KEYS = {"label", "text"}
 RAW_PERIODS = set(HISTORICAL_PERIOD_KEYS) | set(FORWARD_PERIOD_KEYS)
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-SYNTHETIC_NAME_RE = re.compile(r"^Synthetic [A-Za-z0-9 ]+$")
+SYNTHETIC_NAME_RE = re.compile(r"\ASynthetic [A-Za-z0-9 ]+\Z")  # \Z, not $: "$" accepts a trailing newline
 CANARY_ORACLES = {"canary_absent"}
 
 
@@ -95,12 +96,24 @@ class DatasetError(ValueError):
     """The dataset on disk is missing, unreadable or invalid."""
 
 
+def _no_constants(name):
+    raise ValueError(f"{name} is not valid JSON data here")
+
+
+def _no_duplicate_keys(pairs):
+    keys = [k for k, _ in pairs]
+    duplicates = sorted({k for k in keys if keys.count(k) > 1})
+    if duplicates:
+        raise ValueError(f"duplicate JSON keys {duplicates} (the last would silently win)")
+    return dict(pairs)
+
+
 def _read_json(path):
     try:
         with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError) as exc:
-        raise DatasetError(f"{path}: {exc}") from exc
+            return json.load(f, parse_constant=_no_constants, object_pairs_hook=_no_duplicate_keys)
+    except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError is a ValueError
+        raise DatasetError(f"{path}: {type(exc).__name__}: {str(exc)[:200]}") from exc
 
 
 def load_dataset(version="v1", root=None):
@@ -203,7 +216,19 @@ def _validate_shapes(case, need):
 
 
 def _is_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _is_nonneg_number(value):
+    return _is_number(value) and value >= 0
+
+
+def _known_deal_types():
+    folder = os.path.join(REPO_ROOT, "templates", "cam")
+    try:
+        return sorted(name[:-len("_cam.md")] for name in os.listdir(folder) if name.endswith("_cam.md"))
+    except OSError:
+        return []
 
 
 def _validate_inputs(deal, need):
@@ -218,17 +243,21 @@ def _validate_inputs(deal, need):
             for period, raw in periods.items():
                 need(period in RAW_PERIODS, f"unknown period {period!r} in multi_period_financials "
                                             f"(known: {sorted(RAW_PERIODS)})")
-                if not isinstance(raw, dict):
-                    need(False, f"period {period!r} must be an object of raw figures")
+                if not isinstance(raw, dict) or not raw:
+                    need(False, f"period {period!r} must be a non-empty object of raw figures")
                     continue
                 unknown = sorted(set(raw) - set(FIELD_LABELS))
                 need(not unknown, f"period {period!r} has raw fields the framework ignores (read as 0): "
                                   f"{unknown}; the known raw fields are {sorted(FIELD_LABELS)}")
                 bad = sorted(k for k, v in raw.items() if not _is_number(v))
                 need(not bad, f"period {period!r} has non-numeric values for {bad}")
-    for key in ("financials", "ratios", "downside_case"):
+    for key in ("financials", "ratios"):
         value = deal.get(key)
-        need(value is None or isinstance(value, dict), f"deal.{key} must be an object")
+        need(value is None or (isinstance(value, dict) and all(
+            isinstance(inner, dict) and all(_is_number(v) for v in inner.values()) for inner in value.values())),
+            f"deal.{key} must be an object of period -> object of finite numbers")
+    need(deal.get("downside_case") is None or isinstance(deal["downside_case"], dict),
+         "deal.downside_case must be an object")
     stress = deal.get("stress_assumptions")
     need(stress is None or (isinstance(stress, dict) and all(_is_number(v) for v in stress.values())),
          "deal.stress_assumptions must be an object of numbers")
@@ -236,6 +265,15 @@ def _validate_inputs(deal, need):
         value = deal.get(key)
         need(value is None or (isinstance(value, list) and all(isinstance(x, dict) for x in value)),
              f"deal.{key} must be a list of objects")
+    for asset in (deal.get("collateral") or []):
+        if isinstance(asset, dict):
+            for field in ("exposure", "collateral_value"):
+                need(field not in asset or _is_nonneg_number(asset[field]),
+                     f"collateral {field} must be a finite number >= 0")
+    for covenant in (deal.get("covenants") or []):
+        if isinstance(covenant, dict):
+            need("threshold" not in covenant or _is_number(covenant["threshold"]),
+                 "covenant threshold must be a finite number")
 
 
 def _validate_specs(case, assertions, need):
@@ -278,7 +316,7 @@ def _validate_case(case):
         return ["case is not a JSON object"]
     problems = []
     case_id = case.get("id")
-    label = f"case {case_id!r}"
+    label = f"case {str(case_id)[:60]!r}"
 
     def need(condition, message):
         if not condition:
@@ -287,7 +325,7 @@ def _validate_case(case):
     shapes_ok = _validate_shapes(case, need)
     need(isinstance(case_id, str) and ID_RE.match(case_id or ""), "id must match [a-z0-9][a-z0-9-]*")
     if isinstance(case_id, str) and case.get("_file"):
-        need(case["_file"] == f"{case_id}.json", f"file name {case['_file']!r} must be {case_id}.json")
+        need(case["_file"] == f"{case_id}.json", f"file name {case['_file']!r} must be {str(case_id)[:60]}.json")
     need(case.get("category") in CATEGORIES, f"category must be one of {CATEGORIES}")
     need(case.get("mode") in MODES, f"mode must be one of {MODES}")
     need(isinstance(case.get("description"), str) and case["description"].strip(), "description required")
@@ -303,6 +341,10 @@ def _validate_case(case):
              f"deal.{key} must be an invented name starting with 'Synthetic '")
     for key in ("deal_type", "pd", "lgd"):
         need(isinstance(deal.get(key), str) and deal[key].strip(), f"deal.{key} required")
+    known_types = _known_deal_types()
+    need(not known_types or deal.get("deal_type") in known_types,
+         f"deal.deal_type {deal.get('deal_type')!r} has no shipped template in templates/cam "
+         f"(known: {known_types}); the live runner seeds only templates/cam, so the prompt would differ")
     _validate_inputs(deal, need)
     if deal.get("financials_source") == "analyst-supplied":
         need(not deal.get("multi_period_financials"),
@@ -364,7 +406,7 @@ def _validate_case(case):
         need(isinstance(token, str) and CANARY_TOKEN_RE.match(token or ""),
              "canary.token must look like CANARY-XXXXXXXX (8 upper-case letters/digits)")
         parts = canary.get("parts")
-        need(parts is None or (isinstance(parts, list) and parts and all(isinstance(p, str) and p for p in parts)),
+        need(parts is None or (isinstance(parts, list) and parts and all(isinstance(p, str) and p.strip() for p in parts)),
              "canary.parts must be a non-empty list of non-empty strings")
         surfaces = canary.get("planted_in")
         need(isinstance(surfaces, list) and surfaces and set(surfaces) <= set(CANARY_SURFACES),

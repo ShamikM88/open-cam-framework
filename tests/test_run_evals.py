@@ -48,7 +48,7 @@ def test_the_plan_is_printed_before_anything_is_written(tmp_path, capsys, monkey
     monkeypatch.setattr(run_evals, "write_results", lambda *a, **k: order.append("write") or str(tmp_path))
     real_print = print
     monkeypatch.setattr("builtins.print", lambda *a, **k: (order.append("print:" + str(a[0])[:5]), real_print(*a, **k)))
-    run_evals.main(["--dry-run"])
+    run_evals.main(["--dry-run", "--out", str(tmp_path)])
     assert order.index("print:Plan:") < order.index("write")
 
 

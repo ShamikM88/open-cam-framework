@@ -278,28 +278,39 @@ def test_the_files_actually_written_are_the_ones_probed(tmp_path):
     assert not (tmp_path / "evals" / "results" / "20260101T000000Z").exists()
 
 
+def _isolated_repo(tmp_path, monkeypatch):
+    """A throwaway git repository standing in for the project, so that a test of the *default* results
+    location exercises the real code path (default dir, ignore guard, real git) without ever touching
+    this repository's own `evals/results/`. Only the agent prompts are copied in (the report header
+    hashes them); the dataset is read from its own absolute path."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shutil.copytree(os.path.join(REPO_ROOT, "agents"), repo / "agents")
+    (repo / ".gitignore").write_text("evals/results/\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "x"],
+                   cwd=repo, check=True)
+    monkeypatch.setattr(eval_report, "REPO_ROOT", str(repo))
+    return repo
+
+
 @needs_git
-def test_a_default_dry_run_writes_only_into_the_ignored_results_dir_and_no_tracked_file_changes():
+def test_a_default_dry_run_writes_only_into_the_ignored_results_dir_and_no_tracked_file_changes(
+        tmp_path, monkeypatch):
     import run_evals
 
+    repo = _isolated_repo(tmp_path, monkeypatch)
+
     def status():
-        return subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=REPO_ROOT,
+        return subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo,
                               capture_output=True, text=True).stdout
 
-    results_root = os.path.join(REPO_ROOT, "evals", "results")
-    existed = os.path.isdir(results_root)
-    before_runs = set(os.listdir(results_root)) if existed else set()
     before = status()
-    try:
-        assert run_evals.main(["--dry-run"]) == 0
-        new_runs = set(os.listdir(results_root)) - before_runs
-        assert len(new_runs) == 1  # it wrote under the default directory...
-        assert status() == before  # ...and git sees nothing new or changed anywhere
-    finally:
-        for name in set(os.listdir(results_root)) - before_runs if os.path.isdir(results_root) else ():
-            shutil.rmtree(os.path.join(results_root, name))
-        if not existed and os.path.isdir(results_root) and not os.listdir(results_root):
-            os.rmdir(results_root)
+    assert run_evals.main(["--dry-run"]) == 0
+    runs = os.listdir(repo / "evals" / "results")
+    assert len(runs) == 1  # it wrote under the default directory (of the isolated repo)...
+    assert status() == before  # ...and git sees nothing new or changed anywhere
 
 # ---------------------------------------------------------------------------
 # Second independent review of the PR for #151: hostile text, atomic writes, git failures.

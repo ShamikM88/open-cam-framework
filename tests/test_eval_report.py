@@ -208,7 +208,7 @@ def test_an_unscored_observation_appears_in_the_human_review_section_not_as_a_fa
 def test_an_existing_run_directory_is_never_overwritten(tmp_path):
     record = _record_with_live_runs()
     write_results(record, out_root=str(tmp_path))
-    with pytest.raises(ResultsPathError, match="already exists"):
+    with pytest.raises(ResultsPathError, match="already holds results.json"):
         write_results(record, out_root=str(tmp_path))
 
 

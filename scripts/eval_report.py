@@ -85,12 +85,15 @@ def scripted_run(label, results, output_excerpt="", expected_pass=None):
             "expected_pass": expected_pass, "status": "ok", "output_excerpt": clip(output_excerpt)}
 
 
-def live_run(label, results, output_excerpt="", status="ok", error=None):
+def live_run(label, results, output_excerpt="", status="ok", error=None, extra=None):
     """A run record for a live (model) output. A run that errored (status != "ok")
-    is never a pass, and still counts in the pass-rate denominator."""
+    is never a pass, and still counts in the pass-rate denominator. `extra` carries
+    per-run provenance (prompt hash, model, token usage) without a model's text."""
     passed = status == "ok" and run_passed(results)
-    return {"label": label, "kind": "live", "assertions": results, "passed": passed, "status": status,
-            "error": error, "output_excerpt": clip(output_excerpt)}
+    record = {"label": label, "kind": "live", "assertions": results, "passed": passed, "status": status,
+              "error": error, "output_excerpt": clip(output_excerpt)}
+    record.update(extra or {})
+    return record
 
 
 def pass_rate(runs):
@@ -120,7 +123,7 @@ def summarize(cases):
 
 
 def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned_live_calls=0,
-                 usage=None, call_cap=None):
+                 usage=None, call_cap=None, input_hashes=None, repeats=None, aborted=False, abort_reason=None):
     return {
         "harness_version": HARNESS_VERSION,
         "run_id": run_id,
@@ -130,6 +133,10 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
                     "content_hash": dataset_hash(dataset)},
         "models": models or {"maker_model": None, "checker_model": None},
         "prompt_hashes": hashes or {},
+        "input_hashes": input_hashes or {},
+        "repeats": repeats,
+        "aborted": aborted,
+        "abort_reason": abort_reason,
         "planned_live_calls": planned_live_calls,
         "call_cap": call_cap,
         "usage": usage or {"calls": 0, "input_tokens": 0, "output_tokens": 0},
@@ -253,6 +260,30 @@ def render_review_pack(record):
     return "\n".join(lines).rstrip() + "\n"
 
 
+def prepare_run_dir(run_id, out_root=None, repo_root=None):
+    """Create (and guard) `<out_root>/<run_id>/` before a live run starts, so work
+    directories and incremental output have somewhere safe to go. Refuses a path that
+    is not git-ignored or a run id that already exists."""
+    root = out_root or os.path.join(repo_root or REPO_ROOT, RESULTS_ROOT)
+    out_dir = os.path.join(root, run_id)
+    assert_results_dir_is_ignored(out_dir, repo_root, probe_names=("results.json", "review_pack.md", "runs.jsonl",
+                                                                  "work/probe"))
+    try:
+        os.makedirs(out_dir, exist_ok=False)
+    except FileExistsError as exc:
+        raise ResultsPathError(f"{out_dir} already exists; refusing to reuse an earlier run") from exc
+    return out_dir
+
+
+def append_run_line(run_dir, case_id, run):
+    """Append one finished run to `runs.jsonl` and flush, so a crash part-way through a
+    paid-for evaluation loses nothing already completed."""
+    with open(os.path.join(run_dir, "runs.jsonl"), "a", encoding="utf-8", errors="backslashreplace") as f:
+        f.write(json.dumps({"case_id": case_id, **run}, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+
+
 def write_results(record, out_root=None, repo_root=None):
     """Write results.json and review_pack.md under `<out_root>/<run_id>/` and
     return that directory. Refuses a path that is not git-ignored, and never
@@ -260,10 +291,9 @@ def write_results(record, out_root=None, repo_root=None):
     root = out_root or os.path.join(repo_root or REPO_ROOT, RESULTS_ROOT)
     out_dir = os.path.join(root, record["run_id"])
     assert_results_dir_is_ignored(out_dir, repo_root, probe_names=("results.json", "review_pack.md"))
-    try:
-        os.makedirs(out_dir, exist_ok=False)
-    except FileExistsError as exc:
-        raise ResultsPathError(f"{out_dir} already exists; refusing to overwrite an earlier run") from exc
+    os.makedirs(out_dir, exist_ok=True)  # a live run creates its directory up front, for incremental output
+    if os.path.exists(os.path.join(out_dir, "results.json")):
+        raise ResultsPathError(f"{out_dir} already holds results.json; refusing to overwrite an earlier run")
     # errors="backslashreplace": a lone surrogate in model text must not abort the write after the
     # live calls are already spent.
     with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8", errors="backslashreplace") as f:

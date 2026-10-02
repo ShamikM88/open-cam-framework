@@ -29,7 +29,7 @@ Case shape (see evals/README.md for the prose version)::
      "config_files": {style_guide?, credit_policy?, credit_policy_notes?,
                       deal_learnings?, company_learnings?},   # free-text surfaces
      "source_block": {"label", "text"},                       # maker cases only
-     "scripted": {"maker_draft"} | {"checker_response"?},     # by mode
+     "scripted": {"maker_draft"},                             # checker cases only
      "canary": {"token", "planted_in": [...], "parts"?},      # optional
      "assertions": [{"oracle", "params"?, "scored"?}],
      "human_review": ["question", ...],
@@ -212,18 +212,14 @@ def validate_case(case):
 
     mode = case.get("mode")
     scripted = case.get("scripted") or {}
+    need(set(scripted) <= {"maker_draft"}, "scripted may only contain maker_draft")
     if mode == "checker":
         need(isinstance(scripted.get("maker_draft"), str) and scripted["maker_draft"].strip(),
              "a checker case needs scripted.maker_draft (a Maker draft scripted to carry the flaw "
              "under test, that deterministic policy_checks cannot catch)")
-        need("checker_response" not in scripted, "a checker case must not script the Checker's response")
         need(not case.get("source_block"), "source_block is a maker-case construct (no real route to the Checker)")
     elif mode == "maker":
         need("maker_draft" not in scripted, "a maker case must not script the Maker's draft")
-        response = scripted.get("checker_response")
-        if response is not None:
-            need(isinstance(response, dict) and response.get("verdict") in VERDICTS,
-                 f"scripted.checker_response must be an object with verdict in {VERDICTS}")
 
     assertions = case.get("assertions")
     if not (isinstance(assertions, list) and assertions):

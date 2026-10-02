@@ -66,7 +66,7 @@ def test_a_cap_above_the_absolute_ceiling_is_refused(tmp_path, capsys):
 
 def test_running_with_no_mode_flag_does_nothing_and_exits_non_zero(capsys):
     assert run_evals.main([]) == 2
-    assert "live evaluation is not implemented" in capsys.readouterr().err
+    assert "Nothing to do" in capsys.readouterr().err
 
 
 def test_an_invalid_dataset_fails_loudly(tmp_path, monkeypatch, capsys):
@@ -169,3 +169,193 @@ def test_read_only_modes_leave_the_whole_evals_tree_untouched(flag):
     before = tree()
     run_evals.main([flag])
     assert tree() == before
+
+# ---------------------------------------------------------------------------
+# PR 2: the --live, --export-baseline and --compare commands. Every client is a fake:
+# these tests make zero model calls and need no API key.
+# ---------------------------------------------------------------------------
+
+def _fake_client_factory(monkeypatch, respond):
+    from eval_fakes import FakeClient
+    client = FakeClient(respond)
+    monkeypatch.setattr(run_evals, "make_client", lambda: client)
+    return client
+
+
+def _forbid_client(monkeypatch):
+    def boom():
+        raise AssertionError("the client must not be built (and no key touched) on this path")
+    monkeypatch.setattr(run_evals, "make_client", boom)
+
+
+LIVE = ["--live", "--cases", "fab-no-financials", "--repeats", "1", "--yes"]
+
+
+def test_live_refuses_a_plan_over_the_cap_before_touching_the_key(monkeypatch, tmp_path, capsys):
+    _forbid_client(monkeypatch)
+    code = run_evals.main(["--live", "--yes", "--repeats", "20", "--out", str(tmp_path)])
+    assert code == 2 and "Refused" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("answer", ["no", "", "y", "YES please"])
+def test_live_needs_an_explicit_yes(monkeypatch, tmp_path, capsys, answer):
+    _forbid_client(monkeypatch)
+    monkeypatch.setattr("builtins.input", lambda *_: answer)
+    code = run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "1", "--out", str(tmp_path)])
+    assert code == 2 and "Not confirmed" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_live_with_no_terminal_to_confirm_runs_nothing(monkeypatch, tmp_path, capsys):
+    _forbid_client(monkeypatch)
+
+    def eof(*_):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", eof)
+    assert run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "1", "--out", str(tmp_path)]) == 2
+
+
+def test_a_missing_api_key_is_a_clean_error_and_nothing_is_written(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    code = run_evals.main([*LIVE, "--out", str(tmp_path)])
+    assert code == 2 and "ANTHROPIC_API_KEY" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_unknown_case_ids_are_refused_and_duplicates_collapse(monkeypatch, tmp_path, capsys):
+    _forbid_client(monkeypatch)
+    assert run_evals.main(["--live", "--yes", "--cases", "no-such-case", "--out", str(tmp_path)]) == 1
+    assert "unknown case id" in capsys.readouterr().err
+    capsys.readouterr()
+    client = _fake_client_factory(monkeypatch, lambda kw: "x")
+    run_evals.main(["--live", "--yes", "--cases", "fab-no-financials,fab-no-financials", "--repeats", "2",
+                    "--out", str(tmp_path)])
+    assert "1 cases x 2 repeats = 2 LIVE" in capsys.readouterr().out and len(client.calls) == 2
+
+
+def test_a_live_run_writes_results_review_pack_and_incremental_runs(monkeypatch, tmp_path, capsys):
+    from eval_fakes import dataset_case, good_maker_text
+    case = dataset_case("fab-no-financials")
+    client = _fake_client_factory(monkeypatch, lambda kw: good_maker_text(case))
+
+    assert run_evals.main([*LIVE, "--out", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+
+    (run_dir,) = list(tmp_path.iterdir())
+    assert sorted(p.name for p in run_dir.iterdir()) == ["results.json", "review_pack.md", "runs.jsonl"]
+    record = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    assert record["mode"] == "live" and record["usage"]["calls"] == 1 and len(client.calls) == 1
+    assert record["cases"][0]["runs"][0]["passed"] and not record["aborted"]
+    assert "Observed pass rates" in out and "not a proof of safety" in out
+    assert len((run_dir / "runs.jsonl").read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_keep_work_keeps_the_isolated_directories_inside_the_results_dir(monkeypatch, tmp_path):
+    from eval_fakes import dataset_case, good_maker_text
+    case = dataset_case("fab-no-financials")
+    _fake_client_factory(monkeypatch, lambda kw: good_maker_text(case))
+    run_evals.main([*LIVE, "--keep-work", "--out", str(tmp_path)])
+    (run_dir,) = list(tmp_path.iterdir())
+    kept = list((run_dir / "work").glob("fab-no-financials-*"))
+    assert len(kept) == 1, "--keep-work should keep the per-run isolated directory"
+    assert (kept[0] / "agents").is_dir() and not (kept[0] / "templates" / "local").exists()
+
+
+def test_an_aborted_live_run_exits_non_zero_and_says_why(monkeypatch, tmp_path, capsys):
+    def respond(kw):
+        raise RuntimeError("API down")
+
+    _fake_client_factory(monkeypatch, respond)
+    code = run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "5", "--yes", "--out", str(tmp_path)])
+    assert code == 1 and "ABORTED early: 3 consecutive errored runs" in capsys.readouterr().err
+
+
+def test_live_flags_are_mutually_exclusive_with_the_other_modes():
+    with pytest.raises(SystemExit) as raised:
+        run_evals.main(["--live", "--dry-run"])
+    assert raised.value.code == 2
+
+
+def _live_results(monkeypatch, tmp_path, name="a"):
+    from eval_fakes import dataset_case, good_maker_text
+    case = dataset_case("fab-no-financials")
+    _fake_client_factory(monkeypatch, lambda kw: good_maker_text(case))
+    out = tmp_path / name
+    assert run_evals.main([*LIVE, "--out", str(out)]) == 0
+    (run_dir,) = list(out.iterdir())
+    return run_dir / "results.json"
+
+
+def test_export_baseline_writes_beside_the_results_and_refuses_to_overwrite(monkeypatch, tmp_path, capsys):
+    results = _live_results(monkeypatch, tmp_path)
+    capsys.readouterr()
+    assert run_evals.main(["--export-baseline", str(results)]) == 0
+    assert "copy it by hand to evals/baselines/" in capsys.readouterr().out
+    summary = json.loads((results.parent / "baseline_summary.json").read_text(encoding="utf-8"))
+    assert summary["kind"] == "evaluation-baseline-summary" and summary["per_case"][0]["total"] == 1
+    assert run_evals.main(["--export-baseline", str(results)]) == 1
+    assert "already exists" in capsys.readouterr().err
+
+
+def test_export_baseline_refuses_a_dry_run_record(tmp_path, capsys):
+    assert run_evals.main(["--dry-run", "--out", str(tmp_path)]) == 0
+    (run_dir,) = list(tmp_path.iterdir())
+    capsys.readouterr()
+    assert run_evals.main(["--export-baseline", str(run_dir / "results.json")]) == 1
+    assert "only a live run" in capsys.readouterr().err
+
+
+def test_export_baseline_reports_a_missing_file_cleanly(tmp_path, capsys):
+    assert run_evals.main(["--export-baseline", str(tmp_path / "nope.json")]) == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_compare_prints_a_like_for_like_comparison(monkeypatch, tmp_path, capsys):
+    first = _live_results(monkeypatch, tmp_path, "first")
+    second = _live_results(monkeypatch, tmp_path, "second")
+    run_evals.main(["--export-baseline", str(first)])
+    capsys.readouterr()
+
+    assert run_evals.main(["--compare", str(first.parent / "baseline_summary.json"), str(second)]) == 0
+    out = capsys.readouterr().out
+    assert "fab-no-financials" in out and "gates nothing" in out
+    # Same model/prompts/dataset, so this is like-for-like (case content hash unchanged).
+    assert "Like-for-like" in out
+
+
+def test_compare_refuses_a_non_baseline_file(monkeypatch, tmp_path, capsys):
+    results = _live_results(monkeypatch, tmp_path)
+    capsys.readouterr()
+    assert run_evals.main(["--compare", str(results), str(results)]) == 1
+    assert "not an evaluation baseline" in capsys.readouterr().err
+
+
+def test_a_live_run_into_the_default_results_dir_changes_no_tracked_file(monkeypatch):
+    import shutil
+    import subprocess
+    from eval_fakes import dataset_case, good_maker_text
+
+    def status():
+        return subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=REPO_ROOT,
+                              capture_output=True, text=True).stdout
+
+    if shutil.which("git") is None:
+        pytest.skip("git not available")
+    case = dataset_case("fab-no-financials")
+    _fake_client_factory(monkeypatch, lambda kw: good_maker_text(case))
+    root = REPO_ROOT / "evals" / "results"
+    existed = root.is_dir()
+    before_runs = set(p.name for p in root.iterdir()) if existed else set()
+    before = status()
+    try:
+        assert run_evals.main(LIVE) == 0
+        assert status() == before  # git sees nothing new or changed
+    finally:
+        if root.is_dir():
+            for entry in root.iterdir():
+                if entry.name not in before_runs:
+                    shutil.rmtree(entry)
+            if not existed and not any(root.iterdir()):
+                root.rmdir()

@@ -269,12 +269,12 @@ def test_the_shipped_checker_injection_case_scores_the_verdict_and_only_observes
     assert scored == {"verdict_is": True, "canary_absent": False}
 
 
-def test_a_scripted_checker_response_on_a_maker_case_must_be_well_formed(dataset):
+def test_scripted_may_only_contain_a_maker_draft(dataset):
+    """A scripted Checker response used to be a schema field that nothing used; a Maker case
+    now stops the pipeline before the Checker call, so the field is rejected as unknown."""
     case = base_case(dataset, "fab-no-financials")
-    case["scripted"] = {"checker_response": {"verdict": "MAYBE"}}
-    assert "scripted.checker_response must be an object with verdict" in problems_text(case)
     case["scripted"] = {"checker_response": {"verdict": "APPROVED"}}
-    assert "scripted.checker_response" not in problems_text(case)
+    assert "scripted may only contain maker_draft" in problems_text(case)
 
 
 def test_two_cases_may_not_share_a_company_and_proposal(dataset):

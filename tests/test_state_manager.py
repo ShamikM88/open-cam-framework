@@ -207,7 +207,7 @@ def test_resolved_directory_matches_deal_exports_output_directory(tmp_path):
     """state.json and the final .docx/.xlsx must land in the same folder."""
     base = str(tmp_path)
     os.makedirs(os.path.join(base, "templates", "cam"), exist_ok=True)
-    with open(os.path.join(base, "templates", "cam", "asset_finance_cam.md"), "w") as f:
+    with open(os.path.join(base, "templates", "cam", "asset_finance_cam.md"), "w", encoding="utf-8") as f:
         f.write("template")
 
     output_dir = export_deal(
@@ -610,7 +610,7 @@ def test_date_discovery_ignores_a_prefix_sharing_proposals_folder(tmp_path):
 def test_date_discovery_ignores_non_date_suffixes_and_files(tmp_path):
     base = str(tmp_path)
     os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_foo"))
-    with open(os.path.join(base, "deals", "Acme", "Fleet_2099-01-01"), "w") as f:
+    with open(os.path.join(base, "deals", "Acme", "Fleet_2099-01-01"), "w", encoding="utf-8") as f:
         f.write("a file, not a deal folder")
 
     today = datetime.now().strftime("%Y-%m-%d")

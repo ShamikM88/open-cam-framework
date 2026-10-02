@@ -326,7 +326,7 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
         os.makedirs(os.path.dirname(template_path), exist_ok=True)
         print(f"[MOCK] Read {total_chars} characters from "
               f"{len(_sample_pdf_paths())} sample PDF(s).")
-        with open("config/style_guide.md", "w") as f:
+        with open("config/style_guide.md", "w", encoding="utf-8") as f:
             f.write(MOCK_STYLE_GUIDE)
         print("[MOCK] Wrote placeholder `config/style_guide.md`.")
         with open(template_path, "w", encoding="utf-8") as f:
@@ -347,11 +347,7 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
     template_text = _derive(text_content, mode, TEMPLATE_PROMPT, TEMPLATE_MERGE_PROMPT, model, "template")
 
     os.makedirs(os.path.dirname(template_path), exist_ok=True)
-    # No explicit encoding, deliberately, exactly as before this PR: the
-    # readers (orchestrator.py's style_guide/credit_policy opens) use the
-    # platform default too, so write and read round-trip. Switching only the
-    # writer to UTF-8 would corrupt or crash those reads on Windows (cp1252); see issue #137.
-    with open("config/style_guide.md", "w") as f:
+    with open("config/style_guide.md", "w", encoding="utf-8") as f:
         f.write("# Calibrated Style Guide\n\n" + style_text)
     print("Calibration complete. Created `config/style_guide.md`.")
     with open(template_path, "w", encoding="utf-8") as f:

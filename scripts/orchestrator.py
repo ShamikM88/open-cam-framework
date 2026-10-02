@@ -30,6 +30,7 @@ from state_manager import (
     resolve_date_str,
 )
 from template_resolver import cam_template_path
+from textio import read_text
 
 def _load_settings():
     """config/settings.json's full contents -- the documented single
@@ -442,8 +443,11 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
     client = client or _default_client()
 
-    with open("agents/underwriter_agent.md") as f: maker_prompt = f.read()
-    with open("agents/risk_reviewer_agent.md") as f: checker_prompt = f.read()
+    # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly
+    # (issue #137). The user-owned files below also accept legacy cp1252 -- with
+    # a warning -- since calibrate.py used to write config/style_guide.md that way.
+    maker_prompt = read_text("agents/underwriter_agent.md")
+    checker_prompt = read_text("agents/risk_reviewer_agent.md")
 
     maker_checker_config = _resolve_maker_checker_config()
 
@@ -461,7 +465,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     style_guide = ""
     if os.path.exists("config/style_guide.md"):
-        with open("config/style_guide.md") as f: style_guide = f.read()
+        style_guide = read_text("config/style_guide.md", legacy_fallback=True)
 
     # Fork-wide fact, not deal-specific state.json data -- see
     # _build_grounding_context()'s own docstring for why this is derived
@@ -469,20 +473,20 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     credit_policy_present = os.path.exists("config/credit_policy.md")
     credit_policy = ""
     if credit_policy_present:
-        with open("config/credit_policy.md") as f: credit_policy = f.read()
+        credit_policy = read_text("config/credit_policy.md", legacy_fallback=True)
 
     credit_policy_notes = ""
     if os.path.exists("config/credit_policy_notes.md"):
-        with open("config/credit_policy_notes.md") as f: credit_policy_notes = f.read()
+        credit_policy_notes = read_text("config/credit_policy_notes.md", legacy_fallback=True)
 
     enterprise_learnings = ""
     if os.path.exists("config/deal_learnings.md"):
-        with open("config/deal_learnings.md") as f: enterprise_learnings = f.read()
+        enterprise_learnings = read_text("config/deal_learnings.md", legacy_fallback=True)
 
     company_learnings = ""
     company_learnings_path = os.path.join(DEALS_DIR, sanitize_path_component(company, "company"), "_learnings.md")
     if os.path.exists(company_learnings_path):
-        with open(company_learnings_path) as f: company_learnings = f.read()
+        company_learnings = read_text(company_learnings_path, legacy_fallback=True)
 
     # A calibration-derived override under templates/local/cam/ (see
     # scripts/calibrate.py, or the /calibrate slash command) takes
@@ -491,11 +495,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     template_path = cam_template_path(deal_type)
     template_section = ""
     if template_path:
-        with open(template_path, encoding="utf-8") as f:
-            template_section = (
-                "\nFollow this exact CAM template structure, filling in every "
-                f"placeholder with grounded, sourced content:\n{f.read()}\n"
-            )
+        # Shipped (templates/cam/) or calibrate.py/deal_export-written (templates/local/cam/):
+        # both are always UTF-8, so strict -- same policy as the prompts above (issue #137).
+        template_section = (
+            "\nFollow this exact CAM template structure, filling in every "
+            f"placeholder with grounded, sourced content:\n{read_text(template_path)}\n"
+        )
 
     # Never blindly overwrite what an earlier run of this pipeline (or an
     # earlier slash-command step, if this deal was previously advanced that

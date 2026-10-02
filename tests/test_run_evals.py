@@ -332,33 +332,43 @@ def test_compare_refuses_a_non_baseline_file(monkeypatch, tmp_path, capsys):
     assert "not an evaluation baseline" in capsys.readouterr().err
 
 
-def test_a_live_run_into_the_default_results_dir_changes_no_tracked_file(monkeypatch):
+def test_a_live_run_into_the_default_results_dir_changes_no_tracked_file(monkeypatch, tmp_path):
     import shutil
     import subprocess
-    from eval_fakes import dataset_case, good_maker_text
 
-    def status():
-        return subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=REPO_ROOT,
-                              capture_output=True, text=True).stdout
+    import eval_report
+    import eval_runner
+    from eval_fakes import dataset_case, good_maker_text
 
     if shutil.which("git") is None:
         pytest.skip("git not available")
+    # A throwaway git repository stands in for the project: the *default* results location, the ignore
+    # guard and the isolated-workdir seeding all run for real, but pytest never touches this repository's
+    # own evals/results/.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    shutil.copytree(REPO_ROOT / "agents", repo / "agents")
+    shutil.copytree(REPO_ROOT / "templates" / "cam", repo / "templates" / "cam")
+    (repo / "config").mkdir()
+    shutil.copyfile(REPO_ROOT / "config" / "settings.json", repo / "config" / "settings.json")
+    (repo / ".gitignore").write_text("evals/results/\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "x"],
+                   cwd=repo, check=True)
+    monkeypatch.setattr(eval_report, "REPO_ROOT", str(repo))
+    monkeypatch.setattr(eval_runner, "REPO_ROOT", str(repo))
+
+    def status():
+        return subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=repo,
+                              capture_output=True, text=True).stdout
+
     case = dataset_case("fab-no-financials")
     _fake_client_factory(monkeypatch, lambda kw: good_maker_text(case))
-    root = REPO_ROOT / "evals" / "results"
-    existed = root.is_dir()
-    before_runs = set(p.name for p in root.iterdir()) if existed else set()
     before = status()
-    try:
-        assert run_evals.main(LIVE) == 0
-        assert status() == before  # git sees nothing new or changed
-    finally:
-        if root.is_dir():
-            for entry in root.iterdir():
-                if entry.name not in before_runs:
-                    shutil.rmtree(entry)
-            if not existed and not any(root.iterdir()):
-                root.rmdir()
+    assert run_evals.main(LIVE) == 0
+    assert len(os.listdir(repo / "evals" / "results")) == 1  # written under the isolated repo's default dir
+    assert status() == before  # git sees nothing new or changed
 
 # ---------------------------------------------------------------------------
 # Third independent review: --cases, relative --out, Ctrl-C, aborted packs, the export guard.
@@ -435,18 +445,23 @@ def test_a_truncated_live_output_is_flagged_in_the_pack_and_the_run_details_are_
 
 def test_export_baseline_refuses_a_results_file_in_a_tracked_directory(monkeypatch, tmp_path, capsys):
     import shutil
-    from eval_fakes import REPO_ROOT as repo_root
+    import subprocess
+
+    import eval_report
+    if shutil.which("git") is None:
+        pytest.skip("git not available")
     results = _live_results(monkeypatch, tmp_path)
-    probe_dir = repo_root / "tests" / "_baseline_guard_probe"
-    try:
-        probe_dir.mkdir()
-        shutil.copyfile(results, probe_dir / "results.json")
-        capsys.readouterr()
-        code = run_evals.main(["--export-baseline", str(probe_dir / "results.json")])
-        assert code == 1 and "not git-ignored" in capsys.readouterr().err
-        assert not (probe_dir / "baseline_summary.json").exists()
-    finally:
-        shutil.rmtree(probe_dir, ignore_errors=True)
+    # A throwaway repository with NO ignore rule for the directory, so the guard sees a tracked location
+    # without this test ever creating anything inside the real working tree.
+    repo = tmp_path / "repo"
+    (repo / "docs").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    monkeypatch.setattr(eval_report, "REPO_ROOT", str(repo))
+    shutil.copyfile(results, repo / "docs" / "results.json")
+    capsys.readouterr()
+    code = run_evals.main(["--export-baseline", str(repo / "docs" / "results.json")])
+    assert code == 1 and "not git-ignored" in capsys.readouterr().err
+    assert not (repo / "docs" / "baseline_summary.json").exists()
 
 
 def test_a_malformed_results_file_is_a_clean_error_on_the_command_line(tmp_path, capsys):

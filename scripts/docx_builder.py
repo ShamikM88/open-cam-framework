@@ -17,7 +17,7 @@ FENCE_OPEN_RE = re.compile(r"^\s*```(\S*)")
 IMAGE_RE = re.compile(r"^\s*!\[([^\]]*)\]\((.+?)\)\s*$")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
-HEADING_RE = re.compile(r"^(#{1,3}) ")
+HEADING_RE = re.compile(r"^(#{1,6}) ")
 BULLET_RE = re.compile(r"^- ")
 NUMBERED_RE = re.compile(r"^\d+\.\s")
 INLINE_SPAN = r"\S(?:.*?\S)?"  # non-whitespace at both ends -- keeps a lone
@@ -296,14 +296,13 @@ def export_to_docx(markdown_text, output_path):
     while i < n:
         line = lines[i]
 
-        if line.startswith("# "):
-            doc.add_heading(line[2:], level=1)
-            i += 1
-        elif line.startswith("## "):
-            doc.add_heading(line[3:], level=2)
-            i += 1
-        elif line.startswith("### "):
-            doc.add_heading(line[4:], level=3)
+        heading = HEADING_RE.match(line)
+        if heading:
+            hashes = heading.group(1)
+            # python-docx's default style set tops out at Heading 3 (issue
+            # #110), so H4-H6 render as Heading 3 rather than leaking the
+            # literal "####" into the document.
+            doc.add_heading(line[len(hashes) + 1:], level=min(len(hashes), 3))
             i += 1
         elif FENCE_RE.match(line):
             # A fenced code block is one of two things in practice: the

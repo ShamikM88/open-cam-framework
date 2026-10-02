@@ -13,10 +13,11 @@ relying on the conversation itself to remember figures.
 Date resolution: when `date_str` isn't given, an existing
 deals/<company>/<proposal>_<date>/ folder for this company/proposal is found
 automatically (most recent wins, if somehow more than one exists) rather
-than always defaulting to today -- unlike deal_export.py's export_deal(),
-whose job (a one-shot export) never needs to be found again later, so
-today is always correct there. This is what lets a deal resumed on a later
-calendar day still find its original state.json.
+than always defaulting to today. This is what lets a deal resumed on a later
+calendar day still find its original state.json. deal_export.py's
+export_deal() itself still defaults to today for a bare call, so its callers
+must resolve the date the same way (resolve_date_str()) or a multi-day deal's
+export lands in a new folder away from its own state.json (issue #97).
 
 review_trail: append_review_trail() is the one exception to write_state()'s
 plain shallow-merge semantics baked into this module itself, rather than

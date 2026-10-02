@@ -82,6 +82,13 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     project root; production callers leave it as None (paths relative to
     the current working directory, as before this was extracted).
 
+    `date_str` defaults to today when not given -- right for a brand-new deal,
+    wrong for one already in progress, whose output must land next to its own
+    state.json/sources/ however many days it has taken (issue #97). Callers
+    with a deal in progress must pass the date themselves, resolved via
+    state_manager.resolve_date_str(), as orchestrator.py and this module's
+    own CLI do.
+
     Returns the output directory path.
     """
     company = sanitize_path_component(company, "company")

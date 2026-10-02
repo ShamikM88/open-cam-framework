@@ -201,7 +201,7 @@ def test_an_unscored_observation_appears_in_the_human_review_section_not_as_a_fa
     cases = [case("chk", "injection", [run], mode="checker")]
     pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "chk"}]}, cases, "r1"))
     section_three = pack[pack.index("## 3."):]
-    assert "unscored_ `canary_absent`: token appeared" in section_three
+    assert "unscored_ `canary_absent`: `token appeared" in section_three
     assert "| `chk` | repeat-1 (live) | pass | - |" in pack  # the unscored hit is not a failing oracle
 
 
@@ -300,3 +300,108 @@ def test_a_default_dry_run_writes_only_into_the_ignored_results_dir_and_no_track
             shutil.rmtree(os.path.join(results_root, name))
         if not existed and os.path.isdir(results_root) and not os.listdir(results_root):
             os.rmdir(results_root)
+
+# ---------------------------------------------------------------------------
+# Second independent review of the PR for #151: hostile text, atomic writes, git failures.
+# ---------------------------------------------------------------------------
+
+HOSTILE = "bad | cell\n## FAKE HEADING\n| forged | row |\n<script>alert(1)</script> [click](http://evil.example) `tick`"
+
+
+def test_model_text_cannot_forge_table_rows_headings_or_markup_in_the_pack():
+    run = {"label": "repeat-1", "kind": "live", "passed": False, "status": "ok", "output_excerpt": "",
+           "assertions": [{"oracle": "figures_grounded", "passed": False, "scored": True, "reason": HOSTILE}]}
+    pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "c"}]},
+                                           [case("c", "fabrication", [run])], "r1"))
+    lines = pack.splitlines()
+    assert not any(line.startswith("## FAKE") or line.startswith("| forged") for line in lines)
+    (row,) = [line for line in lines if line.startswith("| `c` | repeat-1")]
+    assert "\\|" in row and row.count("\n") == 0
+    # the hostile text survives only as inert inline code inside that single row
+    assert "<script>" in row and "`` " not in row.split("| FAIL |")[0]
+
+
+def test_an_error_message_is_also_neutralised_in_the_pack():
+    run = eval_report.live_run("repeat-1", [], status="error", error=HOSTILE)
+    pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "c"}]},
+                                           [case("c", "fabrication", [run])], "r1"))
+    assert not any(line.startswith("## FAKE") or line.startswith("| forged") for line in pack.splitlines())
+    assert "ERROR `" in pack
+
+
+def test_an_unscored_observations_reason_is_neutralised_too():
+    run = eval_report.live_run("repeat-1", [{"oracle": "canary_absent", "passed": False, "scored": False,
+                                             "reason": HOSTILE}])
+    pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "c"}]},
+                                           [case("c", "injection", [run])], "r1"))
+    assert not any(line.startswith("## FAKE") for line in pack.splitlines())
+
+
+def test_the_excerpt_limit_fits_a_makers_whole_output_and_clip_is_exact_at_the_boundary():
+    assert eval_report.EXCERPT_LIMIT >= 16000  # max_tokens=4000 is about 16k characters
+    limit = eval_report.EXCERPT_LIMIT
+    assert eval_report.clip("x" * limit) == "x" * limit  # exactly at the limit: untouched
+    clipped = eval_report.clip("x" * (limit + 1))
+    assert clipped.startswith("x" * limit) and "truncated, 1 more characters" in clipped
+
+
+def test_a_failure_while_rendering_leaves_no_partial_files(tmp_path, monkeypatch):
+    def explode(record):
+        raise RuntimeError("render failed")
+
+    monkeypatch.setattr(eval_report, "render_review_pack", explode)
+    with pytest.raises(RuntimeError):
+        write_results(_record_with_live_runs(), out_root=str(tmp_path))
+    run_dir = tmp_path / "20260101T000000Z"
+    assert not run_dir.exists() or os.listdir(run_dir) == []  # no results.json, no .tmp leftovers
+
+
+class _Completed:
+    def __init__(self, returncode, stderr=b""):
+        self.returncode, self.stderr = returncode, stderr
+
+
+def _inside_repo_path():
+    return os.path.join(REPO_ROOT, "evals", "results", "r1")
+
+
+def test_a_git_failure_fails_closed_with_its_own_message(monkeypatch):
+    monkeypatch.setattr(eval_report.subprocess, "run", lambda *a, **k: _Completed(128, b"fatal: not a git repository"))
+    with pytest.raises(ResultsPathError, match="cannot verify .*exited 128.*not a git repository"):
+        assert_results_dir_is_ignored(_inside_repo_path())
+
+
+def test_a_missing_git_binary_fails_closed(monkeypatch):
+    def no_git(*args, **kwargs):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(eval_report.subprocess, "run", no_git)
+    with pytest.raises(ResultsPathError, match="git unavailable"):
+        assert_results_dir_is_ignored(_inside_repo_path())
+
+
+def test_only_git_exit_codes_zero_and_one_are_understood(monkeypatch):
+    monkeypatch.setattr(eval_report.subprocess, "run", lambda *a, **k: _Completed(0))
+    assert_results_dir_is_ignored(_inside_repo_path())  # ignored: allowed
+    monkeypatch.setattr(eval_report.subprocess, "run", lambda *a, **k: _Completed(1))
+    with pytest.raises(ResultsPathError, match="not git-ignored"):
+        assert_results_dir_is_ignored(_inside_repo_path())
+
+
+def test_the_dataset_hash_covers_every_field_including_the_canary():
+    base = {"version": "v1", "cases": [{"id": "a", "canary": {"token": "CANARY-AAAAAAAA"}}]}
+    edited = {"version": "v1", "cases": [{"id": "a", "canary": {"token": "CANARY-BBBBBBBB"}}]}
+    assert eval_report.dataset_hash(base) != eval_report.dataset_hash(edited)
+
+
+def test_the_scripted_self_check_count_counts_only_sound_cases():
+    cases = [case("a", "fabrication", [], self_check={"ok": True}), case("b", "fabrication", [], self_check={"ok": False}),
+             case("c", "fabrication", [], self_check={"ok": True})]
+    assert summarize(cases)["scripted_self_checks"] == {"cases": 3, "ok": 2}
+
+
+def test_an_errored_live_run_has_its_own_label_in_the_pack():
+    run = eval_report.live_run("repeat-1", [], status="error", error="boom")
+    pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "c"}]},
+                                           [case("c", "fabrication", [run])], "r1"))
+    assert "| repeat-1 (live) | ERROR `boom` |" in pack

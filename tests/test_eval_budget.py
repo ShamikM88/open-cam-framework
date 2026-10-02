@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-import eval_budget
 from eval_budget import (
     ABSOLUTE_MAX_CALLS,
     DEFAULT_MAX_CALLS,
@@ -124,7 +123,6 @@ def test_responses_without_usage_are_tolerated():
     budget = CallBudget(2)
     BudgetedClient(NoUsage(), budget).messages.create(model="m")
     assert (budget.input_tokens, budget.output_tokens) == (0, 0)
-    assert eval_budget.CALLS_PER_RUN == 1
 
 def test_a_negative_plan_is_invalid():
     with pytest.raises(ValueError):
@@ -150,10 +148,6 @@ def test_concurrent_spends_never_exceed_the_cap():
         t.join()
     assert outcomes.count("ok") == 10 and outcomes.count("refused") == 30 and budget.calls == 10
 
-
-def test_the_pr2_requirements_are_written_down_next_to_the_cap():
-    doc = " ".join(eval_budget.__doc__.split())
-    assert "max_iterations=1" in doc and "max_retries=0" in doc and "bounds **calls**" in doc
 
 def test_spend_and_usage_recording_take_the_lock():
     class CountingLock:

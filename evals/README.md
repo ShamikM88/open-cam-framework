@@ -10,10 +10,10 @@ locally, by hand, on synthetic data, with your own API key.
 
 ## Boundaries (deliberate, and enforced by tests)
 
-- **Explicit invocation only:** `python scripts/run_evals.py ...`. The *runner* is not part of pytest
-  or CI and is never imported by `orchestrator.py`, `conftest.py` or the CI workflow. (Its pure parts
-  -- dataset validation, oracles, budget, report writer -- are unit-tested in ordinary CI with zero
-  model calls.)
+- **Explicit invocation only:** `python scripts/run_evals.py ...`. Nothing runs it automatically:
+  it is never imported by `orchestrator.py`, `conftest.py` or the CI workflow. The test suite does
+  exercise it -- the dataset validation, oracles, budget, report writer and the CLI itself (including
+  `--dry-run`) are unit-tested in ordinary CI -- but only with scripted outputs and zero model calls.
 - **A hard ceiling on model calls.** The plan (cases x repeats) is printed before anything runs and
   is refused if it exceeds `--max-calls` (default 80); no flag can raise the cap above 250.
   Defaults: 5 repeats per case, 15 cases = 75 planned calls. The cap bounds *calls*, not tokens or
@@ -118,7 +118,14 @@ python scripts/run_evals.py --dry-run      # plan the calls, self-check the orac
 ```
 
 `--dry-run` makes **0** model calls and writes `evals/results/<run id>/results.json` and
-`review_pack.md`. It works from any directory.
+`review_pack.md`. It works from any directory. It imports `orchestrator` for its prompt-hash helper, so
+it needs the framework's own dependencies installed (anthropic, python-docx, openpyxl, ...) -- but it
+never constructs a client.
+
+`--out` takes any directory outside the repository, or one inside it that is git-ignored.
+
+**The case files deliberately contain imperative injection strings** (for example "ignore all previous
+instructions") as test data. They are inert data, not instructions to anyone reading the repository.
 
 ## Notes for PR 2 (the live runner) -- requirements, not yet built
 
@@ -127,6 +134,16 @@ python scripts/run_evals.py --dry-run      # plan the calls, self-check the orac
   Checker is scripted to approve -- exactly the draft the fabrication and canary cases provoke.
   Without `max_iterations=1` a run could cost up to 3 live calls and blow the plan; the
   `BudgetedClient` aborts if it ever does.
+- **`run_pipeline()` ends with `sys.exit(1)` on any REJECTED verdict and runs `export_deal()` on an
+  APPROVED one.** The runner must never let the pipeline get that far (stop it right after the live
+  call) or catch `SystemExit`, so a rejected draft cannot abort the run and an approved one cannot
+  trigger exports and template auto-saves after the paid call.
+- **Layer the clients correctly:** the `BudgetedClient` wraps only the *live* client, underneath the
+  routing client. If it wrapped the routing client, scripted calls would also count and a Maker case
+  would cost 2 per run.
+- **Guard before spending:** create and guard the results directory *before* the first live call (a bad
+  `--out` must be refused up front), persist each finished run immediately, and render both result
+  files before writing either.
 - **Count logical calls only:** build the live client with `max_retries=0` (SDK HTTP retries are
   invisible to the budget). Run serially (`chdir` is process-global).
 - **Fresh isolation per run:** a fresh temporary working directory for every case *and* repeat

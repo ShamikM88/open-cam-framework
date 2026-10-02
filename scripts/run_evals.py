@@ -22,7 +22,7 @@ import sys
 import eval_budget
 from eval_cases import DatasetError, load_dataset, validate_dataset
 from eval_oracles import build_scripted_output, self_check
-from eval_report import build_record, new_run_id, prompt_hashes, scripted_run, write_results
+from eval_report import ResultsPathError, build_record, new_run_id, prompt_hashes, scripted_run, write_results
 
 
 def _scripted_runs(case):
@@ -77,7 +77,8 @@ def main(argv=None):
                         help=f"call cap (default {eval_budget.DEFAULT_MAX_CALLS}, "
                              f"never above {eval_budget.ABSOLUTE_MAX_CALLS})")
     parser.add_argument("--out", default=None,
-                        help="results directory (default evals/results/; must be git-ignored)")
+                        help="results directory (default evals/results/; a path inside the repo must be "
+                             "git-ignored, a path outside it is allowed)")
     args = parser.parse_args(argv)
 
     if not (args.validate or args.list or args.dry_run):
@@ -112,6 +113,9 @@ def main(argv=None):
             return run_dry(dataset, args.repeats, args.max_calls, args.out)
         except eval_budget.CallCapExceeded as exc:
             print(f"Refused: {exc}", file=sys.stderr)
+            return 2
+        except ResultsPathError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
             return 2
     return 0
 

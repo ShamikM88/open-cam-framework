@@ -589,12 +589,13 @@ a second look in review.
   prompts (no invented figures, analyst-supplied inputs labelled, planted instructions not obeyed).
   **PR 1 of 2: scaffolding, the dataset, deterministic oracles and a zero-model-call `--dry-run`;
   there is no live runner yet.** Deliberate boundaries, enforced by `tests/test_eval_*.py` and
-  `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; the *runner* is not
-  part of pytest, CI or `orchestrator.py` (its pure parts -- validation, oracles, budget, writer --
-  are unit-tested in ordinary CI with zero model calls); a **hard call ceiling** (plan printed first
+  `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; nothing runs it
+  automatically (it is never imported by `orchestrator.py`, `conftest.py` or CI), though the tests
+  exercise its validation, oracles, budget, writer and CLI with scripted outputs and zero model calls; a **hard call ceiling** (plan printed first
   and refused over `--max-calls`, default 80, never above 250; default 5 repeats x 15 cases = 75; it
   bounds calls, not tokens); **synthetic data only** (invented `Synthetic ...` names, one
-  company/proposal per case, scanned with `pii_scan.py`, strict case validation); results only under
+  company/proposal per case, scanned with `pii_scan.py`, strict case validation that also rejects raw
+  figure names the framework would silently read as 0 and any mistyped key); results only under
   the **git-ignored `evals/results/`** (the writer resolves symlinks/junctions, refuses any path in the
   repo whose output files are not ignored, never overwrites an earlier run, and never modifies a
   tracked file -- a baseline is committed only by a deliberate manual copy of an exported summary); no

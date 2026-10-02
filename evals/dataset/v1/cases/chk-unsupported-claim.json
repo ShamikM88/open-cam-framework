@@ -2,7 +2,7 @@
   "id": "chk-unsupported-claim",
   "category": "checker-judgement",
   "mode": "checker",
-  "description": "Scripted draft is a complete, code-compliant memo whose only flaw is an unsourced market-share claim; the Checker should reject it. Scored: the final verdict.",
+  "description": "Scripted draft is a complete memo grounded in the supplied data, with ONE added flaw: an unsourced market-share claim in section 3. Scored: the final verdict (REJECTED expected).",
   "deal": {
     "company": "Synthetic Borrower Thirteen",
     "proposal": "Synthetic Facility Thirteen",
@@ -17,13 +17,29 @@
         "depreciation": 45000,
         "amortisation": 0,
         "other_income": 0,
-        "interest_expense": 38000,
-        "tax": 15000,
+        "interest_paid": 38000,
+        "interest_received": 0,
+        "scheduled_principal": 55000,
+        "capex": 25000,
+        "exceptional_costs": 0,
+        "tax_paid": 15000,
+        "tangible_assets": 560000,
+        "intangible_assets": 0,
+        "other_fixed_assets": 0,
         "cash": 60000,
-        "current_assets": 280000,
-        "current_liabilities": 190000,
-        "total_debt": 420000,
-        "total_equity": 330000
+        "trade_debtors": 150000,
+        "stock": 40000,
+        "other_current_assets": 20000,
+        "trade_creditors": 100000,
+        "current_debt": 55000,
+        "overdraft": 0,
+        "other_current_liabilities": 25000,
+        "long_term_debt": 400000,
+        "loan_notes": 0,
+        "other_long_term_liabilities": 0,
+        "provisions": 0,
+        "share_capital": 100000,
+        "retained_profit": 150000
       },
       "FY-Current": {
         "revenue": 1000000,
@@ -32,19 +48,75 @@
         "depreciation": 50000,
         "amortisation": 0,
         "other_income": 0,
-        "interest_expense": 40000,
-        "tax": 20000,
+        "interest_paid": 40000,
+        "interest_received": 0,
+        "scheduled_principal": 60000,
+        "capex": 30000,
+        "exceptional_costs": 0,
+        "tax_paid": 20000,
+        "tangible_assets": 590000,
+        "intangible_assets": 0,
+        "other_fixed_assets": 0,
         "cash": 80000,
-        "current_assets": 300000,
-        "current_liabilities": 200000,
-        "total_debt": 400000,
-        "total_equity": 350000
+        "trade_debtors": 160000,
+        "stock": 40000,
+        "other_current_assets": 20000,
+        "trade_creditors": 110000,
+        "current_debt": 60000,
+        "overdraft": 0,
+        "other_current_liabilities": 30000,
+        "long_term_debt": 350000,
+        "loan_notes": 0,
+        "other_long_term_liabilities": 0,
+        "provisions": 0,
+        "share_capital": 100000,
+        "retained_profit": 240000
       }
-    }
+    },
+    "collateral": [
+      {
+        "asset_id": "AST-001",
+        "asset_class": "HGV",
+        "exposure": 200000,
+        "collateral_value": 170000,
+        "perfection_status": "Registered"
+      },
+      {
+        "asset_id": "AST-002",
+        "asset_class": "Trailer",
+        "exposure": 100000,
+        "collateral_value": 80000,
+        "perfection_status": "Registered"
+      }
+    ],
+    "security_package": [
+      {
+        "secures_asset_id": "AST-001",
+        "perfection_status": "Perfected",
+        "ranking": "First"
+      },
+      {
+        "secures_asset_id": "AST-002",
+        "perfection_status": "Perfected",
+        "ranking": "First"
+      }
+    ],
+    "covenants": [
+      {
+        "metric": "dscr",
+        "type": "minimum",
+        "threshold": 1.25
+      },
+      {
+        "metric": "gross_leverage",
+        "type": "maximum",
+        "threshold": 3.5
+      }
+    ]
   },
   "config_files": {},
   "scripted": {
-    "maker_draft": "# Credit Assessment Memorandum\n\n## 1. Executive Summary\nSynthetic Borrower requests a term facility to refinance existing borrowings. Based on the supplied\naccounts, trading is stable, leverage is moderate and cover is adequate. We recommend approval subject\nto the conditions in section 6.\n\n## 2. Borrower Overview\nThe borrower operates a regional haulage business with a mixed fleet and a long-serving management team.\nThe borrower is the undisputed market leader with a 60 percent share of its regional market, and its position is not at risk.\n\n## 3. Financial Analysis\nFY-Current EBITDA was 200000 on revenue of 1,000,000, against 900,000 in FY-1. Gross debt was\n400,000 against equity of 350,000, so gearing is below one. All figures are taken directly from the\nsupplied accounts, which are the only source cited for this section.\n\n## 4. Risk Assessment\n- Market: demand is cyclical; mitigated by contract diversification across several customers.\n- Refinance: the facility amortises over its term; mitigated by modest balloon exposure.\n- Operational: fleet downtime; mitigated by maintenance contracts and insurance.\n- Concentration: no single customer exceeds a stated share; monitored through quarterly reporting.\n- Key Man: reliance on the chief executive; mitigated by a documented deputy and key-person cover.\n- Financial: moderate leverage; covenants set with headroom against the base case.\n- Legal: standard security and guarantee documentation, subject to the conditions precedent.\n\n## 5. Structure and Security\nSenior secured term loan secured on the vehicle fleet with registered charges, monitored quarterly.\n\n## 6. Recommendation and Conditions\nApprove, subject to completion of the standard conditions precedent and the ongoing reporting\nconditions listed in the structured output below.\n\n## 7. Sources\nSynthetic source document (the borrower's supplied accounts).\n\n```json\n{\"cp_ids_included\": [\"KYC-AML\", \"FACILITY-EXECUTION\"], \"cs_ids_included\": [\"MI-REPORTING\"], \"risk_categories_covered\": {\"Market\": {\"status\": \"covered\"}, \"Refinance\": {\"status\": \"covered\"}, \"Operational\": {\"status\": \"covered\"}, \"Concentration\": {\"status\": \"covered\"}, \"Key Man\": {\"status\": \"covered\"}, \"Financial\": {\"status\": \"covered\"}, \"Legal\": {\"status\": \"covered\"}}, \"reported_figures\": {\"ebitda\": 200000}, \"downside_breaches_acknowledged\": [], \"sources\": [\"Synthetic source document\"], \"financials_source_disclosed\": false, \"credit_policy_considered\": false}\n```"
+    "maker_draft": "# Credit Assessment Memorandum -- Synthetic Borrower\n\n## 1. Executive Summary\nRecommendation: approve the term facility, subject to the conditions in section 7. On the supplied accounts\nFY-Current EBITDA was 200,000, gross leverage 2.05x and DSCR\n2.0x against a covenant minimum of 1.25x, and the supplied collateral covers 83.3% of the\nexposure it secures. The supplied material contains no business, market or management information, so this\nmemorandum limits itself to what the figures and security schedules show.\n\n## 2. Financial Analysis (source: the supplied accounts for FY-1 and FY-Current)\n| Metric | FY-1 | FY-Current |\n|---|---|---|\n| Revenue | 900,000 | 1,000,000 |\n| EBITDA | 150,000 | 200,000 |\n| Total debt | 455,000 | 410,000 |\n| Tangible net worth | 250,000 | 340,000 |\n\nRevenue grew 11.1% and the EBITDA margin improved from 16.7% to 20.0%. FY-Current gross leverage is\n2.05x and net debt / EBITDA 1.65x; DSCR is\n2.0x, EBITDA interest cover 5.0x and the current ratio\n1.5x. Gearing (total debt / tangible net worth) is\n1.21x. Free cash flow was 110,000, 55% of EBITDA.\n\n## 3. Business and Market\nThe borrower is the undisputed market leader with a 60 percent share of its regional market, and its position is not at risk.\n\n## 4. Collateral and Security\nTwo assets are charged by first-ranking, perfected security: AST-001 (HGV; exposure 200,000, collateral value\n170,000) and AST-002 (Trailer; exposure 100,000, collateral value 80,000). Aggregate collateral value is\n250,000 against exposure of 300,000, a cover of 83.3%. No other security or guarantee was supplied.\n\n## 5. Covenants\nDSCR minimum 1.25x: FY-Current 2.0x, headroom 0.75x. Gross leverage maximum\n3.5x: FY-Current 2.05x, headroom 1.45x. Both are satisfied on\nthe supplied accounts. No forward-year or downside figures were supplied, so resilience under stress has not\nbeen tested; that is a stated limitation.\n\n## 6. Risk Assessment\n- Financial: leverage and cover are as shown above; the covenants carry the headroom stated in section 5.\n- Refinance: scheduled principal of 60,000 is covered by operating cash flow (DSCR 2.0x); any\n  repayment profile beyond scheduled principal was not supplied and is not assumed.\n- Legal: security over both assets is recorded as perfected and first ranking; standard KYC/AML and facility\n  documentation conditions apply.\n- Market, Operational, Concentration and Key Man: no information was supplied, so these are not assessed;\n  see the condition in section 7.\n\n## 7. Conditions and Recommendation\nConditions precedent: KYC/AML clearance and execution of the facility agreement; commercial due diligence\ncovering business, market, customer concentration and management before drawdown. Condition subsequent:\nongoing financial reporting. Recommend approval subject to these conditions.\n\n## 8. Sources\nSynthetic source document (the supplied accounts, collateral schedule and security schedule).\n\n```json\n{\"cp_ids_included\": [\"KYC-AML\", \"FACILITY-EXECUTION\"], \"cs_ids_included\": [\"MI-REPORTING\", \"CS-COVENANT-COMPLIANCE\", \"CS-SEC-REPERFECT-AST-001\", \"CS-SEC-REPERFECT-AST-002\"], \"risk_categories_covered\": {\"Market\": {\"status\": \"covered\"}, \"Refinance\": {\"status\": \"covered\"}, \"Operational\": {\"status\": \"covered\"}, \"Concentration\": {\"status\": \"covered\"}, \"Key Man\": {\"status\": \"covered\"}, \"Financial\": {\"status\": \"covered\"}, \"Legal\": {\"status\": \"covered\"}}, \"reported_figures\": {\"ebitda\": 200000, \"total_debt\": 410000, \"tangible_net_worth\": 340000, \"gross_leverage\": 2.05, \"net_debt_to_ebitda\": 1.65, \"dscr\": 2.0}, \"downside_breaches_acknowledged\": [], \"sources\": [\"Synthetic source document\"], \"financials_source_disclosed\": false, \"credit_policy_considered\": false}\n```"
   },
   "assertions": [
     {

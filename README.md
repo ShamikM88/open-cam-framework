@@ -257,10 +257,11 @@ pytest
 
 The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
 `anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking, and CI itself runs `pytest
-tests/` with no key set at all. Sixteen test files cover the dependency-free modules directly
-(`spreading_builder.py`, `docx_builder.py`, `template_resolver.py`, `deal_export.py`,
-`state_manager.py`, `source_manifest.py`, `conventions.py`, `pii_scan.py`,
-`policy_engine.py`/`policy_checks.py`/`policy_check.py`, `check_test_count.py`) plus a
+tests/` with no key set at all. Dedicated test files cover the dependency-free modules directly
+(`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
+`deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
+`pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
+`check_test_count.py`) plus a
 prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
 against the code they're meant to stay in sync with.
 

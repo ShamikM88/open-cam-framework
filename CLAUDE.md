@@ -50,6 +50,7 @@ open-cam-framework/
 │   ├── policy_checks.py         Parses the Underwriter's structured-output JSON and checks a draft's declared figures/CPs/taxonomy against ground truth -- check_draft_compliance() (no anthropic dependency)
 │   ├── policy_check.py          Standalone CLI wrapper around policy_engine.py/policy_checks.py -- compute(); callable from /assemble's and /review's own Bash steps so the slash-command interface gets the same code-enforced governance orchestrator.py's headless pipeline does (no anthropic dependency)
 │   ├── pii_scan.py              Heuristic (UK-shaped) scan for likely-real PII left over in a calibrated template before promoting it upstream -- see the confidentiality rule's "Promoting a local override upstream" note below (no anthropic dependency)
+│   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" below)
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
@@ -380,10 +381,23 @@ a second look in review.
   files are computed in memory first, with no API call between the two writes at the end, so an API
   failure partway through a long split run leaves any existing `config/style_guide.md`/template
   untouched. A response cut off at its output-token limit prints a `[WARN]` rather than flowing on
-  silently. `config/style_guide.md` is still written with the platform's default encoding, exactly
-  as before: `orchestrator.py` reads it the same way, and changing only the writer would corrupt
-  or crash those reads on Windows (see issue #137 on encoding consistency).
-  `/calibrate` has no such cap (native PDF reading) and is unaffected.
+  silently. `/calibrate` has no such cap (native PDF reading) and is unaffected.
+- **`scripts/textio.py`** — no `anthropic` dependency. The repository's one text-reading policy
+  (issue #137): **every text file is UTF-8**, because Python's default `open()` encoding is the
+  platform's (cp1252 on Windows), which silently garbled an UTF-8 file's non-ASCII characters --
+  the em dash and the box-drawing ownership-tree example in `agents/underwriter_agent.md` reached
+  the model as mojibake in headless runs on Windows. `read_text(path, legacy_fallback=False)` is
+  what `orchestrator.py` uses for every file it loads into a prompt: **strict UTF-8** (a BOM is
+  tolerated) for shipped, repository-owned files (`agents/*.md`), where a decode error fails loudly
+  with `TextEncodingError` naming the file; **UTF-8, then cp1252 with a `[WARN]` on stderr** naming
+  the file, for user-owned files that may predate the policy (`config/style_guide.md`, the
+  credit-policy and learnings files -- `calibrate.py` on Windows used to write the style guide in
+  cp1252); a file that decodes under neither raises. It **never** substitutes characters
+  (`errors="replace"`): a `£` quietly turned into `?` in a policy is worse than a failure. Every
+  writer passes `encoding="utf-8"` to `open()` itself. When adding any new `open()` of a text
+  file, pass `encoding=` explicitly (ruff's `PLW1514` is the intended lint guard, see issue #139);
+  tests use the `cp1252_default_open` fixture in `tests/conftest.py`, which makes an `open()` with
+  no encoding behave like Windows on every platform so such a regression can't hide on Linux CI.
 - **`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
   given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
   prompts and style guide, resolves the CAM template for `--type` via

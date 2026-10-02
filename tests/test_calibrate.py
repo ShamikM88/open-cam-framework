@@ -476,3 +476,35 @@ def test_mock_mode_reports_the_part_count_without_prompting_or_calling_the_api(o
 
     assert overflow_env.client.calls == []
     assert f"split them into {k} parts" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Encoding (issue #137): config/style_guide.md is written as UTF-8 and read
+# back by orchestrator.py under the same policy, whatever the platform's
+# default encoding is.
+# ---------------------------------------------------------------------------
+
+class FixedTextClient:
+    messages = None
+
+    def __init__(self, text):
+        self.text = text
+        self.messages = self
+
+    def create(self, **kwargs):
+        return SimpleNamespace(content=[SimpleNamespace(text=self.text)])
+
+
+def test_style_guide_is_written_as_utf8_and_reads_back_identically(project_root, monkeypatch, cp1252_default_open):
+    from textio import read_text
+    # Characters cp1252 cannot encode: a writer that falls back to the
+    # platform default raises or corrupts here instead of round-tripping.
+    text = "Prefer \u2264 \u00a35m \u2014 \u00c1lvarez \u251c\u2500\u2500"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate, "_read_sample_text", lambda: "short sample")
+    monkeypatch.setattr(calibrate, "client", FixedTextClient(text))
+
+    run_calibration("corporate_credit")
+
+    written = read_text(project_root / "config" / "style_guide.md")  # strict UTF-8
+    assert written.endswith(text)

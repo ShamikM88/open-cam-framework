@@ -137,6 +137,28 @@ def test_h3_heading(tmp_path):
     assert doc.paragraphs[0].style.name == "Heading 3"
 
 
+def test_h4_to_h6_headings_render_as_heading_3_without_literal_hashes(tmp_path):
+    # Issue #110: python-docx tops out at Heading 3, so deeper levels are
+    # clamped to it -- but must never leak "####" into the document text.
+    doc = _build(tmp_path, "#### Four\n\n##### Five\n\n###### Six\n")
+    assert [p.text for p in doc.paragraphs] == ["Four", "Five", "Six"]
+    assert all(p.style.name == "Heading 3" for p in doc.paragraphs)
+
+
+def test_h4_heading_ends_a_wrapped_paragraph(tmp_path):
+    doc = _build(tmp_path, "Intro line one\nintro line two\n#### Sub-point\nBody text\n")
+    assert [p.text for p in doc.paragraphs] == [
+        "Intro line one intro line two", "Sub-point", "Body text",
+    ]
+    assert doc.paragraphs[1].style.name == "Heading 3"
+
+
+def test_seven_hashes_or_no_space_is_not_a_heading(tmp_path):
+    doc = _build(tmp_path, "####### Too deep\n\n#hashtag\n")
+    assert [p.text for p in doc.paragraphs] == ["####### Too deep", "#hashtag"]
+    assert all(p.style.name != "Heading 3" for p in doc.paragraphs)
+
+
 def test_bold_in_plain_paragraph_renders_as_a_bold_run(tmp_path):
     doc = _build(tmp_path, "**Verdict:** Approve.\n")
     paragraph = doc.paragraphs[0]

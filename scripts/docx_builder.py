@@ -5,11 +5,13 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 HR_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 FENCE_RE = re.compile(r"^\s*```")
+FENCE_OPEN_RE = re.compile(r"^\s*```(\S*)")
 HEADING_RE = re.compile(r"^(#{1,3}) ")
 BULLET_RE = re.compile(r"^- ")
 NUMBERED_RE = re.compile(r"^\d+\.\s")
@@ -155,6 +157,25 @@ def _add_table(doc, header_cells, alignments, body_rows):
     return table
 
 
+def _add_monospace_block(doc, code_lines):
+    """Render each line of a non-`json` fenced code block as its own
+    paragraph in a monospace font (Consolas, matching the existing
+    inline-code font choice) -- unlike every other block type here, these
+    lines are never joined into a soft-wrapped paragraph and never run
+    through _add_inline_runs()'s markdown handling, since a preformatted
+    block (e.g. a Unicode box-drawing ownership tree, see issue #113) is
+    meant to render exactly as given, whitespace and all. Paragraph
+    spacing is zeroed so consecutive lines read as one tight block rather
+    than a stack of normally-spaced paragraphs.
+    """
+    for code_line in code_lines:
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+        run = paragraph.add_run(code_line)
+        run.font.name = "Consolas"
+
+
 def _is_block_boundary(line):
     """True when `line` starts (or is) a different block -- a heading,
     bullet, table row, horizontal rule, fenced code block, or a blank line
@@ -211,21 +232,33 @@ def export_to_docx(markdown_text, output_path):
             doc.add_heading(line[4:], level=3)
             i += 1
         elif FENCE_RE.match(line):
-            # A fenced code block (e.g. the Underwriter's trailing structured
-            # JSON block, needed for policy_checks.py's regex parsing but
-            # never meant for a client-facing CAM) -- skip it wholesale
-            # rather than dumping raw code/JSON as body paragraphs. Look
-            # ahead for an actual closing fence first: an unterminated one
-            # (a stray/odd ``` from truncation) must not silently discard
-            # every line through EOF, so only skip the block when a real
-            # closing fence exists -- otherwise treat this line as a lone
-            # stray marker and keep processing normally.
+            # A fenced code block is one of two things in practice: the
+            # Underwriter's trailing ```json structured-output block (needed
+            # for policy_checks.py's regex parsing but never meant for a
+            # client-facing CAM -- skipped wholesale, not dumped as body
+            # paragraphs) or a preformatted monospace block meant to actually
+            # appear in the document (e.g. a Unicode box-drawing ownership
+            # tree, see issue #113) -- rendered as-is via
+            # _add_monospace_block(). The ```json tag is what distinguishes
+            # them. Look ahead for an actual closing fence first either way:
+            # an unterminated one (a stray/odd ``` from truncation) must not
+            # silently discard every line through EOF, so only treat this as
+            # a real fenced block when a real closing fence exists --
+            # otherwise treat this line as a lone stray marker and keep
+            # processing normally.
             close_idx = None
             for k in range(i + 1, n):
                 if FENCE_RE.match(lines[k]):
                     close_idx = k
                     break
-            i = close_idx + 1 if close_idx is not None else i + 1
+            if close_idx is not None:
+                tag_match = FENCE_OPEN_RE.match(line)
+                tag = tag_match.group(1).lower() if tag_match else ""
+                if tag != "json":
+                    _add_monospace_block(doc, lines[i + 1:close_idx])
+                i = close_idx + 1
+            else:
+                i += 1
         elif HR_RE.match(line):
             i += 1  # a markdown horizontal rule has no meaningful docx equivalent here
         elif BULLET_RE.match(line):

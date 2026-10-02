@@ -159,6 +159,63 @@ def test_fenced_code_block_is_skipped_entirely(tmp_path):
     assert "```" not in full_text
 
 
+def test_non_json_fenced_block_renders_as_a_monospace_block(tmp_path):
+    """Regression guard for issue #113: a fenced block *not* tagged `json`
+    (e.g. a Unicode box-drawing ownership tree) must actually render in the
+    document -- one paragraph per line, in Consolas, with whitespace
+    (indentation) preserved exactly -- rather than being silently skipped
+    the way the Underwriter's trailing ```json structured-output block is."""
+    markdown = (
+        "Before the tree.\n"
+        "```\n"
+        "Borrower Ltd (UK)\n"
+        "└── Parent Holdings Ltd (UK) — 100%\n"
+        "    └── Ultimate Parent SA (FR) — 100%\n"
+        "```\n"
+        "After the tree.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert texts == [
+        "Before the tree.",
+        "Borrower Ltd (UK)",
+        "└── Parent Holdings Ltd (UK) — 100%",
+        "    └── Ultimate Parent SA (FR) — 100%",
+        "After the tree.",
+    ]
+    # The three tree lines are paragraphs 1-3 (0 = "Before the tree.").
+    for paragraph in doc.paragraphs[1:4]:
+        assert paragraph.runs[0].font.name == "Consolas"
+
+
+def test_monospace_block_lines_are_not_joined_like_a_normal_paragraph(tmp_path):
+    """Each line of a non-json fenced block is its own paragraph -- unlike
+    plain prose, consecutive lines must never be soft-wrap-joined into one
+    paragraph, since that would destroy a tree diagram's line structure."""
+    markdown = "```\nLine one\nLine two\nLine three\n```\n"
+    doc = _build(tmp_path, markdown)
+    assert [p.text for p in doc.paragraphs] == ["Line one", "Line two", "Line three"]
+
+
+def test_json_tagged_fence_is_still_skipped_entirely(tmp_path):
+    """Explicit regression guard distinguishing the two fence behaviors:
+    only the ```json tag triggers the skip-for-export behavior; anything
+    else renders. Uses an untagged fence immediately before a json-tagged
+    one to confirm the tag check, not just fence position, is what decides
+    this."""
+    markdown = (
+        "```\n"
+        "RENDER ME\n"
+        "```\n"
+        "```json\n"
+        '{"verdict": "APPROVED"}\n'
+        "```\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert texts == ["RENDER ME"]
+
+
 def test_unterminated_fence_does_not_discard_the_rest_of_the_document(tmp_path):
     """A stray/odd ``` (e.g. from truncation) must not silently swallow
     every line through EOF -- only a genuinely closed fence gets skipped."""

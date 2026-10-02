@@ -150,6 +150,16 @@ def test_underwriter_prompt_has_a_parent_ubo_support_guideline(underwriter_promp
     assert "recent ownership change" in underwriter_prompt
 
 
+def test_underwriter_prompt_instructs_the_ownership_tree_in_an_untagged_fence(underwriter_prompt):
+    """Regression guard for issue #113: the ownership-tree instruction must
+    explicitly tell the Underwriter to use a plain (untagged) fence, never
+    ```json -- that tag is reserved for the trailing structured-output
+    block and gets stripped from the exported document by docx_builder.py,
+    so using it for the tree would silently delete the tree too."""
+    assert "box-drawing" in underwriter_prompt
+    assert "never" in underwriter_prompt and "```json" in underwriter_prompt
+
+
 def test_underwriter_prompt_requires_the_analyst_supplied_spreading_caveat(underwriter_prompt):
     """Regression guard for issue #55's caveat requirement (Guideline 9):
     when a deal's spreading was analyst-supplied rather than

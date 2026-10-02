@@ -314,6 +314,15 @@ list (`- **Label:** value`) or genuinely blank-line-separated paragraphs -- neve
 consecutive `**Label:** value` lines, which will merge into one run-on paragraph in the exported
 document instead of rendering as separate lines.
 
+**Second gotcha, same function:** a fenced code block tagged ```` ```json ```` is deliberately
+stripped from the exported document entirely -- that's reserved for the Underwriter's own trailing
+structured-output block (needed for `policy_checks.py`'s parsing, never meant for a client-facing
+CAM). Any other fenced block (untagged, or tagged anything else) renders as a real monospace
+block instead -- one paragraph per line, Consolas font, whitespace preserved exactly -- see issue
+#113 (the ownership-tree diagram in `agents/underwriter_agent.md`'s Guideline 12 is the first use
+of this). Using ```` ```json ```` for anything you actually want to appear in the document (the
+ownership tree included) would silently delete it.
+
 ## Execution scripts
 
 - **`scripts/calibrate.py --type <deal_type>`** (headless; needs `ANTHROPIC_API_KEY`) — reads historical CAM PDFs from

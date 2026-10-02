@@ -85,13 +85,17 @@ def scripted_run(label, results, output_excerpt="", expected_pass=None):
             "expected_pass": expected_pass, "status": "ok", "output_excerpt": clip(output_excerpt)}
 
 
-def live_run(label, results, output_excerpt="", status="ok", error=None, extra=None):
+def live_run(label, results, output_excerpt="", status="ok", error=None, extra=None, output_text=None):
     """A run record for a live (model) output. A run that errored (status != "ok")
     is never a pass, and still counts in the pass-rate denominator. `extra` carries
-    per-run provenance (prompt hash, model, token usage) without a model's text."""
+    per-run provenance (prompt hash, model) without a model's text. `output_text` is the
+    model's WHOLE output, kept in results.json / runs.jsonl (git-ignored) so a reviewer can read
+    the end of a long draft; the review pack shows the clipped excerpt. It never reaches a baseline."""
     passed = status == "ok" and run_passed(results)
     record = {"label": label, "kind": "live", "assertions": results, "passed": passed, "status": status,
               "error": error, "output_excerpt": clip(output_excerpt)}
+    if output_text is not None:
+        record["output_text"] = output_text
     record.update(extra or {})
     return record
 

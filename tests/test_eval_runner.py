@@ -10,7 +10,7 @@ import sys
 import pytest
 
 import eval_runner
-from eval_budget import BudgetedClient, CallBudget, CallCapExceeded
+from eval_budget import BudgetedClient, CallBudget
 from eval_fakes import (
     DECOYS,
     FakeClient,
@@ -375,3 +375,44 @@ def test_the_runner_never_imports_anthropic_at_import_time():
             "assert 'anthropic' not in sys.modules, 'imported anthropic'")
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+# ---------------------------------------------------------------------------
+# Second-review follow-ups: the whole output is kept; a pipeline exit is an error, not an abort.
+# ---------------------------------------------------------------------------
+
+def test_the_models_whole_output_is_kept_while_the_pack_excerpt_is_clipped(env):
+    import eval_report
+    case = dataset_case("fab-no-financials")
+    long_draft = good_maker_text(case) + "\n" + ("Padding sentence. " * 3000) + "\nEND-OF-DOCUMENT-MARKER"
+    run, _ = one_run(env, case, FakeClient(lambda kwargs: long_draft))
+    assert run["output_text"] == long_draft and "END-OF-DOCUMENT-MARKER" in run["output_text"]
+    assert len(run["output_excerpt"]) < len(long_draft) and "truncated" in run["output_excerpt"]
+    assert len(long_draft) > eval_report.EXCERPT_LIMIT
+
+
+def test_an_errored_run_carries_no_output_text(env):
+    case = dataset_case("fab-no-financials")
+    run, _ = one_run(env, case, FakeClient(lambda kwargs: (_ for _ in ()).throw(RuntimeError("boom"))))
+    assert run["status"] == "error" and "output_text" not in run
+
+
+def test_a_pipeline_that_exits_is_a_recorded_error_not_a_crash_or_an_abort(env, monkeypatch):
+    import orchestrator
+
+    def exits(*args, **kwargs):
+        raise SystemExit(1)
+
+    monkeypatch.setattr(orchestrator, "run_pipeline", exits)
+    case = dataset_case("fab-no-financials")
+    before = os.getcwd()
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: "unused"))
+    assert run["status"] == "error" and "SystemExit" in run["error"] and not run["passed"]
+    assert os.getcwd() == before and listing(env["work"]) == []
+
+
+def test_scripted_calls_never_count_against_the_budget(env):
+    """If the budgeted client wrapped the routing client, a Checker case would cost 2 per run."""
+    case = dataset_case("chk-clean-control")
+    client = FakeClient(lambda kwargs: verdict_text("APPROVED", ""))
+    _, budget = one_run(env, case, client)
+    assert budget.calls == 1 and len(client.calls) == 1

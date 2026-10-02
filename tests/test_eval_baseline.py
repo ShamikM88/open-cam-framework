@@ -19,7 +19,8 @@ def live_record(rates, run_id="run-1", models=None, hashes=None, inputs=None, da
     cases = []
     for case_id, (passed, total) in rates.items():
         runs = [live_run(f"repeat-{i}", [{"oracle": "x", "passed": i <= passed, "scored": True, "reason": ""}],
-                         output_excerpt=SECRET_TEXT, extra={"prompt_hash": "p"}) for i in range(1, total + 1)]
+                         output_excerpt=SECRET_TEXT, output_text=SECRET_TEXT + " FULL",
+                         extra={"prompt_hash": "p"}) for i in range(1, total + 1)]
         cases.append({"id": case_id, "category": "injection", "mode": "maker", "description": "d",
                       "human_review": [], "runs_planned": total, "runs": runs})
     record = build_record("live", {"version": "v1", "cases": [{"id": c} for c in rates]}, cases, run_id,
@@ -38,6 +39,7 @@ def test_an_exported_baseline_holds_rates_and_provenance_but_no_model_text():
     assert summary["dataset"]["content_hash"] == "d1" and summary["repeats"] == 5
     assert SECRET_TEXT not in json.dumps(summary)
     assert "output_excerpt" not in json.dumps(summary) and "human_review" not in json.dumps(summary)
+    assert "output_text" not in json.dumps(summary)
 
 
 def test_a_dry_run_cannot_be_a_baseline():

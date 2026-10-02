@@ -242,6 +242,8 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             pass
     except CallCapExceeded:
         raise
+    except SystemExit as exc:  # run_pipeline() exits on a REJECTED verdict; the runner stops it first,
+        error = f"SystemExit: the pipeline exited unexpectedly (code {exc.code})"  # so this is an anomaly
     except Exception as exc:  # noqa: BLE001 - an API or runner failure is a recorded, non-passing run
         error = f"{type(exc).__name__}: {str(exc)[:300]}"
     finally:
@@ -267,7 +269,7 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
                            verdict_parsed=verdict_parsed(raw))
         excerpt = f"verdict: {verdict} (parsed from the response: {output.verdict_parsed})\n{raw}"
     results = evaluate_case(case, output, ctx)
-    return live_run(label, results, excerpt, extra=extra)
+    return live_run(label, results, excerpt, extra=extra, output_text=raw)
 
 
 def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False):

@@ -51,7 +51,7 @@ open-cam-framework/
 │   ├── policy_check.py          Standalone CLI wrapper around policy_engine.py/policy_checks.py -- compute(); callable from /assemble's and /review's own Bash steps so the slash-command interface gets the same code-enforced governance orchestrator.py's headless pipeline does (no anthropic dependency)
 │   ├── pii_scan.py              Heuristic (UK-shaped) scan for likely-real PII left over in a calibrated template before promoting it upstream -- see the confidentiality rule's "Promoting a local override upstream" note below (no anthropic dependency)
 │   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" below)
-│   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only; PR 1: --validate/--list/--dry-run, zero model calls) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap); see "Execution scripts" below and issue #151
+│   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only: --validate/--list/--dry-run make zero model calls; --live spends real API calls under a hard cap; --export-baseline/--compare) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap), eval_runner.py (the isolated live runner), eval_baseline.py (baseline export/compare); see "Execution scripts" below and issue #151
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
@@ -583,44 +583,53 @@ a second look in review.
   ```
   python scripts/check_test_count.py pytest_output.txt
   ```
-- **`scripts/run_evals.py`, `eval_cases.py`, `eval_oracles.py`, `eval_report.py`,
-  `eval_budget.py`** (issue #151; see `evals/README.md`) — the **local live-model evaluation
-  harness**, which measures what the test suite cannot: whether the *actual model* follows the
-  prompts (no invented figures, analyst-supplied inputs labelled, planted instructions not obeyed).
-  **PR 1 of 2: scaffolding, the dataset, deterministic oracles and a zero-model-call `--dry-run`;
-  there is no live runner yet.** Deliberate boundaries, enforced by `tests/test_eval_*.py` and
+- **`scripts/run_evals.py`, `eval_cases.py`, `eval_oracles.py`, `eval_report.py`, `eval_budget.py`,
+  `eval_runner.py`, `eval_baseline.py`** (issue #151; see `evals/README.md`) — the **local live-model
+  evaluation harness**, which measures what the test suite cannot: whether the *actual model* follows
+  the prompts (no invented figures, analyst-supplied inputs labelled, planted instructions not obeyed).
+  The dataset, oracles and dry run (PR 1) and the live runner with baseline export/compare (PR 2) are
+  built; **no live evaluation has been run yet** -- the first run and first baseline are deliberate steps
+  taken after review. Deliberate boundaries, enforced by `tests/test_eval_*.py` and
   `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; nothing runs it
   automatically (it is never imported by `orchestrator.py`, `conftest.py` or CI), though the tests
-  exercise its validation, oracles, budget, writer and CLI with scripted outputs and zero model calls; a **hard call ceiling** (plan printed first
-  and refused over `--max-calls`, default 80, never above 250; default 5 repeats x 15 cases = 75; it
-  bounds calls, not tokens); **synthetic data only** (invented `Synthetic ...` names, one
+  exercise its validation, oracles, budget, writer, runner and CLI with scripted outputs and **fake
+  clients -- zero model calls, no API key**; a **hard call ceiling** (plan printed first and refused over
+  `--max-calls`, default 80, never above 250, *before the API key is even read*; default 5 repeats x 15
+  cases = 75; it bounds calls, not tokens); **synthetic data only** (invented `Synthetic ...` names, one
   company/proposal per case, scanned with `pii_scan.py`, strict case validation that also rejects raw
-  figure names the framework would silently read as 0 and any mistyped key); results only under
-  the **git-ignored `evals/results/`** (the writer resolves symlinks/junctions, refuses any path in the
-  repo whose output files are not ignored, never overwrites an earlier run, and never modifies a
-  tracked file -- a baseline is committed only by a deliberate manual copy of an exported summary); no
-  GitHub secret (a live run uses the user's own `ANTHROPIC_API_KEY`). Three result types are kept
-  apart: **deterministic oracle results** (code-decided; an assertion marked `"scored": false` is an
-  observation that never counts toward pass/fail), **observed pass rates** over repeated live runs
-  (never described as "proven safe"; an errored run stays in the denominator), and **human-review
-  observations** (no pass/fail). **Most oracles are format / self-declaration checks, not
+  figure names the framework would silently read as 0 and any mistyped key); results only under the
+  **git-ignored `evals/results/`** (the writer resolves symlinks/junctions, refuses any path in the repo
+  whose output files are not ignored, never overwrites an earlier run, and never modifies a tracked
+  file -- a baseline is committed only by a deliberate manual copy of an exported summary that holds
+  rates, hashes and the model but no model text); no GitHub secret (a live run uses the user's own
+  `ANTHROPIC_API_KEY`). **The live runner** (`--live`, with a typed confirmation unless `--yes`) drives
+  `orchestrator.run_pipeline()` unchanged with `max_iterations=1` and a routing client, so each run costs
+  exactly one live call (a Maker case stops before the Checker; a Checker case scripts the Maker draft)
+  and the prompts are the real ones; every run gets a fresh isolated working directory (agents,
+  `config/settings.json`, `templates/cam/` only -- never `templates/local/`) and runs serially because it
+  `chdir`s; the live client is a `BudgetedClient` with `max_retries=0` that wraps only the live client;
+  each finished run is appended to `runs.jsonl` immediately; a run that errors stays in the pass-rate
+  denominator, and three errors in a row abort. Three result types are kept apart: **deterministic
+  oracle results** (an assertion marked `"scored": false` is an observation that never counts toward
+  pass/fail), **observed pass rates** over repeated live runs (never described as "proven safe"), and
+  **human-review observations** (no pass/fail). **Most oracles are format / self-declaration checks, not
   judgement:** `figures_grounded` passes when the model declares no figure at all, so those category
   pass rates mean "emitted a well-formed, self-consistent block", with the real judgement in human
-  review. Every case carries scripted `good`/`bad` outputs and is valid only if its scored oracles
-  pass `good` and `bad` fails the oracle(s) in `bad.expected_failures` -- a sanity check on one
-  author-written bad output per case, not proof the oracles catch every variant. **Scope limit:** v1
-  exercises the headless pipeline surfaces (collateral text, persisted learnings and policy notes reach
-  both agents; the style guide reaches only the Maker) plus a synthetic source-document block that has
-  no route into either real prompt and is a *prompt-level approximation* of `/research` -- not an
+  review. Every case carries scripted `good`/`bad` outputs and is valid only if its scored oracles pass
+  `good` and `bad` fails exactly the oracle(s) in `bad.expected_failures`. **Scope limit:** v1 exercises
+  the headless pipeline surfaces (collateral text, persisted learnings and policy notes reach both
+  agents; the style guide reaches only the Maker) plus a synthetic source-document block that the runner
+  appends to the Maker message and that is only a *prompt-level approximation* of `/research` -- not an
   end-to-end test of the slash-command path -- so it does not establish injection resistance for
   surfaces it cannot exercise. The canary oracle reports that a token *appeared* (or a trivial
   re-encoding of it) in what the *model produced*; appearing is not the same as obeying (a model that
   quotes it while refusing is a hit, which is why a Checker case scores the verdict and only observes
-  the canary), and it cannot see obedience that leaves no token. PR 2's requirements
-  (`max_iterations=1`, `max_retries=0`, a fresh working directory per run, a routing client for Checker
-  cases) are listed in `evals/README.md`:
+  the canary), and it cannot see obedience that leaves no token:
   ```
-  python scripts/run_evals.py --dry-run
+  python scripts/run_evals.py --dry-run          # 0 model calls
+  python scripts/run_evals.py --live             # spends real API calls; your key; prints the plan first
+  python scripts/run_evals.py --export-baseline evals/results/<run>/results.json
+  python scripts/run_evals.py --compare evals/baselines/<file>.json evals/results/<run>/results.json
   ```
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the

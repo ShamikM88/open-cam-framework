@@ -361,6 +361,22 @@ a second look in review.
   ```
   python scripts/calibrate.py --mock --type asset_finance
   ```
+  **Sample length (issue #109):** each Claude call takes at most `CHUNK_CHAR_LIMIT` (12,000)
+  characters of sample text, and the combined text of every PDF in `inputs/calibration_samples/`
+  routinely exceeds that. The length check is the run's first decision point -- after the PDFs
+  are read (local only) but before any API call or file write -- and offers two choices: *ignore*
+  (use only the first 12,000 characters, discarding the rest, now stated explicitly) or *split*
+  (split the text in memory at paragraph/line boundaries into parts, run the style/template prompt
+  on each, then merge the per-part results with one consolidation call, hierarchically if there
+  are very many parts; the merge prompts restate the "zero real data, bracketed placeholders"
+  and editorial-judgment rules). `--on-overflow {ask,split,ignore}` (default `ask`) pre-answers it;
+  `ask` prompts on a terminal and falls back to `split` when there's no TTY, since silently losing
+  material is the failure this exists to prevent and splitting only costs extra API calls.
+  `--mock` makes no calls, so it only reports how many parts a real run would use. The original
+  sample PDFs are only ever read, never written or split on disk. Both result files are computed
+  in memory first and written together at the end, so an API failure partway through a long split
+  run leaves any existing `config/style_guide.md`/template untouched. `/calibrate` has no such cap
+  (native PDF reading) and is unaffected.
 - **`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
   given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
   prompts and style guide, resolves the CAM template for `--type` via

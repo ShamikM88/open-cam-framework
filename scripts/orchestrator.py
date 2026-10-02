@@ -694,6 +694,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)

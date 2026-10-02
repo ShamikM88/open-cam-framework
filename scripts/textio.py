@@ -24,6 +24,35 @@ class TextEncodingError(ValueError):
     message always names the file, so a failed run says which one to fix."""
 
 
+def configure_stdio():
+    """Make stdout/stderr UTF-8 when they are not already (issue #154).
+
+    When a Windows script's stdout is redirected or piped (CI logs, Task
+    Scheduler, `> log.txt`), Python encodes it with the locale encoding
+    (cp1252), so a `print()` of any character cp1252 lacks -- a `>=` sign in
+    the Risk Reviewer's notes, a letter in a company name -- raises
+    `UnicodeEncodeError` and aborts the run, after the verdict is already
+    decided but before the revision or export. An interactive console is
+    unaffected (it already reports UTF-8), and so is a stream that is already
+    UTF-8: those are left alone.
+
+    UTF-8 can represent every character, so no lossy `errors="replace"` is
+    needed; each stream keeps its existing error policy (stderr's
+    backslashreplace stays). Streams that are `None` (a windowed process) or
+    can't be reconfigured (a test capture object) are skipped. Call this once
+    at the top of a script's `if __name__ == "__main__":` block -- not from
+    functions, so importing a module never touches the interpreter's streams.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "").replace("_", "")
+        if encoding == "utf8":
+            continue
+        reconfigure(encoding="utf-8", errors=stream.errors)
+
+
 def read_text(path, legacy_fallback=False):
     """Read `path` as UTF-8 (a leading byte-order mark, as Windows editors
     add, is tolerated and stripped).

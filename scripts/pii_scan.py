@@ -80,6 +80,8 @@ def scan_for_likely_real_data(text):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Scan a CAM template file for likely-real (non-placeholder) data before "
                      "promoting it from templates/local/cam/ to the shared templates/cam/ "

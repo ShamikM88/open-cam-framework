@@ -145,6 +145,8 @@ def write_enterprise_convention(*, financials_source, note=None, confirmed_date=
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Read or write a persisted analyst-confirmed spreading convention -- "
                      "borrower-specific (--company) or enterprise-wide (--enterprise). "

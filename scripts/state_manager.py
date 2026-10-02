@@ -408,6 +408,8 @@ def required_steps_completed(steps_completed, required):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Check whether a deal's state.json has recorded all of a given set of "
                      "required steps in steps_completed. Prints JSON ({\"missing_steps\": [...], "

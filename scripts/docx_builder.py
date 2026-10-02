@@ -1,4 +1,6 @@
+import os
 import re
+import sys
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -12,6 +14,9 @@ SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 HR_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 FENCE_RE = re.compile(r"^\s*```")
 FENCE_OPEN_RE = re.compile(r"^\s*```(\S*)")
+IMAGE_RE = re.compile(r"^\s*!\[([^\]]*)\]\((.+?)\)\s*$")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
+URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
 HEADING_RE = re.compile(r"^(#{1,3}) ")
 BULLET_RE = re.compile(r"^- ")
 NUMBERED_RE = re.compile(r"^\d+\.\s")
@@ -176,10 +181,56 @@ def _add_monospace_block(doc, code_lines):
         run.font.name = "Consolas"
 
 
+def _add_image(doc, alt, path):
+    """Embed the image at `path` as its own block, scaled down (never up) to
+    fit the page's text width, with `alt` as its accessibility description
+    and, when non-empty, an italic caption beneath it (see issue #114).
+
+    A reference that can't be honoured -- a remote URL (this module has no
+    network access by design), a missing file, an unsupported or unreadable
+    image -- never crashes the export and is never silently dropped: it
+    becomes a visible placeholder paragraph in the document plus a stderr
+    warning. A silently missing chart in a committee paper is worse than a
+    visible gap, and raising would lose the whole export over one image.
+    """
+    problem = None
+    if URL_SCHEME_RE.match(path):
+        problem = "remote URLs aren't supported"
+    elif os.path.splitext(path)[1].lower() not in IMAGE_EXTENSIONS:
+        problem = "not a supported image type (png/jpg/gif/bmp)"
+    elif not os.path.isfile(path):
+        problem = "file not found"
+
+    shape = None
+    if problem is None:
+        try:
+            shape = doc.add_picture(path)
+        except Exception as e:  # python-docx raises several unrelated types for a corrupt image
+            problem = f"could not be read as an image ({e})"
+
+    if problem is not None:
+        print(f"[docx_builder] Image not embedded ({problem}): {path}", file=sys.stderr)
+        doc.add_paragraph(f"[Image not embedded: {alt or path} -- {problem}]")
+        return
+
+    section = doc.sections[0]
+    max_width = section.page_width - section.left_margin - section.right_margin
+    if shape.width > max_width:
+        ratio = max_width / shape.width
+        shape.height = int(shape.height * ratio)
+        shape.width = int(max_width)
+
+    if alt:
+        shape._inline.docPr.set("descr", alt)
+        caption = doc.add_paragraph()
+        caption.add_run(alt).italic = True
+
+
 def _is_block_boundary(line):
     """True when `line` starts (or is) a different block -- a heading,
-    bullet, table row, horizontal rule, fenced code block, or a blank line
-    -- and so must never be absorbed into a preceding plain-text paragraph.
+    bullet, table row, horizontal rule, fenced code block, image, or a blank
+    line -- and so must never be absorbed into a preceding plain-text
+    paragraph.
 
     Used to find where a soft-wrapped paragraph ends: Markdown (like every
     other renderer -- browsers, GitHub, Word itself) treats a single
@@ -195,6 +246,7 @@ def _is_block_boundary(line):
         or BULLET_RE.match(line)
         or NUMBERED_RE.match(line)
         or FENCE_RE.match(line)
+        or IMAGE_RE.match(line)
         or HR_RE.match(line)
         or _is_table_row(line)
     )
@@ -261,6 +313,10 @@ def export_to_docx(markdown_text, output_path):
                 i += 1
         elif HR_RE.match(line):
             i += 1  # a markdown horizontal rule has no meaningful docx equivalent here
+        elif IMAGE_RE.match(line):
+            image_match = IMAGE_RE.match(line)
+            _add_image(doc, image_match.group(1).strip(), image_match.group(2).strip())
+            i += 1
         elif BULLET_RE.match(line):
             para_lines = [line[2:].strip()]
             j = i + 1

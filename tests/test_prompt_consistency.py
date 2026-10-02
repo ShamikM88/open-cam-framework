@@ -160,6 +160,16 @@ def test_underwriter_prompt_instructs_the_ownership_tree_in_an_untagged_fence(un
     assert "never" in underwriter_prompt and "```json" in underwriter_prompt
 
 
+def test_underwriter_prompt_documents_the_swot_table_and_its_grounding_rule(underwriter_prompt):
+    """Regression guard for issue #114 piece 1: the SWOT guidance must name
+    the four-column table layout and keep the grounding rule -- a SWOT is
+    judgment over already-cited facts, never a place for a new unsourced
+    claim (the framework's "never invent" principle)."""
+    assert "Competitive position (SWOT)" in underwriter_prompt
+    assert "Strengths | Weaknesses | Opportunities | Threats" in underwriter_prompt
+    assert "never a place to introduce a new unsourced claim" in underwriter_prompt
+
+
 def test_underwriter_prompt_requires_the_analyst_supplied_spreading_caveat(underwriter_prompt):
     """Regression guard for issue #55's caveat requirement (Guideline 9):
     when a deal's spreading was analyst-supplied rather than

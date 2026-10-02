@@ -107,6 +107,12 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | [Low/Moderate/High] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] |
 
+*Optional -- include when the borrower's competitive position is material to this facility (see `agents/underwriter_agent.md`'s Guideline 7); every point must trace to a fact already cited elsewhere in this CAM:*
+
+| Strengths | Weaknesses | Opportunities | Threats |
+| :--- | :--- | :--- | :--- |
+| [Point] | [Point] | [Point] | [Point] |
+
 ## 10. Customers & Suppliers
 
 - **Customers:** [Concentration, channel mix, contract terms]

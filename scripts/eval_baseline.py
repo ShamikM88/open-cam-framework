@@ -38,7 +38,14 @@ def load_json(path):
 
 
 def export_baseline(record):
-    """A baseline summary of a live results record (never contains model text)."""
+    """A baseline summary of a live results record (never contains model or exception text)."""
+    try:
+        return _export_baseline(record)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise BaselineError(f"not a usable live results record ({type(exc).__name__}: {str(exc)[:120]})") from exc
+
+
+def _export_baseline(record):
     if record.get("mode") != "live":
         raise BaselineError("only a live run can be a baseline (this record is "
                             f"{record.get('mode')!r}: a dry run makes no model calls)")
@@ -65,7 +72,14 @@ def export_baseline(record):
         "input_hashes": record.get("input_hashes", {}),
         "repeats": record.get("repeats"),
         "aborted": bool(record.get("aborted")),
-        "abort_reason": record.get("abort_reason"),
+        # The CATEGORY only: the free-text reason can embed an API/exception message, and this file is
+        # meant to be copied into a tracked path.
+        "abort_category": record.get("abort_category"),
+        # What the live runs actually sent: a change to the code that assembles the prompt (the grounding
+        # context, the policy engine) is invisible to the file hashes but changes these.
+        "prompt_hashes_by_case": {
+            c["id"]: sorted({r["prompt_hash"] for r in c["runs"] if r.get("prompt_hash")})
+            for c in record["cases"]},
         "selected_case_ids": record.get("selected_case_ids", [c["id"] for c in record["cases"]]),
         "per_case": per_case,
         "per_category": per_category,
@@ -80,15 +94,33 @@ def _rate(passed, total):
 def compare(baseline, record):
     """Compare a live `record` with a `baseline` summary. Returns a dict with `like_for_like`
     (field -> bool plus a list of mismatches) and per-case / per-category rows."""
+    try:
+        return _compare(baseline, record)
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise BaselineError(f"cannot compare these files ({type(exc).__name__}: {str(exc)[:120]})") from exc
+
+
+def _compare(baseline, record):
     if baseline.get("kind") != BASELINE_KIND:
         raise BaselineError("the first file is not an evaluation baseline summary")
     current = export_baseline(record)
     mismatches = []
+    if baseline.get("harness_version") != current.get("harness_version"):
+        mismatches.append("harness version")
+    if baseline.get("repeats") != current.get("repeats"):
+        mismatches.append("repeats per case")
     for key, label in COMPARED_FIELDS:
         if baseline.get(key) != current.get(key):
             mismatches.append(label)
     if baseline["dataset"].get("content_hash") != current["dataset"].get("content_hash"):
         mismatches.append("dataset content (a case was added, removed or edited)")
+    changed_prompts = sorted(
+        case_id for case_id, hashes in current["prompt_hashes_by_case"].items()
+        if case_id in (baseline.get("prompt_hashes_by_case") or {}) and hashes
+        and baseline["prompt_hashes_by_case"][case_id] and baseline["prompt_hashes_by_case"][case_id] != hashes)
+    if changed_prompts:
+        mismatches.append(f"the assembled prompts for {len(changed_prompts)} case(s) "
+                          "(the code that builds them changed)")
     rows = []
     by_id = {c["id"]: c for c in current["per_case"]}
     for base in baseline["per_case"]:
@@ -100,7 +132,8 @@ def compare(baseline, record):
         delta = None if before is None or after is None else after - before
         rows.append({"id": base["id"], "category": base["category"], "baseline": base, "current": now,
                      "delta": delta,
-                     "flag": "possible regression" if delta is not None and delta <= -REGRESSION_DROP else None,
+                     "flag": ("possible regression"
+                          if delta is not None and round(delta, 6) <= -REGRESSION_DROP else None),
                      "status": "compared"})
     for case_id in sorted(set(by_id) - {b["id"] for b in baseline["per_case"]}):
         rows.append({"id": case_id, "status": "new case (no baseline)", "baseline": None, "current": by_id[case_id]})

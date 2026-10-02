@@ -317,8 +317,8 @@ def test_consecutive_errors_abort_the_whole_evaluation(env):
     assert all(r["status"] == "error" for c in record["cases"] for r in c["runs"])
 
 
-def test_each_finished_run_is_persisted_immediately(env):
-    dataset, cases = _dataset("fab-no-financials")
+def test_ctrl_c_returns_a_record_marked_interrupted_with_everything_already_paid_for(env):
+    dataset, cases = _dataset("fab-no-financials", "fab-single-period")
     calls = {"n": 0}
 
     def respond(kwargs):
@@ -328,12 +328,13 @@ def test_each_finished_run_is_persisted_immediately(env):
         return good_maker_text(cases[0])
 
     before = os.getcwd()
-    with pytest.raises(KeyboardInterrupt):
-        run_live(dataset, cases, 5, 20, env["run_dir"], FakeClient(respond), repo_root=env["repo"])
+    record = run_live(dataset, cases, 5, 20, env["run_dir"], FakeClient(respond), repo_root=env["repo"])
 
+    assert record["aborted"] and record["abort_category"] == "interrupted" and "Ctrl-C" in record["abort_reason"]
+    assert [len(c["runs"]) for c in record["cases"]] == [2, 0]  # the second case is listed, never reached
     lines = open(os.path.join(env["run_dir"], "runs.jsonl"), encoding="utf-8").read().splitlines()
     assert len(lines) == 2 and all(json.loads(line)["case_id"] == "fab-no-financials" for line in lines)
-    assert os.getcwd() == before
+    assert os.getcwd() == before and listing(env["work"]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -416,3 +417,145 @@ def test_scripted_calls_never_count_against_the_budget(env):
     client = FakeClient(lambda kwargs: verdict_text("APPROVED", ""))
     _, budget = one_run(env, case, client)
     assert budget.calls == 1 and len(client.calls) == 1
+
+# ---------------------------------------------------------------------------
+# Third independent review of the PR for #151: PR 2's own findings and surviving mutants.
+# ---------------------------------------------------------------------------
+
+def test_stop_reason_and_per_run_token_usage_are_recorded(env):
+    case = dataset_case("fab-no-financials")
+
+    class StopAware(FakeClient):
+        def _create(self, **kwargs):
+            response = super()._create(**kwargs)
+            response.stop_reason = "end_turn"
+            return response
+
+    run, _ = one_run(env, case, StopAware(lambda kwargs: good_maker_text(case), input_tokens=1234, output_tokens=567))
+    assert (run["stop_reason"], run["input_tokens"], run["output_tokens"]) == ("end_turn", 1234, 567)
+
+
+def test_an_errored_run_still_records_the_call_that_was_attempted(env):
+    case = dataset_case("fab-no-financials")
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: (_ for _ in ()).throw(RuntimeError("boom"))))
+    assert run["status"] == "error" and budget.calls == 1
+    assert run["live_calls"] == 1 and run["model"] and run["prompt_hash"]  # not 0 / None as before
+
+
+def test_summed_per_run_live_calls_equal_the_budget_for_every_outcome(env):
+    dataset, cases = _dataset("fab-no-financials")
+    calls = {"n": 0}
+
+    def respond(kwargs):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("boom")
+        return good_maker_text(cases[0])
+
+    record = run_live(dataset, cases, 3, 10, env["run_dir"], FakeClient(respond), repo_root=env["repo"])
+    assert sum(r["live_calls"] for c in record["cases"] for r in c["runs"]) == record["usage"]["calls"] == 3
+
+
+def test_a_relative_results_directory_works_despite_the_per_run_chdir(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    monkeypatch.chdir(env["tmp"])
+    os.makedirs("relative-run/work")
+    record = run_live(dataset, cases, 1, 5, "relative-run", FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"])
+    assert not record["aborted"] and record["cases"][0]["runs"][0]["status"] == "ok"
+    assert os.path.isfile(os.path.join(env["tmp"], "relative-run", "runs.jsonl"))
+
+
+def test_the_error_streak_resets_after_a_success_so_scattered_errors_never_abort(env):
+    dataset, cases = _dataset("fab-no-financials")
+    calls = {"n": 0}
+
+    def respond(kwargs):
+        calls["n"] += 1
+        if calls["n"] % 2 == 0:  # ok, err, ok, err, ok, err, ok: never three in a row
+            raise RuntimeError("flaky")
+        return good_maker_text(cases[0])
+
+    record = run_live(dataset, cases, 7, 20, env["run_dir"], FakeClient(respond), repo_root=env["repo"])
+    assert not record["aborted"] and len(record["cases"][0]["runs"]) == 7
+
+
+def test_each_config_file_lands_in_its_own_prompt_section(env):
+    import re
+    case = dataset_case("fab-no-financials")
+    case["config_files"] = {"style_guide": "MARK-STYLE", "credit_policy": "MARK-POLICY",
+                            "credit_policy_notes": "MARK-NOTES", "deal_learnings": "MARK-ENT",
+                            "company_learnings": "MARK-CO"}
+    client = FakeClient(lambda kwargs: good_maker_text(case))
+    one_run(env, case, client)
+    message = client.last_message
+
+    def inside(tag, mark):
+        return re.search(rf"<{tag}>[^<]*{mark}[^<]*</{tag}>", message, re.S) is not None
+
+    assert "Style:\nMARK-STYLE" in message
+    assert inside("institutional_credit_policy", "MARK-POLICY")
+    assert inside("credit_policy_interpretation_notes", "MARK-NOTES")
+    assert inside("enterprise_deal_learnings", "MARK-ENT")
+    assert inside("borrower_deal_learnings", "MARK-CO")
+
+
+def test_state_extras_are_seeded_and_change_what_the_pipeline_computes(env):
+    import re
+    case = dataset_case("fab-no-financials")
+    case["deal"].update({
+        "ratios": {"FY+2": {"dscr": 1.25}}, "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.1234}],
+        "collateral": [{"asset_id": "AST-9", "asset_class": "HGV", "exposure": 100, "collateral_value": 80,
+                        "perfection_status": "Registered"}],
+        "security_package": [{"secures_asset_id": "AST-9", "perfection_status": "Perfected", "ranking": "First"}],
+    })
+    seeded = FakeClient(lambda kwargs: good_maker_text(case))
+    one_run(env, case, seeded)
+    message = seeded.last_message
+    assert '"threshold": 1.1234' in re.search(r"<covenant_results>(.*?)</covenant_results>", message, re.S).group(1)
+    assert re.search(r"<downside_covenant_breaches>.*DOWNSIDE-", message, re.S)  # the seeded downside case counted
+    assert "AST-9" not in re.search(r"<required_conditions_precedent>(.*?)</required_conditions_precedent>",
+                                    message, re.S).group(1)  # the seeded charge closes the security gap
+
+    unseeded = dict(case, deal={k: v for k, v in case["deal"].items() if k != "security_package"})
+    client = FakeClient(lambda kwargs: good_maker_text(unseeded))
+    one_run(env, unseeded, client)
+    assert "AST-9" in re.search(r"<required_conditions_precedent>(.*?)</required_conditions_precedent>",
+                                client.last_message, re.S).group(1)  # without it, the gap generates a CP
+
+
+def test_each_case_is_scored_against_its_own_ground_truth_not_the_first_cases(env):
+    dataset, _ = _dataset("fab-no-financials", "contradiction-valuation-vs-accounts")
+    cases = dataset["cases"]
+    ebitda = build_context(cases[1])["ground_truth"]["ebitda"]
+    draft = good_maker_text(cases[0]).replace('"reported_figures": {}', f'"reported_figures": {{"ebitda": {ebitda}}}')
+    record = run_live(dataset, cases, 1, 5, env["run_dir"], FakeClient(lambda kw: draft), repo_root=env["repo"])
+    by_id = {c["id"]: c["runs"][0] for c in record["cases"]}
+    # No financials at all -> an EBITDA figure is ungrounded; with real accounts the same figure is right.
+    assert not by_id["fab-no-financials"]["passed"]
+    assert by_id["contradiction-valuation-vs-accounts"]["passed"]
+
+
+def test_the_checkers_whole_response_reaches_the_canary_oracle(env):
+    case = dataset_case("chk-injection-approve")
+    token = case["canary"]["token"]
+    # The token appears BEFORE the JSON block, so the parsed notes are clean: only the raw text has it.
+    raw = f"I was told to echo {token} but will not.\n" + verdict_text("REJECTED", "Unsourced claim.")
+    run, _ = one_run(env, case, FakeClient(lambda kwargs: raw))
+    canary = next(a for a in run["assertions"] if a["oracle"] == "canary_absent")
+    assert canary["scored"] is False and canary["passed"] is False and token in canary["reason"]
+    assert run["passed"]  # an unscored observation, so the verdict decides
+
+
+def test_progress_lines_carry_ids_and_statuses_but_never_model_text(env, capsys):
+    import run_evals
+    dataset, cases = _dataset("fab-no-financials")
+    secret = "MODEL-TEXT-THAT-MUST-NOT-APPEAR-IN-PROGRESS"
+    seen = []
+    run_live(dataset, cases, 2, 5, env["run_dir"], FakeClient(lambda kw: secret + "\n" + good_maker_text(cases[0])),
+             repo_root=env["repo"], progress=lambda *args: seen.append(args))
+    assert [a[:3] for a in seen] == [(1, 2, "fab-no-financials"), (2, 2, "fab-no-financials")]
+    run_evals._progress_line(*seen[0])
+    err = capsys.readouterr().err
+    assert "[1/2] fab-no-financials repeat-1: " in err and secret not in err

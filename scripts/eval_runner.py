@@ -132,11 +132,18 @@ class RoutingClient:
             message = message + "\n\n" + _xml_block(
                 "source_document", f"Label: {source_block['label']}\n{source_block['text']}")
             kwargs = {**kwargs, "messages": [{"role": "user", "content": message}]}
+        # Recorded BEFORE the call: a call that fails was still attempted, still counts against the
+        # cap, and its model and prompt hash belong in the errored run's record.
+        entry = {"role": role, "live": True, "model": kwargs.get("model"), "prompt_hash": short_hash(message),
+                 "stop_reason": None, "input_tokens": 0, "output_tokens": 0}
+        self.calls.append(entry)
         self.live_message = message
         response = self.live.messages.create(**kwargs)
+        usage = getattr(response, "usage", None)
+        entry["stop_reason"] = getattr(response, "stop_reason", None)
+        entry["input_tokens"] = getattr(usage, "input_tokens", 0) or 0
+        entry["output_tokens"] = getattr(usage, "output_tokens", 0) or 0
         text = response.content[0].text
-        self.calls.append({"role": role, "live": True, "model": kwargs.get("model"),
-                           "prompt_hash": short_hash(message)})
         self.responses[role] = text
         if role == "checker":
             raise StopRun()            # checker case: nothing after the verdict is needed
@@ -252,8 +259,12 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             shutil.rmtree(workdir, ignore_errors=True)
 
     live_calls = [c for c in router.calls if c["live"]]
-    extra = {"prompt_hash": live_calls[0]["prompt_hash"] if live_calls else None,
-             "model": live_calls[0]["model"] if live_calls else None, "live_calls": len(live_calls)}
+    first = live_calls[0] if live_calls else {}
+    # stop_reason matters: output cut off at max_tokens (4000 for the Maker, 2000 for the Checker) would
+    # otherwise be indistinguishable from the model misbehaving.
+    extra = {"prompt_hash": first.get("prompt_hash"), "model": first.get("model"), "live_calls": len(live_calls),
+             "stop_reason": first.get("stop_reason"), "input_tokens": first.get("input_tokens", 0),
+             "output_tokens": first.get("output_tokens", 0)}
     role = case["mode"]
     if error or role not in router.responses:
         return live_run(label, [], status="error", error=error or "the live call produced no response", extra=extra)
@@ -272,17 +283,22 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     return live_run(label, results, excerpt, extra=extra, output_text=raw)
 
 
-def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False):
+def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False, progress=None):
     """Run `cases` x `repeats` live, serially. Returns the run record (not yet written).
-    Stops early -- recording why -- if the cap is spent or MAX_CONSECUTIVE_ERRORS runs in a row
-    errored. Each finished run is appended to `runs.jsonl` immediately."""
+    Stops early -- recording why -- if the cap is spent, MAX_CONSECUTIVE_ERRORS runs in a row
+    errored, or the operator presses Ctrl-C (the record is still returned, marked aborted, so what
+    was paid for can be written). Each finished run is appended to `runs.jsonl` immediately.
+    `progress(done, total, case_id, run)`, if given, is called after each run; it is handed ids and
+    statuses only, never model text."""
     repo_root = repo_root or REPO_ROOT
+    run_dir = os.path.abspath(run_dir)  # a relative --out must survive the per-run chdir
     work_root = os.path.join(run_dir, "work")
     inputs = describe_inputs(repo_root, work_root)
 
     budget = CallBudget(max_calls)
     live_client = BudgetedClient(client, budget)
-    out_cases, aborted, abort_reason, consecutive_errors = [], False, None, 0
+    out_cases, aborted, abort_reason, abort_category, consecutive_errors = [], False, None, None, 0
+    total_runs, done = len(cases) * repeats, 0
     for case in cases:
         ctx = build_context(case)
         runs = []
@@ -292,13 +308,20 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
             try:
                 run = run_case_once(case, f"repeat-{repeat}", ctx, live_client, repo_root, work_root, keep_work)
             except CallCapExceeded as exc:
-                aborted, abort_reason = True, f"call cap: {exc}"
+                aborted, abort_reason, abort_category = True, f"call cap: {exc}", "call cap"
+                break
+            except KeyboardInterrupt:
+                aborted, abort_category = True, "interrupted"
+                abort_reason = "interrupted by the operator (Ctrl-C)"
                 break
             runs.append(run)
             append_run_line(run_dir, case["id"], run)
+            done += 1
+            if progress is not None:
+                progress(done, total_runs, case["id"], run)
             consecutive_errors = consecutive_errors + 1 if run["status"] != "ok" else 0
             if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                aborted = True
+                aborted, abort_category = True, "consecutive errors"
                 abort_reason = f"{MAX_CONSECUTIVE_ERRORS} consecutive errored runs (last: {run.get('error')})"
         out_cases.append({
             "id": case["id"], "category": case["category"], "mode": case["mode"],
@@ -319,6 +342,6 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
         hashes=inputs["prompt_hashes"], planned_live_calls=len(cases) * repeats,
         usage={"calls": budget.calls, "input_tokens": budget.input_tokens, "output_tokens": budget.output_tokens},
         call_cap=max_calls, input_hashes=inputs["input_hashes"], repeats=repeats,
-        aborted=aborted, abort_reason=abort_reason)
+        aborted=aborted, abort_reason=abort_reason, abort_category=abort_category)
     record["selected_case_ids"] = [c["id"] for c in cases]
     return record

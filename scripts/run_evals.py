@@ -25,6 +25,7 @@ import os
 import sys
 
 import eval_budget
+from eval_baseline import BaselineError
 from eval_cases import DatasetError, load_dataset, validate_dataset
 from eval_oracles import build_scripted_output, self_check
 from eval_report import (
@@ -38,6 +39,14 @@ from eval_report import (
     scripted_run,
     write_results,
 )
+from eval_runner import RunnerSetupError
+
+
+def _progress_line(done, total, case_id, run):
+    """One line per finished run on stderr: ids and statuses only, never model text."""
+    outcome = ("ERROR" if run.get("status", "ok") != "ok" else "pass" if run["passed"] else "FAIL")
+    detail = f" [{run['stop_reason']}]" if run.get("stop_reason") else ""
+    print(f"[{done}/{total}] {case_id} {run['label']}: {outcome}{detail}", file=sys.stderr, flush=True)
 
 
 def make_client():
@@ -84,9 +93,11 @@ def run_dry(dataset, repeats, max_calls, out_root):
 
 
 def _select_cases(dataset, wanted):
-    if not wanted:
+    if wanted is None:
         return dataset["cases"]
     ids = [part.strip() for part in wanted.split(",") if part.strip()]
+    if not ids:  # "" or "," must not silently mean "everything" (or nothing)
+        raise DatasetError("--cases was given but names no case ids; omit it to run every case")
     known = {c["id"]: c for c in dataset["cases"]}
     unknown = [i for i in ids if i not in known]
     if unknown:
@@ -115,7 +126,7 @@ def run_live_command(dataset, args):
     client = make_client()
     run_dir = prepare_run_dir(new_run_id(), out_root=args.out)
     record = eval_runner.run_live(dataset, selected, args.repeats, args.max_calls, run_dir, client,
-                                  keep_work=args.keep_work)
+                                  keep_work=args.keep_work, progress=_progress_line)
     out_dir = write_results(record, out_root=args.out)
 
     print(f"Model calls made: {record['usage']['calls']} of a planned {planned} "
@@ -127,7 +138,7 @@ def run_live_command(dataset, args):
     if errored:
         print(f"{errored} run(s) errored (counted as non-passes).")
     if record["aborted"]:
-        print(f"ABORTED early: {record['abort_reason']}", file=sys.stderr)
+        print(f"ABORTED early ({record['abort_category']}): {record['abort_reason']}", file=sys.stderr)
     print(DISCLAIMER)
     print(f"Wrote {out_dir} (results.json, review_pack.md, runs.jsonl). Read the review pack's "
           "human-review section before drawing any conclusion.")
@@ -144,7 +155,7 @@ def export_baseline_command(results_path):
     if os.path.exists(target):
         raise ResultsPathError(f"{target} already exists; refusing to overwrite it")
     import json
-    with open(target, "w", encoding="utf-8") as f:
+    with open(target, "x", encoding="utf-8") as f:  # "x": never overwrite, even if it appears after the check
         json.dump(summary, f, indent=2, ensure_ascii=False)
         f.write("\n")
     print(f"Wrote {target}\nIt holds pass rates, hashes and the model -- no model text. To adopt it as a "
@@ -206,11 +217,9 @@ def main(argv=None):
             return export_baseline_command(args.export_baseline)
         if args.compare:
             return compare_command(*args.compare)
-    except Exception as exc:  # noqa: BLE001 - a bad file/guard is a clean error, not a traceback
-        if exc.__class__.__name__ in ("BaselineError", "ResultsPathError"):
-            print(f"Error: {exc}", file=sys.stderr)
-            return 1
-        raise
+    except (BaselineError, ResultsPathError, FileExistsError) as exc:  # a bad file/guard: clean error, no traceback
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     try:
         dataset = load_dataset(args.dataset)
@@ -241,11 +250,9 @@ def main(argv=None):
     except DatasetError as exc:
         print(f"Dataset error: {exc}", file=sys.stderr)
         return 1
-    except Exception as exc:  # noqa: BLE001 - setup problems (no key, guard) are clean errors
-        if exc.__class__.__name__ in ("RunnerSetupError", "ResultsPathError"):
-            print(f"Error: {exc}", file=sys.stderr)
-            return 2
-        raise
+    except (RunnerSetupError, ResultsPathError) as exc:  # setup problems (no key, guard): clean errors
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 

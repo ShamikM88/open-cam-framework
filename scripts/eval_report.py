@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 from eval_oracles import run_passed
 
-HARNESS_VERSION = "0.1-pr1"
+HARNESS_VERSION = "0.2-pr2"
 RESULTS_ROOT = os.path.join("evals", "results")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCERPT_LIMIT = 24000  # chars: a Maker's max_tokens=4000 is ~16k characters
@@ -127,7 +127,8 @@ def summarize(cases):
 
 
 def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned_live_calls=0,
-                 usage=None, call_cap=None, input_hashes=None, repeats=None, aborted=False, abort_reason=None):
+                 usage=None, call_cap=None, input_hashes=None, repeats=None, aborted=False, abort_reason=None,
+                 abort_category=None):
     return {
         "harness_version": HARNESS_VERSION,
         "run_id": run_id,
@@ -141,6 +142,7 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
         "repeats": repeats,
         "aborted": aborted,
         "abort_reason": abort_reason,
+        "abort_category": abort_category,
         "planned_live_calls": planned_live_calls,
         "call_cap": call_cap,
         "usage": usage or {"calls": 0, "input_tokens": 0, "output_tokens": 0},
@@ -203,6 +205,16 @@ def _fence_for(text):
     return "`" * max(3, longest + 1)
 
 
+def _run_details(run):
+    """Token usage and stop reason of a live run, for the 'Run' cell."""
+    if run.get("kind") != "live" or run.get("input_tokens") is None:
+        return ""
+    bits = [f"{run.get('input_tokens', 0)} in / {run.get('output_tokens', 0)} out"]
+    if run.get("stop_reason"):
+        bits.append(str(run["stop_reason"]))
+    return ", " + ", ".join(bits)
+
+
 def _row_result(run):
     if run["kind"] == "scripted" and run.get("expected_pass") is not None:
         if run["passed"] == run["expected_pass"]:
@@ -210,7 +222,10 @@ def _row_result(run):
         return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
     if run.get("status", "ok") != "ok":
         return f"ERROR {_cell(run.get('error') or run['status'])}"
-    return "pass" if run["passed"] else "FAIL"
+    outcome = "pass" if run["passed"] else "FAIL"
+    if run.get("stop_reason") == "max_tokens":
+        outcome += " (OUTPUT TRUNCATED at max_tokens -- not necessarily the model's behaviour)"
+    return outcome
 
 
 def render_review_pack(record):
@@ -227,6 +242,10 @@ def render_review_pack(record):
         f"- Harness version: {record['harness_version']}",
         f"- Model calls: {record['usage']['calls']} made (planned for a live run: {record['planned_live_calls']}, "
         f"cap: {record['call_cap']})",
+        *([f"- **ABORTED EARLY ({record.get('abort_category') or 'unknown'}):** "
+           f"{_cell(record.get('abort_reason'), limit=500)}. Runs after this point never happened; cases "
+           "marked 'not reached' below have no results, and pass rates cover only the runs that did."]
+          if record.get("aborted") else []),
         "",
         f"> {record['disclaimer']}",
         "",
@@ -239,10 +258,12 @@ def render_review_pack(record):
         "|---|---|---|---|",
     ]
     for case in record["cases"]:
+        if record.get("aborted") and not case["runs"] and case.get("runs_planned"):
+            lines.append(f"| `{case['id']}` | - | not reached | - |")
         for run in case["runs"]:
             failing = "; ".join(f"{a['oracle']}: {a['reason']}" for a in run["assertions"]
                                 if a.get("scored", True) and not a["passed"])
-            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}) | {_row_result(run)} | "
+            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}{_run_details(run)}) | {_row_result(run)} | "
                          f"{_cell(failing) if failing else '-'} |")
     lines += ["", "## 2. Observed pass rates (live runs)", ""]
     rates = record["summary"]["observed_pass_rate_by_category"]
@@ -254,8 +275,13 @@ def render_review_pack(record):
         lines += ["", "Per case:", ""]
         for case in record["cases"]:
             rate = pass_rate(case["runs"])
+            planned = case.get("runs_planned")
             if rate["total"]:
-                lines.append(f"- `{case['id']}`: {rate['passed']} / {rate['total']}")
+                partial = f" (only {rate['total']} of {planned} planned runs happened)" \
+                    if planned and rate["total"] < planned else ""
+                lines.append(f"- `{case['id']}`: {rate['passed']} / {rate['total']}{partial}")
+            elif planned:
+                lines.append(f"- `{case['id']}`: not reached")
     if record["mode"] == "dry-run":
         checks = record["summary"]["scripted_self_checks"]
         lines += ["", f"Scripted self-checks (the scored oracles pass the `good` output and catch the `bad` one): "

@@ -63,9 +63,11 @@ def test_errored_runs_are_counted_in_the_baseline_denominator():
     assert summary["per_case"][0] == {**summary["per_case"][0], "passed": 3, "total": 4, "errored": 1}
 
 
-def test_an_aborted_run_is_flagged_in_its_baseline():
-    summary = export_baseline(live_record({"a": (2, 2)}, aborted=True, abort_reason="call cap: spent"))
-    assert summary["aborted"] is True and "call cap" in summary["abort_reason"]
+def test_an_aborted_run_is_flagged_in_its_baseline_by_category_only():
+    summary = export_baseline(live_record({"a": (2, 2)}, aborted=True, abort_reason="call cap: spent",
+                                          abort_category="call cap"))
+    assert summary["aborted"] is True and summary["abort_category"] == "call cap"
+    assert "abort_reason" not in summary and "spent" not in json.dumps(summary)
 
 
 def test_a_like_for_like_comparison_reports_deltas_and_flags_a_large_drop():
@@ -113,3 +115,61 @@ def test_the_rendering_is_labelled_informational_and_never_claims_proof():
 def test_comparing_against_something_that_is_not_a_baseline_is_refused():
     with pytest.raises(BaselineError, match="not an evaluation baseline"):
         compare({"kind": "something-else"}, live_record({"a": (1, 1)}))
+
+# ---------------------------------------------------------------------------
+# Third independent review: baseline leakage, like-for-like completeness, CLI edges.
+# ---------------------------------------------------------------------------
+
+def test_api_error_text_can_never_reach_a_baseline_through_the_abort_reason():
+    secret = "sk-ant-api03-SECRET-LOOKING-VALUE"
+    record = live_record({"a": (2, 2)}, aborted=True, abort_reason=f"3 consecutive errored runs (last: {secret})",
+                         abort_category="consecutive errors")
+    for run in record["cases"][0]["runs"]:
+        run["error"] = secret
+    text = json.dumps(export_baseline(record))
+    assert secret not in text and "consecutive errors" in text
+
+
+def test_the_baseline_records_the_prompts_the_live_runs_actually_sent():
+    summary = export_baseline(live_record({"a": (2, 2), "b": (1, 1)}))
+    assert summary["prompt_hashes_by_case"] == {"a": ["p"], "b": ["p"]}
+
+
+def test_a_change_in_the_code_that_assembles_prompts_makes_the_comparison_not_like_for_like():
+    baseline = export_baseline(live_record({"a": (5, 5)}))
+    current = live_record({"a": (5, 5)}, run_id="run-2")
+    for run in current["cases"][0]["runs"]:
+        run["prompt_hash"] = "a-different-prompt"  # file hashes identical, assembled prompt different
+    result = compare(baseline, current)
+    assert not result["like_for_like"] and any("assembled prompts" in m for m in result["mismatches"])
+
+
+def test_a_different_harness_version_or_repeat_count_is_flagged():
+    baseline = export_baseline(live_record({"a": (5, 5)}))
+    current = live_record({"a": (5, 5)}, run_id="run-2")
+    current["harness_version"] = "9.9-future"
+    current["repeats"] = 3
+    mismatches = compare(baseline, current)["mismatches"]
+    assert "harness version" in mismatches and "repeats per case" in mismatches
+
+
+@pytest.mark.parametrize("before, after, flagged", [
+    ((5, 5), (3, 5), True),    # -0.4 exactly
+    ((5, 5), (4, 5), False),
+    ((3, 5), (1, 5), True),    # -0.39999999999999997 in floating point: must still be flagged
+    ((6, 10), (2, 10), True),
+    ((7, 10), (3, 10), True),
+    ((6, 10), (3, 10), False),
+])
+def test_the_regression_threshold_is_not_at_the_mercy_of_float_rounding(before, after, flagged):
+    baseline = export_baseline(live_record({"a": before}))
+    result = compare(baseline, live_record({"a": after}, run_id="run-2"))
+    assert (result["rows"][0]["flag"] == "possible regression") is flagged
+
+
+@pytest.mark.parametrize("broken", [{}, {"mode": "live"}, {"mode": "live", "cases": [{"runs": [{}]}]}])
+def test_a_malformed_results_file_is_a_baseline_error_not_a_traceback(broken):
+    with pytest.raises(BaselineError):
+        export_baseline(broken)
+    with pytest.raises(BaselineError):
+        compare(export_baseline(live_record({"a": (1, 1)})), broken)

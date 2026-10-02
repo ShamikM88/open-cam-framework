@@ -609,7 +609,9 @@ a second look in review.
   `config/settings.json`, `templates/cam/` only -- never `templates/local/`) and runs serially because it
   `chdir`s; the live client is a `BudgetedClient` with `max_retries=0` that wraps only the live client;
   each finished run is appended to `runs.jsonl` immediately; a run that errors stays in the pass-rate
-  denominator, and three errors in a row abort. Three result types are kept apart: **deterministic
+  denominator, and three errors in a row abort (Ctrl-C also yields a written, `interrupted` record; the
+  per-run `stop_reason`/token counts are recorded, truncation at `max_tokens` is flagged in the pack, and a
+  baseline keeps only an abort *category*, never the free-text reason). Three result types are kept apart: **deterministic
   oracle results** (an assertion marked `"scored": false` is an observation that never counts toward
   pass/fail), **observed pass rates** over repeated live runs (never described as "proven safe"), and
   **human-review observations** (no pass/fail). **Most oracles are format / self-declaration checks, not

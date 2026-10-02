@@ -269,7 +269,7 @@ def test_an_aborted_live_run_exits_non_zero_and_says_why(monkeypatch, tmp_path, 
 
     _fake_client_factory(monkeypatch, respond)
     code = run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "5", "--yes", "--out", str(tmp_path)])
-    assert code == 1 and "ABORTED early: 3 consecutive errored runs" in capsys.readouterr().err
+    assert code == 1 and "ABORTED early (consecutive errors): 3 consecutive errored runs" in capsys.readouterr().err
 
 
 def test_live_flags_are_mutually_exclusive_with_the_other_modes():
@@ -359,3 +359,111 @@ def test_a_live_run_into_the_default_results_dir_changes_no_tracked_file(monkeyp
                     shutil.rmtree(entry)
             if not existed and not any(root.iterdir()):
                 root.rmdir()
+
+# ---------------------------------------------------------------------------
+# Third independent review: --cases, relative --out, Ctrl-C, aborted packs, the export guard.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("cases", ["", ",", " , ,"])
+def test_cases_that_names_nothing_is_refused_not_read_as_everything(monkeypatch, tmp_path, capsys, cases):
+    _forbid_client(monkeypatch)
+    assert run_evals.main(["--live", "--yes", "--cases", cases, "--out", str(tmp_path)]) == 1
+    assert "names no case ids" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_relative_out_directory_works_end_to_end(monkeypatch, tmp_path):
+    from eval_fakes import dataset_case, good_maker_text
+    case = dataset_case("fab-no-financials")
+    _fake_client_factory(monkeypatch, lambda kw: good_maker_text(case))
+    monkeypatch.chdir(tmp_path)
+    assert run_evals.main([*LIVE, "--out", "relout"]) == 0
+    (run_dir,) = list((tmp_path / "relout").iterdir())
+    assert (run_dir / "results.json").is_file() and not (run_dir / "work").exists()
+
+
+def test_ctrl_c_still_writes_the_record_and_exits_non_zero(monkeypatch, tmp_path, capsys):
+    from eval_fakes import dataset_case, good_maker_text
+    case = dataset_case("fab-no-financials")
+    calls = {"n": 0}
+
+    def respond(kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise KeyboardInterrupt
+        return good_maker_text(case)
+
+    _fake_client_factory(monkeypatch, respond)
+    code = run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "4", "--yes", "--out", str(tmp_path)])
+    assert code == 1 and "ABORTED early (interrupted)" in capsys.readouterr().err
+    (run_dir,) = list(tmp_path.iterdir())
+    record = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    assert record["aborted"] and record["abort_category"] == "interrupted" and len(record["cases"][0]["runs"]) == 1
+
+
+def test_an_aborted_pack_says_so_and_lists_the_unreached_cases(monkeypatch, tmp_path):
+    from eval_fakes import dataset_case
+    _fake_client_factory(monkeypatch, lambda kw: (_ for _ in ()).throw(RuntimeError("down")))
+    run_evals.main(["--live", "--cases", "fab-no-financials,fab-single-period", "--repeats", "5", "--yes",
+                    "--out", str(tmp_path)])
+    (run_dir,) = list(tmp_path.iterdir())
+    pack = (run_dir / "review_pack.md").read_text(encoding="utf-8")
+    assert "ABORTED EARLY (consecutive errors)" in pack
+    assert "- `fab-single-period`: not reached" in pack
+    assert "(only 3 of 5 planned runs happened)" in pack  # a pass rate is never shown without its denominator
+    assert dataset_case("fab-single-period")["id"] in pack
+
+
+def test_a_truncated_live_output_is_flagged_in_the_pack_and_the_run_details_are_shown(monkeypatch, tmp_path):
+    from eval_fakes import FakeClient, dataset_case
+
+    class Truncating(FakeClient):
+        def _create(self, **kwargs):
+            response = super()._create(**kwargs)
+            response.stop_reason = "max_tokens"
+            return response
+
+    case = dataset_case("fab-no-financials")
+    client = Truncating(lambda kw: "a draft cut off before its structured block", input_tokens=900, output_tokens=4000)
+    monkeypatch.setattr(run_evals, "make_client", lambda: client)
+    run_evals.main([*LIVE, "--out", str(tmp_path)])
+    (run_dir,) = list(tmp_path.iterdir())
+    pack = (run_dir / "review_pack.md").read_text(encoding="utf-8")
+    assert "OUTPUT TRUNCATED at max_tokens" in pack and "900 in / 4000 out, max_tokens" in pack
+    assert case["id"] in pack
+
+
+def test_export_baseline_refuses_a_results_file_in_a_tracked_directory(monkeypatch, tmp_path, capsys):
+    import shutil
+    from eval_fakes import REPO_ROOT as repo_root
+    results = _live_results(monkeypatch, tmp_path)
+    probe_dir = repo_root / "tests" / "_baseline_guard_probe"
+    try:
+        probe_dir.mkdir()
+        shutil.copyfile(results, probe_dir / "results.json")
+        capsys.readouterr()
+        code = run_evals.main(["--export-baseline", str(probe_dir / "results.json")])
+        assert code == 1 and "not git-ignored" in capsys.readouterr().err
+        assert not (probe_dir / "baseline_summary.json").exists()
+    finally:
+        shutil.rmtree(probe_dir, ignore_errors=True)
+
+
+def test_a_malformed_results_file_is_a_clean_error_on_the_command_line(tmp_path, capsys):
+    bad = tmp_path / "results.json"
+    bad.write_text(json.dumps({"mode": "live", "cases": [{"runs": [{}]}]}), encoding="utf-8")
+    assert run_evals.main(["--export-baseline", str(bad)]) == 1
+    assert "Error:" in capsys.readouterr().err and not (tmp_path / "baseline_summary.json").exists()
+
+
+def test_the_baseline_file_is_opened_exclusively_even_if_it_appears_after_the_existence_check(
+        monkeypatch, tmp_path, capsys):
+    results = _live_results(monkeypatch, tmp_path)
+    target = results.parent / "baseline_summary.json"
+    target.write_text("{}", encoding="utf-8")
+    real_exists = os.path.exists
+    monkeypatch.setattr(run_evals.os.path, "exists",
+                        lambda p: False if os.path.abspath(p) == str(target) else real_exists(p))
+    code = run_evals.main(["--export-baseline", str(results)])
+    assert code == 1 and "File exists" in capsys.readouterr().err  # a clean error, not a traceback
+    assert target.read_text(encoding="utf-8") == "{}"

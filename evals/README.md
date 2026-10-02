@@ -152,8 +152,13 @@ the repository, or one inside it that is git-ignored. `--dry-run` imports `orche
 prompt-hash helper, so it needs the framework's own dependencies installed -- but it never constructs a
 client. `--live` additionally needs `ANTHROPIC_API_KEY`.
 
-A comparison first says whether the model, prompt hashes, input hashes and dataset content all match
-(and says plainly when it is **not** like-for-like); its regression flag is informational (a drop of 40
+A baseline summary records only the *category* of an abort ("call cap", "consecutive errors",
+"interrupted"), never the free-text reason, because that text can embed an API or exception message
+and the file is meant to be copied into a tracked path.
+
+A comparison first says whether the model, prompt hashes, input hashes, the prompts each live run
+actually assembled, the harness version, the repeat count and the dataset content all match (and says
+plainly when it is **not** like-for-like); its regression flag is informational (a drop of 40
 points or more), its threshold is arbitrary until run-to-run variance is known, and it gates nothing.
 
 ## How the live runner works
@@ -179,5 +184,13 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
   call; and the run stops, recording why, if the cap is spent or three runs in a row error.
 - **Recorded per run:** model IDs and temperatures from the isolated `settings.json`, prompt hashes and
   input hashes of the files actually used (computed with orchestrator's own `_content_hash`, so they
-  equal `model_provenance`), the dataset version *and content hash*, token usage, each live prompt's
-  hash, and a failed run as `status: "error"` (it stays in the denominator).
+  equal `model_provenance`), the dataset version *and content hash*, each live prompt's hash, and the
+  call's `stop_reason` and input/output token counts. A run whose output stopped at `max_tokens` is
+  flagged as truncated in the review pack. A failed run is `status: "error"` (it stays in the
+  denominator) and still records the call that was attempted, so per-run call counts always sum to the
+  budget's total.
+- **Progress and interruption.** One line per finished run goes to stderr (case id, repeat, pass/FAIL/
+  ERROR, stop reason -- never model text). Ctrl-C stops the run cleanly: the record is still written
+  (`abort_category: "interrupted"`), everything already paid for is kept, and the review pack names the
+  cases that were never reached. There is no resume; the SDK timeout is 180 s per call, so a worst case
+  of a hung connection is 180 s per call with no retry (`max_retries=0`).

@@ -329,6 +329,36 @@ def test_utf8_user_files_reach_the_prompt_intact_under_a_cp1252_default(project_
     assert prompt.count(text) == 2  # once as the style guide, once inside the policy block
 
 
+def test_a_rejection_with_non_cp1252_notes_still_revises_and_exports_on_a_cp1252_pipe(project_root, monkeypatch):
+    """Issue #154: the Checker's notes are printed on a REJECTED verdict; on a
+    Windows pipe (cp1252) a >= sign raised UnicodeEncodeError there, aborting
+    the run before the revision call and the export."""
+    import io
+    import sys
+    import textio
+
+    stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict", write_through=True)
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", io.TextIOWrapper(io.BytesIO(), encoding="cp1252",
+                                                        errors="backslashreplace", write_through=True))
+    textio.configure_stdio()  # what every script's __main__ block now does first
+
+    notes = "DSCR ≥ 1.25x → breach for Łukasz"
+    client = MockClient([
+        _compliant_draft(body="# FIRST DRAFT MARKER"), _rejected_json(notes),
+        _compliant_draft(body="# REVISED DRAFT MARKER"), _approved_json(),
+    ])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    assert client.call_count == 4  # draft, rejected audit, REVISION, approved audit
+    assert notes in stdout.buffer.getvalue().decode("utf-8")
+    exported = list((project_root / "deals" / "Acme Corp").glob("*/*_CAM.docx"))
+    assert len(exported) == 1, "the revised draft was never exported"
+    exported_text = "\n".join(p.text for p in docx.Document(str(exported[0])).paragraphs)
+    # The REVISED draft is what was exported, not the rejected first one.
+    assert "REVISED DRAFT MARKER" in exported_text and "FIRST DRAFT MARKER" not in exported_text
+
+
 def _approved_json(notes=None):
     return '```json\n' + json.dumps({"verdict": "APPROVED", "notes": notes}) + '\n```'
 

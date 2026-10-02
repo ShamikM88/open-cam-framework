@@ -357,6 +357,8 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--type", default="corporate_credit",

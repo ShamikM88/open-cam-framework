@@ -220,6 +220,8 @@ def missing_saved_sources(state, manifest):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Save a piece of fetched/given source material into this deal's "
                      "deals/<Company>/<Proposal>_<Date>/sources/ folder and record it in "

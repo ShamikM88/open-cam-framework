@@ -48,6 +48,8 @@ def export_research_brief(company, proposal, brief_markdown, date_str=None, base
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     import argparse
 
     parser = argparse.ArgumentParser(

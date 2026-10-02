@@ -185,7 +185,8 @@ def main(argv=None):
                         help=f"call cap (default {eval_budget.DEFAULT_MAX_CALLS}, "
                              f"never above {eval_budget.ABSOLUTE_MAX_CALLS})")
     parser.add_argument("--out", default=None,
-                        help="results directory (default evals/results/; must be git-ignored)")
+                        help="results directory (default evals/results/; a path inside the repo must be "
+                             "git-ignored, a path outside it is allowed)")
     args = parser.parse_args(argv)
 
     modes = [bool(args.dry_run), bool(args.live), bool(args.export_baseline), bool(args.compare)]

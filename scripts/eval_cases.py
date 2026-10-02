@@ -51,6 +51,7 @@ from eval_oracles import (
     self_check,
 )
 from pii_scan import scan_for_likely_real_data
+from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATASET_ROOT = os.path.join(REPO_ROOT, "evals", "dataset")  # absolute: independent of the cwd
@@ -77,6 +78,13 @@ CASE_KEYS = {"id", "category", "mode", "description", "deal", "config_files", "s
 DEAL_KEYS = {"company", "proposal", "deal_type", "pd", "lgd", "multi_period_financials", "financials",
              "ratios", "financials_source", "downside_case", "stress_assumptions", "collateral",
              "covenants", "security_package", "guarantees"}
+CANARY_KEYS = {"token", "planted_in", "parts"}
+DRY_RUN_KEYS = {"good", "bad"}
+SPEC_KEYS = {"draft_body", "structured", "omit_structured_block", "verdict", "notes", "raw_text",
+             "verdict_parsed", "expected_failures"}
+ASSERTION_KEYS = {"oracle", "params", "scored"}
+SOURCE_BLOCK_KEYS = {"label", "text"}
+RAW_PERIODS = set(HISTORICAL_PERIOD_KEYS) | set(FORWARD_PERIOD_KEYS)
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 SYNTHETIC_NAME_RE = re.compile(r"^Synthetic [A-Za-z0-9 ]+$")
@@ -103,17 +111,23 @@ def load_dataset(version="v1", root=None):
         raise DatasetError(f"invalid dataset version {version!r} (letters, digits, '.', '_', '-' only)")
     base = os.path.join(root or DATASET_ROOT, version)
     meta = _read_json(os.path.join(base, "dataset.json"))
+    if not isinstance(meta, dict):
+        raise DatasetError(f"{os.path.join(base, 'dataset.json')}: must be a JSON object")
+    if meta.get("version", version) != version:
+        raise DatasetError(f"dataset.json says version {meta.get('version')!r} but lives in {version!r}")
     cases_dir = os.path.join(base, "cases")
     if not os.path.isdir(cases_dir):
         raise DatasetError(f"{cases_dir}: no cases directory")
-    cases = []
+    cases, stray = [], []
     for name in sorted(os.listdir(cases_dir)):
         if name.endswith(".json"):
             case = _read_json(os.path.join(cases_dir, name))
             if isinstance(case, dict):
                 case["_file"] = name
             cases.append(case)
-    return {"version": meta.get("version", version), "description": meta.get("description", ""),
+        else:
+            stray.append(name)  # e.g. "Case.JSON": silently ignored files are a trap
+    return {"version": version, "description": meta.get("description", ""), "stray_files": stray,
             "cases": sorted(cases, key=lambda c: str(c.get("id", "")) if isinstance(c, dict) else "")}
 
 
@@ -157,6 +171,16 @@ def _validate_shapes(case, need):
     if isinstance(case.get("deal"), dict):
         unknown_deal = set(case["deal"]) - DEAL_KEYS
         need(not unknown_deal, f"unknown deal keys {sorted(unknown_deal)} (a typo would be silently ignored)")
+    for key, allowed in (("canary", CANARY_KEYS), ("dry_run", DRY_RUN_KEYS), ("source_block", SOURCE_BLOCK_KEYS)):
+        if isinstance(case.get(key), dict):
+            unknown = set(case[key]) - allowed
+            need(not unknown, f"unknown {key} keys {sorted(unknown)} (a typo would be silently ignored)")
+    if isinstance(case.get("dry_run"), dict):
+        for label in ("good", "bad"):
+            spec = case["dry_run"].get(label)
+            if isinstance(spec, dict):
+                unknown = set(spec) - SPEC_KEYS
+                need(not unknown, f"unknown dry_run.{label} keys {sorted(unknown)} (a typo would be silently ignored)")
     for assertion in case.get("assertions", []) if isinstance(case.get("assertions"), list) else []:
         if not isinstance(assertion, dict):
             need(False, "each assertion must be an object")
@@ -168,11 +192,88 @@ def _validate_shapes(case, need):
         if "scored" in assertion and not isinstance(assertion["scored"], bool):
             need(False, "assertion scored must be true or false")
             ok = False
+        unknown = set(assertion) - ASSERTION_KEYS
+        if unknown:
+            need(False, f"unknown assertion keys {sorted(unknown)} (a typo such as 'score' would silently mean scored)")
+            ok = False
+        if not isinstance(assertion.get("oracle"), str):
+            need(False, "each assertion needs an oracle name (a string)")
+            ok = False
     return ok
 
 
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_inputs(deal, need):
+    """The deal's financial inputs must be in the shapes the framework actually reads. In
+    particular a raw figure under a name `evaluate_financial_model` does not know is silently
+    read as 0, which would give the model a ground truth that contradicts the case's own text."""
+    periods = deal.get("multi_period_financials")
+    if periods is not None:
+        if not (isinstance(periods, dict) and periods):
+            need(False, "multi_period_financials must be a non-empty object of period -> raw figures")
+        else:
+            for period, raw in periods.items():
+                need(period in RAW_PERIODS, f"unknown period {period!r} in multi_period_financials "
+                                            f"(known: {sorted(RAW_PERIODS)})")
+                if not isinstance(raw, dict):
+                    need(False, f"period {period!r} must be an object of raw figures")
+                    continue
+                unknown = sorted(set(raw) - set(FIELD_LABELS))
+                need(not unknown, f"period {period!r} has raw fields the framework ignores (read as 0): "
+                                  f"{unknown}; the known raw fields are {sorted(FIELD_LABELS)}")
+                bad = sorted(k for k, v in raw.items() if not _is_number(v))
+                need(not bad, f"period {period!r} has non-numeric values for {bad}")
+    for key in ("financials", "ratios", "downside_case"):
+        value = deal.get(key)
+        need(value is None or isinstance(value, dict), f"deal.{key} must be an object")
+    stress = deal.get("stress_assumptions")
+    need(stress is None or (isinstance(stress, dict) and all(_is_number(v) for v in stress.values())),
+         "deal.stress_assumptions must be an object of numbers")
+    for key in ("collateral", "covenants", "security_package", "guarantees"):
+        value = deal.get(key)
+        need(value is None or (isinstance(value, list) and all(isinstance(x, dict) for x in value)),
+             f"deal.{key} must be a list of objects")
+
+
+def _validate_specs(case, assertions, need):
+    """The scripted good/bad outputs must be well-formed, and `bad` must say which scored
+    oracle(s) it is aimed at -- a mistyped key must not silently fall back to "any oracle fails"."""
+    dry = case.get("dry_run")
+    if not isinstance(dry, dict):
+        return
+    for label in ("good", "bad"):
+        spec = dry.get(label)
+        if not isinstance(spec, dict):
+            continue
+        if case.get("mode") == "maker":
+            need(isinstance(spec.get("draft_body"), str), f"dry_run.{label}.draft_body must be a string")
+            need(isinstance(spec.get("structured", {}), dict), f"dry_run.{label}.structured must be an object")
+        elif case.get("mode") == "checker":
+            need(spec.get("verdict") in VERDICTS, f"dry_run.{label}.verdict must be one of {VERDICTS}")
+            need(isinstance(spec.get("notes", ""), str), f"dry_run.{label}.notes must be a string")
+    bad = dry.get("bad")
+    if isinstance(bad, dict):
+        names = {a.get("oracle") for a in assertions if isinstance(a, dict) and a.get("scored", True)}
+        expected = bad.get("expected_failures")
+        need(isinstance(expected, list) and expected and all(isinstance(n, str) for n in expected)
+             and set(expected) <= names,
+             "dry_run.bad.expected_failures is required and must name scored oracles of this case")
+
+
 def validate_case(case):
-    """Return a list of human-readable problems with one case (empty = valid)."""
+    """Return a list of human-readable problems with one case (empty = valid). Never raises:
+    a structure so malformed that checking it throws is itself reported as a problem."""
+    try:
+        return _validate_case(case)
+    except Exception as exc:  # noqa: BLE001 - the backstop behind the targeted type checks
+        label = case.get("id") if isinstance(case, dict) else None
+        return [f"case {label!r}: could not be validated -- malformed structure ({type(exc).__name__}: {exc})"]
+
+
+def _validate_case(case):
     if not isinstance(case, dict):
         return ["case is not a JSON object"]
     problems = []
@@ -202,6 +303,7 @@ def validate_case(case):
              f"deal.{key} must be an invented name starting with 'Synthetic '")
     for key in ("deal_type", "pd", "lgd"):
         need(isinstance(deal.get(key), str) and deal[key].strip(), f"deal.{key} required")
+    _validate_inputs(deal, need)
     if deal.get("financials_source") == "analyst-supplied":
         need(not deal.get("multi_period_financials"),
              "an analyst-supplied deal supplies financials/ratios, not multi_period_financials")
@@ -220,6 +322,12 @@ def validate_case(case):
         need(not case.get("source_block"), "source_block is a maker-case construct (no real route to the Checker)")
     elif mode == "maker":
         need("maker_draft" not in scripted, "a maker case must not script the Maker's draft")
+
+    block = case.get("source_block")
+    if block is not None:
+        need(isinstance(block.get("label"), str) and block["label"].strip()
+             and isinstance(block.get("text"), str) and block["text"].strip(),
+             "source_block needs a non-empty string label and text")
 
     assertions = case.get("assertions")
     if not (isinstance(assertions, list) and assertions):
@@ -246,15 +354,18 @@ def validate_case(case):
         need(any(a.get("oracle") == "verdict_is" and a.get("scored", True) for a in assertions),
              "a checker case needs a scored verdict_is assertion")
     if mode == "maker":
-        need(any(a.get("oracle") == "structured_block_present" for a in assertions),
-             "a maker case needs structured_block_present, or an empty or garbage reply could pass "
-             "figures_grounded / sources_declared vacuously")
+        need(any(a.get("oracle") == "structured_block_present" and a.get("scored", True) for a in assertions),
+             "a maker case needs a SCORED structured_block_present, or an empty or garbage reply could "
+             "pass figures_grounded / sources_declared vacuously")
 
     canary = case.get("canary")
     if canary is not None:
         token = canary.get("token")
         need(isinstance(token, str) and CANARY_TOKEN_RE.match(token or ""),
              "canary.token must look like CANARY-XXXXXXXX (8 upper-case letters/digits)")
+        parts = canary.get("parts")
+        need(parts is None or (isinstance(parts, list) and parts and all(isinstance(p, str) and p for p in parts)),
+             "canary.parts must be a non-empty list of non-empty strings")
         surfaces = canary.get("planted_in")
         need(isinstance(surfaces, list) and surfaces and set(surfaces) <= set(CANARY_SURFACES),
              f"canary.planted_in must be a non-empty list within {CANARY_SURFACES}")
@@ -270,16 +381,13 @@ def validate_case(case):
                          f"canary is not actually planted in {surface} (token or every part must appear)")
 
     human = case.get("human_review", [])
-    need(all(isinstance(q, str) and q.strip() for q in human), "human_review must be a list of questions")
+    need(human and all(isinstance(q, str) and q.strip() for q in human),
+         "human_review must be a non-empty list of questions (the oracles check form, not judgement)")
 
     dry = case.get("dry_run")
     need(isinstance(dry, dict) and isinstance(dry.get("good"), dict) and isinstance(dry.get("bad"), dict),
          "dry_run needs scripted 'good' and 'bad' outputs")
-    if isinstance(dry, dict) and isinstance(dry.get("bad"), dict) and "expected_failures" in dry["bad"]:
-        names = {a.get("oracle") for a in assertions if a.get("scored", True)}
-        expected = dry["bad"]["expected_failures"]
-        need(isinstance(expected, list) and expected and set(expected) <= names,
-             "dry_run.bad.expected_failures must name scored oracles of this case")
+    _validate_specs(case, assertions, need)
 
     # Synthetic-data check: nothing mechanically real-looking anywhere in the case.
     for text in _string_leaves({k: v for k, v in case.items() if k != "_file"}):
@@ -327,17 +435,19 @@ def validate_dataset(dataset):
     cases = dataset["cases"]
     if not cases:
         problems.append("dataset has no cases")
+    for name in dataset.get("stray_files", []):
+        problems.append(f"cases/{name} is not a .json file and would be silently ignored")
     for case in cases:
         problems.extend(validate_case(case))
         if not isinstance(case, dict):
             continue
-        case_id = case.get("id")
+        case_id = repr(case.get("id"))  # repr: an unhashable id must not crash the duplicate check
         if case_id in seen_ids:
-            problems.append(f"duplicate case id {case_id!r}")
+            problems.append(f"duplicate case id {case_id}")
         seen_ids.add(case_id)
         deal = case.get("deal") if isinstance(case.get("deal"), dict) else {}
-        pair = (deal.get("company"), deal.get("proposal"))
-        if None not in pair:
+        pair = (repr(deal.get("company")), repr(deal.get("proposal")))
+        if "None" not in pair:
             if pair in seen_deals:
                 problems.append(
                     f"cases {seen_deals[pair]!r} and {case_id!r} share (company, proposal) {pair}: "

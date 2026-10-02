@@ -32,7 +32,7 @@ from eval_oracles import run_passed
 HARNESS_VERSION = "0.1-pr1"
 RESULTS_ROOT = os.path.join("evals", "results")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXCERPT_LIMIT = 4000
+EXCERPT_LIMIT = 24000  # chars: a Maker's max_tokens=4000 is ~16k characters
 
 DISCLAIMER = (
     "Pass rates below are the *observed* rate for this model, these prompt hashes and this "
@@ -168,11 +168,28 @@ def assert_results_dir_is_ignored(path, repo_root=None, probe_names=("results.js
                                     cwd=root, capture_output=True)
         except OSError as exc:
             raise ResultsPathError(f"cannot verify {path} is git-ignored (git unavailable: {exc})") from exc
-        if result.returncode != 0:
+        if result.returncode not in (0, 1):  # git failed (not a repository, bad path, ...): fail closed
+            raise ResultsPathError(f"cannot verify {path} is git-ignored (git check-ignore exited "
+                                   f"{result.returncode}: {result.stderr.decode('utf-8', 'replace').strip()[:200]})")
+        if result.returncode == 1:
             raise ResultsPathError(
                 f"refusing to write results to {path}: {name} would land inside the repository at a "
                 "path that is not git-ignored. Results may contain model text and must never be tracked."
             )
+
+
+def _cell(text, limit=300):
+    """Model-derived (or error) text made safe for a Markdown table cell or bullet: collapsed to
+    one line, bounded, and shown as an inline code span with pipes escaped, so a pipe, newline,
+    heading marker, link, backtick or HTML in model output cannot forge table rows, headings or
+    markup in the review pack."""
+    flat = " ".join(str(text if text is not None else "").split())
+    if len(flat) > limit:
+        flat = flat[:limit] + "..."
+    flat = flat.replace("|", "\\|")
+    fence = "`" * (max((len(run) for run in re.findall(r"`+", flat)), default=0) + 1)
+    pad = " " if flat.startswith("`") or flat.endswith("`") else ""
+    return f"{fence}{pad}{flat}{pad}{fence}"
 
 
 def _fence_for(text):
@@ -188,7 +205,7 @@ def _row_result(run):
             return "pass" if run["passed"] else "caught (expected)"
         return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
     if run.get("status", "ok") != "ok":
-        return f"ERROR ({run.get('error') or run['status']})"
+        return f"ERROR {_cell(run.get('error') or run['status'])}"
     return "pass" if run["passed"] else "FAIL"
 
 
@@ -220,7 +237,8 @@ def render_review_pack(record):
         for run in case["runs"]:
             failing = "; ".join(f"{a['oracle']}: {a['reason']}" for a in run["assertions"]
                                 if a.get("scored", True) and not a["passed"])
-            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}) | {_row_result(run)} | {failing or '-'} |")
+            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}) | {_row_result(run)} | "
+                         f"{_cell(failing) if failing else '-'} |")
     lines += ["", "## 2. Observed pass rates (live runs)", ""]
     rates = record["summary"]["observed_pass_rate_by_category"]
     if not any(r["total"] for r in rates.values()):
@@ -250,7 +268,7 @@ def render_review_pack(record):
         lines += [f"- [ ] {q}" for q in questions]
         for run, assertion in observations:
             lines.append(f"- _observation, {run['label']} ({run['kind']}), unscored_ `{assertion['oracle']}`: "
-                         f"{assertion['reason']}")
+                         f"{_cell(assertion['reason'], limit=600)}")
         for run in case["runs"]:
             excerpt = (run.get("output_excerpt") or "").strip()
             if excerpt:
@@ -294,10 +312,14 @@ def write_results(record, out_root=None, repo_root=None):
     os.makedirs(out_dir, exist_ok=True)  # a live run creates its directory up front, for incremental output
     if os.path.exists(os.path.join(out_dir, "results.json")):
         raise ResultsPathError(f"{out_dir} already holds results.json; refusing to overwrite an earlier run")
-    # errors="backslashreplace": a lone surrogate in model text must not abort the write after the
-    # live calls are already spent.
-    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8", errors="backslashreplace") as f:
-        json.dump(record, f, indent=2, ensure_ascii=False)
-    with open(os.path.join(out_dir, "review_pack.md"), "w", encoding="utf-8", errors="backslashreplace") as f:
-        f.write(render_review_pack(record))
+    # Render BOTH files before writing either, then write each atomically (temp file + replace): a
+    # failure while rendering can no longer leave a truncated results.json after the live calls are
+    # spent. errors="backslashreplace": a lone surrogate in model text must not abort the write.
+    documents = (("results.json", json.dumps(record, indent=2, ensure_ascii=False)),
+                 ("review_pack.md", render_review_pack(record)))
+    for name, text in documents:
+        target = os.path.join(out_dir, name)
+        with open(target + ".tmp", "w", encoding="utf-8", errors="backslashreplace") as f:
+            f.write(text)
+        os.replace(target + ".tmp", target)
     return out_dir

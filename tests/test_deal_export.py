@@ -284,7 +284,36 @@ def test_cli_brand_new_deal_gets_a_folder_dated_today(tmp_path, monkeypatch):
 
 
 def test_cli_rejects_an_unsafe_company_before_touching_the_deals_tree(tmp_path, monkeypatch):
+    import deal_export
     monkeypatch.chdir(tmp_path)
+
+    def must_not_resolve(*args, **kwargs):
+        pytest.fail("resolve_date_str() (the deals/ glob) ran before sanitization")
+
+    monkeypatch.setattr(deal_export, "resolve_date_str", must_not_resolve)
     with pytest.raises(ValueError):
         main(["--company", "../evil", "--proposal", "Fleet Loan", "--type", "asset_finance",
               "--draft", _cli_draft(tmp_path)])
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("bad", ["foo", "2026-1-5", "2026-01-05-extra", ""])
+def test_cli_rejects_a_malformed_date_str(tmp_path, monkeypatch, bad):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
+              "--draft", _cli_draft(tmp_path), "--date-str", bad])
+    assert not (tmp_path / "deals").exists()
+
+
+def test_cli_does_not_export_into_another_deals_prefix_sharing_folder(tmp_path, monkeypatch):
+    """Proposal "Fleet" must not claim "Fleet_Q2"'s folder (issue #97 review)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deals" / "Acme" / "Fleet_2026-01-10").mkdir(parents=True)
+    (tmp_path / "deals" / "Acme" / "Fleet_Q2_2026-05-01").mkdir(parents=True)
+
+    main(["--company", "Acme", "--proposal", "Fleet", "--type", "asset_finance",
+          "--draft", _cli_draft(tmp_path)])
+
+    assert (tmp_path / "deals" / "Acme" / "Fleet_2026-01-10" / "Acme_Fleet_CAM.docx").exists()
+    assert not (tmp_path / "deals" / "Acme" / "Fleet_Q2_2026-05-01" / "Acme_Fleet_CAM.docx").exists()

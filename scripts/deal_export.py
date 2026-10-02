@@ -8,6 +8,7 @@ into deal output files. orchestrator.py's own (headless, API-key-based)
 pipeline imports export_deal() directly instead of duplicating this logic.
 """
 import os
+import re
 from datetime import datetime
 
 from docx_builder import export_to_docx
@@ -155,13 +156,19 @@ def main(argv=None):
              "else today's date for a brand-new deal.",
     )
     args = parser.parse_args(argv)
+    if args.date_str is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date_str):
+        # A free-form value would create a folder like "Fleet Loan_foo" that
+        # state_manager's date discovery (correctly) ignores forever after.
+        parser.error(f"--date-str {args.date_str!r} must be a YYYY-MM-DD date")
 
     with open(args.draft, encoding="utf-8") as f:
         draft_markdown = f.read()
 
-    # Sanitize before resolving: resolve_date_str() globs the deals/ tree with
-    # these values, and export_deal()'s own sanitization would otherwise only
-    # run after that glob.
+    # Reject path-unsafe company/proposal values before resolving, so nothing
+    # unsafe reaches the deals/ glob or the folder path built from them
+    # (export_deal() would reject them too, but only after resolution; note
+    # sanitize_path_component() deliberately allows "[" and "]", which
+    # _existing_date_str() glob-escapes).
     company = sanitize_path_component(args.company, "company")
     proposal = sanitize_path_component(args.proposal, "proposal")
     date_str = resolve_date_str(company, proposal, date_str=args.date_str)

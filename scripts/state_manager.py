@@ -45,6 +45,7 @@ SCHEMA_VERSION = "1.1.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 LOCK_TIMEOUT_SECONDS = 10
 _LOCK_POLL_INTERVAL_SECONDS = 0.05
@@ -129,14 +130,22 @@ def _existing_date_str(company, proposal, base_dir=None):
     Date suffixes are ISO-8601 (YYYY-MM-DD), so sorting them as plain
     strings also sorts them chronologically -- the lexicographic max is
     the most recent.
+
+    Only a folder whose remainder after `<proposal>_` is exactly a date
+    counts: otherwise a proposal named "Fleet" would also claim a different
+    deal's "Fleet_Q2_2026-05-01" folder (its "date" would be
+    "Q2_2026-05-01", which sorts above any real one). The company and
+    proposal are glob-escaped so a "[" or "]" in a name matches literally
+    instead of as a character class.
     """
     prefix = f"{proposal}_"
-    pattern = os.path.join(_deals_root(base_dir), company, f"{prefix}*")
-    dates = [
-        os.path.basename(p)[len(prefix):]
-        for p in glob.glob(pattern)
-        if os.path.isdir(p) and os.path.basename(p).startswith(prefix)
-    ]
+    pattern = os.path.join(
+        glob.escape(_deals_root(base_dir)), glob.escape(company), f"{glob.escape(prefix)}*")
+    dates = []
+    for p in glob.glob(pattern):
+        name = os.path.basename(p)
+        if os.path.isdir(p) and name.startswith(prefix) and _ISO_DATE_RE.fullmatch(name[len(prefix):]):
+            dates.append(name[len(prefix):])
     return max(dates) if dates else None
 
 
@@ -147,8 +156,9 @@ def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_revie
         # Force today's date rather than resuming the most recent existing
         # folder -- e.g. a new annual review for the same company/proposal
         # must not silently merge into last year's state.json (stale PD/LGD,
-        # financials, policy_state). Matches deal_export.py's own
-        # always-today convention for a one-shot export.
+        # financials, policy_state). Callers that run a new review resolve
+        # this once and pass the concrete date everywhere, including to
+        # deal_export.export_deal() (issue #97).
         return datetime.now().strftime("%Y-%m-%d")
     return _existing_date_str(company, proposal, base_dir=base_dir) or datetime.now().strftime("%Y-%m-%d")
 

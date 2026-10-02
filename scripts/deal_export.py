@@ -8,11 +8,12 @@ into deal output files. orchestrator.py's own (headless, API-key-based)
 pipeline imports export_deal() directly instead of duplicating this logic.
 """
 import os
+import re
 from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import export_to_xlsx
-from state_manager import read_state, sanitize_path_component
+from state_manager import read_state, resolve_date_str, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
 
@@ -82,6 +83,13 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     project root; production callers leave it as None (paths relative to
     the current working directory, as before this was extracted).
 
+    `date_str` defaults to today when not given -- right for a brand-new deal,
+    wrong for one already in progress, whose output must land next to its own
+    state.json/sources/ however many days it has taken (issue #97). Callers
+    with a deal in progress must pass the date themselves, resolved via
+    state_manager.resolve_date_str(), as orchestrator.py and this module's
+    own CLI do.
+
     Returns the output directory path.
     """
     company = sanitize_path_component(company, "company")
@@ -126,7 +134,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     return output_dir
 
 
-if __name__ == "__main__":
+def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -140,10 +148,34 @@ if __name__ == "__main__":
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--type", default="corporate_credit")
     parser.add_argument("--draft", required=True, help="Path to the drafted CAM Markdown file")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--date-str", default=None,
+        help="YYYY-MM-DD suffix of the deal's dated folder to export into. Defaults to "
+             "this deal's existing dated folder if one exists (so a multi-day deal's "
+             ".docx/.xlsx land next to its own state.json/sources/ -- issue #97), "
+             "else today's date for a brand-new deal.",
+    )
+    args = parser.parse_args(argv)
+    if args.date_str is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date_str):
+        # A free-form value would create a folder like "Fleet Loan_foo" that
+        # state_manager's date discovery (correctly) ignores forever after.
+        parser.error(f"--date-str {args.date_str!r} must be a YYYY-MM-DD date")
 
     with open(args.draft, encoding="utf-8") as f:
         draft_markdown = f.read()
 
-    output_dir = export_deal(args.company, args.proposal, args.type, draft_markdown)
+    # Reject path-unsafe company/proposal values before resolving, so nothing
+    # unsafe reaches the deals/ glob or the folder path built from them
+    # (export_deal() would reject them too, but only after resolution; note
+    # sanitize_path_component() deliberately allows "[" and "]", which
+    # _existing_date_str() glob-escapes).
+    company = sanitize_path_component(args.company, "company")
+    proposal = sanitize_path_component(args.proposal, "proposal")
+    date_str = resolve_date_str(company, proposal, date_str=args.date_str)
+
+    output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
     print(f"Done! Files generated in {output_dir}")
+
+
+if __name__ == "__main__":
+    main()

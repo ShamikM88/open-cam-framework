@@ -680,7 +680,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         sys.exit(1)
 
     print(f"[3/3] Exporting .docx and .xlsx files...")
-    output_dir = export_deal(company, proposal, deal_type, approved_draft)
+    output_dir = export_deal(company, proposal, deal_type, approved_draft, date_str=date_str)
     steps_completed = _add_step(steps_completed, "export")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 draft_path=os.path.join(output_dir, f"{company}_{proposal}_CAM.docx"),

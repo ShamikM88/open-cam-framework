@@ -80,9 +80,11 @@ guarantees to condition on; don't treat its absence as a missing step.
    ```
    python scripts/deal_export.py --company "<company>" --proposal "<proposal>" --type <type> --draft "deals/<company>/<proposal>_draft.md"
    ```
-   This creates the dated output folder, exports `.docx` + `.xlsx`, and — only if this deal type
-   had no template at all — auto-saves the draft's structure as a new override under
-   `templates/local/cam/`.
+   This exports `.docx` + `.xlsx` into this deal's own dated folder — the same one "State: read"
+   found, however many days the deal has taken (`deal_export.py` discovers it itself, so you never
+   need to work out or pass a date; only a brand-new deal gets a folder dated today) — and, only
+   if this deal type had no template at all, auto-saves the draft's structure as a new override
+   under `templates/local/cam/`.
 8. Report the output folder to the user, then delete the temporary `<proposal>_draft.md` file —
    the real output now lives in the dated folder as a proper `.docx`/`.xlsx`.
 9. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's
@@ -129,7 +131,5 @@ step already recorded): `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path` (the
 state-management protocol, a code-enforced structural finding like a covenant breach or security
 gap must exist as a disk artifact, not only in this conversation), and append `"assemble"` to
 `steps_completed` if it isn't already there. `/review` already checkpoints `review_verdict`
-itself. If `deal_export.py`'s output
-directory (from step 7) uses a different date than the state file you read in step 1 — e.g. this
-deal spanned multiple days — write the state file into `deal_export.py`'s actual output
-directory instead, so `state.json` ends up next to the `.docx`/`.xlsx` it describes.
+itself. `state.json` already sits next to the exported `.docx`/`.xlsx` — step 7 exports into the
+deal's existing dated folder — so write it back wherever you read it from; no re-homing needed.

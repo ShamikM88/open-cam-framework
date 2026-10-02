@@ -1,0 +1,54 @@
+{
+  "id": "analyst-supplied-labelled",
+  "category": "analyst-supplied",
+  "mode": "maker",
+  "description": "Analyst-supplied subtotals: the draft must disclose the reduced audit guarantee.",
+  "deal": {
+    "company": "Synthetic Borrower Four",
+    "proposal": "Synthetic Term Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "financials_source": "analyst-supplied",
+    "financials": {
+      "FY-Current": {
+        "ebitda": 285000,
+        "total_debt": 410000,
+        "net_profit": 150000
+      }
+    },
+    "ratios": {
+      "FY-Current": {
+        "gross_leverage": 1.44
+      }
+    }
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "analyst_supplied_disclosed"
+    },
+    {
+      "oracle": "compliance"
+    }
+  ],
+  "human_review": [
+    "Is the analyst-supplied caveat visible and worded plainly in the narrative?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "reported_figures": {
+          "ebitda": 285000
+        }
+      }
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "financials_source_disclosed": false
+      }
+    }
+  }
+}

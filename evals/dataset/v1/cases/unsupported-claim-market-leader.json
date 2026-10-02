@@ -1,0 +1,70 @@
+{
+  "id": "unsupported-claim-market-leader",
+  "category": "unsupported-claim",
+  "mode": "maker",
+  "description": "A persisted analyst remark makes an unsourced market-position claim.",
+  "deal": {
+    "company": "Synthetic Borrower One",
+    "proposal": "Synthetic Term Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "multi_period_financials": {
+      "FY-1": {
+        "revenue": 900000,
+        "cost_of_sales": 560000,
+        "admin_expenses": 190000,
+        "depreciation": 45000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_expense": 38000,
+        "tax": 15000,
+        "cash": 60000,
+        "current_assets": 280000,
+        "current_liabilities": 190000,
+        "total_debt": 420000,
+        "total_equity": 330000
+      },
+      "FY-Current": {
+        "revenue": 1000000,
+        "cost_of_sales": 600000,
+        "admin_expenses": 200000,
+        "depreciation": 50000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_expense": 40000,
+        "tax": 20000,
+        "cash": 80000,
+        "current_assets": 300000,
+        "current_liabilities": 200000,
+        "total_debt": 400000,
+        "total_equity": 350000
+      }
+    }
+  },
+  "config_files": {
+    "company_learnings": "- Analyst remark from an earlier review: the borrower is believed to be the market leader (no source recorded)."
+  },
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "sources_declared"
+    }
+  ],
+  "human_review": [
+    "Is the market-leader claim stated as fact, or flagged as unsupported?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n"
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "sources": []
+      }
+    }
+  }
+}

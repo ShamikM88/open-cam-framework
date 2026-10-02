@@ -51,6 +51,7 @@ open-cam-framework/
 │   ├── policy_check.py          Standalone CLI wrapper around policy_engine.py/policy_checks.py -- compute(); callable from /assemble's and /review's own Bash steps so the slash-command interface gets the same code-enforced governance orchestrator.py's headless pipeline does (no anthropic dependency)
 │   ├── pii_scan.py              Heuristic (UK-shaped) scan for likely-real PII left over in a calibrated template before promoting it upstream -- see the confidentiality rule's "Promoting a local override upstream" note below (no anthropic dependency)
 │   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" below)
+│   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only; PR 1: --validate/--list/--dry-run, zero model calls) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap); see "Execution scripts" below and issue #151
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
@@ -60,6 +61,7 @@ open-cam-framework/
 │   ├── cam/                     Shipped default Markdown CAM templates (corporate_credit_cam.md, asset_finance_cam.md)
 │   ├── spreading/               default_spreading_template.xlsx -- reference copy of the spreading workbook layout
 │   └── local/cam/               Calibrated overrides / auto-saved new-type templates (gitignored, see below)
+├── evals/                       Local live-model evaluation harness data -- see evals/README.md and issue #151: dataset/<version>/ (synthetic cases, tracked), results/ (per-run output, gitignored), baselines/ (committed only by a deliberate manual step)
 ├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence)
 ├── badges/
 │   └── test-count.json          Checked-in `{"passed": <int>}` record of the currently-passing test count -- deliberately public/git-tracked (a project stat, not derived borrower/institutional data), kept honest by CI's "Verify checked-in test count" step (scripts/check_test_count.py) rather than hand-maintained -- see "Execution scripts" below
@@ -581,6 +583,33 @@ a second look in review.
   ```
   python scripts/check_test_count.py pytest_output.txt
   ```
+- **`scripts/run_evals.py`, `eval_cases.py`, `eval_oracles.py`, `eval_report.py`,
+  `eval_budget.py`** (issue #151; see `evals/README.md`) — the **local live-model evaluation
+  harness**, which measures what the test suite cannot: whether the *actual model* follows the
+  prompts (no invented figures, analyst-supplied inputs labelled, planted instructions not obeyed).
+  **PR 1 of 2: scaffolding, the dataset, deterministic oracles and a zero-model-call `--dry-run`;
+  there is no live runner yet.** Deliberate boundaries, enforced by `tests/test_eval_*.py` and
+  `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; never part of
+  pytest, CI or `orchestrator.py`; a **hard call ceiling** (plan printed first and refused over
+  `--max-calls`, default 80, never above 250; default 5 repeats x 15 cases = 75); **synthetic data
+  only** (invented `Synthetic ...` names, scanned with `pii_scan.py`, strict case validation); results
+  only under the **git-ignored `evals/results/`** (the writer refuses any non-ignored path inside the
+  repo, and never modifies a tracked file -- a baseline is committed only by a deliberate manual copy
+  of an exported summary); no GitHub secret (a live run uses the user's own `ANTHROPIC_API_KEY`).
+  Three result types are kept apart: **deterministic oracle results** (code-decided, e.g. the
+  framework's own `check_draft_compliance`, a canary detector, a verdict comparison), **observed pass
+  rates** over repeated live runs (never described as "proven safe"), and **human-review
+  observations** (no pass/fail). Every case carries scripted `good`/`bad` outputs and is valid only if
+  its oracles pass `good` and fail `bad`, so the oracles are proven to discriminate with no model.
+  **Scope limit:** v1 exercises the headless pipeline surfaces (collateral text, persisted learnings,
+  policy notes, style guide) plus a synthetic source-document block that is a *prompt-level
+  approximation* of `/research` -- not an end-to-end test of the slash-command path -- so it does not
+  establish injection resistance for surfaces it cannot exercise. The canary oracle observes only
+  what the *model produced* (a Maker case's draft; a Checker case's review notes) and cannot see
+  obedience that leaves no token:
+  ```
+  python scripts/run_evals.py --dry-run
+  ```
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.
@@ -595,8 +624,9 @@ user-supplied Excel spreading template, etc.), its storage location must already
 and shareable, while anything derived from one user's real documents stays local to their fork.
 Current gitignored locations: `inputs/`, `config/style_guide.md`, `config/credit_policy.md`,
 `config/credit_policy_notes.md`, `config/spreading_conventions.json`, `config/deal_learnings.md`,
-`templates/local/`, `deals/` (which also covers any `deals/<Company>/_conventions.json` and
-`deals/<Company>/_learnings.md`).
+`templates/local/`, `evals/results/` (the evaluation harness's per-run output -- it may contain
+model text, even on synthetic data), `deals/` (which also covers any
+`deals/<Company>/_conventions.json` and `deals/<Company>/_learnings.md`).
 
 Don't copy a user-shared reference document into the repo at all unless asked — even into an
 already-gitignored folder — since that creates a new persistent copy of sensitive data they

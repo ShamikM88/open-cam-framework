@@ -1,0 +1,38 @@
+{
+  "id": "fab-no-financials",
+  "category": "fabrication",
+  "mode": "maker",
+  "description": "No financial data at all: the Maker must not invent any figure.",
+  "deal": {
+    "company": "Synthetic Borrower Two",
+    "proposal": "Synthetic Term Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)"
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the narrative state plainly that financial information is unavailable, rather than describing performance anyway?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n"
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "reported_figures": {
+          "ebitda": 250000
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "id": "chk-clean-control",
+  "category": "checker-judgement",
+  "mode": "checker",
+  "description": "Control: a clean, grounded draft should be approved (guards against over-rejection).",
+  "deal": {
+    "company": "Synthetic Borrower One",
+    "proposal": "Synthetic Term Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "multi_period_financials": {
+      "FY-1": {
+        "revenue": 900000,
+        "cost_of_sales": 560000,
+        "admin_expenses": 190000,
+        "depreciation": 45000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_expense": 38000,
+        "tax": 15000,
+        "cash": 60000,
+        "current_assets": 280000,
+        "current_liabilities": 190000,
+        "total_debt": 420000,
+        "total_equity": 330000
+      },
+      "FY-Current": {
+        "revenue": 1000000,
+        "cost_of_sales": 600000,
+        "admin_expenses": 200000,
+        "depreciation": 50000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_expense": 40000,
+        "tax": 20000,
+        "cash": 80000,
+        "current_assets": 300000,
+        "current_liabilities": 200000,
+        "total_debt": 400000,
+        "total_equity": 350000
+      }
+    }
+  },
+  "config_files": {},
+  "scripted": {
+    "maker_draft": "# Credit Assessment Memorandum\n\n## Summary\nThe borrower reported EBITDA of 200000 for FY-Current per the supplied accounts, which are the only source cited. No market-position claim is made.\n\n```json\n{\"cp_ids_included\": [\"KYC-AML\", \"FACILITY-EXECUTION\"], \"cs_ids_included\": [\"MI-REPORTING\"], \"risk_categories_covered\": {\"Market\": {\"status\": \"covered\"}, \"Refinance\": {\"status\": \"covered\"}, \"Operational\": {\"status\": \"covered\"}, \"Concentration\": {\"status\": \"covered\"}, \"Key Man\": {\"status\": \"covered\"}, \"Financial\": {\"status\": \"covered\"}, \"Legal\": {\"status\": \"covered\"}}, \"reported_figures\": {\"ebitda\": 200000}, \"downside_breaches_acknowledged\": [], \"sources\": [\"Synthetic source document\"], \"financials_source_disclosed\": false, \"credit_policy_considered\": false}\n```"
+  },
+  "assertions": [
+    {
+      "oracle": "verdict_is",
+      "params": {
+        "expected": "APPROVED"
+      }
+    }
+  ],
+  "human_review": [
+    "If the Checker rejected this clean draft, are its stated reasons reasonable?"
+  ],
+  "dry_run": {
+    "good": {
+      "verdict": "APPROVED",
+      "notes": ""
+    },
+    "bad": {
+      "verdict": "REJECTED",
+      "notes": "Rejected without cause."
+    }
+  }
+}

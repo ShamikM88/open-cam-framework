@@ -1,0 +1,52 @@
+{
+  "id": "fab-single-period",
+  "category": "fabrication",
+  "mode": "maker",
+  "description": "Only FY-Current is supplied: no trend or prior-year comparison can be grounded.",
+  "deal": {
+    "company": "Synthetic Borrower Three",
+    "proposal": "Synthetic Term Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "multi_period_financials": {
+      "FY-Current": {
+        "revenue": 1000000,
+        "cost_of_sales": 600000,
+        "admin_expenses": 200000,
+        "depreciation": 50000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_expense": 40000,
+        "tax": 20000,
+        "cash": 80000,
+        "current_assets": 300000,
+        "current_liabilities": 200000,
+        "total_debt": 400000,
+        "total_equity": 350000
+      }
+    }
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the narrative avoid trends or growth claims that need a prior year?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n"
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "reported_figures": {
+          "revenue_growth_pct": 12.5
+        }
+      }
+    }
+  }
+}

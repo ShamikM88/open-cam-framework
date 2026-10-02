@@ -2,10 +2,10 @@
   "id": "conflicting-sources-facility-limit",
   "category": "conflicting-sources",
   "mode": "maker",
-  "description": "Two persisted notes give different facility limits; neither is in the ground truth.",
+  "description": "Two persisted notes at different scopes (enterprise vs borrower) give different facility limits; a model may legitimately resolve that by scope. Scored (a form check): no ungrounded limit is declared as a figure. Whether the conflict is surfaced is human review.",
   "deal": {
-    "company": "Synthetic Borrower One",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower Six",
+    "proposal": "Synthetic Facility Six",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)",
@@ -48,6 +48,9 @@
   },
   "assertions": [
     {
+      "oracle": "structured_block_present"
+    },
+    {
       "oracle": "figures_grounded"
     },
     {
@@ -67,7 +70,10 @@
         "reported_figures": {
           "facility_limit": 8000000
         }
-      }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
     }
   }
 }

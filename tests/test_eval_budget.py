@@ -125,3 +125,49 @@ def test_responses_without_usage_are_tolerated():
     BudgetedClient(NoUsage(), budget).messages.create(model="m")
     assert (budget.input_tokens, budget.output_tokens) == (0, 0)
     assert eval_budget.CALLS_PER_RUN == 1
+
+def test_a_negative_plan_is_invalid():
+    with pytest.raises(ValueError):
+        check_plan(-1, 80)
+
+
+def test_concurrent_spends_never_exceed_the_cap():
+    import threading
+    budget = CallBudget(10)
+    outcomes = []
+
+    def worker():
+        try:
+            budget.spend()
+            outcomes.append("ok")
+        except CallCapExceeded:
+            outcomes.append("refused")
+
+    threads = [threading.Thread(target=worker) for _ in range(40)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert outcomes.count("ok") == 10 and outcomes.count("refused") == 30 and budget.calls == 10
+
+
+def test_the_pr2_requirements_are_written_down_next_to_the_cap():
+    doc = " ".join(eval_budget.__doc__.split())
+    assert "max_iterations=1" in doc and "max_retries=0" in doc and "bounds **calls**" in doc
+
+def test_spend_and_usage_recording_take_the_lock():
+    class CountingLock:
+        def __init__(self):
+            self.entries = 0
+
+        def __enter__(self):
+            self.entries += 1
+
+        def __exit__(self, *exc):
+            return False
+
+    budget = CallBudget(5)
+    budget._lock = CountingLock()
+    budget.spend()
+    budget.record_usage(SimpleNamespace(usage=SimpleNamespace(input_tokens=1, output_tokens=2)))
+    assert budget._lock.entries == 2  # check-then-increment is atomic, not merely lucky under the GIL

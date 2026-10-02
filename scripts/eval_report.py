@@ -3,12 +3,16 @@ harness (#151).
 
 Three kinds of result are kept visibly separate, in the data and in the pack:
 
-1. **Deterministic oracle results** -- per-run pass/fail from code, no trust in
-   the model required (scripts/eval_oracles.py).
+1. **Deterministic oracle results** -- per-run pass/fail from code, no trust in the
+   model required (scripts/eval_oracles.py). Scripted dry-run rows are labelled as
+   such, with the outcome they are *expected* to have, so a caught `bad` output
+   does not read as a failure.
 2. **Observed pass rates** -- for live runs, k passes out of N repeats per case
    and per category. This is what was *observed for this model / prompt /
-   dataset configuration*; it is never described as "proven" or "safe".
+   dataset configuration*; it is never described as "proven" or "safe". A live
+   run that errored stays in the denominator as a non-pass.
 3. **Human-review observations** -- the qualitative questions each case poses,
+   plus any *unscored* oracle observation (e.g. a canary echoed by a Checker),
    shown beside the output for a person to read. No pass/fail.
 
 Output is only ever written under a git-ignored results directory
@@ -16,19 +20,27 @@ Output is only ever written under a git-ignored results directory
 a tracked file. Imports `orchestrator` (lazily, for its prompt-hash helper) and
 nothing that makes a network call.
 """
+import hashlib
 import json
 import os
+import re
 import subprocess
 from datetime import datetime, timezone
+
+from eval_oracles import run_passed
 
 HARNESS_VERSION = "0.1-pr1"
 RESULTS_ROOT = os.path.join("evals", "results")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXCERPT_LIMIT = 4000
 
 DISCLAIMER = (
     "Pass rates below are the *observed* rate for this model, these prompt hashes and this "
     "dataset version -- not a proof of safety. Model output is not deterministic, the "
-    "dataset is small and synthetic, and a model or prompt update can change the numbers."
+    "dataset is small and synthetic, and a model or prompt update can change the numbers. "
+    "Most oracles check the *form* of the output (a well-formed, self-consistent structured "
+    "block, a verdict) -- they do not judge the narrative; that is what the human-review "
+    "section is for."
 )
 
 
@@ -48,14 +60,44 @@ def prompt_hashes(repo_root=None):
     }
 
 
+def dataset_hash(dataset):
+    """sha256 of the dataset's canonical content, so editing a case *inside* a
+    version changes what the record identifies, not only the version label."""
+    cases = [{k: v for k, v in c.items() if k != "_file"} for c in dataset["cases"]]
+    blob = json.dumps({"version": dataset["version"], "cases": cases}, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
 def new_run_id(now=None):
-    return (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    return (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def clip(text, limit=EXCERPT_LIMIT):
+    text = text or ""
+    return text if len(text) <= limit else text[:limit] + f"\n[... truncated, {len(text) - limit} more characters]"
+
+
+def scripted_run(label, results, output_excerpt="", expected_pass=None):
+    """A run record for a scripted (non-model) output. `expected_pass` is the
+    outcome this scripted output is meant to have (True for `good`, False for a
+    `bad` one), shown in the pack so a caught `bad` is not read as a failure."""
+    return {"label": label, "kind": "scripted", "assertions": results, "passed": run_passed(results),
+            "expected_pass": expected_pass, "status": "ok", "output_excerpt": clip(output_excerpt)}
+
+
+def live_run(label, results, output_excerpt="", status="ok", error=None):
+    """A run record for a live (model) output. A run that errored (status != "ok")
+    is never a pass, and still counts in the pass-rate denominator."""
+    passed = status == "ok" and run_passed(results)
+    return {"label": label, "kind": "live", "assertions": results, "passed": passed, "status": status,
+            "error": error, "output_excerpt": clip(output_excerpt)}
 
 
 def pass_rate(runs):
-    """{"passed": k, "total": n} over live runs whose every assertion passed."""
+    """{"passed": k, "total": n} over live runs (errored runs count in `total`)."""
     live = [r for r in runs if r.get("kind") == "live"]
-    return {"passed": sum(1 for r in live if r["passed"]), "total": len(live)}
+    return {"passed": sum(1 for r in live if r["passed"] and r.get("status", "ok") == "ok"),
+            "total": len(live)}
 
 
 def summarize(cases):
@@ -84,7 +126,8 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
         "run_id": run_id,
         "mode": mode,  # "dry-run" (no model) or "live"
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "dataset": {"version": dataset["version"], "case_count": len(dataset["cases"])},
+        "dataset": {"version": dataset["version"], "case_count": len(dataset["cases"]),
+                    "content_hash": dataset_hash(dataset)},
         "models": models or {"maker_model": None, "checker_model": None},
         "prompt_hashes": hashes or {},
         "planned_live_calls": planned_live_calls,
@@ -96,26 +139,50 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
     }
 
 
-def assert_results_dir_is_ignored(path, repo_root=None):
-    """Refuse `path` unless it is git-ignored (or entirely outside the repo)."""
-    root = os.path.abspath(repo_root or REPO_ROOT)
-    absolute = os.path.abspath(path)
-    inside_repo = os.path.commonpath([root, absolute]) == root
+def assert_results_dir_is_ignored(path, repo_root=None, probe_names=("results.json",)):
+    """Refuse `path` unless every file this run will write there is git-ignored
+    (or the path is entirely outside the repository). Paths are resolved with
+    `realpath`, so a symlink or junction pointing into a tracked directory is
+    judged by where it really leads."""
+    root = os.path.realpath(repo_root or REPO_ROOT)
+    absolute = os.path.realpath(path)
+    try:
+        inside_repo = os.path.commonpath([root, absolute]) == root
+    except ValueError:  # e.g. a different drive on Windows: certainly outside the repo
+        inside_repo = False
     if not inside_repo:
         return
-    # Probe a file *inside* the directory: git matches a directory-only rule such
-    # as `evals/results/` against a path under it even before the directory
-    # exists, but not against the bare (not-yet-created) directory path itself.
-    probe = os.path.join(absolute, "results.json")
-    try:
-        result = subprocess.run(["git", "check-ignore", "-q", probe], cwd=root, capture_output=True)
-    except OSError as exc:
-        raise ResultsPathError(f"cannot verify {path} is git-ignored (git unavailable: {exc})") from exc
-    if result.returncode != 0:
-        raise ResultsPathError(
-            f"refusing to write results to {path}: it is inside the repository but not git-ignored. "
-            "Results may contain model text and must never land in a tracked path."
-        )
+    # Probe the actual files, not the bare directory: git matches a directory-only rule such
+    # as `evals/results/` against a path under it even before the directory exists, but not
+    # against the bare (not-yet-created) directory path itself.
+    for name in probe_names:
+        try:
+            result = subprocess.run(["git", "check-ignore", "-q", os.path.join(absolute, name)],
+                                    cwd=root, capture_output=True)
+        except OSError as exc:
+            raise ResultsPathError(f"cannot verify {path} is git-ignored (git unavailable: {exc})") from exc
+        if result.returncode != 0:
+            raise ResultsPathError(
+                f"refusing to write results to {path}: {name} would land inside the repository at a "
+                "path that is not git-ignored. Results may contain model text and must never be tracked."
+            )
+
+
+def _fence_for(text):
+    """A code fence longer than any backtick run in `text`, so a model draft that
+    itself contains a ```json block cannot close it early."""
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def _row_result(run):
+    if run["kind"] == "scripted" and run.get("expected_pass") is not None:
+        if run["passed"] == run["expected_pass"]:
+            return "pass" if run["passed"] else "caught (expected)"
+        return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
+    if run.get("status", "ok") != "ok":
+        return f"ERROR ({run.get('error') or run['status']})"
+    return "pass" if run["passed"] else "FAIL"
 
 
 def render_review_pack(record):
@@ -124,27 +191,29 @@ def render_review_pack(record):
         "",
         f"- Mode: **{record['mode']}**" + (" (scripted outputs only; no model was called)"
                                          if record["mode"] == "dry-run" else ""),
-        f"- Dataset: version `{record['dataset']['version']}`, {record['dataset']['case_count']} cases",
+        f"- Dataset: version `{record['dataset']['version']}` (content hash `{record['dataset'].get('content_hash')}`), "
+        f"{record['dataset']['case_count']} cases",
         f"- Models: maker `{record['models'].get('maker_model')}`, checker `{record['models'].get('checker_model')}`",
         f"- Prompt hashes: {json.dumps(record['prompt_hashes'])}",
         f"- Harness version: {record['harness_version']}",
         f"- Model calls: {record['usage']['calls']} made (planned for a live run: {record['planned_live_calls']}, "
         f"cap: {record['call_cap']})",
         "",
-        f"> {DISCLAIMER}",
+        f"> {record['disclaimer']}",
         "",
         "## 1. Deterministic oracle results",
         "",
-        "Pass/fail decided by code on each run; no trust in the model needed.",
+        "Pass/fail decided by code on each run; no trust in the model needed. Scripted rows show the "
+        "outcome they are meant to have: a `bad` output that is *caught* is the oracle working.",
         "",
-        "| Case | Run | Result | Failing oracles |",
+        "| Case | Run | Result | Failing scored oracles |",
         "|---|---|---|---|",
     ]
     for case in record["cases"]:
         for run in case["runs"]:
-            failing = "; ".join(f"{a['oracle']}: {a['reason']}" for a in run["assertions"] if not a["passed"])
-            verdict = "pass" if run["passed"] else "FAIL"
-            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}) | {verdict} | {failing or '-'} |")
+            failing = "; ".join(f"{a['oracle']}: {a['reason']}" for a in run["assertions"]
+                                if a.get("scored", True) and not a["passed"])
+            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}) | {_row_result(run)} | {failing or '-'} |")
     lines += ["", "## 2. Observed pass rates (live runs)", ""]
     rates = record["summary"]["observed_pass_rate_by_category"]
     if not any(r["total"] for r in rates.values()):
@@ -159,41 +228,46 @@ def render_review_pack(record):
                 lines.append(f"- `{case['id']}`: {rate['passed']} / {rate['total']}")
     if record["mode"] == "dry-run":
         checks = record["summary"]["scripted_self_checks"]
-        lines += ["", f"Scripted self-checks (oracles pass the `good` output and catch the `bad` one): "
+        lines += ["", f"Scripted self-checks (the scored oracles pass the `good` output and catch the `bad` one): "
                       f"{checks['ok']} / {checks['cases']} cases."]
     lines += ["", "## 3. Human-review observations", "",
-              "Qualitative questions for a person to answer from the output. **No pass/fail.**", ""]
+              "Qualitative questions, and any *unscored* oracle observations, for a person to read. "
+              "**No pass/fail.**", ""]
     for case in record["cases"]:
         questions = case.get("human_review") or []
-        if not questions:
+        observations = [(run, a) for run in case["runs"] for a in run["assertions"] if not a.get("scored", True)]
+        if not questions and not observations:
             continue
         lines.append(f"### `{case['id']}` ({case['category']}, {case['mode']} case)")
         lines.append(case["description"])
         lines += [f"- [ ] {q}" for q in questions]
+        for run, assertion in observations:
+            lines.append(f"- _observation, {run['label']} ({run['kind']}), unscored_ `{assertion['oracle']}`: "
+                         f"{assertion['reason']}")
         for run in case["runs"]:
             excerpt = (run.get("output_excerpt") or "").strip()
             if excerpt:
-                lines += ["", f"_{run['label']} output ({run['kind']}), excerpt:_", "", "```text", excerpt, "```"]
+                fence = _fence_for(excerpt)
+                lines += ["", f"_{run['label']} output ({run['kind']}), excerpt:_", "", f"{fence}text", excerpt, fence]
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
 def write_results(record, out_root=None, repo_root=None):
     """Write results.json and review_pack.md under `<out_root>/<run_id>/` and
-    return that directory. Refuses a path that is not git-ignored."""
+    return that directory. Refuses a path that is not git-ignored, and never
+    overwrites an existing run directory."""
     root = out_root or os.path.join(repo_root or REPO_ROOT, RESULTS_ROOT)
-    assert_results_dir_is_ignored(root, repo_root)
     out_dir = os.path.join(root, record["run_id"])
-    os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as f:
+    assert_results_dir_is_ignored(out_dir, repo_root, probe_names=("results.json", "review_pack.md"))
+    try:
+        os.makedirs(out_dir, exist_ok=False)
+    except FileExistsError as exc:
+        raise ResultsPathError(f"{out_dir} already exists; refusing to overwrite an earlier run") from exc
+    # errors="backslashreplace": a lone surrogate in model text must not abort the write after the
+    # live calls are already spent.
+    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8", errors="backslashreplace") as f:
         json.dump(record, f, indent=2, ensure_ascii=False)
-    with open(os.path.join(out_dir, "review_pack.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out_dir, "review_pack.md"), "w", encoding="utf-8", errors="backslashreplace") as f:
         f.write(render_review_pack(record))
     return out_dir
-
-
-def scripted_run(label, results, output_excerpt=""):
-    """A run record for a scripted (non-model) output."""
-    return {"label": label, "kind": "scripted", "assertions": results,
-            "passed": all(r["passed"] for r in results), "output_excerpt": output_excerpt}
-

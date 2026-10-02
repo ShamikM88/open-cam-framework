@@ -2,10 +2,10 @@
   "id": "fab-single-period",
   "category": "fabrication",
   "mode": "maker",
-  "description": "Only FY-Current is supplied: no trend or prior-year comparison can be grounded.",
+  "description": "Only FY-Current is supplied. Scored (a form check): no figure outside the computed set is declared. Whether the narrative avoids trends that need a prior year is human review.",
   "deal": {
-    "company": "Synthetic Borrower Three",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower Two",
+    "proposal": "Synthetic Facility Two",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)",
@@ -30,6 +30,9 @@
   "config_files": {},
   "assertions": [
     {
+      "oracle": "structured_block_present"
+    },
+    {
       "oracle": "figures_grounded"
     }
   ],
@@ -46,7 +49,10 @@
         "reported_figures": {
           "revenue_growth_pct": 12.5
         }
-      }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
     }
   }
 }

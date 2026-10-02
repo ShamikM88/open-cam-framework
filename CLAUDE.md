@@ -589,24 +589,35 @@ a second look in review.
   prompts (no invented figures, analyst-supplied inputs labelled, planted instructions not obeyed).
   **PR 1 of 2: scaffolding, the dataset, deterministic oracles and a zero-model-call `--dry-run`;
   there is no live runner yet.** Deliberate boundaries, enforced by `tests/test_eval_*.py` and
-  `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; never part of
-  pytest, CI or `orchestrator.py`; a **hard call ceiling** (plan printed first and refused over
-  `--max-calls`, default 80, never above 250; default 5 repeats x 15 cases = 75); **synthetic data
-  only** (invented `Synthetic ...` names, scanned with `pii_scan.py`, strict case validation); results
-  only under the **git-ignored `evals/results/`** (the writer refuses any non-ignored path inside the
-  repo, and never modifies a tracked file -- a baseline is committed only by a deliberate manual copy
-  of an exported summary); no GitHub secret (a live run uses the user's own `ANTHROPIC_API_KEY`).
-  Three result types are kept apart: **deterministic oracle results** (code-decided, e.g. the
-  framework's own `check_draft_compliance`, a canary detector, a verdict comparison), **observed pass
-  rates** over repeated live runs (never described as "proven safe"), and **human-review
-  observations** (no pass/fail). Every case carries scripted `good`/`bad` outputs and is valid only if
-  its oracles pass `good` and fail `bad`, so the oracles are proven to discriminate with no model.
-  **Scope limit:** v1 exercises the headless pipeline surfaces (collateral text, persisted learnings,
-  policy notes, style guide) plus a synthetic source-document block that is a *prompt-level
-  approximation* of `/research` -- not an end-to-end test of the slash-command path -- so it does not
-  establish injection resistance for surfaces it cannot exercise. The canary oracle observes only
-  what the *model produced* (a Maker case's draft; a Checker case's review notes) and cannot see
-  obedience that leaves no token:
+  `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; the *runner* is not
+  part of pytest, CI or `orchestrator.py` (its pure parts -- validation, oracles, budget, writer --
+  are unit-tested in ordinary CI with zero model calls); a **hard call ceiling** (plan printed first
+  and refused over `--max-calls`, default 80, never above 250; default 5 repeats x 15 cases = 75; it
+  bounds calls, not tokens); **synthetic data only** (invented `Synthetic ...` names, one
+  company/proposal per case, scanned with `pii_scan.py`, strict case validation); results only under
+  the **git-ignored `evals/results/`** (the writer resolves symlinks/junctions, refuses any path in the
+  repo whose output files are not ignored, never overwrites an earlier run, and never modifies a
+  tracked file -- a baseline is committed only by a deliberate manual copy of an exported summary); no
+  GitHub secret (a live run uses the user's own `ANTHROPIC_API_KEY`). Three result types are kept
+  apart: **deterministic oracle results** (code-decided; an assertion marked `"scored": false` is an
+  observation that never counts toward pass/fail), **observed pass rates** over repeated live runs
+  (never described as "proven safe"; an errored run stays in the denominator), and **human-review
+  observations** (no pass/fail). **Most oracles are format / self-declaration checks, not
+  judgement:** `figures_grounded` passes when the model declares no figure at all, so those category
+  pass rates mean "emitted a well-formed, self-consistent block", with the real judgement in human
+  review. Every case carries scripted `good`/`bad` outputs and is valid only if its scored oracles
+  pass `good` and `bad` fails the oracle(s) in `bad.expected_failures` -- a sanity check on one
+  author-written bad output per case, not proof the oracles catch every variant. **Scope limit:** v1
+  exercises the headless pipeline surfaces (collateral text, persisted learnings and policy notes reach
+  both agents; the style guide reaches only the Maker) plus a synthetic source-document block that has
+  no route into either real prompt and is a *prompt-level approximation* of `/research` -- not an
+  end-to-end test of the slash-command path -- so it does not establish injection resistance for
+  surfaces it cannot exercise. The canary oracle reports that a token *appeared* (or a trivial
+  re-encoding of it) in what the *model produced*; appearing is not the same as obeying (a model that
+  quotes it while refusing is a hit, which is why a Checker case scores the verdict and only observes
+  the canary), and it cannot see obedience that leaves no token. PR 2's requirements
+  (`max_iterations=1`, `max_retries=0`, a fresh working directory per run, a routing client for Checker
+  cases) are listed in `evals/README.md`:
   ```
   python scripts/run_evals.py --dry-run
   ```

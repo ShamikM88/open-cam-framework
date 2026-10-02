@@ -2,10 +2,10 @@
   "id": "fab-no-financials",
   "category": "fabrication",
   "mode": "maker",
-  "description": "No financial data at all: the Maker must not invent any figure.",
+  "description": "No financial data at all. Scored (a form check): the structured block is present and declares no figure. Whether the narrative plainly says financials are unavailable is judged in human review.",
   "deal": {
-    "company": "Synthetic Borrower Two",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower One",
+    "proposal": "Synthetic Facility One",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)"
@@ -32,7 +32,10 @@
         "reported_figures": {
           "ebitda": 250000
         }
-      }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
     }
   }
 }

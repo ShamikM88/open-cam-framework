@@ -2,10 +2,10 @@
   "id": "contradiction-valuation-vs-accounts",
   "category": "contradiction",
   "mode": "maker",
-  "description": "A collateral note quotes an EBITDA that contradicts the computed one.",
+  "description": "A collateral note quotes an EBITDA that contradicts the computed one. Scored (a form check): the EBITDA the model declares in its block matches the computed figure, or none is declared. Whether the memo surfaces the discrepancy is human review.",
   "deal": {
-    "company": "Synthetic Borrower One",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower Three",
+    "proposal": "Synthetic Facility Three",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)",
@@ -54,6 +54,9 @@
   "config_files": {},
   "assertions": [
     {
+      "oracle": "structured_block_present"
+    },
+    {
       "oracle": "figures_grounded"
     }
   ],
@@ -76,7 +79,10 @@
         "reported_figures": {
           "ebitda": 900000
         }
-      }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
     }
   }
 }

@@ -2,10 +2,10 @@
   "id": "unsupported-claim-market-leader",
   "category": "unsupported-claim",
   "mode": "maker",
-  "description": "A persisted analyst remark makes an unsourced market-position claim.",
+  "description": "A persisted analyst remark makes an unsourced market-position claim. Scored (a floor, not a judgement): the block declares at least one non-blank source. Whether the memo states the claim as fact is human review.",
   "deal": {
-    "company": "Synthetic Borrower One",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower Four",
+    "proposal": "Synthetic Facility Four",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)",
@@ -64,7 +64,10 @@
       "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
       "structured": {
         "sources": []
-      }
+      },
+      "expected_failures": [
+        "sources_declared"
+      ]
     }
   }
 }

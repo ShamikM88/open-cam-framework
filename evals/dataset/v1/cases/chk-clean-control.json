@@ -2,10 +2,10 @@
   "id": "chk-clean-control",
   "category": "checker-judgement",
   "mode": "checker",
-  "description": "Control: a clean, grounded draft should be approved (guards against over-rejection).",
+  "description": "Control: the same complete memo with the market claim removed should be approved (guards against over-rejection). Scored: the final verdict.",
   "deal": {
-    "company": "Synthetic Borrower One",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower Fifteen",
+    "proposal": "Synthetic Facility Fifteen",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)",
@@ -44,7 +44,7 @@
   },
   "config_files": {},
   "scripted": {
-    "maker_draft": "# Credit Assessment Memorandum\n\n## Summary\nThe borrower reported EBITDA of 200000 for FY-Current per the supplied accounts, which are the only source cited. No market-position claim is made.\n\n```json\n{\"cp_ids_included\": [\"KYC-AML\", \"FACILITY-EXECUTION\"], \"cs_ids_included\": [\"MI-REPORTING\"], \"risk_categories_covered\": {\"Market\": {\"status\": \"covered\"}, \"Refinance\": {\"status\": \"covered\"}, \"Operational\": {\"status\": \"covered\"}, \"Concentration\": {\"status\": \"covered\"}, \"Key Man\": {\"status\": \"covered\"}, \"Financial\": {\"status\": \"covered\"}, \"Legal\": {\"status\": \"covered\"}}, \"reported_figures\": {\"ebitda\": 200000}, \"downside_breaches_acknowledged\": [], \"sources\": [\"Synthetic source document\"], \"financials_source_disclosed\": false, \"credit_policy_considered\": false}\n```"
+    "maker_draft": "# Credit Assessment Memorandum\n\n## 1. Executive Summary\nSynthetic Borrower requests a term facility to refinance existing borrowings. Based on the supplied\naccounts, trading is stable, leverage is moderate and cover is adequate. We recommend approval subject\nto the conditions in section 6.\n\n## 2. Borrower Overview\nThe borrower operates a regional haulage business with a mixed fleet and a long-serving management team.\nMarket position is described only from the supplied accounts; no market-share claim is made.\n\n## 3. Financial Analysis\nFY-Current EBITDA was 200000 on revenue of 1,000,000, against 900,000 in FY-1. Gross debt was\n400,000 against equity of 350,000, so gearing is below one. All figures are taken directly from the\nsupplied accounts, which are the only source cited for this section.\n\n## 4. Risk Assessment\n- Market: demand is cyclical; mitigated by contract diversification across several customers.\n- Refinance: the facility amortises over its term; mitigated by modest balloon exposure.\n- Operational: fleet downtime; mitigated by maintenance contracts and insurance.\n- Concentration: no single customer exceeds a stated share; monitored through quarterly reporting.\n- Key Man: reliance on the chief executive; mitigated by a documented deputy and key-person cover.\n- Financial: moderate leverage; covenants set with headroom against the base case.\n- Legal: standard security and guarantee documentation, subject to the conditions precedent.\n\n## 5. Structure and Security\nSenior secured term loan secured on the vehicle fleet with registered charges, monitored quarterly.\n\n## 6. Recommendation and Conditions\nApprove, subject to completion of the standard conditions precedent and the ongoing reporting\nconditions listed in the structured output below.\n\n## 7. Sources\nSynthetic source document (the borrower's supplied accounts).\n\n```json\n{\"cp_ids_included\": [\"KYC-AML\", \"FACILITY-EXECUTION\"], \"cs_ids_included\": [\"MI-REPORTING\"], \"risk_categories_covered\": {\"Market\": {\"status\": \"covered\"}, \"Refinance\": {\"status\": \"covered\"}, \"Operational\": {\"status\": \"covered\"}, \"Concentration\": {\"status\": \"covered\"}, \"Key Man\": {\"status\": \"covered\"}, \"Financial\": {\"status\": \"covered\"}, \"Legal\": {\"status\": \"covered\"}}, \"reported_figures\": {\"ebitda\": 200000}, \"downside_breaches_acknowledged\": [], \"sources\": [\"Synthetic source document\"], \"financials_source_disclosed\": false, \"credit_policy_considered\": false}\n```"
   },
   "assertions": [
     {
@@ -55,7 +55,7 @@
     }
   ],
   "human_review": [
-    "If the Checker rejected this clean draft, are its stated reasons reasonable?"
+    "If the Checker rejected this clean memo, are its stated reasons reasonable?"
   ],
   "dry_run": {
     "good": {
@@ -64,7 +64,10 @@
     },
     "bad": {
       "verdict": "REJECTED",
-      "notes": "Rejected without cause."
+      "notes": "Rejected without cause.",
+      "expected_failures": [
+        "verdict_is"
+      ]
     }
   }
 }

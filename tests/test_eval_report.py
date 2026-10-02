@@ -36,7 +36,7 @@ def case(case_id, category, runs, **extra):
             "human_review": ["Was it sensible?"], "runs": runs, **extra}
 
 
-DATASET = {"version": "v1", "cases": [{}, {}]}
+DATASET = {"version": "v1", "cases": [{"id": "a"}, {"id": "b"}]}
 
 
 def test_pass_rate_counts_only_live_runs():
@@ -63,7 +63,8 @@ def test_record_carries_the_provenance_fields_the_design_requires():
                           models={"maker_model": "m1", "checker_model": "m2"},
                           hashes={"underwriter_prompt_hash": "abc"}, planned_live_calls=75, call_cap=80)
     assert record["mode"] == "dry-run" and record["run_id"] == "20260101T000000Z"
-    assert record["dataset"] == {"version": "v1", "case_count": 2}
+    assert record["dataset"]["version"] == "v1" and record["dataset"]["case_count"] == 2
+    assert len(record["dataset"]["content_hash"]) == 16
     assert record["models"] == {"maker_model": "m1", "checker_model": "m2"}
     assert record["prompt_hashes"] == {"underwriter_prompt_hash": "abc"}
     assert (record["planned_live_calls"], record["call_cap"]) == (75, 80)
@@ -120,7 +121,7 @@ def test_a_dry_run_pack_says_no_model_was_called_and_reports_no_pass_rates():
 
 def test_output_excerpts_appear_beside_the_questions_in_the_human_review_section():
     runs = [scripted_run("good", [], output_excerpt="EXCERPT-TEXT")]
-    pack = render_review_pack(build_record("dry-run", {"version": "v1", "cases": [1]}, [case("c", "fabrication", runs)], "r1"))
+    pack = render_review_pack(build_record("dry-run", {"version": "v1", "cases": [{"id": "c"}]}, [case("c", "fabrication", runs)], "r1"))
     assert pack.index("## 3.") < pack.index("EXCERPT-TEXT")
 
 
@@ -151,28 +152,151 @@ def test_the_default_results_directory_is_git_ignored():
     assert probe.returncode == 0
 
 
-@needs_git
-def test_writing_results_never_changes_a_tracked_file(tmp_path):
-    def status():
-        return subprocess.run(["git", "status", "--porcelain", "--", "."], cwd=REPO_ROOT,
-                              capture_output=True, text=True).stdout
-    before = status()
-    write_results(_record_with_live_runs(), out_root=str(tmp_path))
-    assert status() == before
+# ---------------------------------------------------------------------------
+# Review fixes (independent review of the PR for #151).
+# ---------------------------------------------------------------------------
+
+def test_an_errored_live_run_is_never_a_pass_and_stays_in_the_denominator():
+    ok = eval_report.live_run("r1", [{"oracle": "x", "passed": True, "scored": True, "reason": ""}])
+    # An errored run is never a pass, even if the assertions it managed to record all passed.
+    errored = eval_report.live_run("r2", [{"oracle": "x", "passed": True, "scored": True, "reason": ""}],
+                                   status="error", error="APIConnectionError")
+    unscored_only = eval_report.live_run("r3", [{"oracle": "x", "passed": True, "scored": False, "reason": ""}])
+    assert ok["passed"] and not errored["passed"] and not unscored_only["passed"]
+    assert pass_rate([ok, errored, unscored_only]) == {"passed": 1, "total": 3}
+
+
+def test_a_scripted_run_with_no_scored_assertion_is_not_a_pass():
+    assert scripted_run("good", [])["passed"] is False
+
+
+def test_scripted_rows_show_the_outcome_they_are_meant_to_have():
+    good = scripted_run("good", [{"oracle": "x", "passed": True, "scored": True, "reason": ""}], expected_pass=True)
+    caught = scripted_run("bad", [{"oracle": "x", "passed": False, "scored": True, "reason": "boom"}],
+                          expected_pass=False)
+    missed = scripted_run("bad", [{"oracle": "x", "passed": True, "scored": True, "reason": ""}],
+                          expected_pass=False)
+    cases = [case("c", "fabrication", [good, caught, missed], self_check={"ok": False})]
+    pack = render_review_pack(build_record("dry-run", {"version": "v1", "cases": [{"id": "c"}]}, cases, "r1"))
+    assert "| good (scripted) | pass |" in pack
+    assert "| bad (scripted) | caught (expected) |" in pack
+    assert "| bad (scripted) | UNEXPECTED pass |" in pack
+
+
+def test_an_excerpt_containing_a_json_fence_cannot_break_the_pack_fence():
+    excerpt = "# Memo\n\n```json\n{\"a\": 1}\n```\n\nTrailing prose with # headings"
+    cases = [case("c", "fabrication", [scripted_run("good", [], output_excerpt=excerpt)])]
+    pack = render_review_pack(build_record("dry-run", {"version": "v1", "cases": [{"id": "c"}]}, cases, "r1"))
+    lines = pack.splitlines()
+    opening = next(i for i, line in enumerate(lines) if line.startswith("````text"))
+    closing = next(i for i in range(opening + 1, len(lines)) if lines[i] == "````")
+    inner = lines[opening + 1:closing]
+    assert "```json" in inner and "Trailing prose with # headings" in inner[-1]
+
+
+def test_an_unscored_observation_appears_in_the_human_review_section_not_as_a_failure():
+    run = eval_report.live_run("repeat-1", [
+        {"oracle": "verdict_is", "passed": True, "scored": True, "reason": "ok"},
+        {"oracle": "canary_absent", "passed": False, "scored": False, "reason": "token appeared: ...quoted..."}])
+    cases = [case("chk", "injection", [run], mode="checker")]
+    pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "chk"}]}, cases, "r1"))
+    section_three = pack[pack.index("## 3."):]
+    assert "unscored_ `canary_absent`: token appeared" in section_three
+    assert "| `chk` | repeat-1 (live) | pass | - |" in pack  # the unscored hit is not a failing oracle
+
+
+def test_an_existing_run_directory_is_never_overwritten(tmp_path):
+    record = _record_with_live_runs()
+    write_results(record, out_root=str(tmp_path))
+    with pytest.raises(ResultsPathError, match="already exists"):
+        write_results(record, out_root=str(tmp_path))
+
+
+def test_run_ids_have_sub_second_resolution():
+    run_id = eval_report.new_run_id()
+    assert len(run_id) == 22 and run_id.endswith("Z") and "T" in run_id
+
+
+def test_the_dataset_hash_changes_when_a_case_changes_inside_a_version():
+    base = {"version": "v1", "cases": [{"id": "a", "description": "one", "_file": "a.json"}]}
+    edited = {"version": "v1", "cases": [{"id": "a", "description": "two", "_file": "a.json"}]}
+    same_but_other_file_name = {"version": "v1", "cases": [{"id": "a", "description": "one", "_file": "x.json"}]}
+    assert eval_report.dataset_hash(base) != eval_report.dataset_hash(edited)
+    assert eval_report.dataset_hash(base) == eval_report.dataset_hash(same_but_other_file_name)
+
+
+def test_non_ascii_model_text_is_preserved_and_a_lone_surrogate_cannot_abort_the_write(tmp_path):
+    runs = [scripted_run("good", [], output_excerpt="DSCR ≥ 1.25x → ok \ud800 end")]
+    record = build_record("dry-run", {"version": "v1", "cases": [{"id": "c"}]}, [case("c", "fabrication", runs)], "r9")
+    out_dir = write_results(record, out_root=str(tmp_path))
+    text = open(os.path.join(out_dir, "results.json"), encoding="utf-8").read()
+    assert "≥" in text and "→" in text  # raw characters, not \u escapes
+    assert open(os.path.join(out_dir, "review_pack.md"), encoding="utf-8").read()
+
+
+def test_a_cross_drive_path_is_treated_as_outside_the_repo_not_a_crash(monkeypatch, tmp_path):
+    def cross_drive(paths):
+        raise ValueError("Paths don't have the same drive")
+
+    monkeypatch.setattr(os.path, "commonpath", cross_drive)
+    assert_results_dir_is_ignored(str(tmp_path / "elsewhere"))  # must not raise
+
+
+def _make_dir_link(link, target):
+    """A symlink, or on Windows a junction; None if neither can be created here."""
+    try:
+        os.symlink(target, link, target_is_directory=True)
+        return True
+    except (OSError, NotImplementedError, AttributeError):
+        pass
+    if os.name == "nt":
+        done = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True)
+        return done.returncode == 0
+    return False
 
 
 @needs_git
-def test_ignore_check_works_before_the_results_directory_exists(tmp_path):
-    """Regression: `git check-ignore evals/results` does not match the rule
-    `evals/results/` while that directory is missing, which made the first real
-    run refuse to write anywhere. A tmp repo proves the behaviour in isolation."""
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / ".gitignore").write_text("evals/results/\n", encoding="utf-8")
-    assert not (tmp_path / "evals" / "results").exists()
-
-    assert_results_dir_is_ignored(str(tmp_path / "evals" / "results"), repo_root=str(tmp_path))
+def test_a_link_pointing_into_a_tracked_directory_is_judged_by_where_it_leads(tmp_path):
+    link = tmp_path / "innocent-looking"
+    if not _make_dir_link(link, os.path.join(REPO_ROOT, "scripts")):
+        pytest.skip("cannot create a symlink or junction in this environment")
+    with pytest.raises(ResultsPathError, match="not git-ignored"):
+        assert_results_dir_is_ignored(str(link))
     with pytest.raises(ResultsPathError):
-        assert_results_dir_is_ignored(str(tmp_path / "evals" / "other"), repo_root=str(tmp_path))
-    out_dir = write_results(_record_with_live_runs(), out_root=str(tmp_path / "evals" / "results"),
-                            repo_root=str(tmp_path))
-    assert os.path.isfile(os.path.join(out_dir, "results.json"))
+        write_results(_record_with_live_runs(), out_root=str(link))
+    assert not any(name.startswith("2") for name in os.listdir(os.path.join(REPO_ROOT, "scripts")))
+
+
+@needs_git
+def test_the_files_actually_written_are_the_ones_probed(tmp_path):
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    # ignores results.json but NOT review_pack.md: the write must be refused.
+    (tmp_path / ".gitignore").write_text("evals/results/*/results.json\n", encoding="utf-8")
+    with pytest.raises(ResultsPathError, match="review_pack.md"):
+        write_results(_record_with_live_runs(), out_root=str(tmp_path / "evals" / "results"),
+                      repo_root=str(tmp_path))
+    assert not (tmp_path / "evals" / "results" / "20260101T000000Z").exists()
+
+
+@needs_git
+def test_a_default_dry_run_writes_only_into_the_ignored_results_dir_and_no_tracked_file_changes():
+    import run_evals
+
+    def status():
+        return subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=REPO_ROOT,
+                              capture_output=True, text=True).stdout
+
+    results_root = os.path.join(REPO_ROOT, "evals", "results")
+    existed = os.path.isdir(results_root)
+    before_runs = set(os.listdir(results_root)) if existed else set()
+    before = status()
+    try:
+        assert run_evals.main(["--dry-run"]) == 0
+        new_runs = set(os.listdir(results_root)) - before_runs
+        assert len(new_runs) == 1  # it wrote under the default directory...
+        assert status() == before  # ...and git sees nothing new or changed anywhere
+    finally:
+        for name in set(os.listdir(results_root)) - before_runs if os.path.isdir(results_root) else ():
+            shutil.rmtree(os.path.join(results_root, name))
+        if not existed and os.path.isdir(results_root) and not os.listdir(results_root):
+            os.rmdir(results_root)

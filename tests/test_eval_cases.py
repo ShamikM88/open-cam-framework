@@ -97,7 +97,7 @@ def test_a_valid_case_has_no_problems(dataset):
     (lambda c: c["canary"].update(planted_in=["nowhere"]), "planted_in must be a non-empty list"),
     (lambda c: c["canary"].update(token="CANARY-AAAAAAAA"), "not actually planted in collateral_description"),
     (lambda c: c.update(config_files={"unknown_file": "x"}), "config_files keys"),
-    (lambda c: c.update(human_review="not a list"), "human_review must be a list"),
+    (lambda c: c.update(human_review="not a list"), "human_review must be a JSON list"),
     (lambda c: c.pop("dry_run"), "scripted 'good' and 'bad' outputs"),
     (lambda c: c.update(scripted={"maker_draft": "x"}), "must not script the Maker's draft"),
 ])
@@ -113,7 +113,7 @@ def test_a_checker_case_needs_a_scripted_draft_and_a_verdict_assertion(dataset):
     assert "needs scripted.maker_draft" in problems_text(case)
     case = base_case(dataset, "chk-unsupported-claim")
     case["assertions"] = [{"oracle": "structured_block_present"}]
-    assert "needs a verdict_is assertion" in problems_text(case)
+    assert "needs a scored verdict_is assertion" in problems_text(case)
     case = base_case(dataset, "chk-unsupported-claim")
     case["assertions"][0]["params"] = {"expected": "MAYBE"}
     assert "verdict_is needs params.expected" in problems_text(case)
@@ -147,7 +147,7 @@ def test_validation_rejects_real_looking_data_anywhere_in_a_case(dataset, plante
 def test_a_case_whose_good_output_fails_its_own_oracles_is_invalid(dataset):
     case = base_case(dataset)
     case["dry_run"]["good"] = {"draft_body": "# Memo\nCANARY-7K2M9Q4X"}
-    assert "scripted 'good' output fails an assertion" in problems_text(case)
+    assert "scripted 'good' output fails a scored assertion" in problems_text(case)
 
 
 def test_a_case_whose_bad_output_passes_every_oracle_is_invalid(dataset):
@@ -192,3 +192,114 @@ def test_load_dataset_needs_a_cases_directory(tmp_path):
     (tmp_path / "v1" / "dataset.json").write_text(json.dumps({"version": "v1"}), encoding="utf-8")
     with pytest.raises(DatasetError, match="no cases directory"):
         load_dataset("v1", root=str(tmp_path))
+
+# ---------------------------------------------------------------------------
+# Review fixes: validation holes closed (independent review of the PR for #151).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key, bad", [
+    ("config_files", ["not", "an", "object"]), ("scripted", "a string"), ("deal", []),
+    ("canary", "CANARY-AAAAAAAA"), ("dry_run", []), ("assertions", {"oracle": "x"}), ("human_review", "q"),
+])
+def test_wrongly_typed_containers_are_reported_not_raised(dataset, key, bad):
+    case = base_case(dataset)
+    case[key] = bad
+    assert validate_case(case)  # a list of problems, never an AttributeError
+
+
+def test_assertion_params_and_scored_must_be_well_typed(dataset):
+    case = base_case(dataset)
+    case["assertions"][0]["params"] = "oops"
+    assert "assertion params must be an object" in problems_text(case)
+    case = base_case(dataset)
+    case["assertions"][0]["scored"] = "no"
+    assert "assertion scored must be true or false" in problems_text(case)
+
+
+def test_unknown_top_level_and_deal_keys_are_flagged_as_probable_typos(dataset):
+    case = base_case(dataset)
+    case["covenant"] = []
+    assert "unknown top-level keys ['covenant']" in problems_text(case)
+    case = base_case(dataset)
+    case["deal"]["covenant"] = []
+    assert "unknown deal keys ['covenant']" in problems_text(case)
+
+
+def test_a_surface_that_cannot_reach_the_agents_prompt_is_rejected(dataset):
+    case = base_case(dataset, "chk-injection-approve")
+    case["config_files"] = {"style_guide": "Style: CANARY-4B7E2K9M"}
+    case["canary"]["planted_in"] = ["style_guide"]  # the Checker never sees the style guide
+    assert "cannot reach the prompt of a checker case" in problems_text(case)
+    case = base_case(dataset, "chk-injection-approve")
+    case["source_block"] = {"label": "x", "text": "y"}
+    assert "source_block is a maker-case construct" in problems_text(case)
+
+
+def test_a_checker_draft_that_deterministic_checks_already_reject_is_invalid(dataset):
+    case = base_case(dataset, "chk-unsupported-claim")
+    case["scripted"]["maker_draft"] = "# A memo with no structured block, which code rejects by itself"
+    assert "already rejected by deterministic checks" in problems_text(case)
+
+
+def test_a_maker_case_without_structured_block_present_is_invalid(dataset):
+    case = base_case(dataset, "contradiction-valuation-vs-accounts")
+    case["assertions"] = [{"oracle": "figures_grounded"}]
+    assert "needs structured_block_present" in problems_text(case)
+
+
+def test_expected_failures_must_name_scored_oracles_of_the_case(dataset):
+    case = base_case(dataset, "fab-no-financials")
+    case["dry_run"]["bad"]["expected_failures"] = ["nonexistent_oracle"]
+    assert "expected_failures must name scored oracles" in problems_text(case)
+
+
+def test_a_case_needs_a_scored_assertion_and_a_checker_a_scored_verdict(dataset):
+    case = base_case(dataset, "fab-no-financials")
+    for assertion in case["assertions"]:
+        assertion["scored"] = False
+    assert "at least one assertion must be scored" in problems_text(case)
+    case = base_case(dataset, "chk-injection-approve")
+    case["assertions"][0]["scored"] = False  # the verdict_is assertion
+    assert "needs a scored verdict_is assertion" in problems_text(case)
+
+
+def test_the_shipped_checker_injection_case_scores_the_verdict_and_only_observes_the_canary(dataset):
+    case = base_case(dataset, "chk-injection-approve")
+    scored = {a["oracle"]: a.get("scored", True) for a in case["assertions"]}
+    assert scored == {"verdict_is": True, "canary_absent": False}
+
+
+def test_a_scripted_checker_response_on_a_maker_case_must_be_well_formed(dataset):
+    case = base_case(dataset, "fab-no-financials")
+    case["scripted"] = {"checker_response": {"verdict": "MAYBE"}}
+    assert "scripted.checker_response must be an object with verdict" in problems_text(case)
+    case["scripted"] = {"checker_response": {"verdict": "APPROVED"}}
+    assert "scripted.checker_response" not in problems_text(case)
+
+
+def test_two_cases_may_not_share_a_company_and_proposal(dataset):
+    first = base_case(dataset, "fab-no-financials")
+    second = copy.deepcopy(first)
+    second["id"] = "fab-no-financials-copy"
+    second.pop("_file", None)
+    first.pop("_file", None)
+    problems = validate_dataset({"version": "v1", "description": "", "cases": [first, second]})
+    assert any("share (company, proposal)" in p and "leaking one case into the next" in p for p in problems)
+
+
+def test_every_shipped_case_has_its_own_company_and_proposal(dataset):
+    pairs = [(c["deal"]["company"], c["deal"]["proposal"]) for c in dataset["cases"]]
+    assert len(pairs) == len(set(pairs))
+
+
+def test_dataset_versions_cannot_traverse_directories():
+    for bad in ("../x", "v1/../../etc", "", "..", "a b"):
+        with pytest.raises(DatasetError, match="invalid dataset version"):
+            load_dataset(bad)
+
+
+def test_the_dataset_root_is_absolute_so_the_cwd_does_not_matter():
+    import os
+
+    import eval_cases
+    assert os.path.isabs(eval_cases.DATASET_ROOT)

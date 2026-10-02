@@ -31,7 +31,7 @@ def _scripted_runs(case):
     for label in ("good", "bad"):
         output = build_scripted_output(case, case["dry_run"][label])
         text = output.draft_text if case["mode"] == "maker" else f"verdict: {output.verdict}\n{output.notes}"
-        runs.append(scripted_run(label, outcome[label], (text or "")[:1500]))
+        runs.append(scripted_run(label, outcome[label], text or "", expected_pass=(label == "good")))
     return outcome, runs
 
 
@@ -86,6 +86,8 @@ def main(argv=None):
         return 2
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
+    if args.max_calls < 1:
+        parser.error("--max-calls must be at least 1")
 
     try:
         dataset = load_dataset(args.dataset)

@@ -1,4 +1,4 @@
 {
   "version": "v1",
-  "description": "Synthetic cases for the local live-model evaluation harness (#151): fabrication, contradiction, unsupported claims, analyst-supplied labelling, conflicting sources, prompt-injection canaries and Checker judgement. No real or confidential data."
+  "description": "Synthetic cases for the local live-model evaluation harness (#151): fabrication, contradiction, unsupported claims, analyst-supplied labelling, conflicting sources, prompt-injection canaries and Checker judgement. No real or confidential data. Most oracles check the form of the output; judgement is left to human review."
 }

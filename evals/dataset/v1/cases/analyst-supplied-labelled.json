@@ -2,10 +2,10 @@
   "id": "analyst-supplied-labelled",
   "category": "analyst-supplied",
   "mode": "maker",
-  "description": "Analyst-supplied subtotals: the draft must disclose the reduced audit guarantee.",
+  "description": "Analyst-supplied subtotals: the draft must declare the reduced audit guarantee. Scored: the block declares it and passes the framework's compliance check. How plainly the caveat is worded is human review.",
   "deal": {
-    "company": "Synthetic Borrower Four",
-    "proposal": "Synthetic Term Facility",
+    "company": "Synthetic Borrower Five",
+    "proposal": "Synthetic Facility Five",
     "deal_type": "corporate_credit",
     "pd": "0.50%",
     "lgd": "LGD 3 (25%)",
@@ -25,6 +25,9 @@
   },
   "config_files": {},
   "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
     {
       "oracle": "analyst_supplied_disclosed"
     },
@@ -48,7 +51,11 @@
       "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
       "structured": {
         "financials_source_disclosed": false
-      }
+      },
+      "expected_failures": [
+        "analyst_supplied_disclosed",
+        "compliance"
+      ]
     }
   }
 }

@@ -120,3 +120,52 @@ def test_read_only_modes_write_nothing(flag, tmp_path):
     before = sorted(p.name for p in REPO_ROOT.glob("evals/*"))
     run_evals.main([flag])
     assert sorted(p.name for p in REPO_ROOT.glob("evals/*")) == before
+
+# ---------------------------------------------------------------------------
+# Review fixes (independent review of the PR for #151).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("flags", [["--max-calls", "0"], ["--max-calls", "-5"], ["--repeats", "0"],
+                                   ["--repeats", "-1"]])
+def test_non_positive_limits_are_rejected_by_the_parser_without_a_traceback(flags, tmp_path, capsys):
+    with pytest.raises(SystemExit) as raised:
+        run_evals.main(["--dry-run", "--out", str(tmp_path), *flags])
+    assert raised.value.code == 2
+    assert "must be at least 1" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_an_unsound_case_makes_the_dry_run_exit_non_zero(tmp_path, monkeypatch, capsys):
+    real = run_evals.self_check
+
+    def broken(case):
+        outcome = real(case)
+        outcome["good_all_pass"] = False
+        outcome["ok"] = False
+        return outcome
+
+    monkeypatch.setattr(run_evals, "self_check", broken)
+    assert run_evals.main(["--dry-run", "--out", str(tmp_path)]) == 1
+    assert "NOT SOUND" in capsys.readouterr().out
+
+
+def test_a_traversing_dataset_version_is_refused_cleanly(capsys):
+    assert run_evals.main(["--validate", "--dataset", "../x"]) == 1
+    assert "invalid dataset version" in capsys.readouterr().err
+
+
+def test_the_cli_works_from_any_working_directory(tmp_path):
+    result = subprocess.run([sys.executable, str(SCRIPTS_DIR / "run_evals.py"), "--validate"],
+                            capture_output=True, text=True, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "15 cases, all valid" in result.stdout
+
+
+@pytest.mark.parametrize("flag", ["--validate", "--list"])
+def test_read_only_modes_leave_the_whole_evals_tree_untouched(flag):
+    def tree():
+        return sorted(str(p.relative_to(REPO_ROOT)) for p in (REPO_ROOT / "evals").rglob("*"))
+
+    before = tree()
+    run_evals.main([flag])
+    assert tree() == before

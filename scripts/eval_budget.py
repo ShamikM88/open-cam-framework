@@ -10,7 +10,20 @@ can't afford and never lets a bug turn into an unbounded loop of API calls:
 
 No `anthropic` dependency (the client is passed in), so all of this is
 unit-tested in ordinary CI with a fake client and zero model calls.
+
+**Read before relying on the cap (PR 2 requirements):**
+
+- `CALLS_PER_RUN = 1` holds only if the pipeline cannot revise. `run_pipeline()` re-calls
+  the live Maker after every REJECTED iteration (up to `MAX_REVIEW_ITERATIONS`), and a draft
+  that fails deterministic checks is rejected even when the Checker is scripted to approve --
+  exactly the draft the fabrication and canary cases provoke. The live runner must therefore
+  pass `max_iterations=1`; the BudgetedClient is the backstop that aborts if it ever does not.
+- The cap counts **logical** `messages.create()` calls. The SDK's own HTTP retries are
+  invisible here, so the live client should be built with `max_retries=0`.
+- The cap bounds **calls**, not tokens or money; usage is recorded, not capped.
 """
+
+import threading
 
 DEFAULT_REPEATS = 5
 DEFAULT_MAX_CALLS = 80
@@ -34,6 +47,8 @@ def check_plan(planned, max_calls):
     itself must not exceed ABSOLUTE_MAX_CALLS. Called before any model call."""
     if max_calls < 1:
         raise ValueError("--max-calls must be at least 1")
+    if planned < 0:
+        raise ValueError("a plan cannot have a negative number of calls")
     if max_calls > ABSOLUTE_MAX_CALLS:
         raise CallCapExceeded(
             f"--max-calls {max_calls} exceeds the absolute ceiling of {ABSOLUTE_MAX_CALLS} calls "
@@ -53,22 +68,25 @@ class CallBudget:
     def __init__(self, max_calls):
         check_plan(0, max_calls)  # validates max_calls itself
         self.max_calls = max_calls
+        self._lock = threading.Lock()  # check-then-increment must be atomic if a runner ever parallelises
         self.calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
 
     def spend(self):
         """Reserve one call, or raise CallCapExceeded if none is left."""
-        if self.calls >= self.max_calls:
-            raise CallCapExceeded(
-                f"Refusing call {self.calls + 1}: the run's cap of {self.max_calls} calls is spent."
-            )
-        self.calls += 1
+        with self._lock:
+            if self.calls >= self.max_calls:
+                raise CallCapExceeded(
+                    f"Refusing call {self.calls + 1}: the run's cap of {self.max_calls} calls is spent."
+                )
+            self.calls += 1
 
     def record_usage(self, response):
         usage = getattr(response, "usage", None)
-        self.input_tokens += getattr(usage, "input_tokens", 0) or 0
-        self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+        with self._lock:
+            self.input_tokens += getattr(usage, "input_tokens", 0) or 0
+            self.output_tokens += getattr(usage, "output_tokens", 0) or 0
 
 
 class _Messages:

@@ -238,6 +238,9 @@ def test_split_processes_every_part_then_merges_and_loses_no_text(overflow_env):
     client = overflow_env.client
     k = len(chunks)
     assert len(client.calls) == 2 * (k + 1)  # k parts + 1 merge, for style and template
+    # Per-part calls keep the original cap; merge calls get more room.
+    assert [c["max_tokens"] for c in client.calls[:k]] == [3000] * k
+    assert client.calls[k]["max_tokens"] == calibrate.MERGE_MAX_TOKENS > 3000
     style_part_prompts = client.prompts()[:k]
     assert all(chunk in prompt for chunk, prompt in zip(chunks, style_part_prompts))
     # The merge call receives every part's result.

@@ -129,6 +129,12 @@ CHUNK_CHAR_LIMIT = 12_000
 # produce one merge call bigger than the model can take.
 MERGE_CHAR_BUDGET = 60_000
 
+# A merged result can legitimately be longer than any single part's, so merge
+# calls get more output room than the per-part calls' 3000 tokens -- otherwise
+# the merge step itself would quietly cap how much of the combined findings
+# survives.
+MERGE_MAX_TOKENS = 6000
+
 OVERFLOW_MODES = ("ask", "split", "ignore")
 
 
@@ -190,7 +196,7 @@ def _choose_overflow_mode(total_chars, chunk_count, requested):
     print(f"  [i] Ignore - use only the first {CHUNK_CHAR_LIMIT:,} characters "
           f"({discarded:,} discarded)")
     print(f"  [s] Split  - process all {chunk_count} parts, then merge the results "
-          f"({2 * chunk_count + 2} API calls instead of 2)")
+          f"(about {2 * chunk_count + 2} API calls instead of 2)")
     while True:
         try:
             answer = input("Choice [i/s]: ").strip().lower()
@@ -204,10 +210,10 @@ def _choose_overflow_mode(total_chars, chunk_count, requested):
         print("Please enter 'i' or 's'.")
 
 
-def _complete(model, prompt):
+def _complete(model, prompt, max_tokens=3000):
     response = client.messages.create(
         model=model,
-        max_tokens=3000,
+        max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text
@@ -233,7 +239,8 @@ def _merge_parts(parts, merge_prompt, model, label):
         parts = [
             group[0] if len(group) == 1 else _complete(
                 model, merge_prompt.format(text="\n\n---\n\n".join(
-                    f"Part {i}:\n{p}" for i, p in enumerate(group, 1))))
+                    f"Part {i}:\n{p}" for i, p in enumerate(group, 1))),
+                max_tokens=MERGE_MAX_TOKENS)
             for group in groups
         ]
     return parts[0]

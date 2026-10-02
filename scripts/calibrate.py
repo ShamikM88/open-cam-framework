@@ -138,9 +138,15 @@ MERGE_MAX_TOKENS = 6000
 OVERFLOW_MODES = ("ask", "split", "ignore")
 
 
+def _sample_pdf_paths():
+    # Sorted: glob's order is filesystem-dependent, and which sample is
+    # "first" decides what an "ignore" run keeps and how parts are numbered.
+    return sorted(glob.glob("inputs/calibration_samples/*.pdf"))
+
+
 def _read_sample_text():
     text_content = ""
-    for path in glob.glob("inputs/calibration_samples/*.pdf"):
+    for path in _sample_pdf_paths():
         reader = PdfReader(path)
         for page in reader.pages:
             text_content += page.extract_text() + "\n"
@@ -171,6 +177,21 @@ def _split_into_chunks(text, limit=CHUNK_CHAR_LIMIT):
     return chunks
 
 
+def _sample_chunks(text):
+    """_split_into_chunks() minus whitespace-only pieces (e.g. a lone trailing
+    newline from the per-page "\n" join), which would otherwise cost an API
+    call whose "I don't see any content" reply then pollutes the merge. Used
+    everywhere a chunk count or per-part call is needed, so the count shown
+    to the user always matches the calls actually made.
+    """
+    return [chunk for chunk in _split_into_chunks(text) if chunk.strip()]
+
+
+def _stdin_is_tty():
+    # stdin is None when closed (e.g. `<&-`), where .isatty() would raise.
+    return sys.stdin is not None and sys.stdin.isatty()
+
+
 def _choose_overflow_mode(total_chars, chunk_count, requested):
     """Resolve what to do with samples longer than CHUNK_CHAR_LIMIT: "split" or
     "ignore". Decided up front, before any API call or file write, so a run
@@ -184,7 +205,7 @@ def _choose_overflow_mode(total_chars, chunk_count, requested):
     if requested in ("split", "ignore"):
         return requested
 
-    if not sys.stdin.isatty():
+    if not _stdin_is_tty():
         print(f"[INFO] Samples contain {total_chars:,} characters (limit per call: "
               f"{CHUNK_CHAR_LIMIT:,}); no terminal to ask, so splitting into "
               f"{chunk_count} parts and merging. Pass --on-overflow ignore to truncate instead.")
@@ -196,7 +217,7 @@ def _choose_overflow_mode(total_chars, chunk_count, requested):
     print(f"  [i] Ignore - use only the first {CHUNK_CHAR_LIMIT:,} characters "
           f"({discarded:,} discarded)")
     print(f"  [s] Split  - process all {chunk_count} parts, then merge the results "
-          f"(about {2 * chunk_count + 2} API calls instead of 2)")
+          f"(at least {2 * chunk_count + 2} API calls instead of 2)")
     while True:
         try:
             answer = input("Choice [i/s]: ").strip().lower()
@@ -216,6 +237,11 @@ def _complete(model, prompt, max_tokens=3000):
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        # Same class of problem as the input truncation this module now
+        # guards against: a cut-off result flowing on without a word.
+        print(f"[WARN] A response was cut off at the {max_tokens}-token output limit; "
+              "the style guide/template may be incomplete.")
     return response.content[0].text
 
 
@@ -253,7 +279,10 @@ def _derive(text_content, mode, prompt, merge_prompt, model, label):
     """
     if mode == "ignore" or len(text_content) <= CHUNK_CHAR_LIMIT:
         return _complete(model, prompt.format(text=text_content[:CHUNK_CHAR_LIMIT]))
-    chunks = _split_into_chunks(text_content)
+    chunks = _sample_chunks(text_content)
+    if len(chunks) <= 1:
+        # Over the limit only by whitespace: nothing to split or merge.
+        return _complete(model, prompt.format(text=chunks[0] if chunks else text_content[:CHUNK_CHAR_LIMIT]))
     parts = []
     for i, chunk in enumerate(chunks, 1):
         print(f"  {label}: part {i}/{len(chunks)}...")
@@ -278,12 +307,13 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
     total_chars = len(text_content)
     mode = "split"
     if total_chars > CHUNK_CHAR_LIMIT:
-        chunk_count = len(_split_into_chunks(text_content))
-        if mock:
-            print(f"[MOCK] Samples contain {total_chars:,} characters; a real run would "
-                  f"split them into {chunk_count} parts (limit per call: {CHUNK_CHAR_LIMIT:,}).")
-        else:
-            mode = _choose_overflow_mode(total_chars, chunk_count, on_overflow)
+        chunk_count = len(_sample_chunks(text_content))
+        if chunk_count > 1:  # a single non-blank chunk means nothing would be lost
+            if mock:
+                print(f"[MOCK] Samples contain {total_chars:,} characters; a real run would "
+                      f"split them into {chunk_count} parts (limit per call: {CHUNK_CHAR_LIMIT:,}).")
+            else:
+                mode = _choose_overflow_mode(total_chars, chunk_count, on_overflow)
 
     template_path = local_cam_template_path(deal_type)
 
@@ -295,8 +325,8 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
         # template, since that's the one thing this script actually does.
         os.makedirs(os.path.dirname(template_path), exist_ok=True)
         print(f"[MOCK] Read {total_chars} characters from "
-              f"{len(glob.glob('inputs/calibration_samples/*.pdf'))} sample PDF(s).")
-        with open("config/style_guide.md", "w", encoding="utf-8") as f:
+              f"{len(_sample_pdf_paths())} sample PDF(s).")
+        with open("config/style_guide.md", "w") as f:
             f.write(MOCK_STYLE_GUIDE)
         print("[MOCK] Wrote placeholder `config/style_guide.md`.")
         with open(template_path, "w", encoding="utf-8") as f:
@@ -317,7 +347,11 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
     template_text = _derive(text_content, mode, TEMPLATE_PROMPT, TEMPLATE_MERGE_PROMPT, model, "template")
 
     os.makedirs(os.path.dirname(template_path), exist_ok=True)
-    with open("config/style_guide.md", "w", encoding="utf-8") as f:
+    # No explicit encoding, deliberately, exactly as before this PR: the
+    # readers (orchestrator.py's style_guide/credit_policy opens) use the
+    # platform default too, so write and read round-trip. Switching only the
+    # writer to UTF-8 would corrupt or crash those reads on Windows (cp1252); see issue #137.
+    with open("config/style_guide.md", "w") as f:
         f.write("# Calibrated Style Guide\n\n" + style_text)
     print("Calibration complete. Created `config/style_guide.md`.")
     with open(template_path, "w", encoding="utf-8") as f:

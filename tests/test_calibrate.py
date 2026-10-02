@@ -342,20 +342,129 @@ def test_the_merge_prompts_carry_the_grounding_and_no_real_data_rules():
     assert "editorial" in calibrate.STYLE_MERGE_PROMPT
 
 
-def test_original_sample_files_are_never_modified(overflow_env):
-    samples = overflow_env.root / "inputs" / "calibration_samples"
-    samples.mkdir(parents=True)
-    originals = {}
-    for name in ("a.pdf", "b.pdf"):
-        (samples / name).write_bytes(b"%PDF-1.4 original bytes of " + name.encode())
-        originals[name] = (samples / name).read_bytes()
-    overflow_env.monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(False))
+def _write_pdf(path, label, pages=4, lines_per_page=40):
+    """A minimal but real multi-page text PDF (no PDF-writing library is a
+    dependency), so tests can exercise the real _read_sample_text()/pypdf."""
+    objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
+               3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"}
+    page_nums = [4 + 2 * i for i in range(pages)]
+    objects[2] = ("<< /Type /Pages /Count %d /Kids [%s] >>"
+                  % (pages, " ".join("%d 0 R" % n for n in page_nums))).encode()
+    for i, n in enumerate(page_nums):
+        ops = ["BT /F1 9 Tf 40 780 Td 12 TL"]
+        ops += ["(%s page %d line %d: borrower credit narrative text) '" % (label, i, j)
+                for j in range(lines_per_page)]
+        ops.append("ET")
+        stream = "\n".join(ops).encode()
+        objects[n] = ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                      "/Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % (n + 1)).encode()
+        objects[n + 1] = b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream"
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = {}
+    for num in sorted(objects):
+        offsets[num] = len(out)
+        out += b"%d 0 obj\n" % num + objects[num] + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for num in sorted(objects):
+        out += b"%010d 00000 n \n" % offsets[num]
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    path.write_bytes(bytes(out))
 
-    for mode in ("split", "ignore"):
+
+def test_real_pdfs_are_read_in_sorted_order_and_never_modified(project_root, monkeypatch):
+    import hashlib
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(False))
+    client = RecordingClient()
+    monkeypatch.setattr(calibrate, "client", client)
+    samples = project_root / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    # Written out of order on purpose; each is ~10k characters, so together they overflow.
+    _write_pdf(samples / "b_second.pdf", "SECOND")
+    _write_pdf(samples / "a_first.pdf", "FIRST")
+    fingerprints = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in samples.iterdir()}
+
+    text = calibrate._read_sample_text()
+    assert text.index("FIRST") < text.index("SECOND")  # sorted, not directory order
+    assert len(text) > calibrate.CHUNK_CHAR_LIMIT
+
+    for mode in ("ignore", "split"):
         run_calibration("corporate_credit", on_overflow=mode)
 
-    assert sorted(p.name for p in samples.iterdir()) == ["a.pdf", "b.pdf"]
-    assert {p.name: p.read_bytes() for p in samples.iterdir()} == originals
+    assert "FIRST" in client.prompts()[0]  # "ignore" keeps the first sample
+    assert sorted(p.name for p in samples.iterdir()) == ["a_first.pdf", "b_second.pdf"]
+    assert {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in samples.iterdir()} == fingerprints
+
+
+def test_a_blank_trailing_chunk_costs_no_api_call_and_no_prompt(project_root, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    text = "a" * calibrate.CHUNK_CHAR_LIMIT + "\n"  # one real chunk plus a lone newline
+    monkeypatch.setattr(calibrate, "_read_sample_text", lambda: text)
+    client = RecordingClient()
+    monkeypatch.setattr(calibrate, "client", client)
+    monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(True))
+    monkeypatch.setattr("builtins.input", lambda *_: pytest.fail("nothing would be lost; must not prompt"))
+
+    run_calibration("corporate_credit")
+
+    assert len(client.calls) == 2
+    assert calibrate._sample_chunks(text) == ["a" * calibrate.CHUNK_CHAR_LIMIT]
+
+
+def test_split_never_sends_a_blank_part(overflow_env):
+    # Real parts plus a blank tail: every part call must carry real text.
+    text = overflow_env.text + "\n\n   \n"
+    overflow_env.monkeypatch.setattr(calibrate, "_read_sample_text", lambda: text)
+    overflow_env.monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(False))
+    k = len(calibrate._sample_chunks(text))
+
+    run_calibration("corporate_credit")
+
+    assert len(overflow_env.client.calls) == 2 * (k + 1)
+
+
+def test_closed_stdin_counts_as_no_terminal(overflow_env):
+    overflow_env.monkeypatch.setattr(calibrate.sys, "stdin", None)
+    overflow_env.monkeypatch.setattr("builtins.input", lambda *_: pytest.fail("must not prompt"))
+    k = len(calibrate._split_into_chunks(overflow_env.text))
+
+    run_calibration("corporate_credit")
+
+    assert len(overflow_env.client.calls) == 2 * (k + 1)
+
+
+def test_a_max_tokens_cutoff_is_warned_about(project_root, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate, "_read_sample_text", lambda: "short sample")
+
+    class CutOffClient:
+        messages = None
+
+        def create(self, **kwargs):
+            return SimpleNamespace(stop_reason="max_tokens", content=[SimpleNamespace(text="partial")])
+
+    cut_off = CutOffClient()
+    cut_off.messages = cut_off
+    monkeypatch.setattr(calibrate, "client", cut_off)
+
+    run_calibration("corporate_credit")
+
+    assert "[WARN]" in capsys.readouterr().out
+
+
+def test_split_into_chunks_falls_back_to_spaces_and_ignores_too_early_boundaries():
+    limit = 100
+    words = "word " * 80  # no newlines at all: must cut at a space, not mid-word
+    chunks = calibrate._split_into_chunks(words, limit=limit)
+    assert "".join(chunks) == words
+    assert all(c.endswith(" ") for c in chunks[:-1])
+
+    # A newline in the first half is too early to be worth a tiny chunk: hard-cut at the limit.
+    early = "a" * 10 + "\n" + "b" * 300
+    chunks = calibrate._split_into_chunks(early, limit=limit)
+    assert "".join(chunks) == early
+    assert len(chunks[0]) == limit
 
 
 def test_mock_mode_reports_the_part_count_without_prompting_or_calling_the_api(overflow_env, capsys):

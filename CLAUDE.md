@@ -344,7 +344,8 @@ a second look in review.
 ## Execution scripts
 
 - **`scripts/calibrate.py --type <deal_type>`** (headless; needs `ANTHROPIC_API_KEY`) — reads historical CAM PDFs from
-  `inputs/calibration_samples/` and makes two Claude calls against that text: one extracts
+  `inputs/calibration_samples/` (in sorted filename order) and makes two Claude calls against that
+  text (more when the samples overflow one call's limit -- see "Sample length" below): one extracts
   writing style/tone into `config/style_guide.md`; the other derives a genericized CAM template
   (explicitly instructed to strip all real data to `[placeholder]`s) written to
   `templates/local/cam/<deal_type>_cam.md`. `<deal_type>` defaults to `corporate_credit` and
@@ -372,11 +373,17 @@ a second look in review.
   and editorial-judgment rules). `--on-overflow {ask,split,ignore}` (default `ask`) pre-answers it;
   `ask` prompts on a terminal and falls back to `split` when there's no TTY, since silently losing
   material is the failure this exists to prevent and splitting only costs extra API calls.
-  `--mock` makes no calls, so it only reports how many parts a real run would use. The original
-  sample PDFs are only ever read, never written or split on disk. Both result files are computed
-  in memory first and written together at the end, so an API failure partway through a long split
-  run leaves any existing `config/style_guide.md`/template untouched. `/calibrate` has no such cap
-  (native PDF reading) and is unaffected.
+  `--mock` makes no calls, so it only reports how many parts a real run would use (it ignores
+  `--on-overflow`). Whitespace-only parts (e.g. a lone trailing newline) are dropped before
+  counting or calling, and if only one non-blank part remains nothing is lost, so there's no
+  prompt. The original sample PDFs are only ever read, never written or split on disk. Both result
+  files are computed in memory first, with no API call between the two writes at the end, so an API
+  failure partway through a long split run leaves any existing `config/style_guide.md`/template
+  untouched. A response cut off at its output-token limit prints a `[WARN]` rather than flowing on
+  silently. `config/style_guide.md` is still written with the platform's default encoding, exactly
+  as before: `orchestrator.py` reads it the same way, and changing only the writer would corrupt
+  or crash those reads on Windows (see issue #137 on encoding consistency).
+  `/calibrate` has no such cap (native PDF reading) and is unaffected.
 - **`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
   given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
   prompts and style guide, resolves the CAM template for `--type` via

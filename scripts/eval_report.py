@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 
 from eval_oracles import run_passed
 
-HARNESS_VERSION = "0.1-pr1"
+HARNESS_VERSION = "0.3-pr2"
 RESULTS_ROOT = os.path.join("evals", "results")
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXCERPT_LIMIT = 24000  # chars: a Maker's max_tokens=4000 is ~16k characters
@@ -85,12 +85,34 @@ def scripted_run(label, results, output_excerpt="", expected_pass=None):
             "expected_pass": expected_pass, "status": "ok", "output_excerpt": clip(output_excerpt)}
 
 
-def live_run(label, results, output_excerpt="", status="ok", error=None):
+COMPLETE_STOPS = (None, "end_turn", "stop_sequence")
+
+
+def stop_state(stop_reason):
+    """How a live response ended: "complete" (the model finished), "refusal" (the API says it declined;
+    any text it did return is still scored, and a refusal is a result in its own right) or "incomplete"
+    (cut off or paused -- max_tokens, the context limit, pause_turn, tool_use, or any reason this harness
+    does not know -- so the scored text may be only part of what the model would have said)."""
+    if stop_reason in COMPLETE_STOPS:
+        return "complete"
+    if stop_reason == "refusal":
+        return "refusal"
+    return "incomplete"
+
+
+def live_run(label, results, output_excerpt="", status="ok", error=None, extra=None, output_text=None):
     """A run record for a live (model) output. A run that errored (status != "ok")
-    is never a pass, and still counts in the pass-rate denominator."""
+    is never a pass, and still counts in the pass-rate denominator. `extra` carries
+    per-run provenance (prompt hash, model) without a model's text. `output_text` is the
+    model's WHOLE output, kept in results.json / runs.jsonl (git-ignored) so a reviewer can read
+    the end of a long draft; the review pack shows the clipped excerpt. It never reaches a baseline."""
     passed = status == "ok" and run_passed(results)
-    return {"label": label, "kind": "live", "assertions": results, "passed": passed, "status": status,
-            "error": error, "output_excerpt": clip(output_excerpt)}
+    record = {"label": label, "kind": "live", "assertions": results, "passed": passed, "status": status,
+              "error": error, "output_excerpt": clip(output_excerpt)}
+    if output_text is not None:
+        record["output_text"] = output_text
+    record.update(extra or {})
+    return record
 
 
 def pass_rate(runs):
@@ -120,7 +142,8 @@ def summarize(cases):
 
 
 def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned_live_calls=0,
-                 usage=None, call_cap=None):
+                 usage=None, call_cap=None, input_hashes=None, repeats=None, aborted=False, abort_reason=None,
+                 abort_category=None, environment=None):
     return {
         "harness_version": HARNESS_VERSION,
         "run_id": run_id,
@@ -130,6 +153,12 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
                     "content_hash": dataset_hash(dataset)},
         "models": models or {"maker_model": None, "checker_model": None},
         "prompt_hashes": hashes or {},
+        "input_hashes": input_hashes or {},
+        "repeats": repeats,
+        "aborted": aborted,
+        "abort_reason": abort_reason,
+        "abort_category": abort_category,
+        "environment": environment or {},
         "planned_live_calls": planned_live_calls,
         "call_cap": call_cap,
         "usage": usage or {"calls": 0, "input_tokens": 0, "output_tokens": 0},
@@ -192,14 +221,44 @@ def _fence_for(text):
     return "`" * max(3, longest + 1)
 
 
+def _run_details(run):
+    """Token usage and stop reason of a live run, for the 'Run' cell."""
+    if run.get("kind") != "live" or run.get("input_tokens") is None:
+        return ""
+    bits = [f"{run.get('input_tokens', 0)} in / {run.get('output_tokens', 0)} out"]
+    if run.get("stop_reason"):
+        bits.append(str(run["stop_reason"]))
+    if run.get("served_model") and run.get("model") and run["served_model"] != run["model"]:
+        bits.append(f"served as {run['served_model']}")
+    return ", " + ", ".join(bits)
+
+
 def _row_result(run):
     if run["kind"] == "scripted" and run.get("expected_pass") is not None:
         if run["passed"] == run["expected_pass"]:
             return "pass" if run["passed"] else "caught (expected)"
         return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
+    if run.get("status") == "interrupted":
+        if run.get("output_text") is not None:  # the reply had arrived; the interrupt came later
+            return ("INTERRUPTED after the call completed -- Ctrl-C during scoring, recording or cleanup; the "
+                    "output is kept but was not scored (counted as a non-pass)")
+        return ("INTERRUPTED while the call was in flight -- it counted against the cap but no result was "
+                "observed (counted as a non-pass)")
+    if run.get("status") == "no_text":
+        return (f"NO TEXT ({_cell(run.get('stop_reason') or 'no stop reason')}) -- the model returned no text, "
+                "e.g. a refusal; read it as its own outcome, counted as a non-pass")
     if run.get("status", "ok") != "ok":
         return f"ERROR {_cell(run.get('error') or run['status'])}"
-    return "pass" if run["passed"] else "FAIL"
+    outcome = "pass" if run["passed"] else "FAIL"
+    state = stop_state(run.get("stop_reason"))
+    if run.get("stop_reason") == "max_tokens":
+        outcome += " (OUTPUT TRUNCATED at max_tokens -- not necessarily the model's behaviour)"
+    elif state == "incomplete":
+        outcome += (f" (OUTPUT INCOMPLETE: stop_reason {_cell(run.get('stop_reason'))} -- the text scored may be "
+                    "only part of the answer; not necessarily the model's behaviour)")
+    elif state == "refusal":
+        outcome += " (REFUSAL stop reason: the model declined; scored on the text it did return)"
+    return outcome
 
 
 def render_review_pack(record):
@@ -214,8 +273,15 @@ def render_review_pack(record):
         f"checker {_cell(record['models'].get('checker_model'))}",
         f"- Prompt hashes: {_cell(json.dumps(record['prompt_hashes']), limit=400)}",
         f"- Harness version: {record['harness_version']}",
+        *([f"- Environment: anthropic SDK {_cell(record['environment'].get('anthropic_sdk_version'))}, "
+           f"base URL {_cell(record['environment'].get('base_url'))}"]
+          if record.get("environment") else []),
         f"- Model calls: {record['usage']['calls']} made (planned for a live run: {record['planned_live_calls']}, "
         f"cap: {record['call_cap']})",
+        *([f"- **ABORTED EARLY ({record.get('abort_category') or 'unknown'}):** "
+           f"{_cell(record.get('abort_reason'), limit=500)}. Runs after this point never happened; cases "
+           "marked 'not reached' below have no results, and pass rates cover only the runs that did."]
+          if record.get("aborted") else []),
         "",
         f"> {record['disclaimer']}",
         "",
@@ -228,10 +294,12 @@ def render_review_pack(record):
         "|---|---|---|---|",
     ]
     for case in record["cases"]:
+        if record.get("aborted") and not case["runs"] and case.get("runs_planned"):
+            lines.append(f"| `{case['id']}` | - | not reached | - |")
         for run in case["runs"]:
             failing = "; ".join(f"{a['oracle']}: {a['reason']}" for a in run["assertions"]
                                 if a.get("scored", True) and not a["passed"])
-            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}) | {_row_result(run)} | "
+            lines.append(f"| `{case['id']}` | {run['label']} ({run['kind']}{_run_details(run)}) | {_row_result(run)} | "
                          f"{_cell(failing) if failing else '-'} |")
     lines += ["", "## 2. Observed pass rates (live runs)", ""]
     rates = record["summary"]["observed_pass_rate_by_category"]
@@ -243,8 +311,13 @@ def render_review_pack(record):
         lines += ["", "Per case:", ""]
         for case in record["cases"]:
             rate = pass_rate(case["runs"])
+            planned = case.get("runs_planned")
             if rate["total"]:
-                lines.append(f"- `{case['id']}`: {rate['passed']} / {rate['total']}")
+                partial = f" (only {rate['total']} of {planned} planned runs happened)" \
+                    if planned and rate["total"] < planned else ""
+                lines.append(f"- `{case['id']}`: {rate['passed']} / {rate['total']}{partial}")
+            elif planned:
+                lines.append(f"- `{case['id']}`: not reached")
     if record["mode"] == "dry-run":
         checks = record["summary"]["scripted_self_checks"]
         lines += ["", f"Scripted self-checks (the scored oracles pass the `good` output and catch the `bad` one): "
@@ -270,6 +343,30 @@ def render_review_pack(record):
                 lines += ["", f"_{run['label']} output ({run['kind']}), excerpt:_", "", f"{fence}text", excerpt, fence]
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def prepare_run_dir(run_id, out_root=None, repo_root=None):
+    """Create (and guard) `<out_root>/<run_id>/` before a live run starts, so work
+    directories and incremental output have somewhere safe to go. Refuses a path that
+    is not git-ignored or a run id that already exists."""
+    root = out_root or os.path.join(repo_root or REPO_ROOT, RESULTS_ROOT)
+    out_dir = os.path.join(root, run_id)
+    assert_results_dir_is_ignored(out_dir, repo_root, probe_names=("results.json", "review_pack.md", "runs.jsonl",
+                                                                  "work/probe"))
+    try:
+        os.makedirs(out_dir, exist_ok=False)
+    except FileExistsError as exc:
+        raise ResultsPathError(f"{out_dir} already exists; refusing to reuse an earlier run") from exc
+    return out_dir
+
+
+def append_run_line(run_dir, case_id, run):
+    """Append one finished run to `runs.jsonl` and flush, so a crash part-way through a
+    paid-for evaluation loses nothing already completed."""
+    with open(os.path.join(run_dir, "runs.jsonl"), "a", encoding="utf-8", errors="backslashreplace") as f:
+        f.write(json.dumps({"case_id": case_id, **run}, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def write_results(record, out_root=None, repo_root=None):

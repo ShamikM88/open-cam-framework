@@ -1,3 +1,6 @@
+import struct
+import zlib
+
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
@@ -9,6 +12,25 @@ def _build(tmp_path, markdown_text):
     out = tmp_path / "out.docx"
     export_to_docx(markdown_text, str(out))
     return docx.Document(str(out))
+
+
+def _write_png(path, width, height):
+    """A real, minimal solid-colour PNG generated in-test, so the repo
+    carries no binary fixtures."""
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * width for _ in range(height))
+
+    def chunk(tag, data):
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+    path.write_bytes(png)
+    return str(path)
 
 
 def test_headings(tmp_path):
@@ -159,6 +181,86 @@ def test_fenced_code_block_is_skipped_entirely(tmp_path):
     assert "```" not in full_text
 
 
+def test_non_json_fenced_block_renders_as_a_monospace_block(tmp_path):
+    """Regression guard for issue #113: a fenced block *not* tagged `json`
+    (e.g. a Unicode box-drawing ownership tree) must actually render in the
+    document -- one paragraph per line, in Consolas, with whitespace
+    (indentation) preserved exactly -- rather than being silently skipped
+    the way the Underwriter's trailing ```json structured-output block is."""
+    markdown = (
+        "Before the tree.\n"
+        "```\n"
+        "Borrower Ltd (UK)\n"
+        "└── Parent Holdings Ltd (UK) — 100%\n"
+        "    └── Ultimate Parent SA (FR) — 100%\n"
+        "```\n"
+        "After the tree.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert texts == [
+        "Before the tree.",
+        "Borrower Ltd (UK)",
+        "└── Parent Holdings Ltd (UK) — 100%",
+        "    └── Ultimate Parent SA (FR) — 100%",
+        "After the tree.",
+    ]
+    # The three tree lines are paragraphs 1-3 (0 = "Before the tree.").
+    for paragraph in doc.paragraphs[1:4]:
+        assert paragraph.runs[0].font.name == "Consolas"
+
+
+def test_monospace_block_lines_are_not_joined_like_a_normal_paragraph(tmp_path):
+    """Each line of a non-json fenced block is its own paragraph -- unlike
+    plain prose, consecutive lines must never be soft-wrap-joined into one
+    paragraph, since that would destroy a tree diagram's line structure."""
+    markdown = "```\nLine one\nLine two\nLine three\n```\n"
+    doc = _build(tmp_path, markdown)
+    assert [p.text for p in doc.paragraphs] == ["Line one", "Line two", "Line three"]
+
+
+def test_json_tagged_fence_is_still_skipped_entirely(tmp_path):
+    """Explicit regression guard distinguishing the two fence behaviors:
+    only the ```json tag triggers the skip-for-export behavior; anything
+    else renders. Uses an untagged fence immediately before a json-tagged
+    one to confirm the tag check, not just fence position, is what decides
+    this."""
+    markdown = (
+        "```\n"
+        "RENDER ME\n"
+        "```\n"
+        "```json\n"
+        '{"verdict": "APPROVED"}\n'
+        "```\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert texts == ["RENDER ME"]
+
+
+def test_unterminated_untagged_fence_does_not_swallow_the_trailing_json_block(tmp_path):
+    """Regression guard (found in review of the #113 work): an untagged fence
+    whose closing ``` was forgotten must not be "closed" by the opening line
+    of the Underwriter's trailing ```json block -- that would render the
+    narrative in between as monospace and leak the structured-output JSON
+    body into the client-facing document. A tagged fence line can only open
+    a block, never close one."""
+    markdown = (
+        "Intro.\n"
+        "```\n"
+        "[Borrower] (UK)\n"
+        "Narrative that must stay normal prose.\n"
+        "```json\n"
+        '{"cp_ids_included": []}\n'
+        "```\n"
+    )
+    doc = _build(tmp_path, markdown)
+    texts = [p.text for p in doc.paragraphs]
+    assert not any("cp_ids_included" in t for t in texts)
+    narrative = next(p for p in doc.paragraphs if "Narrative that must stay normal prose." in p.text)
+    assert narrative.runs[0].font.name != "Consolas"
+
+
 def test_unterminated_fence_does_not_discard_the_rest_of_the_document(tmp_path):
     """A stray/odd ``` (e.g. from truncation) must not silently swallow
     every line through EOF -- only a genuinely closed fence gets skipped."""
@@ -306,3 +408,100 @@ def test_multiple_links_in_one_paragraph(tmp_path):
     paragraph = doc.paragraphs[0]
     assert paragraph.text == "See A and B."
     assert _hyperlink_targets(doc, paragraph) == ["https://example.com/a", "https://example.com/b"]
+
+
+# ---------------------------------------------------------------------------
+# Image embedding (issue #114): a standalone `![alt](path)` line becomes an
+# embedded picture. Before this, such a line rendered as a stray "!" plus a
+# hyperlink pointing at a file path.
+# ---------------------------------------------------------------------------
+
+def test_image_line_embeds_a_picture_with_caption_and_alt_text(tmp_path):
+    png = _write_png(tmp_path / "chart.png", 40, 20)
+    doc = _build(tmp_path, f"![Sector growth projection]({png})\n")
+
+    assert len(doc.inline_shapes) == 1
+    descr = doc.inline_shapes[0]._inline.docPr.get("descr")
+    assert descr == "Sector growth projection"
+    texts = [p.text for p in doc.paragraphs]
+    assert "Sector growth projection" in texts
+    assert not any(t.startswith("!") for t in texts)
+    caption = next(p for p in doc.paragraphs if p.text == "Sector growth projection")
+    assert caption.runs[0].italic is True
+
+
+def test_image_with_empty_alt_text_has_no_caption(tmp_path):
+    png = _write_png(tmp_path / "chart.png", 40, 20)
+    doc = _build(tmp_path, f"![]({png})\n")
+
+    assert len(doc.inline_shapes) == 1
+    assert [p.text for p in doc.paragraphs] == [""]  # only the picture's own paragraph
+
+
+def test_wide_image_is_scaled_down_to_the_page_text_width_keeping_aspect_ratio(tmp_path):
+    png = _write_png(tmp_path / "wide.png", 2000, 100)
+    doc = _build(tmp_path, f"![wide]({png})\n")
+
+    section = doc.sections[0]
+    max_width = section.page_width - section.left_margin - section.right_margin
+    shape = doc.inline_shapes[0]
+    assert shape.width <= max_width
+    assert abs(shape.width / shape.height - 20) < 0.5  # 2000x100 -> 20:1 preserved
+
+
+def test_small_image_is_never_scaled_up(tmp_path):
+    png = _write_png(tmp_path / "small.png", 40, 20)
+    doc = _build(tmp_path, f"![small]({png})\n")
+
+    native = docx.Document()
+    expected = native.add_picture(png).width
+    assert doc.inline_shapes[0].width == expected
+
+
+def test_image_line_ends_a_wrapped_paragraph(tmp_path):
+    png = _write_png(tmp_path / "chart.png", 40, 20)
+    doc = _build(tmp_path, f"First line of prose\n![fig]({png})\nSecond bit of prose\n")
+
+    texts = [p.text for p in doc.paragraphs]
+    assert "First line of prose" in texts
+    assert "Second bit of prose" in texts
+    assert len(doc.inline_shapes) == 1
+
+
+def test_missing_image_file_becomes_a_visible_placeholder_and_a_warning(tmp_path, capsys):
+    doc = _build(tmp_path, f"![Stock chart]({tmp_path / 'nope.png'})\nAfter.\n")
+
+    assert len(doc.inline_shapes) == 0
+    texts = [p.text for p in doc.paragraphs]
+    assert any("Image not embedded: Stock chart" in t and "file not found" in t for t in texts)
+    assert "After." in texts  # the rest of the document still exports
+    assert "file not found" in capsys.readouterr().err
+
+
+def test_remote_url_is_not_fetched_and_becomes_a_placeholder(tmp_path):
+    doc = _build(tmp_path, "![Chart](https://example.com/chart.png)\n")
+
+    assert len(doc.inline_shapes) == 0
+    assert any("remote URLs aren't supported" in p.text for p in doc.paragraphs)
+
+
+def test_unsupported_image_extension_becomes_a_placeholder(tmp_path):
+    svg = tmp_path / "tree.svg"
+    svg.write_text("<svg xmlns='http://www.w3.org/2000/svg'/>", encoding="utf-8")
+    doc = _build(tmp_path, f"![Tree]({svg})\n")
+
+    assert len(doc.inline_shapes) == 0
+    assert any("not a supported image type" in p.text for p in doc.paragraphs)
+
+
+def test_corrupt_image_file_does_not_crash_the_export(tmp_path):
+    bad = tmp_path / "corrupt.png"
+    bad.write_bytes(b"this is not a png")
+    doc = _build(tmp_path, f"![Broken]({bad})\nStill here.\n")
+
+    assert len(doc.inline_shapes) == 0
+    texts = [p.text for p in doc.paragraphs]
+    assert any("could not be read as an image" in t for t in texts)
+    assert "Still here." in texts
+    assert "" not in texts  # no stray empty paragraph left behind by the failed insert
+    assert not any(t.endswith("()]") for t in texts)  # the reason is never an empty "()"

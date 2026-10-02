@@ -203,10 +203,16 @@ def _add_image(doc, alt, path):
 
     shape = None
     if problem is None:
+        paragraphs_before = len(doc.paragraphs)
         try:
             shape = doc.add_picture(path)
         except Exception as e:  # python-docx raises several unrelated types for a corrupt image
-            problem = f"could not be read as an image ({e})"
+            detail = str(e) or type(e).__name__
+            problem = f"could not be read as an image ({detail})"
+            # add_picture() creates its paragraph before it parses the file, so
+            # a failure leaves an empty one behind -- drop it.
+            for stray in doc.paragraphs[paragraphs_before:]:
+                stray._element.getparent().remove(stray._element)
 
     if problem is not None:
         print(f"[docx_builder] Image not embedded ({problem}): {path}", file=sys.stderr)

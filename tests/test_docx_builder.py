@@ -480,3 +480,5 @@ def test_corrupt_image_file_does_not_crash_the_export(tmp_path):
     texts = [p.text for p in doc.paragraphs]
     assert any("could not be read as an image" in t for t in texts)
     assert "Still here." in texts
+    assert "" not in texts  # no stray empty paragraph left behind by the failed insert
+    assert not any(t.endswith("()]") for t in texts)  # the reason is never an empty "()"

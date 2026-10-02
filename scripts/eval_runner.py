@@ -337,9 +337,18 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     except Exception as exc:  # noqa: BLE001 - an API or runner failure is a recorded, non-passing run
         error = redact(f"{type(exc).__name__}: {exc}")[:300]  # redact the WHOLE message, then cut it
     finally:
-        os.chdir(original)
-        if not keep_work:
-            shutil.rmtree(workdir, ignore_errors=True)
+        # Ctrl-C can land here too, AFTER the call was paid for: the cwd is always restored first (retrying
+        # once if the interrupt hit the chdir itself), and the interrupt is remembered, not lost.
+        try:
+            os.chdir(original)
+        except KeyboardInterrupt:
+            interrupted = True
+            os.chdir(original)
+        try:
+            if not keep_work:
+                shutil.rmtree(workdir, ignore_errors=True)
+        except KeyboardInterrupt:
+            interrupted = True
 
     live_calls = [c for c in router.calls if c["live"]]
     first = live_calls[0] if live_calls else {}
@@ -353,10 +362,17 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     if interrupted:
         if not live_calls:   # nothing was in flight and nothing was spent: there is no call to account for
             raise KeyboardInterrupt
-        # The call WAS attempted (and counted against the cap) but never completed: record it as exactly
-        # that, so per-run call counts still sum to the budget. No model observation exists for this run.
+        # The call WAS attempted (and counted against the cap): record it as exactly that, so per-run call
+        # counts still sum to the budget. Whether a result exists depends on WHEN the interrupt landed.
+        if role in router.responses:
+            why = ("interrupted (Ctrl-C) after the model call completed (during scoring or cleanup); the output "
+                   "is kept but was not scored")
+        elif first.get("no_text"):
+            why = "interrupted (Ctrl-C) after the model call completed (it returned no text)"
+        else:
+            why = "interrupted (Ctrl-C) while the call was in flight; no model result was observed"
         return live_run(label, [], status="interrupted", extra=extra, output_text=router.responses.get(role),
-                        error="interrupted (Ctrl-C) while the call was in flight; no model result was observed")
+                        error=why)
     if error or (role not in router.responses and not first.get("no_text")):
         return live_run(label, [], status="error", error=error or "the live call produced no response", extra=extra)
     if first.get("no_text"):
@@ -407,6 +423,7 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
     budget = CallBudget(max_calls)
     live_client = BudgetedClient(client, budget)
     out_cases, aborted, abort_reason, abort_category, consecutive_errors = [], False, None, None, 0
+    progress_error = None
     total_runs, done = len(cases) * repeats, 0
     for case in cases:
         ctx = build_context(case)
@@ -426,17 +443,25 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
             runs.append(run)  # in the in-memory record before anything below can fail
             try:
                 append_run_line(run_dir, case["id"], run)
-                done += 1
-                if progress is not None:
-                    progress(done, total_runs, case["id"], run)
             except KeyboardInterrupt:
                 aborted, abort_category = True, "interrupted"
                 abort_reason = "interrupted by the operator (Ctrl-C) while a finished run was being recorded"
                 break
-            except OSError as exc:  # e.g. disk full: stop, and keep what is in memory
+            except OSError as exc:  # ONLY the runs.jsonl write: e.g. disk full. Stop, keep what is in memory
                 aborted, abort_category = True, "write error"
-                abort_reason = f"could not append to runs.jsonl ({type(exc).__name__}); stopped so no paid-for run is lost"
+                abort_reason = (f"could not append to runs.jsonl ({type(exc).__name__}); "
+                                "stopped so no paid-for run is lost")
                 break
+            done += 1
+            if progress is not None:
+                try:
+                    progress(done, total_runs, case["id"], run)
+                except KeyboardInterrupt:
+                    aborted, abort_category = True, "interrupted"
+                    abort_reason = "interrupted by the operator (Ctrl-C) while a finished run was being reported"
+                    break
+                except Exception as exc:  # noqa: BLE001 - cosmetic output must never cost a paid-for evaluation
+                    progress, progress_error = None, type(exc).__name__  # stop reporting; the run is already kept
             if run["status"] == "interrupted":   # Ctrl-C while a call was in flight: recorded, then stop
                 aborted, abort_category = True, "interrupted"
                 abort_reason = "interrupted by the operator (Ctrl-C) while a model call was in flight"
@@ -468,4 +493,6 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
         aborted=aborted, abort_reason=abort_reason, abort_category=abort_category,
         environment={"anthropic_sdk_version": sdk_version(), "base_url": _client_base_url(client)})
     record["selected_case_ids"] = [c["id"] for c in cases]
+    if progress_error:
+        record["progress_error"] = progress_error  # the exception TYPE only; progress reporting was switched off
     return record

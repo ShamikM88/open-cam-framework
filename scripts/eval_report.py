@@ -239,8 +239,11 @@ def _row_result(run):
             return "pass" if run["passed"] else "caught (expected)"
         return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
     if run.get("status") == "interrupted":
-        return ("INTERRUPTED -- the call was in flight when the operator pressed Ctrl-C; it counted against the "
-                "cap but produced no result (counted as a non-pass)")
+        if run.get("output_text") is not None:  # the reply had arrived; the interrupt came later
+            return ("INTERRUPTED after the call completed -- Ctrl-C during scoring, recording or cleanup; the "
+                    "output is kept but was not scored (counted as a non-pass)")
+        return ("INTERRUPTED while the call was in flight -- it counted against the cap but no result was "
+                "observed (counted as a non-pass)")
     if run.get("status") == "no_text":
         return (f"NO TEXT ({_cell(run.get('stop_reason') or 'no stop reason')}) -- the model returned no text, "
                 "e.g. a refusal; read it as its own outcome, counted as a non-pass")

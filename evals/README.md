@@ -155,7 +155,7 @@ prompt-hash helper, so it needs the framework's own dependencies installed -- bu
 client. `--live` additionally needs `ANTHROPIC_API_KEY`.
 
 A baseline summary records only the *category* of an abort ("call cap", "consecutive errors",
-"interrupted"), never the free-text reason, because that text can embed an API or exception message
+"interrupted", "write error"), never the free-text reason, because that text can embed an API or exception message
 and the file is meant to be copied into a tracked path. It also records, per case, how many runs
 errored, were interrupted, returned no text, ended incomplete, or ended with a refusal stop reason; the
 model the API reports it actually served for each case, beside the requested model; and the anthropic
@@ -205,13 +205,19 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
     in `output_text` and the error names only the exception type); three in a row abort the evaluation;
   - `no_text` -- the model returned no text (for example a refusal): a result in its own right, shown
     as such in the pack and never counted toward the error streak;
-  - `interrupted` -- Ctrl-C arrived after a call was attempted but before its result was recorded. If
-    the call was still in flight, no model result was observed; if it had completed and Ctrl-C hit
-    during scoring, the output is kept in `output_text` but was never scored. Either way the call is
-    recorded and counted. (Ctrl-C before any call is in flight records no run at all, because nothing
-    was spent.) Ctrl-C while a finished run is being appended to `runs.jsonl` or reported as progress
-    keeps that run in the record and stops the evaluation; a disk-write failure there does the same
-    (`abort_category: "write error"`).
+  - `interrupted` -- Ctrl-C arrived after a call was attempted but before its result was recorded.
+    If the call was still in flight, no model result was observed. If it had completed and Ctrl-C hit
+    during scoring or the work-directory cleanup, the output is kept in `output_text` but was never
+    scored (the review pack says which of the two happened). Either way the call is recorded and counted,
+    and the working directory is restored first. (Ctrl-C before any call is in flight records no run at
+    all, because nothing was spent.) Ctrl-C while a finished run is being appended to `runs.jsonl` or
+    reported as progress keeps that run in the record and stops the evaluation.
+
+  Two related behaviours: a failure to append to
+  `runs.jsonl` (for example a full disk; `abort_category: "write error"`; only that write is treated this
+  way), and, in the opposite direction, a failing progress callback (for example a closed stderr pipe),
+  which never stops anything: progress reporting is switched off, the evaluation continues, and the
+  record notes the exception type as `progress_error`.
 
   Separately from `status`, every response has a **stop state**, derived from the API's `stop_reason`:
   `complete` (`end_turn`, `stop_sequence`), `refusal` (the model declined; any text it returned is
@@ -223,8 +229,17 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
   block or an empty refusal does not crash a run. Error strings are defensively scrubbed of the
   configured API key and anything shaped like one (the whole message is scrubbed first and only then cut
   to length, so a key straddling the cut cannot leave a fragment) before they are recorded.
-  The residual window is a *second* Ctrl-C arriving while the first is being handled, which cannot be
-  recovered from; the paid-for runs already in `runs.jsonl` survive it, but `results.json` may not be written.
+  Every step after a call is attempted -- the call itself, scoring, recording the run, and the
+  work-directory cleanup -- keeps the run on a single Ctrl-C. The one window that cannot be recovered
+  from is a *second* Ctrl-C arriving while the first is still being handled; the paid-for runs already in
+  `runs.jsonl` survive it, but `results.json` may not be written.
+- **A refusal can still pass some oracles (v1 transparency note).** A response whose stop reason is
+  `refusal` but that still returns text is scored on that text, and most oracles check the *form* of the
+  output, so such a response can satisfy some of them (for example one that declares no figures passes
+  `figures_grounded`) and therefore contribute to that category's observed pass rate. v1 does not
+  reinterpret or exclude them: refusals are counted separately (`refusals` in a baseline, a line in the
+  CLI summary, a `REFUSAL` marker in the pack, and a `refusal-stop` count in comparison rows), and the
+  human-review section is where the substance gets judged. Read the counts beside any pass rate.
 - **Progress and interruption.** One line per finished run goes to stderr (case id, repeat, pass/FAIL/
   ERROR, stop reason -- never model text). Ctrl-C stops the run cleanly: the record is still written
   (`abort_category: "interrupted"`), everything already paid for is kept, and the review pack names the

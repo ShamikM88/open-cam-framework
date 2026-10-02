@@ -611,18 +611,20 @@ a second look in review.
   each finished run is appended to `runs.jsonl` immediately; a run that errors stays in the pass-rate
   denominator, and three errors in a row abort. Every non-`ok` run status (`error`, including a scoring
   failure after a paid-for call, whose output is still kept; `no_text`, e.g. a refusal; `interrupted`,
-  Ctrl-C after a call was attempted -- in flight, or during scoring with the output kept) is a recorded
-  non-pass, so per-run call counts sum to the budget (a second Ctrl-C during handling of the first is the
-  one unrecoverable window; `runs.jsonl` still holds every earlier run). A response's stop state
-  (`complete` / `refusal` / `incomplete`) is recorded too: a refusal is a result in its own right, an
-  incomplete one makes a baseline partial. The
-  reply is read by joining text blocks, error strings are scrubbed of the API key, and the per-run
-  `stop_reason`/token counts/served model are recorded (a baseline keeps the served model beside the
-  requested one), with incomplete output flagged in the pack. The plan shows the models, `max_tokens`, output-token bound and endpoint before the `yes`, and the
-  runner refuses an installed `anthropic` older than `requirements.txt`'s floor (the installed version is
-  recorded). A baseline keeps only an abort *category* (never the free-text reason), and
-  `--export-baseline` **refuses a partial run** (aborted, errored, interrupted, truncated or incomplete)
-  unless `--allow-partial`, which marks the file `partial`. Three result types are kept apart: **deterministic
+  Ctrl-C after a call was attempted -- in flight, or during scoring or cleanup with the output kept) is a
+  recorded non-pass, so per-run call counts sum to the budget (a second Ctrl-C during handling of the
+  first is the one unrecoverable window; `runs.jsonl` still holds every earlier run). A response's stop
+  state (`complete` / `refusal` / `incomplete`) is recorded too: a refusal is a result in its own right
+  (it is scored on any text it returned, so it can still satisfy some form-checking oracles and
+  contribute to a pass rate -- counted separately and documented in `evals/README.md`), an incomplete
+  one makes a baseline partial. The reply is read by joining text blocks, error strings are scrubbed of
+  the API key, and the per-run `stop_reason`/token counts/served model are recorded (a baseline keeps
+  the served model beside the requested one), with incomplete output flagged in the pack. The plan shows
+  the models, `max_tokens`, output-token bound and endpoint before the `yes`, and the runner refuses an
+  installed `anthropic` older than `requirements.txt`'s floor (the installed version is recorded). A
+  baseline keeps only an abort *category* (never the free-text reason), and `--export-baseline`
+  **refuses a partial run** (aborted, errored, interrupted, truncated or incomplete) unless
+  `--allow-partial`, which marks the file `partial`. Three result types are kept apart: **deterministic
   oracle results** (an assertion marked `"scored": false` is an observation that never counts toward
   pass/fail), **observed pass rates** over repeated live runs (never described as "proven safe"), and
   **human-review observations** (no pass/fail). **Most oracles are format / self-declaration checks, not

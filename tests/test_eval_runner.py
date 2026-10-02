@@ -865,7 +865,7 @@ def test_ctrl_c_in_the_progress_callback_keeps_the_finished_run_and_returns_a_re
                       repo_root=env["repo"], progress=progress)
     runs = record["cases"][0]["runs"]
     assert len(runs) == 2 and record["aborted"] and record["abort_category"] == "interrupted"
-    assert "while a finished run was being recorded" in record["abort_reason"]
+    assert "while a finished run was being reported" in record["abort_reason"]
     assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 2
 
 
@@ -963,3 +963,115 @@ def test_a_run_dir_that_already_holds_paid_results_is_never_removed_after_a_cras
         run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "1", "--yes", "--out", str(tmp_path)])
     (run_dir,) = list(tmp_path.iterdir())
     assert (run_dir / "runs.jsonl").read_text(encoding="utf-8") == '{"paid": "for"}\n'
+
+# ---------------------------------------------------------------------------
+# Sixth round: Ctrl-C during cleanup, a failing progress callback never costs a run, pack wording.
+# ---------------------------------------------------------------------------
+
+def _interrupt_cleanup_of(case_id, monkeypatch):
+    """Make removing THIS case's per-run work directory raise KeyboardInterrupt (the pipeline has finished
+    and the call is paid for by then); every other removal behaves normally."""
+    real = eval_runner.shutil.rmtree
+
+    def rmtree(path, *args, **kwargs):
+        if os.path.basename(str(path)).startswith(f"{case_id}-"):
+            raise KeyboardInterrupt
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(eval_runner.shutil, "rmtree", rmtree)
+
+
+def test_ctrl_c_during_post_call_cleanup_keeps_the_paid_output_and_records_the_call(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    before = os.getcwd()
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    assert run["status"] == "interrupted" and not run["passed"]
+    assert run["live_calls"] == 1 and budget.calls == 1 and run["model"] and run["prompt_hash"]
+    assert run["output_text"] == good_maker_text(case)  # the paid-for output is kept...
+    assert "after the model call completed" in run["error"] and "was not scored" in run["error"]
+    assert os.getcwd() == before
+
+
+def test_the_accounting_invariant_holds_when_ctrl_c_lands_in_the_cleanup_window(env, monkeypatch):
+    dataset, cases = _dataset("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    before = os.getcwd()
+    record = run_live(dataset, cases, 4, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"])
+    runs = record["cases"][0]["runs"]
+    assert [r["status"] for r in runs] == ["interrupted"] and record["abort_category"] == "interrupted"
+    assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 1
+    assert os.getcwd() == before and "output_text" in runs[0]
+
+
+def test_ctrl_c_in_the_chdir_back_out_still_restores_the_working_directory(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    real_chdir, state = os.chdir, {"fired": False}
+    before = os.getcwd()
+
+    def flaky_chdir(path):
+        in_run_dir = os.path.basename(os.getcwd()).startswith("fab-no-financials-")
+        if in_run_dir and not state["fired"] and os.path.abspath(str(path)) == os.path.abspath(before):
+            state["fired"] = True
+            raise KeyboardInterrupt
+        return real_chdir(path)
+
+    monkeypatch.setattr(eval_runner.os, "chdir", flaky_chdir)
+    run, _ = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    assert state["fired"] and run["status"] == "interrupted" and run["live_calls"] == 1
+    assert os.getcwd() == before
+
+
+def test_an_interrupted_post_call_run_is_described_truthfully_in_the_pack():
+    from eval_report import _row_result
+    after = {"kind": "live", "status": "interrupted", "passed": False, "output_text": "the whole draft"}
+    in_flight = {"kind": "live", "status": "interrupted", "passed": False}
+    assert "after the call completed" in _row_result(after) and "was not scored" in _row_result(after)
+    assert "no result" not in _row_result(after)
+    assert "while the call was in flight" in _row_result(in_flight) and "no result was observed" in _row_result(in_flight)
+
+
+def test_a_failing_progress_callback_never_costs_a_run_or_stops_the_evaluation(env):
+    dataset, cases = _dataset("fab-no-financials")
+    seen = {"n": 0}
+
+    def broken_progress(done, total, case_id, run):
+        seen["n"] += 1
+        raise BrokenPipeError("stderr is closed")  # an OSError, but NOT a runs.jsonl write failure
+
+    record = run_live(dataset, cases, 4, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"], progress=broken_progress)
+    runs = record["cases"][0]["runs"]
+    assert len(runs) == 4 and not record["aborted"] and record["abort_category"] is None
+    assert seen["n"] == 1 and record["progress_error"] == "BrokenPipeError"  # switched off after the first failure
+    assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 4
+    lines = open(os.path.join(env["run_dir"], "runs.jsonl"), encoding="utf-8").read().splitlines()
+    assert len(lines) == 4  # every run still persisted
+
+
+def test_a_progress_failure_that_is_not_an_oserror_also_keeps_everything(env):
+    dataset, cases = _dataset("fab-no-financials")
+
+    def broken_progress(done, total, case_id, run):
+        raise ValueError("bad format string")
+
+    record = run_live(dataset, cases, 3, 10, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"], progress=broken_progress)
+    assert len(record["cases"][0]["runs"]) == 3 and not record["aborted"]
+    assert record["progress_error"] == "ValueError" and "bad format" not in json.dumps(record)
+
+
+def test_a_clean_run_has_no_progress_error_field(env):
+    dataset, cases = _dataset("fab-no-financials")
+    record = run_live(dataset, cases, 1, 5, env["run_dir"], FakeClient(lambda kw: good_maker_text(cases[0])),
+                      repo_root=env["repo"], progress=lambda *a: None)
+    assert "progress_error" not in record
+
+
+def test_an_interrupt_after_a_no_text_reply_says_so(env, monkeypatch):
+    case = dataset_case("inj-source-block-obfuscated")
+    _interrupt_cleanup_of("inj-source-block-obfuscated", monkeypatch)
+    run, _ = one_run(env, case, ShapedClient(lambda kwargs: _resp([], stop_reason="refusal")))
+    assert run["status"] == "interrupted" and run["live_calls"] == 1
+    assert "after the model call completed (it returned no text)" in run["error"]

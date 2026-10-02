@@ -408,7 +408,7 @@ def test_ctrl_c_still_writes_the_record_and_exits_non_zero(monkeypatch, tmp_path
     assert code == 1 and "ABORTED early (interrupted)" in capsys.readouterr().err
     (run_dir,) = list(tmp_path.iterdir())
     pack = (run_dir / "review_pack.md").read_text(encoding="utf-8")
-    assert "INTERRUPTED -- the call was in flight" in pack and "ABORTED EARLY (interrupted)" in pack
+    assert "INTERRUPTED while the call was in flight" in pack and "ABORTED EARLY (interrupted)" in pack
     record = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
     assert record["aborted"] and record["abort_category"] == "interrupted" and len(record["cases"][0]["runs"]) == 2
 

@@ -208,7 +208,7 @@ def test_an_unscored_observation_appears_in_the_human_review_section_not_as_a_fa
 def test_an_existing_run_directory_is_never_overwritten(tmp_path):
     record = _record_with_live_runs()
     write_results(record, out_root=str(tmp_path))
-    with pytest.raises(ResultsPathError, match="already exists"):
+    with pytest.raises(ResultsPathError, match="already holds results.json"):
         write_results(record, out_root=str(tmp_path))
 
 
@@ -405,3 +405,76 @@ def test_an_errored_live_run_has_its_own_label_in_the_pack():
     pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "c"}]},
                                            [case("c", "fabrication", [run])], "r1"))
     assert "| repeat-1 (live) | ERROR `boom` |" in pack
+
+# ---------------------------------------------------------------------------
+# Third independent review of the PR for #151.
+# ---------------------------------------------------------------------------
+
+def test_the_pack_header_neutralises_model_names_and_hashes():
+    record = _record_with_live_runs()
+    record["models"] = {"maker_model": "## FAKE HEADING\n| x | y |", "checker_model": "## FAKE CHECKER\n| z |"}
+    record["prompt_hashes"] = {"underwriter_prompt_hash": "## ALSO FAKE"}
+    pack = render_review_pack(record)
+    forged = ("## FAKE", "## ALSO", "| x", "| z")
+    assert not any(line.startswith(forged) for line in pack.splitlines())
+
+
+def test_results_json_is_written_last_and_a_failed_write_leaves_no_temp_file_and_allows_a_retry(tmp_path, monkeypatch):
+    record = _record_with_live_runs()
+    real_replace = os.replace
+
+    def fail_on_results(src, dst):
+        if str(dst).endswith("results.json"):
+            raise OSError("disk full")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", fail_on_results)
+    with pytest.raises(OSError):
+        write_results(record, out_root=str(tmp_path))
+    run_dir = tmp_path / record["run_id"]
+    assert (run_dir / "review_pack.md").exists()          # written first
+    assert not (run_dir / "results.json").exists()        # written last: absent means incomplete
+    assert [p.name for p in run_dir.iterdir() if p.name.endswith(".tmp")] == []
+
+    monkeypatch.setattr(os, "replace", real_replace)
+    write_results(record, out_root=str(tmp_path))          # the failed attempt does not block a retry
+    assert (run_dir / "results.json").exists()
+
+
+def test_a_failure_on_the_first_file_also_leaves_no_temp_file(tmp_path, monkeypatch):
+    record = _record_with_live_runs()
+
+    def always_fail(src, dst):
+        raise OSError("nope")
+
+    monkeypatch.setattr(os, "replace", always_fail)
+    with pytest.raises(OSError):
+        write_results(record, out_root=str(tmp_path))
+    run_dir = tmp_path / record["run_id"]
+    assert [p.name for p in run_dir.iterdir()] == []
+
+
+@needs_git
+def test_the_repo_root_itself_is_resolved_so_a_link_to_the_repo_cannot_fail_open(tmp_path):
+    repo = tmp_path / "real-repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / ".gitignore").write_text("evals/results/\n", encoding="utf-8")
+    link = tmp_path / "link-to-repo"
+    if not _make_dir_link(link, repo):
+        pytest.skip("cannot create a symlink or junction in this environment")
+    not_ignored = repo / "evals" / "other"
+    with pytest.raises(ResultsPathError, match="not git-ignored"):
+        assert_results_dir_is_ignored(str(not_ignored), repo_root=str(link))
+    assert_results_dir_is_ignored(str(repo / "evals" / "results" / "r1"), repo_root=str(link))  # ignored: fine
+
+
+def test_only_unscored_assertions_become_observations_in_the_human_review_section():
+    run = eval_report.live_run("repeat-1", [
+        {"oracle": "verdict_is", "passed": False, "scored": True, "reason": "SCORED-FAIL-REASON"},
+        {"oracle": "canary_absent", "passed": False, "scored": False, "reason": "UNSCORED-OBSERVATION"}])
+    pack = render_review_pack(build_record("live", {"version": "v1", "cases": [{"id": "c"}]},
+                                           [case("c", "injection", [run])], "r1"))
+    section_three = pack[pack.index("## 3."):]
+    assert "UNSCORED-OBSERVATION" in section_three and "SCORED-FAIL-REASON" not in section_three
+    assert "SCORED-FAIL-REASON" in pack[:pack.index("## 2.")]  # the scored failure is in section 1

@@ -210,8 +210,9 @@ def render_review_pack(record):
                                          if record["mode"] == "dry-run" else ""),
         f"- Dataset: version `{record['dataset']['version']}` (content hash `{record['dataset'].get('content_hash')}`), "
         f"{record['dataset']['case_count']} cases",
-        f"- Models: maker `{record['models'].get('maker_model')}`, checker `{record['models'].get('checker_model')}`",
-        f"- Prompt hashes: {json.dumps(record['prompt_hashes'])}",
+        f"- Models: maker {_cell(record['models'].get('maker_model'))}, "
+        f"checker {_cell(record['models'].get('checker_model'))}",
+        f"- Prompt hashes: {_cell(json.dumps(record['prompt_hashes']), limit=400)}",
         f"- Harness version: {record['harness_version']}",
         f"- Model calls: {record['usage']['calls']} made (planned for a live run: {record['planned_live_calls']}, "
         f"cap: {record['call_cap']})",
@@ -278,18 +279,25 @@ def write_results(record, out_root=None, repo_root=None):
     root = out_root or os.path.join(repo_root or REPO_ROOT, RESULTS_ROOT)
     out_dir = os.path.join(root, record["run_id"])
     assert_results_dir_is_ignored(out_dir, repo_root, probe_names=("results.json", "review_pack.md"))
-    try:
-        os.makedirs(out_dir, exist_ok=False)
-    except FileExistsError as exc:
-        raise ResultsPathError(f"{out_dir} already exists; refusing to overwrite an earlier run") from exc
+    os.makedirs(out_dir, exist_ok=True)  # a live run creates its directory up front, for incremental output
+    if os.path.exists(os.path.join(out_dir, "results.json")):
+        raise ResultsPathError(f"{out_dir} already holds results.json; refusing to overwrite an earlier run")
     # Render BOTH files before writing either, then write each atomically (temp file + replace): a
     # failure while rendering can no longer leave a truncated results.json after the live calls are
     # spent. errors="backslashreplace": a lone surrogate in model text must not abort the write.
-    documents = (("results.json", json.dumps(record, indent=2, ensure_ascii=False)),
-                 ("review_pack.md", render_review_pack(record)))
-    for name, text in documents:
-        target = os.path.join(out_dir, name)
-        with open(target + ".tmp", "w", encoding="utf-8", errors="backslashreplace") as f:
-            f.write(text)
-        os.replace(target + ".tmp", target)
+    # results.json is written LAST: its presence means the run's record is complete, and it is what the
+    # overwrite guard keys on, so a failure part-way leaves no half-written record that blocks a retry.
+    documents = (("review_pack.md", render_review_pack(record)),
+                 ("results.json", json.dumps(record, indent=2, ensure_ascii=False)))
+    try:
+        for name, text in documents:
+            target = os.path.join(out_dir, name)
+            with open(target + ".tmp", "w", encoding="utf-8", errors="backslashreplace") as f:
+                f.write(text)
+            os.replace(target + ".tmp", target)
+    finally:
+        for name, _ in documents:  # never leave a half-written temp file behind
+            leftover = os.path.join(out_dir, name + ".tmp")
+            if os.path.exists(leftover):
+                os.remove(leftover)
     return out_dir

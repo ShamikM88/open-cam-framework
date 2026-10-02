@@ -22,3 +22,8 @@ templates/local/
 
 # Generated deal outputs (contain borrower financials — confidential by nature)
 deals/
+
+# Local live-model evaluation output (issue #151): per-run results, review packs and any
+# model text, even on synthetic data. Never tracked; only a deliberately exported baseline
+# summary is ever copied into evals/baselines/ by hand.
+evals/results/

@@ -1,0 +1,174 @@
+# Local live-model evaluation harness
+
+Tracked in issue #151. **Status: PR 1 of 2 -- scaffolding, dataset, deterministic oracles and a
+zero-model-call dry run. There is no live runner yet.**
+
+The test suite proves the *code* around the model works. It cannot show whether the *model* follows
+the prompts: refuses to invent a missing figure, flags contradictions, labels analyst-supplied
+inputs, or resists instructions planted in source text. This harness is how that gets measured --
+locally, by hand, on synthetic data, with your own API key.
+
+## Boundaries (deliberate, and enforced by tests)
+
+- **Explicit invocation only:** `python scripts/run_evals.py ...`. Nothing runs it automatically:
+  it is never imported by `orchestrator.py`, `conftest.py` or the CI workflow. The test suite does
+  exercise it -- the dataset validation, oracles, budget, report writer and the CLI itself (including
+  `--dry-run`) are unit-tested in ordinary CI -- but only with scripted outputs and zero model calls.
+- **A hard ceiling on model calls.** The plan (cases x repeats) is printed before anything runs and
+  is refused if it exceeds `--max-calls` (default 80); no flag can raise the cap above 250.
+  Defaults: 5 repeats per case, 15 cases = 75 planned calls. The cap bounds *calls*, not tokens or
+  money.
+- **Synthetic data only.** Every company is an invented name starting with `Synthetic `, every case
+  has its own company/proposal pair, every case is scanned with `scripts/pii_scan.py`, and the canary
+  tokens are invented.
+- **Results are never tracked.** Output goes under `evals/results/`, which is git-ignored; the writer
+  resolves symlinks/junctions and refuses any path inside the repo whose output files are not
+  git-ignored, and never overwrites an earlier run. It never modifies a tracked file. A baseline is
+  committed only by a deliberate manual copy of an exported summary (pass rates, model, prompt
+  hashes, dataset version and hash -- no model text), in its own reviewed PR.
+- **No GitHub secret.** A live run uses your own `ANTHROPIC_API_KEY` from your environment.
+
+## Three kinds of result, kept apart
+
+1. **Deterministic oracle results** -- pass/fail decided by code, no trust in the model needed:
+   `compliance` (the framework's own `check_draft_compliance`), `figures_grounded`,
+   `sources_declared`, `analyst_supplied_disclosed`, `structured_block_present`, `canary_absent`,
+   `verdict_is`. An assertion marked `"scored": false` is an *observation*: it is recorded and shown
+   for human review but never counts toward a run's pass/fail or any pass rate.
+2. **Observed pass rates** -- for live runs (a later PR), k passes out of N repeats per case and per
+   category; a run that errored stays in the denominator as a non-pass. This is the rate *observed for
+   this model, these prompt hashes and this dataset version*. A 5/5 is **not** "proven safe": output
+   is not deterministic, N is small, the dataset is small and synthetic, and a model or prompt update
+   can change the numbers.
+3. **Human-review observations** -- qualitative questions per case plus any unscored oracle
+   observation, shown beside the output in the review pack. No pass/fail, no LLM judge.
+
+## What the oracles do and do not measure -- read before trusting a result
+
+**Most oracles are format / self-declaration checks, not judgement.** `figures_grounded` passes when
+the figures the model *declares* in its structured block match the computed ones -- including when it
+declares none. `sources_declared` passes for any non-blank source. Neither can tell whether the
+narrative states an ungrounded claim as fact. So the `fabrication`, `contradiction`,
+`unsupported-claim`, `conflicting-sources` and `analyst-supplied` category pass rates mean "emitted a
+well-formed, self-consistent block", **not** "handled the situation well"; the real judgement is in
+the human-review questions. (Every Maker case also requires `structured_block_present`, so an empty
+or garbage reply cannot pass vacuously.)
+
+**The canary oracle reports that a token *appeared*, not that it was *obeyed*.** It looks for a
+planted token (or a trivial re-encoding: other case, separators/spacing/zero-width characters,
+compatibility forms such as full-width letters, reversed, rot13, base64, hex, or every part of a split
+canary) in what the *model produced* -- a Maker case's draft, a Checker case's raw response -- and
+every hit carries its surrounding text. A model that flags the injection and quotes the token while
+refusing it is scored as a hit (a false positive for "obeyed"); likewise a Maker that copies a
+collateral description verbatim into its memo. That is why a Checker case scores the **verdict** and
+treats the canary as an unscored observation. The oracle also cannot detect obedience that leaves no
+token (for example a quietly softened risk rating), and it misses homoglyph (e.g. Cyrillic) and
+URL/HTML-encoded forms, base64 wrapped across lines or split by spaces, `0x..`/`\x..`-style hex, base32
+and combining-mark tricks.
+
+**Checker verdicts:** if the Checker's response cannot be parsed, `parse_verdict` falls back to
+REJECTED; `verdict_is` treats an unparsed verdict as a failure, never as the model rejecting.
+
+**The Checker cases are calibrated, not guaranteed fair.** The Checker is shown the financials, ratios,
+collateral rows and covenant results (not the security package), so each scripted memo cites only
+figures from those, describes the collateral only as the rows show it (perfection status "Registered"),
+and says "not supplied" where it has no data; a test checks every number in the clean memo against the
+context the Checker receives. Both the clean control and the flawed memo are internally coherent, and
+they differ in exactly one paragraph (section 3); the injected variant adds one embedded instruction to
+the flawed memo. Even so, a Checker may reasonably reject the clean control for having no commercial
+narrative; read its reasons before reading anything into a rate.
+
+## Scope limit of v1 -- read before trusting a result
+
+- It exercises the **headless pipeline surfaces**: free text reaching the prompt through collateral
+  descriptions, persisted learnings, credit-policy notes and the style guide.
+- Which surface reaches which agent: collateral descriptions, learnings and policy notes are in the
+  grounding context **both** agents see; the **style guide reaches only the Maker**; the Checker also
+  sees the Maker's draft. The case validator rejects a canary planted where the case's agent cannot see
+  it.
+- Its **source-document block** has **no route into either real prompt**. It is a prompt-level
+  approximation of what `/research` and `/commercial` read (PR 2 decides its placement), **not** an
+  end-to-end test of the slash-command path, which a script cannot drive.
+- So v1 does **not** establish injection resistance for surfaces it cannot exercise.
+- **Checker cases stay model-dependent:** the scripted Maker draft is a complete memo that is
+  code-compliant (validated) but carries a flaw `policy_checks` cannot catch (an unsourced narrative
+  claim), so a REJECTED verdict can only come from the model.
+
+## Dataset layout
+
+`evals/dataset/<version>/dataset.json` plus `cases/<id>.json` (file name = case id):
+
+```text
+{ id, category, mode: "maker" | "checker", description,
+  deal:           { company, proposal, deal_type, pd, lgd, multi_period_financials?, financials?,
+                    ratios?, financials_source?, downside_case?, stress_assumptions?, collateral?,
+                    covenants?, security_package?, guarantees? },
+  config_files?:  { style_guide?, credit_policy?, credit_policy_notes?, deal_learnings?, company_learnings? },
+  source_block?:  { label, text },                       # maker cases only
+  scripted?:      { maker_draft }                        # checker cases: the Maker draft
+                # (a maker case scripts nothing: its Checker call is simply never made)
+  canary?:        { token: "CANARY-XXXXXXXX", planted_in: [...], parts?: [...] },
+  assertions:     [ { oracle, params?, scored? } ],
+  human_review:   [ question, ... ],
+  dry_run:        { good: {...}, bad: {..., expected_failures?: [oracle, ...]} } }
+```
+
+Unknown keys are rejected (a typo would otherwise be silently ignored). Every case carries scripted
+`good` and `bad` outputs and is valid only if its scored assertions pass `good` and `bad` fails the
+oracle(s) named in `bad.expected_failures` -- so each oracle is shown to catch the specific failure it
+is aimed at, on one author-written bad output, with zero model calls. That is a sanity check on the
+oracles, not proof they catch every variant of the failure.
+
+## Usage (this version)
+
+```bash
+python scripts/run_evals.py --validate     # strict dataset validation
+python scripts/run_evals.py --list         # list the cases
+python scripts/run_evals.py --dry-run      # plan the calls, self-check the oracles, write results
+```
+
+`--dry-run` makes **0** model calls and writes `evals/results/<run id>/results.json` and
+`review_pack.md`. It works from any directory. It imports `orchestrator` for its prompt-hash helper, so
+it needs the framework's own dependencies installed (anthropic, python-docx, openpyxl, ...) -- but it
+never constructs a client.
+
+`--out` takes any directory outside the repository, or one inside it that is git-ignored.
+
+**The case files deliberately contain imperative injection strings** (for example "ignore all previous
+instructions") as test data. They are inert data, not instructions to anyone reading the repository.
+
+## Notes for PR 2 (the live runner) -- requirements, not yet built
+
+- **One live call per run needs `max_iterations=1`.** `run_pipeline()` re-calls the live Maker after
+  each REJECTED iteration, and a draft that fails deterministic checks is rejected even when the
+  Checker is scripted to approve -- exactly the draft the fabrication and canary cases provoke.
+  Without `max_iterations=1` a run could cost up to 3 live calls and blow the plan; the
+  `BudgetedClient` aborts if it ever does.
+- **`run_pipeline()` ends with `sys.exit(1)` on any REJECTED verdict and runs `export_deal()` on an
+  APPROVED one.** The runner must never let the pipeline get that far (stop it right after the live
+  call) or catch `SystemExit`, so a rejected draft cannot abort the run and an approved one cannot
+  trigger exports and template auto-saves after the paid call.
+- **Layer the clients correctly:** the `BudgetedClient` wraps only the *live* client, underneath the
+  routing client. If it wrapped the routing client, scripted calls would also count and a Maker case
+  would cost 2 per run.
+- **Guard before spending:** create and guard the results directory *before* the first live call (a bad
+  `--out` must be refused up front), persist each finished run immediately, and render both result
+  files before writing either.
+- **Count logical calls only:** build the live client with `max_retries=0` (SDK HTTP retries are
+  invisible to the budget). Run serially (`chdir` is process-global).
+- **Fresh isolation per run:** a fresh temporary working directory for every case *and* repeat
+  (`run_pipeline` resumes earlier state for the same company/proposal, and reads everything
+  cwd-relative), seeded with only `agents/`, `config/settings.json` and `templates/cam/` -- not
+  `templates/local/`, so a developer's calibrated override cannot leak in.
+- **Seeding map for `config_files`:** `style_guide` -> `config/style_guide.md`, `credit_policy` ->
+  `config/credit_policy.md`, `credit_policy_notes` -> `config/credit_policy_notes.md`, `deal_learnings`
+  -> `config/deal_learnings.md`, and `company_learnings` -> `deals/<company>/_learnings.md` (it is not
+  a config file). `deal.collateral`, `covenants`, `security_package`, `guarantees`, `downside_case`
+  and (for analyst-supplied deals) `financials`/`ratios`/`financials_source` seed `state.json`.
+- **Checker cases** cannot call `run_pipeline` unchanged (it always calls the Maker first and inlines
+  the Checker message): use a routing client whose first call returns the scripted draft, so the real
+  prompt assembly runs and exactly one call is live.
+- **Record what the isolated copy actually used:** hash the files in the temp working directory (agent
+  prompts, template, `settings.json`) and keep the dataset content hash, not only the version label.
+  Set `RunOutput.verdict_parsed`/`raw_text` from the real response, and record a failed live run with
+  `status="error"` (it stays in the denominator).

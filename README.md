@@ -265,6 +265,14 @@ tests/` with no key set at all. Dedicated test files cover the dependency-free m
 prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
 against the code they're meant to stay in sync with.
 
+Separately, `evals/` holds a **local-only live-model evaluation harness** (`python scripts/run_evals.py`,
+see [`evals/README.md`](evals/README.md)) for measuring what those tests cannot -- whether the actual
+model follows the prompts (no invented figures, planted instructions not obeyed). It is run by hand with
+your own API key, on synthetic data only, under a hard call cap, and writes only to the git-ignored
+`evals/results/`; its live runner is not part of `pytest` or CI. It currently ships its dataset,
+deterministic oracles and a zero-model-call `--dry-run`; the live runner is still to come. Read its
+README before trusting any result: most oracles check the *form* of the output, not its judgement.
+
 CI also runs `ruff check . --select=E9,F63,F7,F82` and `bandit -r scripts/ -lll` before `pytest` --
 run those locally too if you want to catch what CI will catch before pushing:
 ```bash

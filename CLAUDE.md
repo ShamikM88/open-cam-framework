@@ -380,7 +380,17 @@ a second look in review.
   `deals/[Company]/[Proposal]_[Date]/` folder, auto-saves the draft as a new
   `templates/local/cam/<type>_cam.md` if that deal type had no template at all yet (never into
   the git-tracked `templates/cam/` -- see the confidentiality rule below), and exports
-  `.docx`/`.xlsx`.
+  `.docx`/`.xlsx`. **Which dated folder:** `export_deal()` itself still defaults to today when
+  `date_str` isn't given (a bare library call has nothing else to go on), so every caller that
+  has a deal in progress must resolve the date itself: `orchestrator.py` passes the `date_str`
+  it already resolved at the start of its run, and the CLI takes an optional `--date-str` that
+  otherwise falls back to `state_manager.resolve_date_str()`'s auto-discovery (the deal's
+  existing dated folder, most recent wins, else today for a brand-new deal; only a folder named
+  exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims another deal's
+  `Fleet_Q2_2026-05-01`, and `--date-str` must itself be a `YYYY-MM-DD` date). Without this a deal
+  finished days after it started exported into a new folder, disconnected from its own
+  `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
+  patch to re-home `state.json`.
 - **`scripts/template_resolver.py`** — pure path-resolution logic shared across the scripts
   above and `/assemble` (no `anthropic`/`docx`/`openpyxl` imports, so it's cheap to unit test):
   `cam_template_path(deal_type)` checks `templates/local/cam/` first, falls back to
@@ -391,9 +401,9 @@ a second look in review.
   `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
   an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
   today, so a deal resumed on a later calendar day still finds its original file. (This is
-  deliberately different from `deal_export.export_deal`'s own date handling, which always
-  defaults to today -- a one-shot export never needs to be found again later, so today is always
-  correct there.) `read_state(company, proposal)` returns the parsed dict or `None`.
+  deliberately different from the bare `deal_export.export_deal()` default, which is still
+  today -- so callers resolve the date themselves via `resolve_date_str()`, see that script's
+  entry above and issue #97.) `read_state(company, proposal)` returns the parsed dict or `None`.
   `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
   any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
   (reusing an existing one per the auto-discovery above), and returns the full merged state.

@@ -590,3 +590,39 @@ def test_write_state_leaves_no_stray_temp_file_behind(tmp_path):
     deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base))
     entries = os.listdir(deal_dir)
     assert entries == ["state.json"]
+
+
+# ---------------------------------------------------------------------------
+# Date discovery must only count real <proposal>_<YYYY-MM-DD> folders (found
+# in the independent review of the PR for issue #97, once exports started
+# relying on it).
+# ---------------------------------------------------------------------------
+
+def test_date_discovery_ignores_a_prefix_sharing_proposals_folder(tmp_path):
+    base = str(tmp_path)
+    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_2026-01-10"))
+    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_Q2_2026-05-01"))
+
+    assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-01-10"
+    assert resolve_date_str("Acme", "Fleet_Q2", base_dir=base) == "2026-05-01"
+
+
+def test_date_discovery_ignores_non_date_suffixes_and_files(tmp_path):
+    base = str(tmp_path)
+    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_foo"))
+    with open(os.path.join(base, "deals", "Acme", "Fleet_2099-01-01"), "w") as f:
+        f.write("a file, not a deal folder")
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert resolve_date_str("Acme", "Fleet", base_dir=base) == today
+
+
+def test_date_discovery_matches_bracketed_names_literally(tmp_path):
+    base = str(tmp_path)
+    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_2026-01-10"))
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    # "[A]cme" is a glob character class for "Acme" -- it must not match it.
+    assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == today
+    os.makedirs(os.path.join(base, "deals", "[A]cme", "Fleet_2026-02-02"))
+    assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == "2026-02-02"

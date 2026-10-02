@@ -495,11 +495,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     template_path = cam_template_path(deal_type)
     template_section = ""
     if template_path:
-        with open(template_path, encoding="utf-8") as f:
-            template_section = (
-                "\nFollow this exact CAM template structure, filling in every "
-                f"placeholder with grounded, sourced content:\n{f.read()}\n"
-            )
+        # Shipped (templates/cam/) or calibrate.py/deal_export-written (templates/local/cam/):
+        # both are always UTF-8, so strict -- same policy as the prompts above (issue #137).
+        template_section = (
+            "\nFollow this exact CAM template structure, filling in every "
+            f"placeholder with grounded, sourced content:\n{read_text(template_path)}\n"
+        )
 
     # Never blindly overwrite what an earlier run of this pipeline (or an
     # earlier slash-command step, if this deal was previously advanced that

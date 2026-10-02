@@ -288,6 +288,28 @@ def test_legacy_cp1252_style_guide_is_still_read_but_with_a_warning(project_root
     assert "style_guide.md" in err and "cp1252" in err
 
 
+@pytest.mark.parametrize("relpath", [
+    "config/credit_policy_notes.md",
+    "config/deal_learnings.md",
+    "deals/Acme Corp/_learnings.md",
+])
+def test_every_other_legacy_capable_user_file_also_falls_back_with_a_warning(project_root, capsys, relpath):
+    legacy_text = "Note £ and – dashes"
+    needs_policy = relpath.endswith("credit_policy_notes.md")  # notes only reach the prompt with a policy
+    if needs_policy:
+        (project_root / "config" / "credit_policy.md").write_text("POLICY", encoding="utf-8")
+    path = project_root / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(legacy_text.encode("cp1252"))
+
+    draft = _compliant_draft(credit_policy_considered=True) if needs_policy else _compliant_draft()
+    client = _run_once(MockClient([draft, _approved_json()]))
+
+    assert legacy_text in client.calls[0]["messages"][0]["content"]
+    err = capsys.readouterr().err
+    assert path.name in err and "cp1252" in err
+
+
 def test_a_user_owned_file_that_decodes_under_neither_encoding_fails_naming_it(project_root):
     from textio import TextEncodingError
     (project_root / "config" / "credit_policy.md").write_bytes(b"limit \x81\x8d")

@@ -65,3 +65,21 @@ def test_text_encoding_error_is_a_value_error(tmp_path):
     path = _write_bytes(tmp_path, b"\x81")
     with pytest.raises(ValueError):
         read_text(path)
+
+
+def test_legacy_mode_refuses_a_utf16_file_that_cp1252_would_decode_to_nul_garbage(tmp_path):
+    # e.g. a file written by a PowerShell 5.1 `>` redirect: not UTF-8, but
+    # cp1252 maps almost every byte, so without the NUL check it "decodes".
+    path = _write_bytes(tmp_path, "Policy text".encode("utf-16"), name="credit_policy.md")
+    with pytest.raises(TextEncodingError, match="UTF-16"):
+        read_text(path, legacy_fallback=True)
+
+
+def test_the_shipped_agent_prompts_are_valid_strict_utf8():
+    # A stray non-UTF-8 byte committed to agents/ must fail here in CI, not at
+    # runtime on someone's machine (issue #137).
+    from pathlib import Path
+    agents = sorted((Path(__file__).resolve().parents[1] / "agents").glob("*.md"))
+    assert agents, "expected agents/*.md to exist"
+    for path in agents:
+        assert read_text(path)

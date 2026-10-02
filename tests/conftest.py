@@ -18,6 +18,12 @@ def cp1252_default_open(monkeypatch):
     there; with this fixture a regression -- a reader or writer that forgets
     `encoding=` -- mojibakes or raises on any platform. Binary opens and opens
     that pass an encoding are untouched.
+
+    Limit: this patches `builtins.open` only. `pathlib`'s `Path.read_text()` /
+    `write_text()` / `Path.open()` (which call `io.open`), `io.open` and
+    `os.fdopen` are not affected, so a regression through those is only caught
+    by review, and ruff's PLW1514 only partly (it resolves `open()` and some
+    obvious `Path(...)` calls, not arbitrary Path-typed expressions).
     """
     real_open = builtins.open
 

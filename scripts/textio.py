@@ -1,4 +1,7 @@
-"""The repository's one text-reading policy (issue #137).
+"""The text-reading policy for every file `orchestrator.py` loads into a prompt
+(issue #137). JSON config files (`settings.json`) and the writers are covered
+by the same UTF-8 convention but read/written with `open(..., encoding="utf-8")`
+directly.
 
 Every text file this framework reads or writes is UTF-8. Python's default for
 `open()` is the platform's locale encoding though -- cp1252 on Windows -- so a
@@ -58,6 +61,14 @@ def read_text(path, legacy_fallback=False):
                 f"{path} is neither valid UTF-8 nor valid cp1252 "
                 f"({legacy_error.reason} at byte {legacy_error.start}). Re-save it as UTF-8."
             ) from legacy_error
+        if "\x00" in text:
+            # cp1252 maps almost every byte, so it will "decode" a UTF-16 file
+            # (e.g. one written by a PowerShell 5.1 `>` redirect) into NUL-laced
+            # garbage; refuse that rather than put it in a prompt.
+            raise TextEncodingError(
+                f"{path} is not valid UTF-8 and contains NUL bytes under cp1252, so it looks like "
+                "UTF-16 or a binary file. Re-save it as UTF-8."
+            )
         print(f"[WARN] {path} is not valid UTF-8; read it as legacy cp1252. "
               "Re-save it as UTF-8 so it reads the same on every machine.", file=sys.stderr)
         return text

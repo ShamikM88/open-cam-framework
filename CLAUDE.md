@@ -392,12 +392,16 @@ a second look in review.
   with `TextEncodingError` naming the file; **UTF-8, then cp1252 with a `[WARN]` on stderr** naming
   the file, for user-owned files that may predate the policy (`config/style_guide.md`, the
   credit-policy and learnings files -- `calibrate.py` on Windows used to write the style guide in
-  cp1252); a file that decodes under neither raises. It **never** substitutes characters
+  cp1252); a file that decodes under neither -- or whose cp1252 decode contains NUL bytes, i.e. it
+  is really UTF-16 -- raises. The CAM template is read the same strict way. It **never** substitutes characters
   (`errors="replace"`): a `£` quietly turned into `?` in a policy is worse than a failure. Every
   writer passes `encoding="utf-8"` to `open()` itself. When adding any new `open()` of a text
   file, pass `encoding=` explicitly (ruff's `PLW1514` is the intended lint guard, see issue #139);
   tests use the `cp1252_default_open` fixture in `tests/conftest.py`, which makes an `open()` with
-  no encoding behave like Windows on every platform so such a regression can't hide on Linux CI.
+  no encoding behave like Windows on every platform so such a regression can't hide on Linux CI
+  (it patches `builtins.open` only -- `pathlib`'s `read_text()`/`write_text()`, `io.open` and
+  `os.fdopen` are not covered by it, and `PLW1514` only partly, so review those by eye; no
+  production script uses unguarded pathlib text I/O today).
 - **`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
   given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
   prompts and style guide, resolves the CAM template for `--type` via

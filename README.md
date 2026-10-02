@@ -235,6 +235,12 @@ For automation, CI, or running outside an interactive Claude Code session.
    Same output as `/calibrate` above. Add `--mock` (or just omit the API key) to smoke-test this
    without calling the API — it writes clearly-labeled placeholder output instead, to verify the
    PDF-reading/file-writing pipeline works before spending real API credits.
+
+   Each API call takes at most 12,000 characters of sample text. If your samples are longer,
+   the script stops before calling anything and asks whether to ignore the overflow or to split
+   it into parts and merge the results (nothing is dropped silently). `--on-overflow
+   {ask,split,ignore}` answers in advance; with no terminal (CI), the default is `split`. Your
+   sample PDFs are never modified.
 4. **Run a deal:**
    ```bash
    python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance" --pd "0.20%" --lgd "LGD 3 (15%)"

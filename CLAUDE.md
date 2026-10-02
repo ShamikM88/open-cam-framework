@@ -407,10 +407,14 @@ a second look in review.
   cp1252 lacks -- a `≥` in the Risk Reviewer's notes, a letter in a company name -- raised
   `UnicodeEncodeError` and aborted the run *after* the verdict was decided but before the revision
   or export. `configure_stdio()` makes stdout/stderr UTF-8 when they aren't already (an
-  interactive console and an already-UTF-8 stream are left alone; each stream keeps its own error
-  policy, so there is no lossy `errors="replace"`), and **every script's `if __name__ ==
-  "__main__":` block must call it first** (a static test in `tests/test_stdio_encoding.py` fails
-  for any CLI that doesn't, so a new script can't forget). It's called from the entry-point block,
+  interactive console and an already-UTF-8 stream are left alone, and a closed or `None` stream is
+  skipped; each stream keeps its own error policy, so there is no lossy `errors="replace"`; stdout
+  becomes UTF-8 even under a non-UTF-8 POSIX locale, since UTF-8 is this repo's convention), and
+  **every script's `if __name__ == "__main__":` block must start with `from textio import
+  configure_stdio` then the bare call `configure_stdio()`** (a static test in
+  `tests/test_stdio_encoding.py` fails for any CLI whose block doesn't -- including a call placed
+  after another statement, a guarded call, or an `import textio` style call -- so a new script can't
+  forget). It's called from the entry-point block,
   never from functions, so importing a module never reconfigures the interpreter's streams. The
   tests reproduce a cp1252 pipe on any platform (an in-memory cp1252 wrapper, or a child process
   started with `PYTHONIOENCODING=cp1252`), including the real `deal_export.py` CLI.

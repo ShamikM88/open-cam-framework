@@ -344,14 +344,19 @@ def test_a_rejection_with_non_cp1252_notes_still_revises_and_exports_on_a_cp1252
     textio.configure_stdio()  # what every script's __main__ block now does first
 
     notes = "DSCR ≥ 1.25x → breach for Łukasz"
-    client = MockClient([_compliant_draft(), _rejected_json(notes), _compliant_draft(), _approved_json()])
+    client = MockClient([
+        _compliant_draft(body="# FIRST DRAFT MARKER"), _rejected_json(notes),
+        _compliant_draft(body="# REVISED DRAFT MARKER"), _approved_json(),
+    ])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
 
     assert client.call_count == 4  # draft, rejected audit, REVISION, approved audit
     assert notes in stdout.buffer.getvalue().decode("utf-8")
-    assert (project_root / "deals" / "Acme Corp").is_dir()
     exported = list((project_root / "deals" / "Acme Corp").glob("*/*_CAM.docx"))
-    assert exported, "the revised draft was never exported"
+    assert len(exported) == 1, "the revised draft was never exported"
+    exported_text = "\n".join(p.text for p in docx.Document(str(exported[0])).paragraphs)
+    # The REVISED draft is what was exported, not the rejected first one.
+    assert "REVISED DRAFT MARKER" in exported_text and "FIRST DRAFT MARKER" not in exported_text
 
 
 def _approved_json(notes=None):

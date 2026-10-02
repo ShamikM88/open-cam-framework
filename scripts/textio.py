@@ -1,7 +1,8 @@
 """The text-reading policy for every file `orchestrator.py` loads into a prompt
-(issue #137). JSON config files (`settings.json`) and the writers are covered
-by the same UTF-8 convention but read/written with `open(..., encoding="utf-8")`
-directly.
+(issue #137), plus `configure_stdio()`, which gives every CLI a UTF-8
+stdout/stderr (issue #154). JSON config files (`settings.json`) and the writers
+are covered by the same UTF-8 convention but read/written with
+`open(..., encoding="utf-8")` directly.
 
 Every text file this framework reads or writes is UTF-8. Python's default for
 `open()` is the platform's locale encoding though -- cp1252 on Windows -- so a
@@ -45,7 +46,7 @@ def configure_stdio():
     """
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
-        if reconfigure is None:
+        if reconfigure is None or getattr(stream, "closed", False):
             continue
         encoding = (getattr(stream, "encoding", None) or "").lower().replace("-", "").replace("_", "")
         if encoding == "utf8":

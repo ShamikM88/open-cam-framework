@@ -117,24 +117,76 @@ def test_deal_export_cli_survives_a_cp1252_pipe_with_a_non_cp1252_company_name(t
     assert (tmp_path / "deals" / "Łukasz Co").is_dir()
 
 
-def _main_block(path):
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
-                and getattr(node.test.left, "id", None) == "__name__"):
-            return node
+def _is_main_guard(node):
+    """`if __name__ == "__main__":` in either operand order."""
+    if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+            and len(node.test.comparators) == 1):
+        return False
+    operands = [node.test.left, node.test.comparators[0]]
+    has_name = any(isinstance(o, ast.Name) and o.id == "__name__" for o in operands)
+    has_main = any(isinstance(o, ast.Constant) and o.value == "__main__" for o in operands)
+    return has_name and has_main
+
+
+def _entry_point_problem(source):
+    """None if the source has no `__main__` block or starts it correctly; else
+    a description. The block's FIRST statement must be
+    `from textio import configure_stdio` and its SECOND the bare call
+    `configure_stdio()` -- anything before (an assignment, a parse_args() call),
+    a guarded or merely-named call, or `import textio` style does not count."""
+    for node in ast.parse(source).body:
+        if _is_main_guard(node):
+            body = node.body
+            first, second = (body + [None, None])[:2]
+            if not (isinstance(first, ast.ImportFrom) and first.module == "textio"
+                    and [a.name for a in first.names] == ["configure_stdio"]):
+                return "first statement of the __main__ block must be `from textio import configure_stdio`"
+            if not (isinstance(second, ast.Expr) and isinstance(second.value, ast.Call)
+                    and isinstance(second.value.func, ast.Name)
+                    and second.value.func.id == "configure_stdio" and not second.value.args):
+                return "second statement of the __main__ block must be the bare call `configure_stdio()`"
+            return None
     return None
 
 
+def _has_entry_point(source):
+    return any(_is_main_guard(n) for n in ast.parse(source).body)
+
+
 def test_every_script_with_a_cli_entry_point_configures_stdio_first():
-    scripts = sorted(p for p in SCRIPTS_DIR.glob("*.py") if _main_block(p) is not None)
-    assert len(scripts) >= 11  # guards against this test silently scanning nothing
-    for path in scripts:
-        body = _main_block(path).body
-        imports = [n for n in body if isinstance(n, ast.ImportFrom) and n.module == "textio"
-                   and any(a.name == "configure_stdio" for a in n.names)]
-        calls = [n for n in body if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call)
-                 and getattr(n.value.func, "id", None) == "configure_stdio"]
-        assert imports and calls, f"{path.name}: its __main__ block must call configure_stdio()"
-        first_call = next(n for n in body if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call))
-        assert first_call is calls[0], f"{path.name}: configure_stdio() must run before any other call"
+    sources = {p.name: p.read_text(encoding="utf-8") for p in sorted(SCRIPTS_DIR.glob("*.py"))}
+    cli_scripts = {name: src for name, src in sources.items() if _has_entry_point(src)}
+    assert len(cli_scripts) >= 11  # guards against this test silently scanning nothing
+    problems = {name: _entry_point_problem(src) for name, src in cli_scripts.items()}
+    assert {name: p for name, p in problems.items() if p} == {}
+
+
+_GOOD = 'if __name__ == "__main__":\n    from textio import configure_stdio\n    configure_stdio()\n    main()\n'
+
+
+@pytest.mark.parametrize("source, expect_problem", [
+    (_GOOD, False),
+    (_GOOD.replace('__name__ == "__main__"', '"__main__" == __name__'), False),
+    ("def main():\n    pass\n", False),  # no entry block: not a CLI, nothing to check
+    ('if __name__ == "__main__":\n    main()\n', True),  # forgotten
+    ('if __name__ == "__main__":\n    args = parse()\n    from textio import configure_stdio\n'
+     '    configure_stdio()\n', True),  # something runs before it
+    ('if __name__ == "__main__":\n    parser = P()\n    from textio import configure_stdio\n'
+     '    configure_stdio()\n', True),
+    ('if __name__ == "__main__":\n    from textio import configure_stdio\n    configure_stdio\n    main()\n', True),
+    ('if __name__ == "__main__":\n    from textio import configure_stdio\n    if verbose:\n'
+     '        configure_stdio()\n', True),  # guarded
+    ('if __name__ == "__main__":\n    import textio\n    textio.configure_stdio()\n', True),
+    ('if "__main__" == __name__:\n    main()\n', True),  # reversed operands are still detected
+])
+def test_the_entry_point_check_catches_the_ways_a_cli_could_skip_it(source, expect_problem):
+    assert _has_entry_point(source) == ("__main__" in source and "__name__" in source)
+    assert (_entry_point_problem(source) is not None) == expect_problem
+
+
+def test_a_closed_stream_is_skipped_not_reconfigured(monkeypatch):
+    closed = _cp1252_stream()
+    closed.close()
+    monkeypatch.setattr(sys, "stdout", closed)
+    monkeypatch.setattr(sys, "stderr", closed)
+    textio.configure_stdio()  # must not raise ValueError: I/O operation on closed file

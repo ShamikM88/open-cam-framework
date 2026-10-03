@@ -579,9 +579,14 @@ a second look in review.
   a corrected value to a PR branch (or, worse, to `main`) would contradict this repo's own
   "explicit confirmation for every push, zero direct commits to main" governance, so whoever's PR
   changed the passing-test count must update `badges/test-count.json` in that same PR, and CI is
-  only the thing that catches it if they forget:
+  only the thing that catches it if they forget. **`--write`** (issue #147) makes that update one
+  command from a developer's own checkout -- it rewrites the file from the same captured pytest
+  output instead of failing -- and a test pins that no CI workflow line ever passes it. Because every
+  PR that adds tests edits this one-line file, PRs that touch it are merged one at a time; whoever
+  merges second rebases, reruns pytest and runs `--write`:
   ```
-  python scripts/check_test_count.py pytest_output.txt
+  python scripts/check_test_count.py pytest_output.txt          # the CI check
+  python scripts/check_test_count.py pytest_output.txt --write  # update the badge by hand
   ```
 - **`scripts/run_evals.py`, `eval_cases.py`, `eval_oracles.py`, `eval_report.py`, `eval_budget.py`,
   `eval_runner.py`, `eval_baseline.py`** (issue #151; see `evals/README.md`) — the **local live-model

@@ -52,7 +52,7 @@ open-cam-framework/
 │   ├── pii_scan.py              Heuristic (UK-shaped) scan for likely-real PII left over in a calibrated template before promoting it upstream -- see the confidentiality rule's "Promoting a local override upstream" note below (no anthropic dependency)
 │   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" below)
 │   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only: --validate/--list/--dry-run make zero model calls; --live spends real API calls under a hard cap; --export-baseline/--compare) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap), eval_runner.py (the isolated live runner), eval_baseline.py (baseline export/compare); see "Execution scripts" below and issue #151
-│   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
+│   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json (`--write` updates the file by hand) -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   ├── spreading_check.py       Standalone CLI wrapper around spreading_builder.py's formula evaluation -- compute(); callable from /spread's and /project's own Bash steps so the slash-command interface gets the same code-enforced subtotal/ratio computation orchestrator.py's headless pipeline does (no anthropic dependency; see "Execution scripts" below)
@@ -569,7 +569,9 @@ a second look in review.
   extracts the passed-test count from pytest's own summary line (e.g. `"430 passed in 16.27s"` or
   `"428 passed, 2 skipped in 12.34s"`); `read_badge_count(badge_path=None)` reads
   `badges/test-count.json`'s declared count; `check(pytest_output, badge_path=None)` returns
-  `(matches, actual, expected)`. Deliberately doesn't run pytest itself -- it parses an
+  `(matches, actual, expected)`; `write_badge_count(count, badge_path=None)` rewrites the file and
+  returns the previous count; a missing/malformed badge or unreadable output is a clean exit-1
+  message, never a traceback. Deliberately doesn't run pytest itself -- it parses an
   already-captured output file, so CI's own "Run test suite" step (which must pass regardless of
   this check) and this comparison stay independent, and the suite never runs twice in one CI run.
   Exists so `badges/test-count.json` (see the directory layout above) can't silently drift the way
@@ -581,7 +583,9 @@ a second look in review.
   changed the passing-test count must update `badges/test-count.json` in that same PR, and CI is
   only the thing that catches it if they forget. **`--write`** (issue #147) makes that update one
   command from a developer's own checkout -- it rewrites the file from the same captured pytest
-  output instead of failing -- and a test pins that no CI workflow line ever passes it. Because every
+  output instead of failing, **refusing a run that reports failures or errors** (a red run's count is
+  not a baseline) -- and a test pins that no CI workflow file (any `.yml`/`.yaml` under `.github/`)
+  that runs the check ever passes it. Because every
   PR that adds tests edits this one-line file, PRs that touch it are merged one at a time; whoever
   merges second rebases, reruns pytest and runs `--write`:
   ```

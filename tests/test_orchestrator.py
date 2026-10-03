@@ -463,6 +463,31 @@ def test_a_null_value_is_not_recorded_for_every_key_the_orchestrator_reads(proje
 
 
 # ---------------------------------------------------------------------------
+# Non-positive denominators (issue #169): the headless pipeline hands the Maker the covenant's explanation
+# ---------------------------------------------------------------------------
+
+def test_a_loss_making_borrower_reaches_the_maker_as_unresolvable_with_the_reason(project_root):
+    """The orchestrator must pass its freshly computed `financials` to the policy engine, or the reason for an N/A
+    ratio degrades to 'no financials are recorded'. The unresolvable covenant also forces a code-enforced REJECTED."""
+    write_state("Acme Corp", "Fleet Loan",
+                covenants=[{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}])
+    loss_making = {"revenue": 500, "cost_of_sales": 400, "admin_expenses": 200, "long_term_debt": 500,
+                   "share_capital": 100, "retained_profit": -300}
+    client = MockClient([_compliant_draft(), _approved_json()])
+    with pytest.raises(SystemExit):                      # the Reviewer approves, the code check overrides it
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     multi_period_financials={"FY-Current": loss_making}, client=client, max_iterations=1)
+
+    maker_message = client.calls[0]["messages"][0]["content"]
+    assert '"status": "UNRESOLVABLE"' in maker_message
+    assert "gross leverage not meaningful: EBITDA is negative" in maker_message
+    assert '"status": "PASS"' not in maker_message
+    trail = read_state("Acme Corp", "Fleet Loan")["review_trail"]
+    assert trail[-1]["verdict"] == "REJECTED"
+    assert "gross leverage not meaningful: EBITDA is negative" in trail[-1]["notes"]
+
+
+# ---------------------------------------------------------------------------
 # parse_verdict()
 # ---------------------------------------------------------------------------
 

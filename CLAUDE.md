@@ -547,9 +547,24 @@ a second look in review.
   Precedent (`cp_id`) and Condition Subsequent (`cs_id`) generation from the deal's own structure
   (KYC/AML and facility-execution CPs always required; security-mapping/perfection/priority CPs
   and guarantee CPs only when the underlying gap/guarantee actually exists), and downside covenant
-  breach detection (a covenant that PASSes in the base case but FAILs under stress). Returns
-  `policy_state`: `{"required_conditions_precedent", "required_conditions_subsequent",
-  "covenant_results", "security_gaps", "downside_covenant_breaches"}`. This is what both
+  breach detection (a covenant that PASSes in the base case but FAILs, or becomes UNRESOLVABLE, under stress).
+  Returns `policy_state`: `{"required_conditions_precedent", "required_conditions_subsequent",
+  "covenant_results", "security_gaps", "downside_covenant_breaches"}`. **A ratio with a zero or negative
+  denominator is N/A, and its covenant is UNRESOLVABLE (issue #169).** `spreading_builder` returns `None` for any
+  ratio whose denominator (EBITDA, total equity, interest paid, debt service, current liabilities, revenue, cost of
+  sales) is not positive -- before this, negative EBITDA or equity gave a finite negative leverage/gearing that sat
+  below every maximum threshold, so a loss-making borrower PASSED "leverage <= 3.5x". Only the denominator is tested
+  (a negative numerator over a positive denominator, e.g. DSCR below zero, is a real figure and a minimum-DSCR
+  covenant correctly FAILs on it). A covenant on an N/A ratio is UNRESOLVABLE for `minimum` and `maximum` alike --
+  never PASS, never a false FAIL -- and every `covenant_results` entry now has a `reason` (None when resolved; for
+  an N/A ratio one sentence naming the metric and denominator, e.g. "gross leverage not meaningful: EBITDA is
+  negative" / "gearing not defined: total equity is zero"; `spreading_builder.describe_undefined_ratio()`). The
+  reason reaches the Maker in `covenant_results` and the code-enforced rejection text (UNRESOLVABLE has always been
+  a code-enforced reject reason). A covenant that PASSes in the base case but is FAIL or UNRESOLVABLE in a downside
+  year is a `downside_covenant_breaches` entry (new keys `downside_status` and `reason`), so a stress that wipes out
+  EBITDA is disclosed, not silently dropped. The exported workbook's ratio cells use the same rule
+  (`IF(denominator>0, ..., "N/A")`, not just `IFERROR`), so it agrees with `state.json` cell for cell. This is
+  what both
   `orchestrator.py` (headless) and `scripts/policy_check.py` (slash-command interface, below) call
   to get the exact same code-enforced structural facts regardless of which interface a deal runs
   through -- `agents/risk_reviewer_agent.md`'s own preamble treats `policy_state`'s presence in a
@@ -804,7 +819,7 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   ln -s scripts src && mutmut run` (and `rm src` afterwards; `src` and `mutants/` are git-ignored).
 - **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than
   examples -- the chunker loses no text, the merge loop never drops a field, `values_match` is symmetric,
-  ratios are finite or `N/A` whenever the denominators are non-negative. The default `ci` profile (60 examples, fixed seed, no example database)
+  ratios are `N/A` whenever a denominator is zero or negative and finite otherwise. The default `ci` profile (60 examples, fixed seed, no example database)
   is identical on every run; `HYPOTHESIS_PROFILE=explore pytest tests/test_properties.py` searches harder
   with random seeds (its `.hypothesis/` database is git-ignored). Known-bad behaviour found this way is a
   *strict* `xfail` naming the issue, so fixing it fails the test until the marker is removed. Meta-tests

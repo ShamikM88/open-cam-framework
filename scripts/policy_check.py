@@ -64,6 +64,7 @@ def compute(company, proposal, draft_path=None):
     credit_policy_present = os.path.exists("config/credit_policy.md")
 
     policy_state = evaluate_deal_policy({
+        "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,
         "covenants": covenants,

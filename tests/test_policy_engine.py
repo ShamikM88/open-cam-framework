@@ -678,7 +678,7 @@ def test_existing_keys_are_byte_for_byte_unaffected_by_cs_introduction():
     result = evaluate_deal_policy(state)
     assert result["covenant_results"] == [
         {"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.5,
-         "status": "PASS", "headroom_pct": pytest.approx((1.5 - 1.25) / 1.25)},
+         "status": "PASS", "headroom_pct": pytest.approx((1.5 - 1.25) / 1.25), "reason": None},
     ]
     assert result["security_gaps"] == []
     assert _cp_ids(result) == [

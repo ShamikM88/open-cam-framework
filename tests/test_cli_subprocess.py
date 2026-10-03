@@ -15,11 +15,13 @@ Anthropic credentials removed from its environment, and must
 toward the coverage of the `__main__` blocks.
 """
 import ast
+import atexit
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -48,9 +50,20 @@ def has_main_block(path):
     return False
 
 
+# An empty directory standing in for the user's home and config directories in every child process. Removing the
+# ANTHROPIC_* variables is not enough: the SDK also reads a credentials profile from the user's config directory
+# (~/.config/anthropic, %APPDATA%\\Anthropic), so on a machine with one configured a child could authenticate and
+# make a real, paid model call. Pointing the home variables at an empty directory removes that path as well.
+_ISOLATED_HOME = tempfile.mkdtemp(prefix="cli-home-")
+atexit.register(shutil.rmtree, _ISOLATED_HOME, ignore_errors=True)
+HOME_VARIABLES = ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME")
+
+
 def child_env():
-    """The parent's environment minus anything that could reach a model or an account."""
+    """The parent's environment minus anything that could reach a model or an account: no ANTHROPIC_* variable and
+    no real home or config directory (so no on-disk SDK credentials profile either)."""
     env = {k: v for k, v in os.environ.items() if not k.upper().startswith("ANTHROPIC")}
+    env.update(dict.fromkeys(HOME_VARIABLES, _ISOLATED_HOME))
     env["PYTHONIOENCODING"] = "utf-8"
     return env
 
@@ -64,7 +77,8 @@ def cli(tmp_path):
     def run(script, *args, cwd=None):
         return subprocess.run(
             [sys.executable, str(SCRIPTS_DIR / f"{script}.py"), *map(str, args)],
-            cwd=cwd or workdir, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+            cwd=cwd or workdir, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120,
+            stdin=subprocess.DEVNULL)
 
     run.workdir = workdir
     return run
@@ -309,6 +323,10 @@ def test_orchestrator_without_credentials_stops_after_parsing_and_never_succeeds
     """The one script that cannot be run end to end without a model. In a copy of just the files it reads, with
     every Anthropic variable removed, it must parse its arguments, start the pipeline, and then fail non-zero
     (it never gets as far as a request) -- not silently succeed or hang."""
+    env = child_env()
+    assert not any(k.upper().startswith("ANTHROPIC") for k in env)
+    for variable in HOME_VARIABLES:      # no route to a credentials profile in the real home/config directory
+        assert env[variable] == _ISOLATED_HOME and os.listdir(_ISOLATED_HOME) == [], variable
     work = tmp_path / "orchestrator-cwd"
     shutil.copytree(REPO_ROOT / "agents", work / "agents")
     shutil.copytree(REPO_ROOT / "templates" / "cam", work / "templates" / "cam")
@@ -316,7 +334,7 @@ def test_orchestrator_without_credentials_stops_after_parsing_and_never_succeeds
     shutil.copy(REPO_ROOT / "config" / "settings.json", work / "config" / "settings.json")
     result = subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "Acme", "--proposal", "Loan"],
-        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+        cwd=work, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120, stdin=subprocess.DEVNULL)
     assert result.returncode != 0
     assert "Underwriter Agent drafting CAM for Acme" in result.stdout
 

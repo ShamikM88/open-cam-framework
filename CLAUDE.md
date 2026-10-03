@@ -683,7 +683,8 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   There is no coverage gate yet.
 - **The command-line surface is tested as a user meets it** (issue #144). `tests/test_cli_subprocess.py` runs each
   of the 12 scripts that has a `__main__` block as a real subprocess in a throwaway working directory, with the
-  Anthropic variables removed: `--help` exits 0, an unknown flag exits 2, a representative minimal input does the
+  Anthropic variables removed and the home/config directories pointed at an empty directory (the SDK also
+  reads an on-disk credentials profile, which would otherwise let a child make a paid call): `--help` exits 0, an unknown flag exits 2, a representative minimal input does the
   job, and an impossible input exits non-zero. `orchestrator.py` is the one script that cannot be run end to end
   without a model; its test checks that it parses, starts the pipeline, and fails non-zero without credentials.
   A list of the CLI scripts is compared with the scripts that actually have a `__main__` block (parsed with `ast`),

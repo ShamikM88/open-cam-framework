@@ -860,6 +860,14 @@ def test_the_requirements_path_is_the_repositorys_root_and_the_explanatory_comme
     assert eval_runner.anthropic_floor() == eval_runner.anthropic_floor(eval_runner.REQUIREMENTS_PATH)
 
 
+def test_nothing_after_an_at_sign_is_ever_read_as_a_bound_even_after_a_real_one(tmp_path):
+    path = tmp_path / "requirements.txt"
+    path.write_text("anthropic>=1.5 @ https://example.invalid/x>=3.0\n", encoding="utf-8")
+    assert eval_runner.anthropic_floor(path) == (1, 5)  # the real bound counts; the URL's does not
+    path.write_text("anthropic[extra]>=1.5@https://example.invalid/x>=9.0\n", encoding="utf-8")
+    assert eval_runner.anthropic_floor(path) == (1, 5)
+
+
 def test_a_direct_reference_line_has_no_floor_and_is_not_scanned_for_one(tmp_path):
     path = tmp_path / "requirements.txt"
     path.write_text("anthropic @ https://example.invalid/anthropic-9.0.0.whl#sha256>=2.0.0\n", encoding="utf-8")
@@ -869,11 +877,16 @@ def test_a_direct_reference_line_has_no_floor_and_is_not_scanned_for_one(tmp_pat
     assert eval_runner.anthropic_floor(path) == (1, 11, 0)
 
 
-def test_an_absurdly_long_version_is_a_setup_error_not_a_bare_value_error(tmp_path):
+def test_an_absurdly_long_version_is_bounded_not_a_value_error(tmp_path):
     path = tmp_path / "requirements.txt"
     path.write_text("anthropic>=" + "9" * 5000 + "\n", encoding="utf-8")
-    result = eval_runner.anthropic_floor(path)  # bounded: only the first 31 characters are read as the version
+    # Only the first 31 characters are read as the version, so int()'s digit limit cannot raise. The
+    # resulting floor is absurdly high ON PURPOSE: it fails safe, because no installed SDK meets it and
+    # check_sdk_version() then refuses the install instead of guessing.
+    result = eval_runner.anthropic_floor(path)
     assert result == (int("9" * 31),)
+    with pytest.raises(RunnerSetupError, match="needs >="):
+        eval_runner.check_sdk_version("1.11.0", floor=result)
 
 
 def test_a_missing_requirements_file_is_a_setup_error(tmp_path):

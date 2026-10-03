@@ -1,0 +1,41 @@
+# Central tool configuration (issues #139 and #142). This file holds NO project metadata: the framework is
+# run from a checkout (`python scripts/...`), not installed. CI and local runs both read the settings here, so
+# a rule or threshold is changed in one place, in a reviewed diff, and never in a workflow command line.
+
+[tool.ruff]
+target-version = "py310"      # the minimum Python the README names (3.10+); CI runs 3.11
+
+[tool.ruff.lint]
+select = [
+    "E9", "F63", "F7", "F82",   # syntax errors, invalid comparisons, undefined names
+    "B",                        # flake8-bugbear: likely bugs
+    "UP",                       # pyupgrade: outdated idioms
+    "S",                        # flake8-bandit: security
+]
+# PLW1514 (open() without encoding=) is a preview rule: it is the regression guard for the UTF-8 policy of
+# issue #137 (scripts/textio.py). explicit-preview-rules keeps it from switching on OTHER preview rules.
+extend-select = ["PLW1514"]
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert (S101), spawn the interpreter and `git` as fixed argument lists (S603, S607), and use obvious
+# fake credentials as test data (S105, S106, S307 for one eval() of a literal in an oracle test). None of
+# those is a finding in tests; all of them remain findings under scripts/.
+"tests/**" = ["S101", "S603", "S607", "S105", "S106", "S307"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--disable-socket"          # pytest-socket: no test may open a network connection (README: "needs no key or network")
+timeout = 120                         # pytest-timeout: a hung test fails after 2 minutes instead of eating the CI job limit
+filterwarnings = ["error"]            # every warning is a failure; fix the cause or filter it here WITH a reason
+
+[tool.coverage.run]
+source = ["scripts"]
+branch = true                         # line + branch coverage (issue #142)
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# `# pragma: no cover` is allowed only with a reason comment on the same line (tests/test_repo_conventions.py).
+exclude_also = []

@@ -242,7 +242,7 @@ def test_split_processes_every_part_then_merges_and_loses_no_text(overflow_env):
     assert [c["max_tokens"] for c in client.calls[:k]] == [3000] * k
     assert client.calls[k]["max_tokens"] == calibrate.MERGE_MAX_TOKENS > 3000
     style_part_prompts = client.prompts()[:k]
-    assert all(chunk in prompt for chunk, prompt in zip(chunks, style_part_prompts))
+    assert all(chunk in prompt for chunk, prompt in zip(chunks, style_part_prompts, strict=True))
     # The merge call receives every part's result.
     merge_prompt = client.prompts()[k]
     assert all(f"RESULT-{i}" in merge_prompt for i in range(1, k + 1))
@@ -348,16 +348,16 @@ def _write_pdf(path, label, pages=4, lines_per_page=40):
     objects = {1: b"<< /Type /Catalog /Pages 2 0 R >>",
                3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"}
     page_nums = [4 + 2 * i for i in range(pages)]
-    objects[2] = ("<< /Type /Pages /Count %d /Kids [%s] >>"
-                  % (pages, " ".join("%d 0 R" % n for n in page_nums))).encode()
+    kids = " ".join(f"{n} 0 R" for n in page_nums)
+    objects[2] = f"<< /Type /Pages /Count {pages} /Kids [{kids}] >>".encode()
     for i, n in enumerate(page_nums):
         ops = ["BT /F1 9 Tf 40 780 Td 12 TL"]
-        ops += ["(%s page %d line %d: borrower credit narrative text) '" % (label, i, j)
+        ops += [f"({label} page {i} line {j}: borrower credit narrative text) '"
                 for j in range(lines_per_page)]
         ops.append("ET")
         stream = "\n".join(ops).encode()
         objects[n] = ("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-                      "/Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % (n + 1)).encode()
+                      f"/Resources << /Font << /F1 3 0 R >> >> /Contents {n + 1} 0 R >>").encode()
         objects[n + 1] = b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream"
     out = bytearray(b"%PDF-1.4\n")
     offsets = {}

@@ -274,12 +274,17 @@ ships its dataset, deterministic oracles, a zero-model-call `--dry-run`, a cappe
 baseline export/compare; no live evaluation has been run yet. Read its README before trusting any
 result: most oracles check the *form* of the output, not its judgement.
 
-CI also runs `ruff check . --select=E9,F63,F7,F82` and `bandit -r scripts/ -lll` before `pytest` --
-run those locally too if you want to catch what CI will catch before pushing:
+CI also runs `ruff check .` and `bandit -r scripts/ -ll` before `pytest` -- run those locally too if you
+want to catch what CI will catch before pushing:
 ```bash
-ruff check . --select=E9,F63,F7,F82
-bandit -r scripts/ -lll
+ruff check .            # the rule set lives in pyproject.toml, not on the command line
+bandit -r scripts/ -ll
 ```
+`pyproject.toml` is the one place for tool settings (ruff rules, pytest options, coverage). The test
+run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
+hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
+before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`); there
+is no coverage gate yet.
 
 **Test-count badge.** `badges/test-count.json` (`{"passed": <int>}`) is this project's own
 checked-in record of how many tests currently pass -- unlike everything else this framework

@@ -7,6 +7,12 @@ venv/
 # CI's own scratch file (see .github/workflows/ci.yml, scripts/check_test_count.py)
 pytest_output.txt
 
+# Coverage output (issue #142): data files and reports, never committed
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Environment / secrets
 .env
 *.key

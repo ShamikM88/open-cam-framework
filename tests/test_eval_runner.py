@@ -4,6 +4,7 @@ requires of a live run: one live call per run, real prompt assembly, strict isol
 a hard cap, honest error handling, incremental persistence and recorded provenance.
 """
 import json
+from pathlib import Path
 import os
 import sys
 
@@ -334,7 +335,7 @@ def test_ctrl_c_returns_a_record_marked_interrupted_with_everything_already_paid
     # Two finished runs plus the one whose call was in flight when Ctrl-C hit; the second case never ran.
     assert [len(c["runs"]) for c in record["cases"]] == [3, 0]
     assert [r["status"] for r in record["cases"][0]["runs"]] == ["ok", "ok", "interrupted"]
-    lines = open(os.path.join(env["run_dir"], "runs.jsonl"), encoding="utf-8").read().splitlines()
+    lines = Path(os.path.join(env["run_dir"], "runs.jsonl")).read_text(encoding="utf-8").splitlines()
     assert len(lines) == 3 and all(json.loads(line)["case_id"] == "fab-no-financials" for line in lines)
     assert os.getcwd() == before and listing(env["work"]) == []
 
@@ -1158,7 +1159,7 @@ def test_a_failing_progress_callback_never_costs_a_run_or_stops_the_evaluation(e
     assert len(runs) == 4 and not record["aborted"] and record["abort_category"] is None
     assert seen["n"] == 1 and record["progress_error"] == "BrokenPipeError"  # switched off after the first failure
     assert sum(r["live_calls"] for r in runs) == record["usage"]["calls"] == 4
-    lines = open(os.path.join(env["run_dir"], "runs.jsonl"), encoding="utf-8").read().splitlines()
+    lines = Path(os.path.join(env["run_dir"], "runs.jsonl")).read_text(encoding="utf-8").splitlines()
     assert len(lines) == 4  # every run still persisted
 
 

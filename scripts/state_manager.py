@@ -77,7 +77,7 @@ class _FileLock:
             try:
                 self._fd = os.open(self._lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 return self
-            except (FileExistsError, PermissionError):
+            except (FileExistsError, PermissionError) as contention:
                 # On Windows, a genuine O_EXCL collision (another thread/
                 # process winning the race to create the same lock file a
                 # moment earlier) can surface as PermissionError rather than
@@ -90,7 +90,7 @@ class _FileLock:
                         "Either another process is genuinely mid-write, or this is a stale lock "
                         "left behind by a process that crashed while holding it -- if so, it's "
                         "safe to delete the .lock file by hand."
-                    )
+                    ) from contention
                 time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
 
     def __exit__(self, exc_type, exc_val, exc_tb):

@@ -68,7 +68,8 @@ open-cam-framework/
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json and a sources/ subfolder (see "Source material persistence" below); a company also optionally holds a `_conventions.json` and a `_learnings.md` one level up, above its dated proposal folders (see "Persisted conventions" below)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
-├── requirements-dev.txt         requirements.txt + pytest
+├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" below
+├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, diff-cover, ruff, bandit
 └── README.md
 ```
 
@@ -398,7 +399,7 @@ a second look in review.
   is really UTF-16 -- raises. The CAM template is read the same strict way. It **never** substitutes characters
   (`errors="replace"`): a `£` quietly turned into `?` in a policy is worse than a failure. Every
   writer passes `encoding="utf-8"` to `open()` itself. When adding any new `open()` of a text
-  file, pass `encoding=` explicitly (ruff's `PLW1514` is the intended lint guard, see issue #139);
+  file, pass `encoding=` explicitly (ruff's `PLW1514` enforces it in CI, see "Testing and static analysis");
   tests use the `cp1252_default_open` fixture in `tests/conftest.py`, which makes an `open()` with
   no encoding behave like Windows on every platform so such a regression can't hide on Linux CI
   (it patches `builtins.open` only -- `pathlib`'s `read_text()`/`write_text()`, `io.open` and
@@ -661,6 +662,29 @@ a second look in review.
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.
+
+## Testing and static analysis
+
+All tool settings live in [`pyproject.toml`](pyproject.toml) (issues #139, #142); CI and local runs read the
+same file, so a rule or threshold changes in one reviewed diff and never in a workflow command line.
+
+- **Ruff** (`ruff check .`): `E9,F63,F7,F82` (syntax/undefined names) plus `B` (bugbear), `UP` (pyupgrade)
+  and `S` (security), and the preview rule `PLW1514` (`open()` without `encoding=`, the regression guard for
+  the UTF-8 policy; `explicit-preview-rules` keeps other preview rules off). `tests/` ignores only the
+  rules that are noise there: `S101` (assert), `S603`/`S607` (fixed `subprocess` argument lists),
+  `S105`/`S106` (fake credentials as test data) and `S307`. A finding in `scripts/` is fixed or carries a
+  `# noqa: <code>` with the reason beside it. **Bandit** runs at medium (`-ll`).
+- **Pytest**: `filterwarnings = ["error"]` (every warning fails; fix the cause or filter it in
+  `pyproject.toml` with a reason), `--disable-socket` (`pytest-socket`: no test may open a network
+  connection) and a 120-second per-test timeout (`pytest-timeout`). Install `requirements-dev.txt` before
+  running `pytest`, or pytest rejects the options.
+- **Coverage**: `pytest --cov` measures line + branch coverage of `scripts/`. `# pragma: no cover` is allowed
+  only with a reason on the same line (`# pragma: no cover - why`; `tests/test_repo_conventions.py`).
+  There is no coverage gate yet.
+- **The configuration is itself tested**: `tests/test_pytest_config.py` runs the real tools with this
+  repository's `pyproject.toml` against deliberately bad snippets (a leaked file, a socket connection, an
+  overrun test, `zip()` without `strict=`, `open()` without an encoding, ...) and expects each to be
+  rejected, so a setting cannot be deleted without a test failing.
 
 ## Confidentiality rule for new features
 

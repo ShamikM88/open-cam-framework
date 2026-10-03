@@ -26,10 +26,10 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint with Ruff
-        run: ruff check . --select=E9,F63,F7,F82
+        run: ruff check .   # rules live in pyproject.toml
 
       - name: Security scan with Bandit
-        run: bandit -r scripts/ -lll
+        run: bandit -r scripts/ -ll
 
       - name: Run test suite
         run: |

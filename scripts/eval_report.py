@@ -186,7 +186,8 @@ def assert_results_dir_is_ignored(path, repo_root=None, probe_names=("results.js
     # against the bare (not-yet-created) directory path itself.
     for name in probe_names:
         try:
-            result = subprocess.run(["git", "check-ignore", "-q", os.path.join(absolute, name)],
+            # S603/S607: a fixed `git` argument list, no shell, no untrusted executable name.
+            result = subprocess.run(["git", "check-ignore", "-q", os.path.join(absolute, name)],  # noqa: S603, S607
                                     cwd=root, capture_output=True)
         except OSError as exc:
             raise ResultsPathError(f"cannot verify {path} is git-ignored (git unavailable: {exc})") from exc

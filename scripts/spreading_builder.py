@@ -32,8 +32,11 @@ DOWNSIDE_COLS = PERIOD_COLS[6:9]
 # Which raw-figures dict (financial_data vs. downside_financial_data) and
 # which period key within it populates a given raw-input column -- see
 # _write_financial_spreading().
-COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS))
-DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS))
+# strict=True: the column and period-key lists must stay the same length (an import-time error otherwise,
+# instead of a silently shorter mapping).
+COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS,
+                             strict=True))
+DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict=True))
 
 # {Label} in a formula template is resolved to `{col}{row}` for whatever row
 # that label ends up on -- see _row_layout()/_resolve_formula(). This is what
@@ -341,7 +344,7 @@ def evaluate_financial_model(multi_period_data):
     for period, raw in (multi_period_data or {}).items():
         raw = raw or {}
 
-        def g(key):
+        def g(key, raw=raw):  # bound per iteration (B023), though it is only ever called within this one
             return raw.get(key, 0) or 0
 
         revenue = g("revenue")

@@ -24,9 +24,15 @@ from pathlib import Path
 DEFAULT_BADGE_PATH = Path(__file__).resolve().parent.parent / "badges" / "test-count.json"
 
 PASSED_RE = re.compile(r"(\d+) passed")
-# A summary clause that means the run was not green. (`xfailed` / `xpassed` are not matched: the digit is
-# directly followed by "failed"/"error" only for real failures.)
-FAILURE_RE = re.compile(r"\b\d+ (?:failed|errors?)\b")
+# A clause that means the run was not a complete green run. It is applied to pytest's SUMMARY line only
+# (the last line that carries "N passed"), never to the whole output: with -v / -rA / -s the output also
+# holds test names and captured text that can contain "3 failed" and would wrongly refuse a green run.
+# (`xfailed` / `xpassed` are not matched: the digit is directly followed by "failed"/"error" only for
+# real failures. `deselected` means a -k / --deselect subset, whose count is not the suite's.)
+NOT_GREEN_RE = re.compile(r"\b\d+ (?:failed|errors?|deselected)\b")
+# pytest prints this banner (a long run of '!') when a run is cut short (Ctrl-C, a collection error
+# stopping the session); a stray line that merely starts with '!' is not one.
+INTERRUPTED_RE = re.compile(r"^!{5,} .*\b(?:Interrupted|KeyboardInterrupt)\b", re.M)
 
 
 def parse_passed_count(pytest_output):
@@ -40,6 +46,25 @@ def parse_passed_count(pytest_output):
     if not matches:
         raise ValueError('pytest output has no "N passed" summary line -- did the suite fail entirely?')
     return int(matches[-1])  # the summary is the last such line; earlier text may mention "N passed"
+
+
+def summary_line(pytest_output):
+    """pytest's summary line: the last line that carries an "N passed" count (None if there is none)."""
+    lines = [line for line in pytest_output.splitlines() if PASSED_RE.search(line)]
+    return lines[-1].strip() if lines else None
+
+
+def not_green_reason(pytest_output):
+    """Why this output is not a complete green run (None if it is): an interrupted session, or a summary
+    that reports failed / errored / deselected tests. The reason quotes what matched."""
+    banner = INTERRUPTED_RE.search(pytest_output)
+    if banner:
+        return f"the run was interrupted ({banner.group(0).strip(' !')[:80]})"
+    line = summary_line(pytest_output)
+    clause = NOT_GREEN_RE.search(line) if line else None
+    if clause:
+        return f"the summary line reports '{clause.group(0)}' ({line[:120]})"
+    return None
 
 
 def read_pytest_output(path):
@@ -84,7 +109,7 @@ def main(argv=None):
                      "badges/test-count.json. Fails (exit 1) on a mismatch -- "
                      "never auto-corrects the file itself; whoever's PR changed "
                      "the test count must update badges/test-count.json in that "
-                     "same PR (see --write).",
+                     "same PR. With --write, instead rewrite the file from a complete green run.",
         allow_abbrev=False,  # `--wri` must not quietly mean `--write`
     )
     parser.add_argument("pytest_output_file", help="Path to a file containing pytest's captured stdout")
@@ -102,10 +127,10 @@ def main(argv=None):
         return 1
 
     if args.write:
-        if FAILURE_RE.search(output_text):
-            print("Refusing to --write: the pytest output reports failed or errored tests, so its passed "
-                  f"count is not a green baseline. Fix the suite, rerun pytest, then run --write. {badge_path} "
-                  "is unchanged.")
+        reason = not_green_reason(output_text)
+        if reason:
+            print(f"Refusing to --write: {reason}, so its passed count is not a complete green baseline. "
+                  f"Fix or rerun the full suite, then run --write. {badge_path} is unchanged.")
             return 1
         try:
             actual = parse_passed_count(output_text)

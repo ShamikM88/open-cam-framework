@@ -273,3 +273,57 @@ def test_an_abbreviated_flag_is_rejected_not_taken_for_write(tmp_path):
         main([str(_pytest_output(tmp_path, "9 passed in 1s")), "--badge-path", str(badge), "--wri"])
     assert raised.value.code == 2
     assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+# ---------------------------------------------------------------------------
+# Second review round for #161: judge the SUMMARY line, refuse interrupted / subset runs
+# ---------------------------------------------------------------------------
+
+def test_a_green_verbose_run_whose_test_names_mention_failures_is_accepted(tmp_path):
+    badge = _write_badge(tmp_path, 1)
+    verbose = (
+        "tests/test_x.py::test_a[1 failed, 1085 passed in 40s] PASSED\n"
+        "tests/test_x.py::test_b[3 errors, 10 passed] PASSED\n"
+        "UserWarning: saw 1 error here\n"
+        "========== 1112 passed, 3 warnings in 44.25s ==========\n"
+    )
+    assert main([str(_pytest_output(tmp_path, verbose)), "--badge-path", str(badge), "--write"]) == 0
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 1112}
+
+
+def test_only_the_summary_lines_failures_count_even_when_earlier_lines_look_green(tmp_path, capsys):
+    badge = _write_badge(tmp_path, 430)
+    text = "tests/test_a.py::test_x PASSED\n========== 2 failed, 5 passed in 1.0s ==========\n"
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    out = capsys.readouterr().out
+    assert "'2 failed'" in out and "2 failed, 5 passed" in out  # the refusal quotes what matched
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+@pytest.mark.parametrize("text, quoted", [
+    ("2 passed, 2 deselected in 0.4s", "2 deselected"),                              # a -k subset
+    ("!!!!!!!!! KeyboardInterrupt !!!!!!!!!\n2 passed, 1 warning in 0.39s", "KeyboardInterrupt"),
+    ("!!!!!!!! Interrupted: 1 error during collection !!!!!!!!\n5 passed in 1s", "Interrupted"),
+])
+def test_write_refuses_subset_and_interrupted_runs(tmp_path, capsys, text, quoted):
+    badge = _write_badge(tmp_path, 430)
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    assert quoted in capsys.readouterr().out
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+def test_a_summary_line_is_the_last_line_with_a_passed_count():
+    from check_test_count import not_green_reason, summary_line
+    assert summary_line("a\n5 passed earlier\n1086 passed in 3s\ntrailing text") == "1086 passed in 3s"
+    assert summary_line("collected 0 items") is None
+    assert not_green_reason("collected 0 items") is None  # parse_passed_count reports that case itself
+
+
+def test_a_test_name_that_mentions_keyboardinterrupt_is_not_an_interrupted_run(tmp_path):
+    badge = _write_badge(tmp_path, 1)
+    text = ("tests/test_runner.py::test_ctrl_c_is_handled[KeyboardInterrupt] PASSED\n"
+            "captured stdout: worker caught KeyboardInterrupt and retried\n"
+            "! Interrupted: retrying the request\n"
+            "========== 1112 passed in 44.25s ==========\n")
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 0
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 1112}

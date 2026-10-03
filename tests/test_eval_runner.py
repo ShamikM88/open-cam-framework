@@ -348,7 +348,7 @@ def test_the_real_client_is_built_without_sdk_retries_and_never_touches_the_netw
     seen = {}
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
     monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: seen.update(kwargs) or "client")
-    monkeypatch.setattr(eval_runner, "sdk_version", lambda: "1.7.0")
+    monkeypatch.setattr(eval_runner, "sdk_version", lambda: "99.0.0")  # above any floor requirements.txt may name
     assert eval_runner.make_client() == "client"
     assert seen["max_retries"] == 0 and seen["api_key"] == "test-key-not-real" and seen["timeout"] > 0
 
@@ -765,11 +765,12 @@ def test_redact_handles_a_short_or_missing_key_and_leaves_ordinary_text_alone(mo
 @pytest.mark.parametrize("version, ok", [("1.7.0", True), ("1.11.0", True), ("2.0.0rc1", True), ("1.5.0", False),
                                          ("1.6.9", False), ("0.99.0", False), (None, False)])
 def test_the_sdk_floor_is_compared_numerically_not_as_text(version, ok):
+    floor = (1, 7, 0)  # explicit: these cases must not depend on whatever requirements.txt says today
     if ok:
-        assert eval_runner.check_sdk_version(version) == version
+        assert eval_runner.check_sdk_version(version, floor=floor) == version
     else:
         with pytest.raises(RunnerSetupError, match="anthropic"):
-            eval_runner.check_sdk_version(version)
+            eval_runner.check_sdk_version(version, floor=floor)
 
 
 def test_the_real_client_is_refused_on_a_too_old_sdk_before_anything_is_built(monkeypatch):
@@ -778,17 +779,58 @@ def test_the_real_client_is_refused_on_a_too_old_sdk_before_anything_is_built(mo
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
     monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: built.append(kwargs))
     monkeypatch.setattr(eval_runner, "sdk_version", lambda: "1.5.0")
+    monkeypatch.setattr(eval_runner, "anthropic_floor", lambda: (1, 7, 0))
     with pytest.raises(RunnerSetupError, match="pip install"):
         eval_runner.make_client()
     assert built == []
 
 
-def test_the_harness_floor_matches_requirements_txt():
-    import re
-    from eval_fakes import REPO_ROOT
-    text = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
-    match = re.search(r"^anthropic\s*>=\s*([\d.]+)\s*$", text, re.M)
-    assert match and eval_runner.parse_version(match.group(1)) == eval_runner.MIN_ANTHROPIC_VERSION
+def test_the_floor_is_read_from_the_real_requirements_txt_and_there_is_no_second_copy():
+    floor = eval_runner.anthropic_floor()  # raises if the real file's line ever stops being parseable
+    assert len(floor) >= 2 and floor[0] >= 1
+    assert not hasattr(eval_runner, "MIN_ANTHROPIC_VERSION")  # the duplicate constant is gone
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("anthropic>=1.9.0", (1, 9, 0)),
+    ("anthropic >= 1.11.2", (1, 11, 2)),
+    ("  anthropic>=1.9.0,<2", (1, 9, 0)),
+    ("anthropic~=1.9.0", (1, 9, 0)),
+    ("anthropic==1.9.0", (1, 9, 0)),
+    ("anthropic>=2.0.0rc1", (2, 0, 0)),
+])
+def test_the_floor_parser_accepts_the_forms_a_dependency_bot_writes(tmp_path, line, expected):
+    path = tmp_path / "requirements.txt"
+    path.write_text(f"python-docx>=1.2.0\n{line}\nopenpyxl>=3.1.2\n", encoding="utf-8")
+    assert eval_runner.anthropic_floor(path) == expected
+
+
+@pytest.mark.parametrize("content", [
+    "python-docx>=1.2.0\n",                 # no anthropic line at all
+    "# anthropic>=1.9.0\nopenpyxl>=3\n",     # only commented out
+    "anthropic\n",                           # no version
+    "anthropic-tools>=1.9.0\n",              # a different package that merely starts with the name
+    "",
+])
+def test_an_unreadable_floor_is_a_clear_setup_error_not_a_guess(tmp_path, content):
+    path = tmp_path / "requirements.txt"
+    path.write_text(content, encoding="utf-8")
+    with pytest.raises(RunnerSetupError, match="no `anthropic>=X.Y.Z` line"):
+        eval_runner.anthropic_floor(path)
+
+
+def test_a_missing_requirements_file_is_a_setup_error(tmp_path):
+    with pytest.raises(RunnerSetupError, match="cannot read the anthropic floor"):
+        eval_runner.anthropic_floor(tmp_path / "nope.txt")
+
+
+def test_the_refusal_message_names_the_floor_it_read(monkeypatch, tmp_path):
+    path = tmp_path / "requirements.txt"
+    path.write_text("anthropic>=1.9.0\n", encoding="utf-8")
+    monkeypatch.setattr(eval_runner, "REQUIREMENTS_PATH", path)
+    with pytest.raises(RunnerSetupError, match=r"needs >= 1\.9\.0.*anthropic>=1\.9\.0"):
+        eval_runner.check_sdk_version("1.8.0")
+    assert eval_runner.check_sdk_version("1.9.0") == "1.9.0"
 
 
 def test_the_record_carries_the_sdk_version_and_a_credential_free_base_url(env, monkeypatch):

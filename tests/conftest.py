@@ -21,6 +21,17 @@ settings.register_profile("explore", max_examples=1000, deadline=None, suppress_
 settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "ci"))
 
 
+def pytest_addoption(parser):
+    parser.addoption("--update-snapshots", action="store_true", default=False,
+                     help="rewrite the golden files in tests/snapshots/ from the current output (issue #145); "
+                          "review the resulting diff before committing. CI never passes this.")
+
+
+@pytest.fixture
+def update_snapshots(request):
+    return request.config.getoption("--update-snapshots")
+
+
 @pytest.fixture
 def cp1252_default_open(monkeypatch):
     """Make a text-mode open() with no explicit `encoding` behave as it does

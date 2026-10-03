@@ -698,6 +698,26 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   repository's `pyproject.toml` against deliberately bad snippets (a leaked file, a socket connection, an
   overrun test, `zip()` without `strict=`, `open()` without an encoding, ...) and expects each to be
   rejected, so a setting cannot be deleted without a test failing.
+- **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than
+  examples -- the chunker loses no text, the merge loop never drops a field, `values_match` is symmetric,
+  ratios are finite or `N/A` whenever the denominators are non-negative. The default `ci` profile (60 examples, fixed seed, no example database)
+  is identical on every run; `HYPOTHESIS_PROFILE=explore pytest tests/test_properties.py` searches harder
+  with random seeds (its `.hypothesis/` database is git-ignored). Known-bad behaviour found this way is a
+  *strict* `xfail` naming the issue, so fixing it fails the test until the marker is removed. Meta-tests
+  deliberately break a function to prove each property can fail.
+- **Legacy and malformed `state.json`** (`tests/test_legacy_state.py`, issue #152): five synthetic
+  historical-shape fixtures in `tests/fixtures/state/` run through `spreading_check.compute`,
+  `policy_check.compute` and `deal_export`. A change to `state.json`'s shape must keep those fixtures
+  working or add a new one. Wrongly-typed state is pinned as it behaves today (`TODAY` matrix) with strict
+  xfails for the clear-error behaviour #152 asks for but the code does not yet have.
+- **Golden-output tests** (`tests/test_golden_outputs.py`, issue #145): the exported `.docx`/`.xlsx` for
+  synthetic inputs are reduced by `tests/snapshot_utils.py` to readable text (no timestamps; adjacent
+  runs merged) and compared with `tests/snapshots/`. After an *intended* output change run
+  `pytest tests/test_golden_outputs.py --update-snapshots` and review the snapshot diff like code.
+  A missing snapshot fails rather than being created, and CI never passes the flag (tested). The same
+  file asserts that no client-facing document contains leaked Markdown, the stripped structured-output
+  JSON, `nan`/`None` or error text. A new `openpyxl`/`python-docx` release that changes serialisation will
+  show up here as a snapshot diff: regenerate only after confirming the difference is cosmetic.
 
 ## Confidentiality rule for new features
 

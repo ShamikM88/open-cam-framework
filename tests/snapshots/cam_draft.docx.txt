@@ -1,0 +1,26 @@
+P[Heading 1] Credit Assessment Memorandum - Synthetic Legacy Co
+P[List Bullet] **Borrower:** Synthetic Legacy Co
+P[List Bullet] **Proposal:** Synthetic Fleet Loan
+P[List Bullet] **Facility:** Term loan, 5 years, 1,500 (synthetic units)
+P[Heading 2] 1. Executive Summary
+P[Normal] Synthetic Legacy Co requests a term facility to refinance a vehicle fleet. This paragraph is deliberately wrapped over several source lines to confirm that a single newline is a soft wrap, not a paragraph break. The proposal is **recommended for approval** subject to *the conditions below* and the <link: https://example.invalid/filing | filing> referenced in the sources.
+P[Heading 3] 1.1 Key Terms
+P[Heading 3] Pricing
+P[Heading 3] Margin
+P[Heading 3] Fees
+TABLE 3 rows
+| **Metric** | **FY-2** (right) | **FY-1** (center) | **FY-Current** |
+| Revenue | 4,000 (right) | 4,300 (center) | 4,650 |
+| DSCR | 3.1x (right) | 3.8x (center) | 5.0x |
+P[Heading 2] 2. Ownership
+P[Normal] `Synthetic Parent Holdings`
+P[Normal] `├── 100% Synthetic Legacy Co`
+P[Normal] `│   └── 60% Synthetic Subsidiary Co`
+P[Normal] `└── 40% Synthetic Minority Holder`
+P[Normal] 1. First numbered point
+P[Normal] 2. Second numbered point
+P[List Bullet] A bullet that wraps onto a second source line
+P[List Bullet] A second bullet with `code-like` text
+P[Heading 2] 3. Conditions Precedent
+P[List Bullet] KYC / AML clearance
+P[List Bullet] Perfection of security over vehicles

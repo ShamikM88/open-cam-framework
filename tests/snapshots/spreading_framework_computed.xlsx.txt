@@ -1,0 +1,440 @@
+== sheet 'Financial Spreading' dims=A1:J64
+widths: {'A': 34.0, 'B': 14.0, 'C': 14.0, 'D': 14.0, 'E': 14.0, 'F': 14.0, 'G': 14.0, 'H': 14.0, 'I': 14.0, 'J': 14.0}
+A1: 'Metric'  [bold]
+B1: 'FY-2'  [bold]
+C1: 'FY-1'  [bold]
+D1: 'FY-Current'  [bold]
+E1: 'FY+1'  [bold]
+F1: 'FY+2'  [bold]
+G1: 'FY+3'  [bold]
+H1: 'FY+1 (Downside)'  [bold]
+I1: 'FY+2 (Downside)'  [bold]
+J1: 'FY+3 (Downside)'  [bold]
+A2: 'Profit & Loss'  [bold, italic]
+A3: 'Revenue'
+B3: 4000
+C3: 4300
+D3: 4650
+E3: 4900
+H3: 4410
+A4: 'Cost of Goods Sold'
+B4: 2600
+C4: 2750
+D4: 2900
+E4: 3050
+H4: 3050
+A5: 'Gross Profit'
+B5: '=B3-B4'
+C5: '=C3-C4'
+D5: '=D3-D4'
+E5: '=E3-E4'
+F5: '=F3-F4'
+G5: '=G3-G4'
+H5: '=H3-H4'
+I5: '=I3-I4'
+J5: '=J3-J4'
+A6: 'Gross Profit Margin %'
+B6: '=IFERROR(B5/B3,"N/A")'
+C6: '=IFERROR(C5/C3,"N/A")'
+D6: '=IFERROR(D5/D3,"N/A")'
+E6: '=IFERROR(E5/E3,"N/A")'
+F6: '=IFERROR(F5/F3,"N/A")'
+G6: '=IFERROR(G5/G3,"N/A")'
+H6: '=IFERROR(H5/H3,"N/A")'
+I6: '=IFERROR(I5/I3,"N/A")'
+J6: '=IFERROR(J5/J3,"N/A")'
+A7: 'Admin Expenses'
+B7: 500
+C7: 520
+D7: 540
+E7: 560
+H7: 588
+A8: 'Depreciation'
+B8: 40
+C8: 40
+D8: 40
+E8: 40
+H8: 40
+A9: 'Amortisation'
+A10: 'Other Income'
+A11: 'Operating Profit'
+B11: '=B5-B7-B8-B9+B10'
+C11: '=C5-C7-C8-C9+C10'
+D11: '=D5-D7-D8-D9+D10'
+E11: '=E5-E7-E8-E9+E10'
+F11: '=F5-F7-F8-F9+F10'
+G11: '=G5-G7-G8-G9+G10'
+H11: '=H5-H7-H8-H9+H10'
+I11: '=I5-I7-I8-I9+I10'
+J11: '=J5-J7-J8-J9+J10'
+A12: 'Operating Margin %'
+B12: '=IFERROR(B11/B3,"N/A")'
+C12: '=IFERROR(C11/C3,"N/A")'
+D12: '=IFERROR(D11/D3,"N/A")'
+E12: '=IFERROR(E11/E3,"N/A")'
+F12: '=IFERROR(F11/F3,"N/A")'
+G12: '=IFERROR(G11/G3,"N/A")'
+H12: '=IFERROR(H11/H3,"N/A")'
+I12: '=IFERROR(I11/I3,"N/A")'
+J12: '=IFERROR(J11/J3,"N/A")'
+A13: 'EBITDA'
+B13: '=B11+B8+B9'
+C13: '=C11+C8+C9'
+D13: '=D11+D8+D9'
+E13: '=E11+E8+E9'
+F13: '=F11+F8+F9'
+G13: '=G11+G8+G9'
+H13: '=H11+H8+H9'
+I13: '=I11+I8+I9'
+J13: '=J11+J8+J9'
+A14: 'Interest Paid'
+B14: 110
+C14: 105
+D14: 98
+E14: 90
+H14: 109
+A15: 'Interest Received'
+A16: 'Scheduled Principal Repayment'
+B16: 150
+C16: 150
+D16: 150
+E16: 150
+H16: 150
+A17: 'Capital Expenditure'
+B17: 60
+C17: 60
+D17: 60
+E17: 60
+H17: 60
+A18: 'Exceptional Costs / (Income)'
+A19: 'Profit Before Tax'
+B19: '=B11-B14+B15-B18'
+C19: '=C11-C14+C15-C18'
+D19: '=D11-D14+D15-D18'
+E19: '=E11-E14+E15-E18'
+F19: '=F11-F14+F15-F18'
+G19: '=G11-G14+G15-G18'
+H19: '=H11-H14+H15-H18'
+I19: '=I11-I14+I15-I18'
+J19: '=J11-J14+J15-J18'
+A20: 'Tax'
+B20: 25
+C20: 25
+D20: 25
+E20: 25
+H20: 25
+A21: 'Net Profit'
+B21: '=B19-B20'
+C21: '=C19-C20'
+D21: '=D19-D20'
+E21: '=E19-E20'
+F21: '=F19-F20'
+G21: '=G19-G20'
+H21: '=H19-H20'
+I21: '=I19-I20'
+J21: '=J19-J20'
+A22: 'Key Ratios'  [bold, italic]
+A23: 'DSCR'
+B23: '=IFERROR(B13/(B14+B16),"N/A")'
+C23: '=IFERROR(C13/(C14+C16),"N/A")'
+D23: '=IFERROR(D13/(D14+D16),"N/A")'
+E23: '=IFERROR(E13/(E14+E16),"N/A")'
+F23: '=IFERROR(F13/(F14+F16),"N/A")'
+G23: '=IFERROR(G13/(G14+G16),"N/A")'
+H23: '=IFERROR(H13/(H14+H16),"N/A")'
+I23: '=IFERROR(I13/(I14+I16),"N/A")'
+J23: '=IFERROR(J13/(J14+J16),"N/A")'
+A24: 'EBIT/Interest'
+B24: '=IFERROR(B11/B14,"N/A")'
+C24: '=IFERROR(C11/C14,"N/A")'
+D24: '=IFERROR(D11/D14,"N/A")'
+E24: '=IFERROR(E11/E14,"N/A")'
+F24: '=IFERROR(F11/F14,"N/A")'
+G24: '=IFERROR(G11/G14,"N/A")'
+H24: '=IFERROR(H11/H14,"N/A")'
+I24: '=IFERROR(I11/I14,"N/A")'
+J24: '=IFERROR(J11/J14,"N/A")'
+A25: 'EBITDA/Interest'
+B25: '=IFERROR(B13/B14,"N/A")'
+C25: '=IFERROR(C13/C14,"N/A")'
+D25: '=IFERROR(D13/D14,"N/A")'
+E25: '=IFERROR(E13/E14,"N/A")'
+F25: '=IFERROR(F13/F14,"N/A")'
+G25: '=IFERROR(G13/G14,"N/A")'
+H25: '=IFERROR(H13/H14,"N/A")'
+I25: '=IFERROR(I13/I14,"N/A")'
+J25: '=IFERROR(J13/J14,"N/A")'
+A26: 'FCF'
+B26: '=B13-B17-B20-B14+B15'
+C26: '=C13-C17-C20-C14+C15'
+D26: '=D13-D17-D20-D14+D15'
+E26: '=E13-E17-E20-E14+E15'
+F26: '=F13-F17-F20-F14+F15'
+G26: '=G13-G17-G20-G14+G15'
+H26: '=H13-H17-H20-H14+H15'
+I26: '=I13-I17-I20-I14+I15'
+J26: '=J13-J17-J20-J14+J15'
+A27: 'FCF Conversion %'
+B27: '=IFERROR(B26/B13,"N/A")'
+C27: '=IFERROR(C26/C13,"N/A")'
+D27: '=IFERROR(D26/D13,"N/A")'
+E27: '=IFERROR(E26/E13,"N/A")'
+F27: '=IFERROR(F26/F13,"N/A")'
+G27: '=IFERROR(G26/G13,"N/A")'
+H27: '=IFERROR(H26/H13,"N/A")'
+I27: '=IFERROR(I26/I13,"N/A")'
+J27: '=IFERROR(J26/J13,"N/A")'
+A28: 'Balance Sheet'  [bold, italic]
+A29: 'Tangible Fixed Assets'
+B29: 900
+C29: 900
+D29: 900
+E29: 900
+H29: 900
+A30: 'Intangible Fixed Assets'
+A31: 'Investments'
+A32: 'Total Fixed Assets'
+B32: '=B29+B30+B31'
+C32: '=C29+C30+C31'
+D32: '=D29+D30+D31'
+E32: '=E29+E30+E31'
+F32: '=F29+F30+F31'
+G32: '=G29+G30+G31'
+H32: '=H29+H30+H31'
+I32: '=I29+I30+I31'
+J32: '=J29+J30+J31'
+A33: 'Cash'
+B33: 220
+C33: 260
+D33: 310
+E33: 360
+H33: 360
+A34: 'Accounts Receivable'
+B34: 520
+C34: 560
+D34: 600
+E34: 630
+H34: 630
+A35: 'Stock'
+B35: 310
+C35: 320
+D35: 330
+E35: 340
+H35: 340
+A36: 'Other Current Assets'
+A37: 'Total Current Assets'
+B37: '=B33+B34+B35+B36'
+C37: '=C33+C34+C35+C36'
+D37: '=D33+D34+D35+D36'
+E37: '=E33+E34+E35+E36'
+F37: '=F33+F34+F35+F36'
+G37: '=G33+G34+G35+G36'
+H37: '=H33+H34+H35+H36'
+I37: '=I33+I34+I35+I36'
+J37: '=J33+J34+J35+J36'
+A38: 'Total Assets'
+B38: '=B32+B37'
+C38: '=C32+C37'
+D38: '=D32+D37'
+E38: '=E32+E37'
+F38: '=F32+F37'
+G38: '=G32+G37'
+H38: '=H32+H37'
+I38: '=I32+I37'
+J38: '=J32+J37'
+A39: 'Accounts Payable'
+B39: 330
+C39: 340
+D39: 350
+E39: 360
+H39: 360
+A40: 'Current Portion - Debt'
+A41: 'Overdraft / Revolving Debt'
+A42: 'Other Current Liabilities'
+A43: 'Total Current Liabilities'
+B43: '=B39+B40+B41+B42'
+C43: '=C39+C40+C41+C42'
+D43: '=D39+D40+D41+D42'
+E43: '=E39+E40+E41+E42'
+F43: '=F39+F40+F41+F42'
+G43: '=G39+G40+G41+G42'
+H43: '=H39+H40+H41+H42'
+I43: '=I39+I40+I41+I42'
+J43: '=J39+J40+J41+J42'
+A44: 'Long Term Debt'
+B44: 1400
+C44: 1250
+D44: 1100
+E44: 950
+H44: 950
+A45: 'Loan Notes / Preference Shares'
+A46: 'Other Long Term Liabilities'
+A47: 'Provisions'
+A48: 'Total Long Term Liabilities'
+B48: '=B44+B45+B46+B47'
+C48: '=C44+C45+C46+C47'
+D48: '=D44+D45+D46+D47'
+E48: '=E44+E45+E46+E47'
+F48: '=F44+F45+F46+F47'
+G48: '=G44+G45+G46+G47'
+H48: '=H44+H45+H46+H47'
+I48: '=I44+I45+I46+I47'
+J48: '=J44+J45+J46+J47'
+A49: 'Total Liabilities'
+B49: '=B43+B48'
+C49: '=C43+C48'
+D49: '=D43+D48'
+E49: '=E43+E48'
+F49: '=F43+F48'
+G49: '=G43+G48'
+H49: '=H43+H48'
+I49: '=I43+I48'
+J49: '=J43+J48'
+A50: 'Share Capital'
+B50: 100
+C50: 100
+D50: 100
+E50: 100
+H50: 100
+A51: 'Retained Profit'
+B51: 500
+C51: 640
+D51: 790
+E51: 950
+H51: 950
+A52: 'Total Equity'
+B52: '=B50+B51'
+C52: '=C50+C51'
+D52: '=D50+D51'
+E52: '=E50+E51'
+F52: '=F50+F51'
+G52: '=G50+G51'
+H52: '=H50+H51'
+I52: '=I50+I51'
+J52: '=J50+J51'
+A53: 'Key Credit Metrics'  [bold, italic]
+A54: 'Tangible Net Worth (TNW)'
+B54: '=B52-B30'
+C54: '=C52-C30'
+D54: '=D52-D30'
+E54: '=E52-E30'
+F54: '=F52-F30'
+G54: '=G52-G30'
+H54: '=H52-H30'
+I54: '=I52-I30'
+J54: '=J52-J30'
+A55: 'TNW + Loan Notes / Preference Shares'
+B55: '=B54+B45'
+C55: '=C54+C45'
+D55: '=D54+D45'
+E55: '=E54+E45'
+F55: '=F54+F45'
+G55: '=G54+G45'
+H55: '=H54+H45'
+I55: '=I54+I45'
+J55: '=J54+J45'
+A56: 'Gearing % (Interest-Bearing Debt / Equity)'
+B56: '=IFERROR((B40+B41+B44+B45)/B52,"N/A")'
+C56: '=IFERROR((C40+C41+C44+C45)/C52,"N/A")'
+D56: '=IFERROR((D40+D41+D44+D45)/D52,"N/A")'
+E56: '=IFERROR((E40+E41+E44+E45)/E52,"N/A")'
+F56: '=IFERROR((F40+F41+F44+F45)/F52,"N/A")'
+G56: '=IFERROR((G40+G41+G44+G45)/G52,"N/A")'
+H56: '=IFERROR((H40+H41+H44+H45)/H52,"N/A")'
+I56: '=IFERROR((I40+I41+I44+I45)/I52,"N/A")'
+J56: '=IFERROR((J40+J41+J44+J45)/J52,"N/A")'
+A57: 'Current Ratio'
+B57: '=IFERROR(B37/B43,"N/A")'
+C57: '=IFERROR(C37/C43,"N/A")'
+D57: '=IFERROR(D37/D43,"N/A")'
+E57: '=IFERROR(E37/E43,"N/A")'
+F57: '=IFERROR(F37/F43,"N/A")'
+G57: '=IFERROR(G37/G43,"N/A")'
+H57: '=IFERROR(H37/H43,"N/A")'
+I57: '=IFERROR(I37/I43,"N/A")'
+J57: '=IFERROR(J37/J43,"N/A")'
+A58: 'Gross Leverage'
+B58: '=IFERROR((B40+B41+B44+B45)/B13,"N/A")'
+C58: '=IFERROR((C40+C41+C44+C45)/C13,"N/A")'
+D58: '=IFERROR((D40+D41+D44+D45)/D13,"N/A")'
+E58: '=IFERROR((E40+E41+E44+E45)/E13,"N/A")'
+F58: '=IFERROR((F40+F41+F44+F45)/F13,"N/A")'
+G58: '=IFERROR((G40+G41+G44+G45)/G13,"N/A")'
+H58: '=IFERROR((H40+H41+H44+H45)/H13,"N/A")'
+I58: '=IFERROR((I40+I41+I44+I45)/I13,"N/A")'
+J58: '=IFERROR((J40+J41+J44+J45)/J13,"N/A")'
+A59: 'Net Debt / EBITDA'
+B59: '=IFERROR((B40+B41+B44+B45-B33)/B13,"N/A")'
+C59: '=IFERROR((C40+C41+C44+C45-C33)/C13,"N/A")'
+D59: '=IFERROR((D40+D41+D44+D45-D33)/D13,"N/A")'
+E59: '=IFERROR((E40+E41+E44+E45-E33)/E13,"N/A")'
+F59: '=IFERROR((F40+F41+F44+F45-F33)/F13,"N/A")'
+G59: '=IFERROR((G40+G41+G44+G45-G33)/G13,"N/A")'
+H59: '=IFERROR((H40+H41+H44+H45-H33)/H13,"N/A")'
+I59: '=IFERROR((I40+I41+I44+I45-I33)/I13,"N/A")'
+J59: '=IFERROR((J40+J41+J44+J45-J33)/J13,"N/A")'
+A60: 'Working Capital'  [bold, italic]
+A61: 'Trade Debtor Days'
+B61: '=IFERROR(B34/B3*365,"N/A")'
+C61: '=IFERROR(C34/C3*365,"N/A")'
+D61: '=IFERROR(D34/D3*365,"N/A")'
+E61: '=IFERROR(E34/E3*365,"N/A")'
+F61: '=IFERROR(F34/F3*365,"N/A")'
+G61: '=IFERROR(G34/G3*365,"N/A")'
+H61: '=IFERROR(H34/H3*365,"N/A")'
+I61: '=IFERROR(I34/I3*365,"N/A")'
+J61: '=IFERROR(J34/J3*365,"N/A")'
+A62: 'Trade Creditor Days'
+B62: '=IFERROR(B39/B4*365,"N/A")'
+C62: '=IFERROR(C39/C4*365,"N/A")'
+D62: '=IFERROR(D39/D4*365,"N/A")'
+E62: '=IFERROR(E39/E4*365,"N/A")'
+F62: '=IFERROR(F39/F4*365,"N/A")'
+G62: '=IFERROR(G39/G4*365,"N/A")'
+H62: '=IFERROR(H39/H4*365,"N/A")'
+I62: '=IFERROR(I39/I4*365,"N/A")'
+J62: '=IFERROR(J39/J4*365,"N/A")'
+A63: 'Stock Days'
+B63: '=IFERROR(B35/B4*365,"N/A")'
+C63: '=IFERROR(C35/C4*365,"N/A")'
+D63: '=IFERROR(D35/D4*365,"N/A")'
+E63: '=IFERROR(E35/E4*365,"N/A")'
+F63: '=IFERROR(F35/F4*365,"N/A")'
+G63: '=IFERROR(G35/G4*365,"N/A")'
+H63: '=IFERROR(H35/H4*365,"N/A")'
+I63: '=IFERROR(I35/I4*365,"N/A")'
+J63: '=IFERROR(J35/J4*365,"N/A")'
+A64: 'Working Capital Cycle (days)'
+B64: '=B61+B63-B62'
+C64: '=C61+C63-C62'
+D64: '=D61+D63-D62'
+E64: '=E61+E63-E62'
+F64: '=F61+F63-F62'
+G64: '=G61+G63-G62'
+H64: '=H61+H63-H62'
+I64: '=I61+I63-I62'
+J64: '=J61+J63-J62'
+== sheet 'Collateral & Exposure' dims=A1:I3
+widths: {'A': 22.0, 'B': 16.0, 'C': 16.0, 'D': 16.0, 'E': 16.0, 'F': 16.0, 'G': 16.0, 'H': 16.0, 'I': 16.0}
+A1: 'Asset Class'  [bold]
+B1: 'Exposure (Rental + RV)'  [bold]
+C1: 'Number of Units'  [bold]
+D1: 'Cap / Model Value'  [bold]
+E1: 'Non-Recovery'  [bold]
+F1: 'Costs'  [bold]
+G1: 'Collateral Value'  [bold]
+H1: 'CV % of Exposure'  [bold]
+I1: 'Perfection Status'  [bold]
+A2: 'Vehicles'
+B2: 800
+G2: 700
+H2: '=IFERROR(G2/B2,"N/A")'
+I2: 'Registered'
+A3: 'Total'
+B3: '=SUM(B2:B2)'
+C3: '=SUM(C2:C2)'
+D3: '=SUM(D2:D2)'
+E3: '=SUM(E2:E2)'
+F3: '=SUM(F2:F2)'
+G3: '=SUM(G2:G2)'
+H3: '=IFERROR(G3/B3,"N/A")'

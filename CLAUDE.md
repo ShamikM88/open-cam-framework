@@ -664,6 +664,15 @@ Current gitignored locations: `inputs/`, `config/style_guide.md`, `config/credit
 model text, even on synthetic data), `deals/` (which also covers any
 `deals/<Company>/_conventions.json` and `deals/<Company>/_learnings.md`).
 
+These locations are **enforced, not just documented** (issue #149): `tests/test_confidential_paths.py`
+runs in the ordinary `test` job and fails, naming the path, if `git ls-files` lists any file under one
+of them, if one is no longer ignored by the repository's own `.gitignore` (a global excludes file
+cannot stand in for it, and a negated `!` rule counts as un-ignoring it), or if a `.gitignore` entry
+is neither protected nor classified as not confidential. **A new confidential location must be added
+to `PROTECTED_PATHS` in that test in the same PR as its `.gitignore` line.** A deliberately tracked
+placeholder under a protected path (for example a `.gitkeep`) goes in `ALLOWED_TRACKED` with a reason.
+It cannot see real names in GitHub issue or PR text; that stays a process rule.
+
 Don't copy a user-shared reference document into the repo at all unless asked — even into an
 already-gitignored folder — since that creates a new persistent copy of sensitive data they
 didn't explicitly request.

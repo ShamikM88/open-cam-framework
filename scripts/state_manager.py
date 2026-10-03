@@ -13,10 +13,11 @@ relying on the conversation itself to remember figures.
 Date resolution: when `date_str` isn't given, an existing
 deals/<company>/<proposal>_<date>/ folder for this company/proposal is found
 automatically (most recent wins, if somehow more than one exists) rather
-than always defaulting to today -- unlike deal_export.py's export_deal(),
-whose job (a one-shot export) never needs to be found again later, so
-today is always correct there. This is what lets a deal resumed on a later
-calendar day still find its original state.json.
+than always defaulting to today. This is what lets a deal resumed on a later
+calendar day still find its original state.json. deal_export.py's
+export_deal() itself still defaults to today for a bare call, so its callers
+must resolve the date the same way (resolve_date_str()) or a multi-day deal's
+export lands in a new folder away from its own state.json (issue #97).
 
 review_trail: append_review_trail() is the one exception to write_state()'s
 plain shallow-merge semantics baked into this module itself, rather than
@@ -44,6 +45,7 @@ SCHEMA_VERSION = "1.1.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 LOCK_TIMEOUT_SECONDS = 10
 _LOCK_POLL_INTERVAL_SECONDS = 0.05
@@ -128,14 +130,22 @@ def _existing_date_str(company, proposal, base_dir=None):
     Date suffixes are ISO-8601 (YYYY-MM-DD), so sorting them as plain
     strings also sorts them chronologically -- the lexicographic max is
     the most recent.
+
+    Only a folder whose remainder after `<proposal>_` is exactly a date
+    counts: otherwise a proposal named "Fleet" would also claim a different
+    deal's "Fleet_Q2_2026-05-01" folder (its "date" would be
+    "Q2_2026-05-01", which sorts above any real one). The company and
+    proposal are glob-escaped so a "[" or "]" in a name matches literally
+    instead of as a character class.
     """
     prefix = f"{proposal}_"
-    pattern = os.path.join(_deals_root(base_dir), company, f"{prefix}*")
-    dates = [
-        os.path.basename(p)[len(prefix):]
-        for p in glob.glob(pattern)
-        if os.path.isdir(p) and os.path.basename(p).startswith(prefix)
-    ]
+    pattern = os.path.join(
+        glob.escape(_deals_root(base_dir)), glob.escape(company), f"{glob.escape(prefix)}*")
+    dates = []
+    for p in glob.glob(pattern):
+        name = os.path.basename(p)
+        if os.path.isdir(p) and name.startswith(prefix) and _ISO_DATE_RE.fullmatch(name[len(prefix):]):
+            dates.append(name[len(prefix):])
     return max(dates) if dates else None
 
 
@@ -146,8 +156,9 @@ def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_revie
         # Force today's date rather than resuming the most recent existing
         # folder -- e.g. a new annual review for the same company/proposal
         # must not silently merge into last year's state.json (stale PD/LGD,
-        # financials, policy_state). Matches deal_export.py's own
-        # always-today convention for a one-shot export.
+        # financials, policy_state). Callers that run a new review resolve
+        # this once and pass the concrete date everywhere, including to
+        # deal_export.export_deal() (issue #97).
         return datetime.now().strftime("%Y-%m-%d")
     return _existing_date_str(company, proposal, base_dir=base_dir) or datetime.now().strftime("%Y-%m-%d")
 
@@ -397,6 +408,8 @@ def required_steps_completed(steps_completed, required):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Check whether a deal's state.json has recorded all of a given set of "
                      "required steps in steps_completed. Prints JSON ({\"missing_steps\": [...], "

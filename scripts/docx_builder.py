@@ -1,16 +1,23 @@
+import os
 import re
+import sys
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
 HR_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 FENCE_RE = re.compile(r"^\s*```")
-HEADING_RE = re.compile(r"^(#{1,3}) ")
+FENCE_OPEN_RE = re.compile(r"^\s*```(\S*)")
+IMAGE_RE = re.compile(r"^\s*!\[([^\]]*)\]\((.+?)\)\s*$")
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
+URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+HEADING_RE = re.compile(r"^(#{1,6}) ")
 BULLET_RE = re.compile(r"^- ")
 NUMBERED_RE = re.compile(r"^\d+\.\s")
 INLINE_SPAN = r"\S(?:.*?\S)?"  # non-whitespace at both ends -- keeps a lone
@@ -155,10 +162,97 @@ def _add_table(doc, header_cells, alignments, body_rows):
     return table
 
 
+def _add_monospace_block(doc, code_lines):
+    """Render each line of a non-`json` fenced code block as its own
+    paragraph in a monospace font (Consolas, matching the existing
+    inline-code font choice) -- unlike every other block type here, these
+    lines are never joined into a soft-wrapped paragraph and never run
+    through _add_inline_runs()'s markdown handling, since a preformatted
+    block (e.g. a Unicode box-drawing ownership tree, see issue #113) is
+    meant to render exactly as given, whitespace and all. Paragraph
+    spacing is zeroed so consecutive lines read as one tight block rather
+    than a stack of normally-spaced paragraphs.
+    """
+    for code_line in code_lines:
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.space_after = Pt(0)
+        run = paragraph.add_run(code_line)
+        run.font.name = "Consolas"
+
+
+def _add_image(doc, alt, path):
+    """Embed the image at `path` as its own block, scaled down (never up) to
+    fit the page's text width, with `alt` as its accessibility description
+    and, when non-empty, an italic caption beneath it (see issue #114).
+
+    A reference that can't be honoured -- a remote URL (this module has no
+    network access by design), a missing file, an unsupported or unreadable
+    image -- never crashes the export and is never silently dropped: it
+    becomes a visible placeholder paragraph in the document plus a stderr
+    warning. A silently missing chart in a committee paper is worse than a
+    visible gap, and raising would lose the whole export over one image.
+    """
+    problem = None
+    if URL_SCHEME_RE.match(path):
+        problem = "remote URLs aren't supported"
+    elif os.path.splitext(path)[1].lower() not in IMAGE_EXTENSIONS:
+        problem = "not a supported image type (png/jpg/gif/bmp)"
+    elif not os.path.isfile(path):
+        problem = "file not found"
+
+    shape = None
+    if problem is None:
+        paragraphs_before = len(doc.paragraphs)
+        try:
+            shape = doc.add_picture(path)
+        except Exception as e:  # python-docx raises several unrelated types for a corrupt image
+            detail = str(e) or type(e).__name__
+            problem = f"could not be read as an image ({detail})"
+            # add_picture() creates its paragraph before it parses the file, so
+            # a failure leaves an empty one behind -- drop it.
+            for stray in doc.paragraphs[paragraphs_before:]:
+                stray._element.getparent().remove(stray._element)
+
+    if problem is not None:
+        print(f"[docx_builder] Image not embedded ({problem}): {path}", file=sys.stderr)
+        doc.add_paragraph(f"[Image not embedded: {alt or path} -- {problem}]")
+        return
+
+    section = doc.sections[0]
+    max_width = section.page_width - section.left_margin - section.right_margin
+    if shape.width > max_width:
+        ratio = max_width / shape.width
+        shape.height = int(shape.height * ratio)
+        shape.width = int(max_width)
+
+    if alt:
+        shape._inline.docPr.set("descr", alt)
+        caption = doc.add_paragraph()
+        caption.add_run(alt).italic = True
+
+
+def _find_closing_fence(lines, open_idx):
+    """Index of the bare ``` line that closes the fence opened at
+    `open_idx`, or None if there isn't one. A fence line carrying a tag
+    (```json) can only ever *open* a block, never close one (as in
+    CommonMark): otherwise an unterminated untagged fence -- e.g. an
+    ownership tree whose closing ``` was forgotten -- would be "closed" by
+    the opening line of the Underwriter's trailing ```json block, rendering
+    the narrative in between as monospace and leaking that block's JSON body
+    into the client-facing document.
+    """
+    for k in range(open_idx + 1, len(lines)):
+        if FENCE_RE.match(lines[k]):
+            return None if FENCE_OPEN_RE.match(lines[k]).group(1) else k
+    return None
+
+
 def _is_block_boundary(line):
     """True when `line` starts (or is) a different block -- a heading,
-    bullet, table row, horizontal rule, fenced code block, or a blank line
-    -- and so must never be absorbed into a preceding plain-text paragraph.
+    bullet, table row, horizontal rule, fenced code block, image, or a blank
+    line -- and so must never be absorbed into a preceding plain-text
+    paragraph.
 
     Used to find where a soft-wrapped paragraph ends: Markdown (like every
     other renderer -- browsers, GitHub, Word itself) treats a single
@@ -174,6 +268,7 @@ def _is_block_boundary(line):
         or BULLET_RE.match(line)
         or NUMBERED_RE.match(line)
         or FENCE_RE.match(line)
+        or IMAGE_RE.match(line)
         or HR_RE.match(line)
         or _is_table_row(line)
     )
@@ -186,7 +281,7 @@ def export_to_docx(markdown_text, output_path):
     block is a soft wrap (joined into one continuous paragraph, via
     _is_block_boundary()'s lookahead below), not a paragraph break -- only
     a blank line, or the start of a new block (heading/bullet/numbered
-    item/table row/fence/HR), starts a new one. This means source text
+    item/table row/fence/image/HR), starts a new one. This means source text
     that lists several distinct fields as consecutive plain lines (e.g.
     "**Company:** X\\n**Date:** Y") will render as one run-on paragraph,
     not as separate lines -- authors of Markdown destined for this
@@ -201,33 +296,44 @@ def export_to_docx(markdown_text, output_path):
     while i < n:
         line = lines[i]
 
-        if line.startswith("# "):
-            doc.add_heading(line[2:], level=1)
-            i += 1
-        elif line.startswith("## "):
-            doc.add_heading(line[3:], level=2)
-            i += 1
-        elif line.startswith("### "):
-            doc.add_heading(line[4:], level=3)
+        heading = HEADING_RE.match(line)
+        if heading:
+            hashes = heading.group(1)
+            # python-docx's default style set tops out at Heading 3 (issue
+            # #110), so H4-H6 render as Heading 3 rather than leaking the
+            # literal "####" into the document.
+            doc.add_heading(line[len(hashes) + 1:], level=min(len(hashes), 3))
             i += 1
         elif FENCE_RE.match(line):
-            # A fenced code block (e.g. the Underwriter's trailing structured
-            # JSON block, needed for policy_checks.py's regex parsing but
-            # never meant for a client-facing CAM) -- skip it wholesale
-            # rather than dumping raw code/JSON as body paragraphs. Look
-            # ahead for an actual closing fence first: an unterminated one
-            # (a stray/odd ``` from truncation) must not silently discard
-            # every line through EOF, so only skip the block when a real
-            # closing fence exists -- otherwise treat this line as a lone
-            # stray marker and keep processing normally.
-            close_idx = None
-            for k in range(i + 1, n):
-                if FENCE_RE.match(lines[k]):
-                    close_idx = k
-                    break
-            i = close_idx + 1 if close_idx is not None else i + 1
+            # A fenced code block is one of two things in practice: the
+            # Underwriter's trailing ```json structured-output block (needed
+            # for policy_checks.py's regex parsing but never meant for a
+            # client-facing CAM -- skipped wholesale, not dumped as body
+            # paragraphs) or a preformatted monospace block meant to actually
+            # appear in the document (e.g. a Unicode box-drawing ownership
+            # tree, see issue #113) -- rendered as-is via
+            # _add_monospace_block(). The ```json tag is what distinguishes
+            # them. Look ahead for an actual closing fence first either way:
+            # an unterminated one (a stray/odd ``` from truncation) must not
+            # silently discard every line through EOF, so only treat this as
+            # a real fenced block when a real closing fence exists --
+            # otherwise treat this line as a lone stray marker and keep
+            # processing normally.
+            close_idx = _find_closing_fence(lines, i)
+            if close_idx is not None:
+                tag_match = FENCE_OPEN_RE.match(line)
+                tag = tag_match.group(1).lower() if tag_match else ""
+                if tag != "json":
+                    _add_monospace_block(doc, lines[i + 1:close_idx])
+                i = close_idx + 1
+            else:
+                i += 1
         elif HR_RE.match(line):
             i += 1  # a markdown horizontal rule has no meaningful docx equivalent here
+        elif IMAGE_RE.match(line):
+            image_match = IMAGE_RE.match(line)
+            _add_image(doc, image_match.group(1).strip(), image_match.group(2).strip())
+            i += 1
         elif BULLET_RE.match(line):
             para_lines = [line[2:].strip()]
             j = i + 1

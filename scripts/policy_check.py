@@ -88,6 +88,8 @@ def compute(company, proposal, draft_path=None):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     parser = argparse.ArgumentParser(
         description="Compute a deal's deterministic policy_state (required CPs, "
                      "covenant results, security gaps) and, if --draft is given, "

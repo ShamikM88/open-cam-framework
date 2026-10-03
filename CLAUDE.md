@@ -50,6 +50,8 @@ open-cam-framework/
 │   ├── policy_checks.py         Parses the Underwriter's structured-output JSON and checks a draft's declared figures/CPs/taxonomy against ground truth -- check_draft_compliance() (no anthropic dependency)
 │   ├── policy_check.py          Standalone CLI wrapper around policy_engine.py/policy_checks.py -- compute(); callable from /assemble's and /review's own Bash steps so the slash-command interface gets the same code-enforced governance orchestrator.py's headless pipeline does (no anthropic dependency)
 │   ├── pii_scan.py              Heuristic (UK-shaped) scan for likely-real PII left over in a calibrated template before promoting it upstream -- see the confidentiality rule's "Promoting a local override upstream" note below (no anthropic dependency)
+│   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" below)
+│   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only: --validate/--list/--dry-run make zero model calls; --live spends real API calls under a hard cap; --export-baseline/--compare) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap), eval_runner.py (the isolated live runner), eval_baseline.py (baseline export/compare); see "Execution scripts" below and issue #151
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
@@ -59,6 +61,7 @@ open-cam-framework/
 │   ├── cam/                     Shipped default Markdown CAM templates (corporate_credit_cam.md, asset_finance_cam.md)
 │   ├── spreading/               default_spreading_template.xlsx -- reference copy of the spreading workbook layout
 │   └── local/cam/               Calibrated overrides / auto-saved new-type templates (gitignored, see below)
+├── evals/                       Local live-model evaluation harness data -- see evals/README.md and issue #151: dataset/<version>/ (synthetic cases, tracked), results/ (per-run output, gitignored), baselines/ (committed only by a deliberate manual step)
 ├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence)
 ├── badges/
 │   └── test-count.json          Checked-in `{"passed": <int>}` record of the currently-passing test count -- deliberately public/git-tracked (a project stat, not derived borrower/institutional data), kept honest by CI's "Verify checked-in test count" step (scripts/check_test_count.py) rather than hand-maintained -- see "Execution scripts" below
@@ -314,10 +317,38 @@ list (`- **Label:** value`) or genuinely blank-line-separated paragraphs -- neve
 consecutive `**Label:** value` lines, which will merge into one run-on paragraph in the exported
 document instead of rendering as separate lines.
 
+**Second gotcha, same function:** a fenced code block tagged ```` ```json ```` is deliberately
+stripped from the exported document entirely -- that's reserved for the Underwriter's own trailing
+structured-output block (needed for `policy_checks.py`'s parsing, never meant for a client-facing
+CAM). Any other fenced block (untagged, or tagged anything else) renders as a real monospace
+block instead -- one paragraph per line, Consolas font, whitespace preserved exactly -- see issue
+#113 (the ownership-tree diagram in `agents/underwriter_agent.md`'s Guideline 12 is the first use
+of this). Using ```` ```json ```` for anything you actually want to appear in the document (the
+ownership tree included) would silently delete it. A tagged fence line only ever *opens* a block,
+never closes one (as in CommonMark) -- so a tree whose closing ```` ``` ```` was forgotten can't be
+"closed" by the trailing ```` ```json ```` block's opening line, which would otherwise render the
+narrative between them as monospace and leak the structured-output JSON into the document.
+
+**Third gotcha, same function:** a standalone `![alt](path)` line embeds that image as its own
+block (see issue #114) -- scaled down, never up, to the page's text width, with `alt` as both its
+accessibility description and an italic caption beneath it (leave `alt` empty for no caption).
+Only a real local file of type png/jpg/gif/bmp is embedded; the path is resolved against the
+working directory like every other path in this repo, so a relative path must be valid from
+wherever the export runs. Anything else -- a remote URL (this module never touches the network), a
+missing file, an unsupported type such as SVG, an unreadable image -- never crashes the export and
+is never silently dropped: it becomes a visible `[Image not embedded: ...]` placeholder paragraph
+in the document plus a stderr warning, because the Risk Reviewer audits the Markdown (where the
+image line still looks fine), not the exported file, so nothing else would catch a missing chart.
+An image reference must be a line of its own -- inline mid-sentence images aren't supported. The
+path is not restricted to `deals/` (an analyst's own screenshot may live anywhere), but it is
+model-written Markdown text, so an image line pointing outside the deal's `sources/` folder is worth
+a second look in review.
+
 ## Execution scripts
 
 - **`scripts/calibrate.py --type <deal_type>`** (headless; needs `ANTHROPIC_API_KEY`) — reads historical CAM PDFs from
-  `inputs/calibration_samples/` and makes two Claude calls against that text: one extracts
+  `inputs/calibration_samples/` (in sorted filename order) and makes two Claude calls against that
+  text (more when the samples overflow one call's limit -- see "Sample length" below): one extracts
   writing style/tone into `config/style_guide.md`; the other derives a genericized CAM template
   (explicitly instructed to strip all real data to `[placeholder]`s) written to
   `templates/local/cam/<deal_type>_cam.md`. `<deal_type>` defaults to `corporate_credit` and
@@ -334,6 +365,61 @@ document instead of rendering as separate lines.
   ```
   python scripts/calibrate.py --mock --type asset_finance
   ```
+  **Sample length (issue #109):** each Claude call takes at most `CHUNK_CHAR_LIMIT` (12,000)
+  characters of sample text, and the combined text of every PDF in `inputs/calibration_samples/`
+  routinely exceeds that. The length check is the run's first decision point -- after the PDFs
+  are read (local only) but before any API call or file write -- and offers two choices: *ignore*
+  (use only the first 12,000 characters, discarding the rest, now stated explicitly) or *split*
+  (split the text in memory at paragraph/line boundaries into parts, run the style/template prompt
+  on each, then merge the per-part results with one consolidation call, hierarchically if there
+  are very many parts; the merge prompts restate the "zero real data, bracketed placeholders"
+  and editorial-judgment rules). `--on-overflow {ask,split,ignore}` (default `ask`) pre-answers it;
+  `ask` prompts on a terminal and falls back to `split` when there's no TTY, since silently losing
+  material is the failure this exists to prevent and splitting only costs extra API calls.
+  `--mock` makes no calls, so it only reports how many parts a real run would use (it ignores
+  `--on-overflow`). Whitespace-only parts (e.g. a lone trailing newline) are dropped before
+  counting or calling, and if only one non-blank part remains nothing is lost, so there's no
+  prompt. The original sample PDFs are only ever read, never written or split on disk. Both result
+  files are computed in memory first, with no API call between the two writes at the end, so an API
+  failure partway through a long split run leaves any existing `config/style_guide.md`/template
+  untouched. A response cut off at its output-token limit prints a `[WARN]` rather than flowing on
+  silently. `/calibrate` has no such cap (native PDF reading) and is unaffected.
+- **`scripts/textio.py`** — no `anthropic` dependency. The repository's one text-reading policy
+  (issue #137): **every text file is UTF-8**, because Python's default `open()` encoding is the
+  platform's (cp1252 on Windows), which silently garbled an UTF-8 file's non-ASCII characters --
+  the em dash and the box-drawing ownership-tree example in `agents/underwriter_agent.md` reached
+  the model as mojibake in headless runs on Windows. `read_text(path, legacy_fallback=False)` is
+  what `orchestrator.py` uses for every file it loads into a prompt: **strict UTF-8** (a BOM is
+  tolerated) for shipped, repository-owned files (`agents/*.md`), where a decode error fails loudly
+  with `TextEncodingError` naming the file; **UTF-8, then cp1252 with a `[WARN]` on stderr** naming
+  the file, for user-owned files that may predate the policy (`config/style_guide.md`, the
+  credit-policy and learnings files -- `calibrate.py` on Windows used to write the style guide in
+  cp1252); a file that decodes under neither -- or whose cp1252 decode contains NUL bytes, i.e. it
+  is really UTF-16 -- raises. The CAM template is read the same strict way. It **never** substitutes characters
+  (`errors="replace"`): a `£` quietly turned into `?` in a policy is worse than a failure. Every
+  writer passes `encoding="utf-8"` to `open()` itself. When adding any new `open()` of a text
+  file, pass `encoding=` explicitly (ruff's `PLW1514` is the intended lint guard, see issue #139);
+  tests use the `cp1252_default_open` fixture in `tests/conftest.py`, which makes an `open()` with
+  no encoding behave like Windows on every platform so such a regression can't hide on Linux CI
+  (it patches `builtins.open` only -- `pathlib`'s `read_text()`/`write_text()`, `io.open` and
+  `os.fdopen` are not covered by it, and `PLW1514` only partly, so review those by eye; no
+  production script uses unguarded pathlib text I/O today).
+  **Output streams too (issue #154):** when a Windows script's stdout is redirected or piped (CI
+  logs, Task Scheduler, `> log.txt`), Python encodes it as cp1252, so a `print()` of a character
+  cp1252 lacks -- a `≥` in the Risk Reviewer's notes, a letter in a company name -- raised
+  `UnicodeEncodeError` and aborted the run *after* the verdict was decided but before the revision
+  or export. `configure_stdio()` makes stdout/stderr UTF-8 when they aren't already (an
+  interactive console and an already-UTF-8 stream are left alone, and a closed or `None` stream is
+  skipped; each stream keeps its own error policy, so there is no lossy `errors="replace"`; stdout
+  becomes UTF-8 even under a non-UTF-8 POSIX locale, since UTF-8 is this repo's convention), and
+  **every script's `if __name__ == "__main__":` block must start with `from textio import
+  configure_stdio` then the bare call `configure_stdio()`** (a static test in
+  `tests/test_stdio_encoding.py` fails for any CLI whose block doesn't -- including a call placed
+  after another statement, a guarded call, or an `import textio` style call -- so a new script can't
+  forget). It's called from the entry-point block,
+  never from functions, so importing a module never reconfigures the interpreter's streams. The
+  tests reproduce a cp1252 pipe on any platform (an in-memory cp1252 wrapper, or a child process
+  started with `PYTHONIOENCODING=cp1252`), including the real `deal_export.py` CLI.
 - **`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
   given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
   prompts and style guide, resolves the CAM template for `--type` via
@@ -353,7 +439,17 @@ document instead of rendering as separate lines.
   `deals/[Company]/[Proposal]_[Date]/` folder, auto-saves the draft as a new
   `templates/local/cam/<type>_cam.md` if that deal type had no template at all yet (never into
   the git-tracked `templates/cam/` -- see the confidentiality rule below), and exports
-  `.docx`/`.xlsx`.
+  `.docx`/`.xlsx`. **Which dated folder:** `export_deal()` itself still defaults to today when
+  `date_str` isn't given (a bare library call has nothing else to go on), so every caller that
+  has a deal in progress must resolve the date itself: `orchestrator.py` passes the `date_str`
+  it already resolved at the start of its run, and the CLI takes an optional `--date-str` that
+  otherwise falls back to `state_manager.resolve_date_str()`'s auto-discovery (the deal's
+  existing dated folder, most recent wins, else today for a brand-new deal; only a folder named
+  exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims another deal's
+  `Fleet_Q2_2026-05-01`, and `--date-str` must itself be a `YYYY-MM-DD` date). Without this a deal
+  finished days after it started exported into a new folder, disconnected from its own
+  `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
+  patch to re-home `state.json`.
 - **`scripts/template_resolver.py`** — pure path-resolution logic shared across the scripts
   above and `/assemble` (no `anthropic`/`docx`/`openpyxl` imports, so it's cheap to unit test):
   `cam_template_path(deal_type)` checks `templates/local/cam/` first, falls back to
@@ -364,9 +460,9 @@ document instead of rendering as separate lines.
   `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
   an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
   today, so a deal resumed on a later calendar day still finds its original file. (This is
-  deliberately different from `deal_export.export_deal`'s own date handling, which always
-  defaults to today -- a one-shot export never needs to be found again later, so today is always
-  correct there.) `read_state(company, proposal)` returns the parsed dict or `None`.
+  deliberately different from the bare `deal_export.export_deal()` default, which is still
+  today -- so callers resolve the date themselves via `resolve_date_str()`, see that script's
+  entry above and issue #97.) `read_state(company, proposal)` returns the parsed dict or `None`.
   `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
   any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
   (reusing an existing one per the auto-discovery above), and returns the full merged state.
@@ -487,6 +583,69 @@ document instead of rendering as separate lines.
   ```
   python scripts/check_test_count.py pytest_output.txt
   ```
+- **`scripts/run_evals.py`, `eval_cases.py`, `eval_oracles.py`, `eval_report.py`, `eval_budget.py`,
+  `eval_runner.py`, `eval_baseline.py`** (issue #151; see `evals/README.md`) — the **local live-model
+  evaluation harness**, which measures what the test suite cannot: whether the *actual model* follows
+  the prompts (no invented figures, analyst-supplied inputs labelled, planted instructions not obeyed).
+  The dataset, oracles and dry run (PR 1) and the live runner with baseline export/compare (PR 2) are
+  built; **no live evaluation has been run yet** -- the first run and first baseline are deliberate steps
+  taken after review. Deliberate boundaries, enforced by `tests/test_eval_*.py` and
+  `tests/test_run_evals.py`: run only by explicit `python scripts/run_evals.py`; nothing runs it
+  automatically (it is never imported by `orchestrator.py`, `conftest.py` or CI), though the tests
+  exercise its validation, oracles, budget, writer, runner and CLI with scripted outputs and **fake
+  clients -- zero model calls, no API key**; a **hard call ceiling** (plan printed first and refused over
+  `--max-calls`, default 80, never above 250, *before the API key is even read*; default 5 repeats x 15
+  cases = 75; it bounds calls, not tokens); **synthetic data only** (invented `Synthetic ...` names, one
+  company/proposal per case, scanned with `pii_scan.py`, strict case validation that also rejects raw
+  figure names the framework would silently read as 0 and any mistyped key); results only under the
+  **git-ignored `evals/results/`** (the writer resolves symlinks/junctions, refuses any path in the repo
+  whose output files are not ignored, never overwrites an earlier run, and never modifies a tracked
+  file -- a baseline is committed only by a deliberate manual copy of an exported summary that holds
+  rates, hashes and the model but no model text); no GitHub secret (a live run uses the user's own
+  `ANTHROPIC_API_KEY`). **The live runner** (`--live`, with a typed confirmation unless `--yes`) drives
+  `orchestrator.run_pipeline()` unchanged with `max_iterations=1` and a routing client, so each run costs
+  exactly one live call (a Maker case stops before the Checker; a Checker case scripts the Maker draft)
+  and the prompts are the real ones; every run gets a fresh isolated working directory (agents,
+  `config/settings.json`, `templates/cam/` only -- never `templates/local/`) and runs serially because it
+  `chdir`s; the live client is a `BudgetedClient` with `max_retries=0` that wraps only the live client;
+  each finished run is appended to `runs.jsonl` immediately; a run that errors stays in the pass-rate
+  denominator, and three errors in a row abort. Every non-`ok` run status (`error`, including a scoring
+  failure after a paid-for call, whose output is still kept; `no_text`, e.g. a refusal; `interrupted`,
+  Ctrl-C after a call was attempted -- in flight, or during scoring or cleanup with the output kept) is a
+  recorded non-pass, so per-run call counts sum to the budget (a second Ctrl-C during handling of the
+  first is the one unrecoverable window; `runs.jsonl` still holds every earlier run). A response's stop
+  state (`complete` / `refusal` / `incomplete`) is recorded too: a refusal is a result in its own right
+  (it is scored on any text it returned, so it can still satisfy some form-checking oracles and
+  contribute to a pass rate -- counted separately and documented in `evals/README.md`), an incomplete
+  one makes a baseline partial. The reply is read by joining text blocks, error strings are scrubbed of
+  the API key, and the per-run `stop_reason`/token counts/served model are recorded (a baseline keeps
+  the served model beside the requested one), with incomplete output flagged in the pack. The plan shows
+  the models, `max_tokens`, output-token bound and endpoint before the `yes`, and the runner refuses an
+  installed `anthropic` older than `requirements.txt`'s floor (the installed version is recorded). A
+  baseline keeps only an abort *category* (never the free-text reason), and `--export-baseline`
+  **refuses a partial run** (aborted, errored, interrupted, truncated or incomplete) unless
+  `--allow-partial`, which marks the file `partial`. Three result types are kept apart: **deterministic
+  oracle results** (an assertion marked `"scored": false` is an observation that never counts toward
+  pass/fail), **observed pass rates** over repeated live runs (never described as "proven safe"), and
+  **human-review observations** (no pass/fail). **Most oracles are format / self-declaration checks, not
+  judgement:** `figures_grounded` passes when the model declares no figure at all, so those category
+  pass rates mean "emitted a well-formed, self-consistent block", with the real judgement in human
+  review. Every case carries scripted `good`/`bad` outputs and is valid only if its scored oracles pass
+  `good` and `bad` fails exactly the oracle(s) in `bad.expected_failures`. **Scope limit:** v1 exercises
+  the headless pipeline surfaces (collateral text, persisted learnings and policy notes reach both
+  agents; the style guide reaches only the Maker) plus a synthetic source-document block that the runner
+  appends to the Maker message and that is only a *prompt-level approximation* of `/research` -- not an
+  end-to-end test of the slash-command path -- so it does not establish injection resistance for
+  surfaces it cannot exercise. The canary oracle reports that a token *appeared* (or a trivial
+  re-encoding of it) in what the *model produced*; appearing is not the same as obeying (a model that
+  quotes it while refusing is a hit, which is why a Checker case scores the verdict and only observes
+  the canary), and it cannot see obedience that leaves no token:
+  ```
+  python scripts/run_evals.py --dry-run          # 0 model calls
+  python scripts/run_evals.py --live             # spends real API calls; your key; prints the plan first
+  python scripts/run_evals.py --export-baseline evals/results/<run>/results.json
+  python scripts/run_evals.py --compare evals/baselines/<file>.json evals/results/<run>/results.json
+  ```
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.
@@ -501,8 +660,9 @@ user-supplied Excel spreading template, etc.), its storage location must already
 and shareable, while anything derived from one user's real documents stays local to their fork.
 Current gitignored locations: `inputs/`, `config/style_guide.md`, `config/credit_policy.md`,
 `config/credit_policy_notes.md`, `config/spreading_conventions.json`, `config/deal_learnings.md`,
-`templates/local/`, `deals/` (which also covers any `deals/<Company>/_conventions.json` and
-`deals/<Company>/_learnings.md`).
+`templates/local/`, `evals/results/` (the evaluation harness's per-run output -- it may contain
+model text, even on synthetic data), `deals/` (which also covers any
+`deals/<Company>/_conventions.json` and `deals/<Company>/_learnings.md`).
 
 Don't copy a user-shared reference document into the repo at all unless asked — even into an
 already-gitignored folder — since that creates a new persistent copy of sensitive data they

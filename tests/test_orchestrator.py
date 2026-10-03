@@ -213,6 +213,152 @@ def test_run_pipeline_records_model_provenance_on_state(project_root):
     assert provenance["risk_reviewer_prompt_hash"] == _content_hash("CHECKER PROMPT")
 
 
+def test_run_pipeline_exports_into_the_deals_existing_dated_folder(project_root):
+    """Issue #97: a deal started on an earlier day must export its .docx/.xlsx
+    next to its own state.json, not into a fresh folder dated today."""
+    from datetime import datetime
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit")
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    original = project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10"
+    assert (original / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert (original / "Acme Corp_Fleet Loan_Spreading.xlsx").exists()
+    assert (original / "state.json").exists()
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert not (project_root / "deals" / "Acme Corp" / f"Fleet Loan_{today}").exists()
+
+
+def test_run_pipeline_new_review_exports_into_todays_folder_alongside_its_state(project_root):
+    from datetime import datetime
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit")
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    fresh = project_root / "deals" / "Acme Corp" / f"Fleet Loan_{today}"
+    assert (fresh / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert (fresh / "state.json").exists()
+    # Last year's folder is left exactly as it was -- no export leaked into it.
+    assert not (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+
+
+# ---------------------------------------------------------------------------
+# Text encoding (issue #137): the files orchestrator.py loads into a prompt
+# are read under one explicit policy, so a cp1252-default machine (Windows)
+# behaves the same as a UTF-8 one. `cp1252_default_open` (conftest.py) makes
+# any open() that forgets `encoding=` behave like Windows on every platform.
+# ---------------------------------------------------------------------------
+
+def _run_once(client=None):
+    client = client or MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    return client
+
+
+def test_maker_prompt_keeps_the_shipped_agent_files_non_ascii_characters(project_root, cp1252_default_open):
+    # The real agents/underwriter_agent.md has an em dash and a box-drawing
+    # ownership-tree example (Guideline 12); read under cp1252 they reached
+    # the model as mojibake ("â”œâ”€...").
+    tree = "├── [Parent] 60% — └── [Sibling] 40%"
+    (project_root / "agents" / "underwriter_agent.md").write_text("MAKER PROMPT\n" + tree, encoding="utf-8")
+
+    client = _run_once()
+
+    assert tree in client.calls[0]["messages"][0]["content"]
+
+
+def test_a_shipped_agent_file_that_is_not_utf8_fails_loudly_naming_it(project_root):
+    from textio import TextEncodingError
+    (project_root / "agents" / "underwriter_agent.md").write_bytes("Price £1".encode("cp1252"))
+    with pytest.raises(TextEncodingError, match="underwriter_agent.md"):
+        _run_once(MockClient([]))
+
+
+def test_legacy_cp1252_style_guide_is_still_read_but_with_a_warning(project_root, capsys):
+    (project_root / "config" / "style_guide.md").write_bytes("Quote £ and – dashes".encode("cp1252"))
+
+    client = _run_once()
+
+    assert "Quote £ and – dashes" in client.calls[0]["messages"][0]["content"]
+    err = capsys.readouterr().err
+    assert "style_guide.md" in err and "cp1252" in err
+
+
+@pytest.mark.parametrize("relpath", [
+    "config/credit_policy_notes.md",
+    "config/deal_learnings.md",
+    "deals/Acme Corp/_learnings.md",
+])
+def test_every_other_legacy_capable_user_file_also_falls_back_with_a_warning(project_root, capsys, relpath):
+    legacy_text = "Note £ and – dashes"
+    needs_policy = relpath.endswith("credit_policy_notes.md")  # notes only reach the prompt with a policy
+    if needs_policy:
+        (project_root / "config" / "credit_policy.md").write_text("POLICY", encoding="utf-8")
+    path = project_root / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(legacy_text.encode("cp1252"))
+
+    draft = _compliant_draft(credit_policy_considered=True) if needs_policy else _compliant_draft()
+    client = _run_once(MockClient([draft, _approved_json()]))
+
+    assert legacy_text in client.calls[0]["messages"][0]["content"]
+    err = capsys.readouterr().err
+    assert path.name in err and "cp1252" in err
+
+
+def test_a_user_owned_file_that_decodes_under_neither_encoding_fails_naming_it(project_root):
+    from textio import TextEncodingError
+    (project_root / "config" / "credit_policy.md").write_bytes(b"limit \x81\x8d")
+    with pytest.raises(TextEncodingError, match="credit_policy.md"):
+        _run_once(MockClient([]))
+
+
+def test_utf8_user_files_reach_the_prompt_intact_under_a_cp1252_default(project_root, cp1252_default_open):
+    text = "Policy: exposure ≤ £5m — see Álvarez ├──"
+    (project_root / "config" / "credit_policy.md").write_text(text, encoding="utf-8")
+    (project_root / "config" / "style_guide.md").write_text(text, encoding="utf-8")
+
+    # A calibrated credit policy makes the draft declare it considered it.
+    client = _run_once(MockClient([_compliant_draft(credit_policy_considered=True), _approved_json()]))
+
+    prompt = client.calls[0]["messages"][0]["content"]
+    assert prompt.count(text) == 2  # once as the style guide, once inside the policy block
+
+
+def test_a_rejection_with_non_cp1252_notes_still_revises_and_exports_on_a_cp1252_pipe(project_root, monkeypatch):
+    """Issue #154: the Checker's notes are printed on a REJECTED verdict; on a
+    Windows pipe (cp1252) a >= sign raised UnicodeEncodeError there, aborting
+    the run before the revision call and the export."""
+    import io
+    import sys
+    import textio
+
+    stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict", write_through=True)
+    monkeypatch.setattr(sys, "stdout", stdout)
+    monkeypatch.setattr(sys, "stderr", io.TextIOWrapper(io.BytesIO(), encoding="cp1252",
+                                                        errors="backslashreplace", write_through=True))
+    textio.configure_stdio()  # what every script's __main__ block now does first
+
+    notes = "DSCR ≥ 1.25x → breach for Łukasz"
+    client = MockClient([
+        _compliant_draft(body="# FIRST DRAFT MARKER"), _rejected_json(notes),
+        _compliant_draft(body="# REVISED DRAFT MARKER"), _approved_json(),
+    ])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    assert client.call_count == 4  # draft, rejected audit, REVISION, approved audit
+    assert notes in stdout.buffer.getvalue().decode("utf-8")
+    exported = list((project_root / "deals" / "Acme Corp").glob("*/*_CAM.docx"))
+    assert len(exported) == 1, "the revised draft was never exported"
+    exported_text = "\n".join(p.text for p in docx.Document(str(exported[0])).paragraphs)
+    # The REVISED draft is what was exported, not the rejected first one.
+    assert "REVISED DRAFT MARKER" in exported_text and "FIRST DRAFT MARKER" not in exported_text
+
+
 def _approved_json(notes=None):
     return '```json\n' + json.dumps({"verdict": "APPROVED", "notes": notes}) + '\n```'
 

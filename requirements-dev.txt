@@ -1,5 +1,6 @@
 -r requirements.txt
 pytest>=9.1.1
+tomli>=2.0.1; python_version < "3.11"   # scripts/check_coverage.py reads pyproject.toml
 pytest-cov>=7.1.0         # coverage measurement (line + branch), issue #142
 pytest-timeout>=2.4.0     # a hung test fails instead of eating the CI job limit
 pytest-socket>=0.8.1      # no test may open a network connection

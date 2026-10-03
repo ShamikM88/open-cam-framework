@@ -12,6 +12,7 @@ pytest_output.txt
 .coverage.*
 htmlcov/
 coverage.xml
+coverage.json
 
 # Hypothesis example database (HYPOTHESIS_PROFILE=explore only; the CI profile keeps none)
 .hypothesis/

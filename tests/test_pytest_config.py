@@ -112,6 +112,8 @@ def test_the_configured_settings_are_the_agreed_ones():
     assert 1 <= options["timeout"] <= 600
     coverage = _config()["tool"]["coverage"]
     assert coverage["run"]["branch"] is True and coverage["run"]["source"] == ["scripts"]
+    # the CLI subprocess tests only count toward coverage if the child processes are followed
+    assert coverage["run"]["patch"] == ["subprocess"] and coverage["run"]["parallel"] is True
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,8 @@
 -r requirements.txt
 pytest>=9.1.1
+pytest-cov>=7.1.0         # coverage measurement (line + branch), issue #142
+pytest-timeout>=2.4.0     # a hung test fails instead of eating the CI job limit
+pytest-socket>=0.8.1      # no test may open a network connection
+diff-cover>=10.6.0        # coverage of the lines a PR changes (issue #142, wired into CI in a later PR)
 ruff>=0.16.9
 bandit>=1.9.4

@@ -94,8 +94,8 @@ def _child_env():
 
 def test_a_cp1252_pipe_in_a_real_child_process_works_after_configure_stdio():
     code = (
-        "import sys; sys.path.insert(0, %r); import textio; textio.configure_stdio(); "
-        "print('\\u2265 \\u0141ukasz')" % str(SCRIPTS_DIR)
+        f"import sys; sys.path.insert(0, {str(SCRIPTS_DIR)!r}); import textio; textio.configure_stdio(); "
+        "print('\\u2265 \\u0141ukasz')"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, env=_child_env())
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")

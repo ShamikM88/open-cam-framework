@@ -3,6 +3,7 @@ kept-apart result types, the review pack wording, and the rule that results
 are only ever written under a git-ignored directory. Zero model calls.
 """
 import json
+from pathlib import Path
 import os
 import shutil
 import subprocess
@@ -129,9 +130,11 @@ def test_write_results_writes_both_files_outside_the_repo(tmp_path):
     record = _record_with_live_runs()
     out_dir = write_results(record, out_root=str(tmp_path))
     assert os.path.basename(out_dir) == record["run_id"]
-    saved = json.loads(open(os.path.join(out_dir, "results.json"), encoding="utf-8").read())
+    with open(os.path.join(out_dir, "results.json"), encoding="utf-8") as f:
+        saved = json.loads(f.read())
     assert saved["run_id"] == record["run_id"] and saved["summary"] == record["summary"]
-    assert "Evaluation review pack" in open(os.path.join(out_dir, "review_pack.md"), encoding="utf-8").read()
+    with open(os.path.join(out_dir, "review_pack.md"), encoding="utf-8") as f:
+        assert "Evaluation review pack" in f.read()
 
 
 @needs_git
@@ -229,9 +232,9 @@ def test_non_ascii_model_text_is_preserved_and_a_lone_surrogate_cannot_abort_the
     runs = [scripted_run("good", [], output_excerpt="DSCR ≥ 1.25x → ok \ud800 end")]
     record = build_record("dry-run", {"version": "v1", "cases": [{"id": "c"}]}, [case("c", "fabrication", runs)], "r9")
     out_dir = write_results(record, out_root=str(tmp_path))
-    text = open(os.path.join(out_dir, "results.json"), encoding="utf-8").read()
+    text = Path(os.path.join(out_dir, "results.json")).read_text(encoding="utf-8")
     assert "≥" in text and "→" in text  # raw characters, not \u escapes
-    assert open(os.path.join(out_dir, "review_pack.md"), encoding="utf-8").read()
+    assert Path(os.path.join(out_dir, "review_pack.md")).read_text(encoding="utf-8")
 
 
 def test_a_cross_drive_path_is_treated_as_outside_the_repo_not_a_crash(monkeypatch, tmp_path):

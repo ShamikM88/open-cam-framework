@@ -48,6 +48,10 @@ NOT_CONFIDENTIAL = {
     ".venv/": "local virtual environment",
     "venv/": "local virtual environment",
     "pytest_output.txt": "CI's own scratch file (scripts/check_test_count.py)",
+    ".coverage": "coverage.py data file (issue #142); build output, not data",
+    ".coverage.*": "coverage.py per-process data files; build output, not data",
+    "htmlcov/": "coverage.py HTML report; build output, not data",
+    "coverage.xml": "coverage.py XML report; build output, not data",
     ".env": "secrets file; covered by the repository's secret scanning and push protection (see #149)",
     "*.key": "secret key files; covered by the repository's secret scanning and push protection (see #149)",
 }

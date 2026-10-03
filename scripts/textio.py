@@ -98,7 +98,7 @@ def read_text(path, legacy_fallback=False):
             raise TextEncodingError(
                 f"{path} is not valid UTF-8 and contains NUL bytes under cp1252, so it looks like "
                 "UTF-16 or a binary file. Re-save it as UTF-8."
-            )
+            ) from utf8_error
         print(f"[WARN] {path} is not valid UTF-8; read it as legacy cp1252. "
               "Re-save it as UTF-8 so it reads the same on every machine.", file=sys.stderr)
         return text

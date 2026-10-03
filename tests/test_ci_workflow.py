@@ -2,14 +2,12 @@
 
 A workflow is configuration that nothing exercises until it runs on GitHub, so each property that matters is
 asserted here from the file itself, and each assertion is also shown to be able to fail (the parse helpers are run
-on deliberately bad workflows). `zizmor`, when installed, is run on the real file too; CI's `security` job runs it
-unconditionally. No YAML library is needed: the workflow is laid out in a fixed, conventional shape.
+on deliberately bad workflows). `zizmor` is NOT run from here: a test that skips where the tool is absent makes
+the passed-test count differ between environments, which badges/test-count.json cannot allow; CI's `security` job
+runs it on every pull request, and `zizmor .github/workflows` does so locally. No YAML library is needed: the
+workflow is laid out in a fixed, conventional shape.
 """
-import os
 import re
-import shutil
-import subprocess
-import sys
 import textwrap
 from pathlib import Path
 
@@ -176,15 +174,3 @@ def test_the_security_requirements_file_names_both_tools():
              if line.strip() and not line.startswith("#")}
     assert names == {"pip-audit", "zizmor"}
 
-
-def find_zizmor():
-    """zizmor on PATH, or next to the running interpreter (a virtual environment's Scripts/bin directory)."""
-    search = os.pathsep.join([str(Path(sys.executable).parent), os.environ.get("PATH", "")])
-    return shutil.which("zizmor", path=search)
-
-
-@pytest.mark.skipif(find_zizmor() is None, reason="zizmor is installed by requirements-security.txt")
-def test_zizmor_finds_nothing_in_the_workflow():
-    result = subprocess.run([find_zizmor(), "--offline", "--persona", "auditor", str(WORKFLOW)], capture_output=True,
-                            text=True, timeout=60)
-    assert result.returncode == 0, result.stdout + result.stderr

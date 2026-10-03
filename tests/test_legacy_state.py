@@ -110,7 +110,10 @@ def test_merging_a_new_period_into_an_old_state_keeps_everything_else(tmp_path, 
     for key in UNTOUCHED_KEYS:                                              # nothing the merge did not touch is lost
         if key in original:
             assert written[key] == original[key], key
-    assert written["schema_version"] == state_manager.SCHEMA_VERSION        # the write upgrades the version
+    # A write stamps this code's own version, unconditionally. For fixtures 01-04 that is an upgrade; for fixture
+    # 05 (written by a NEWER framework, 9.9.9) it silently DOWNGRADES the recorded version -- existing behaviour,
+    # pinned here and reported in the PR rather than changed (state_manager.write_state).
+    assert written["schema_version"] == state_manager.SCHEMA_VERSION
     assert written["multi_period_financials"]["FY+2"] == NEW_PERIOD["FY+2"]
 
 

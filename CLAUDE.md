@@ -62,7 +62,7 @@ open-cam-framework/
 │   ├── spreading/               default_spreading_template.xlsx -- reference copy of the spreading workbook layout
 │   └── local/cam/               Calibrated overrides / auto-saved new-type templates (gitignored, see below)
 ├── evals/                       Local live-model evaluation harness data -- see evals/README.md and issue #151: dataset/<version>/ (synthetic cases, tracked), results/ (per-run output, gitignored), baselines/ (committed only by a deliberate manual step)
-├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence)
+├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence, property-based tests, golden .docx/.xlsx snapshots in snapshots/, synthetic state fixtures in fixtures/) -- see "Testing and static analysis" below
 ├── badges/
 │   └── test-count.json          Checked-in `{"passed": <int>}` record of the currently-passing test count -- deliberately public/git-tracked (a project stat, not derived borrower/institutional data), kept honest by CI's "Verify checked-in test count" step (scripts/check_test_count.py) rather than hand-maintained -- see "Execution scripts" below
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json and a sources/ subfolder (see "Source material persistence" below); a company also optionally holds a `_conventions.json` and a `_learnings.md` one level up, above its dated proposal folders (see "Persisted conventions" below)

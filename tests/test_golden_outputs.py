@@ -19,6 +19,7 @@ from pathlib import Path
 
 import docx
 import pytest
+import snapshot_utils
 from snapshot_utils import (
     SNAPSHOT_DIR,
     compare_to_snapshot,
@@ -135,7 +136,8 @@ def test_golden_files_contain_nothing_that_looks_like_real_data():
 # The machinery itself
 # ---------------------------------------------------------------------------
 
-def test_a_changed_output_fails_the_comparison_with_a_readable_diff(tmp_path):
+def test_a_changed_output_fails_the_comparison_with_a_readable_diff(tmp_path, monkeypatch):
+    monkeypatch.setattr(snapshot_utils, "SNAPSHOT_DIR", tmp_path)    # never write into the tracked snapshots/
     path = tmp_path / "out.docx"
     docx_builder.export_to_docx("# Title\n\nSome text.\n", str(path))
     first = normalize_docx(path)
@@ -143,16 +145,13 @@ def test_a_changed_output_fails_the_comparison_with_a_readable_diff(tmp_path):
     with pytest.raises(AssertionError, match=r"(?s)--update-snapshots.*-P\[Normal\] Some text\.\n"
                                               r".*\+P\[Normal\] Some other text\."):
         # compare against a golden file that holds `first`
-        golden = SNAPSHOT_DIR / "_unit_probe.txt"
-        try:
-            compare_to_snapshot(golden.name, first, True)
-            compare_to_snapshot(golden.name, normalize_docx(path), False)
-        finally:
-            golden.unlink(missing_ok=True)
+        compare_to_snapshot("_unit_probe.txt", first, True)
+        compare_to_snapshot("_unit_probe.txt", normalize_docx(path), False)
 
 
-def test_a_missing_snapshot_fails_instead_of_being_created():
-    probe = SNAPSHOT_DIR / "_never_created.txt"
+def test_a_missing_snapshot_fails_instead_of_being_created(monkeypatch, tmp_path):
+    monkeypatch.setattr(snapshot_utils, "SNAPSHOT_DIR", tmp_path)
+    probe = tmp_path / "_never_created.txt"
     assert not probe.exists()
     with pytest.raises(AssertionError, match="no snapshot"):
         compare_to_snapshot(probe.name, "anything\n", False)
@@ -165,11 +164,25 @@ def test_normalisation_ignores_timestamps_and_run_splitting(tmp_path):
     document = docx.Document(str(a))
     document.core_properties.author = "someone else"
     document.core_properties.comments = "changed metadata"
-    paragraph = document.paragraphs[0]
-    paragraph.runs[0].text = "A "          # split one plain run into two plain runs: same visible content
-    paragraph.runs[0].add_text("")
     document.save(str(b))
     assert normalize_docx(a) == normalize_docx(b) == "P[Normal] A **bold** word.\n"
+
+
+def test_normalisation_merges_adjacent_runs_of_the_same_formatting(tmp_path):
+    """How the builder splits a paragraph into runs is an implementation detail, not part of the snapshot. (Only
+    formatted runs can show it: two plain runs concatenate the same either way, but `**bo****ld**` would differ
+    from `**bold**` without the merge.)"""
+    whole, split = tmp_path / "whole.docx", tmp_path / "split.docx"
+    document = docx.Document()
+    document.add_paragraph().add_run("a bold word").bold = True
+    document.save(str(whole))
+    document = docx.Document()
+    paragraph = document.add_paragraph()
+    for piece in ("a b", "old ", "word"):
+        paragraph.add_run(piece).bold = True
+    assert len(paragraph.runs) == 3
+    document.save(str(split))
+    assert normalize_docx(whole) == normalize_docx(split) == "P[Normal] **a bold word**\n"
 
 
 def test_normalisation_shows_formatting_differences(tmp_path):

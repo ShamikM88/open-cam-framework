@@ -44,6 +44,25 @@ DEALS_DIR = "deals"
 SCHEMA_VERSION = "1.1.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
+# A recorded version must look exactly like SCHEMA_VERSION: MAJOR.MINOR.PATCH, each a run of digits. Compared
+# as integers, never as strings ("1.10.0" is newer than "1.9.0").
+_SCHEMA_VERSION_RE = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)")   # ASCII digits only (\d also matches e.g. Arabic-Indic)
+
+
+class SchemaVersionError(ValueError):
+    """write_state() refused to write because the file's recorded schema_version is newer than this code supports
+    (it would have been silently downgraded) or is not a MAJOR.MINOR.PATCH string (it cannot be compared, so
+    nothing is overwritten). Nothing was written."""
+
+
+def parse_schema_version(value):
+    """`"1.10.0"` -> `(1, 10, 0)`. Raises ValueError for anything that is not a MAJOR.MINOR.PATCH string of digits
+    -- a non-string (None, a number, a list...), `"1.2"`, `"1.2.3.4"`, `"v1.1.0"`, `" 1.1.0"`, `""`, a negative part."""
+    match = _SCHEMA_VERSION_RE.fullmatch(value) if isinstance(value, str) else None
+    if not match:
+        raise ValueError(f"schema_version {value!r} is not a MAJOR.MINOR.PATCH version string")
+    return tuple(int(part) for part in match.groups())
+
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -292,6 +311,24 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
         return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
 
 
+def _check_schema_version_is_writable(recorded, path):
+    """Refuse (before anything is touched) to overwrite a state this code cannot safely own: one recorded as NEWER
+    than SCHEMA_VERSION would be stamped back down to this version, losing the fact that it holds newer-shaped data
+    (issue #170); one whose version cannot be parsed cannot be compared at all. Equal, older, and absent (read_state
+    reports a missing key as LEGACY_SCHEMA_VERSION) are written and upgraded as before."""
+    try:
+        recorded_version = parse_schema_version(recorded)
+    except ValueError as exc:
+        raise SchemaVersionError(
+            f"Refusing to write {path}: {exc}. Fix or remove the \"schema_version\" value by hand "
+            f"(this code writes version {SCHEMA_VERSION}); nothing was changed.") from exc
+    if recorded_version > parse_schema_version(SCHEMA_VERSION):
+        raise SchemaVersionError(
+            f"Refusing to write {path}: it was written by a newer framework (schema_version {recorded}) than "
+            f"this one supports ({SCHEMA_VERSION}); writing would downgrade it. Update this checkout of the framework "
+            "instead; nothing was changed.")
+
+
 def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     """The actual read-modify-write, factored out so both write_state() and
     append_review_trail() can hold one _FileLock across their *entire*
@@ -301,6 +338,9 @@ def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     to acquire a lock its own caller is already holding).
     """
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
+    # No file yet (state == {}) has no version either; that is a fresh deal, not a malformed one. An existing file's
+    # missing key already reads back as LEGACY_SCHEMA_VERSION; an explicit null stays None and is refused below.
+    _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION), path)
     state["company"] = company
     state["proposal"] = proposal
     state["date"] = date_str

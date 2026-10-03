@@ -17,6 +17,9 @@ reproduce the historical shapes:
 Each goes through the three consumers the issue names: spreading_check.compute (merge into an old-shaped state),
 policy_check.compute, and deal_export (the raw-figures read for the workbook).
 
+A state written by a NEWER framework (fixture 05) is read but never written: see test_a_state_written_by_a_newer
+framework_is_refused_and_left_untouched (issue #170).
+
 Wrongly-typed state is a separate matter: the issue asks that it "fail with a clear error instead of being silently
 reinterpreted". Today none of it does -- see the end of this file, which pins what happens now and records the gap as
 strict xfails rather than changing production code.
@@ -97,7 +100,10 @@ UNTOUCHED_KEYS = ("inputs", "collateral", "steps_completed", "review_trail", "re
                   "stress_assumptions", "financials_source_note", "future_key", "x_analyst_note")
 
 
-@pytest.mark.parametrize("name", FIXTURES)
+WRITABLE = [name for name in FIXTURES if name != "05_future_unknown_fields"]   # 05 is newer: it is refused (#170)
+
+
+@pytest.mark.parametrize("name", WRITABLE)
 def test_merging_a_new_period_into_an_old_state_keeps_everything_else(tmp_path, monkeypatch, name):
     original = load_fixture(name)
     install(tmp_path, monkeypatch, original)
@@ -110,10 +116,7 @@ def test_merging_a_new_period_into_an_old_state_keeps_everything_else(tmp_path, 
     for key in UNTOUCHED_KEYS:                                              # nothing the merge did not touch is lost
         if key in original:
             assert written[key] == original[key], key
-    # A write stamps this code's own version, unconditionally. For fixtures 01-04 that is an upgrade; for fixture
-    # 05 (written by a NEWER framework, 9.9.9) it silently DOWNGRADES the recorded version -- existing behaviour,
-    # pinned here and reported in the PR rather than changed (state_manager.write_state).
-    assert written["schema_version"] == state_manager.SCHEMA_VERSION
+    assert written["schema_version"] == state_manager.SCHEMA_VERSION        # fixtures 01-04 are older: upgraded
     assert written["multi_period_financials"]["FY+2"] == NEW_PERIOD["FY+2"]
 
 
@@ -128,8 +131,19 @@ def test_a_partially_recorded_period_is_merged_field_by_field_not_replaced(tmp_p
     assert written["multi_period_financials"]["FY+1"] == original["multi_period_financials"]["FY+1"]
 
 
-def test_unknown_fields_of_a_newer_schema_survive_a_write_byte_for_byte(tmp_path, monkeypatch):
+def test_a_state_written_by_a_newer_framework_is_refused_and_left_untouched(tmp_path, monkeypatch):
+    """Issue #170: it used to be re-stamped with this code's older version (a silent downgrade)."""
     original = load_fixture("05_future_unknown_fields")
+    folder = install(tmp_path, monkeypatch, original)
+    before = (folder / "state.json").read_bytes()
+    with pytest.raises(state_manager.SchemaVersionError, match="9.9.9"):
+        spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD))
+    assert (folder / "state.json").read_bytes() == before
+
+
+def test_unknown_fields_survive_a_write_to_a_state_of_a_supported_version(tmp_path, monkeypatch):
+    original = load_fixture("05_future_unknown_fields")
+    original["schema_version"] = "1.1.0"          # the fixture's unknown fields, but a version this code may write
     install(tmp_path, monkeypatch, original)
     spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD))
     written = json.loads(next(tmp_path.glob("deals/*/*/state.json")).read_text(encoding="utf-8"))

@@ -57,8 +57,17 @@ NOT_CONFIDENTIAL = {
 # The guard
 # ---------------------------------------------------------------------------
 
+def _git_env():
+    """The environment git runs in: the caller's, minus every GIT_* variable. A hook (pre-commit,
+    pre-push) exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE, and inheriting them would aim the
+    throwaway-repository operations below at the REAL repository (writing its config and index)."""
+    return {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+
+
 def _git(repo, *args):
-    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8")
+    # errors="replace": a path that is not valid UTF-8 must not turn into a confusing decode error
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", env=_git_env())
 
 
 def _require_git():
@@ -74,7 +83,10 @@ def tracked_offenders(repo, protected=PROTECTED_PATHS, allowed=None):
     allowed = ALLOWED_TRACKED if allowed is None else allowed
     offenders = set()
     for path in protected:
-        result = _git(repo, "ls-files", "-z", "--", path)
+        # ":(icase)" so `Deals/` or `INPUTS/` (a case-insensitive checkout) cannot slip past; the trailing
+        # slash is dropped so a tracked FILE or symlink named `deals` / `inputs` is caught as well as
+        # everything inside such a directory (the pathspec still matches whole path components only).
+        result = _git(repo, "ls-files", "-z", "--", f":(icase){path.rstrip('/')}")
         if result.returncode != 0:  # never read a git failure as "nothing tracked"
             raise RuntimeError(f"git ls-files failed for {path!r}: {result.stderr.strip()}")
         offenders.update(f for f in result.stdout.split("\0") if f and f not in allowed)
@@ -131,12 +143,18 @@ def format_unprotected(problems):
 # The real repository
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def real_repo():
+def _locate_real_repo():
     _require_git()
     if not (REPO_ROOT / ".git").exists():
+        if os.environ.get("CI"):
+            pytest.fail("CI is not running in a git checkout, so the confidential-path guard cannot run")
         pytest.skip("not a git checkout (for example a source archive)")
     return REPO_ROOT
+
+
+@pytest.fixture
+def real_repo():
+    return _locate_real_repo()
 
 
 def test_no_confidential_path_is_tracked_by_git(real_repo):
@@ -180,8 +198,11 @@ def repo(tmp_path):
     root = tmp_path / "repo"
     root.mkdir()
     assert _git(root, "init", "-q").returncode == 0
-    # keep the developer's own excludes out of these tests unless a test installs one on purpose
-    _git(root, "config", "core.excludesFile", os.devnull)
+    # keep the developer's own excludes out of these tests unless a test installs one on purpose (a real
+    # empty file: git on Windows rejects `nul` as an exclude file, which breaks `git status`/`git add`)
+    empty = tmp_path / "empty_excludes"
+    empty.write_text("", encoding="utf-8")
+    _git(root, "config", "core.excludesFile", str(empty))
     (root / ".gitignore").write_text("\n".join(PROTECTED_PATHS) + "\n", encoding="utf-8")
     return root
 
@@ -192,6 +213,14 @@ def _force_add(repo, relative, content="private"):
     target.write_text(content, encoding="utf-8")
     result = _git(repo, "add", "-f", "--", relative)
     assert result.returncode == 0, result.stderr
+
+
+def test_the_throwaway_repository_works_for_ordinary_git_commands(repo):
+    """A bad fixture config (for example `nul` as the excludes file on Windows) breaks plain git commands."""
+    (repo / "notes.txt").write_text("hello", encoding="utf-8")
+    assert _git(repo, "status", "--porcelain").returncode == 0
+    added = _git(repo, "add", "--", "notes.txt")
+    assert added.returncode == 0, added.stderr
 
 
 def test_a_clean_repository_passes_both_checks(repo):
@@ -301,8 +330,100 @@ def test_new_unclassified_gitignore_entries_are_flagged():
 def test_missing_git_skips_locally_but_fails_in_ci(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     monkeypatch.delenv("CI", raising=False)
-    with pytest.raises(pytest.skip.Exception):
+    with pytest.raises(BaseException) as local:  # Skipped is a BaseException; assert the exact kind
         _require_git()
+    assert local.type is pytest.skip.Exception
     monkeypatch.setenv("CI", "true")
-    with pytest.raises(pytest.fail.Exception, match="cannot run"):
+    with pytest.raises(BaseException) as ci:
         _require_git()
+    assert ci.type is pytest.fail.Exception and "cannot run" in str(ci.value)
+
+
+# ---------------------------------------------------------------------------
+# Review round: hook-environment isolation, case variants, bare names, allow-list look-alikes
+# ---------------------------------------------------------------------------
+
+def test_the_throwaway_repositories_ignore_git_variables_inherited_from_a_hook(tmp_path, monkeypatch):
+    """pre-commit / pre-push hooks export GIT_DIR etc.; the fixtures must not follow them into another repo."""
+    _require_git()
+    sentinel = tmp_path / "sentinel"
+    sentinel.mkdir()
+    assert subprocess.run(["git", "init", "-q", str(sentinel)], capture_output=True, env=_git_env()).returncode == 0
+    monkeypatch.setenv("GIT_DIR", str(sentinel / ".git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(sentinel / ".git" / "index"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(sentinel))
+
+    work = tmp_path / "work"
+    work.mkdir()
+    assert _git(work, "init", "-q").returncode == 0
+    _git(work, "config", "core.excludesFile", str(tmp_path / "somewhere"))
+    (work / "inputs").mkdir()
+    (work / "inputs" / "a.pdf").write_text("x", encoding="utf-8")
+    _git(work, "add", "-f", "--", "inputs/a.pdf")
+
+    assert tracked_offenders(work) == ["inputs/a.pdf"]  # the guard saw the throwaway repo...
+    scrubbed = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    config = subprocess.run(["git", "-C", str(sentinel), "config", "--local", "--list"], capture_output=True,
+                            text=True, env=scrubbed).stdout
+    index = subprocess.run(["git", "-C", str(sentinel), "ls-files"], capture_output=True, text=True, env=scrubbed)
+    assert "excludesfile" not in config.lower() and index.stdout.strip() == ""  # ...and never touched the sentinel
+
+
+@pytest.mark.parametrize("relative", [
+    "Deals/Some Company/state.json", "INPUTS/a.pdf", "Templates/Local/cam/x.md", "Config/Style_Guide.md",
+    "EVALS/RESULTS/run/results.json",
+])
+def test_a_case_variant_of_a_protected_path_is_caught(repo, relative):
+    _force_add(repo, relative)
+    assert tracked_offenders(repo) == [relative]
+
+
+@pytest.mark.parametrize("name", ["inputs", "deals", "templates/local"])
+def test_a_tracked_file_or_symlink_with_a_protected_directorys_bare_name_is_caught(repo, name):
+    _force_add(repo, name)
+    assert tracked_offenders(repo) == [name]
+
+
+def test_a_tracked_symlink_entry_with_a_protected_name_is_caught(repo):
+    sha = subprocess.run(["git", "-C", str(repo), "hash-object", "-w", "--stdin"], input="target", text=True,
+                         capture_output=True, env=_git_env()).stdout.strip()
+    result = _git(repo, "update-index", "--add", "--cacheinfo", f"120000,{sha},deals")
+    assert result.returncode == 0, result.stderr
+    assert tracked_offenders(repo) == ["deals"]
+
+
+def test_a_similarly_named_directory_is_not_mistaken_for_a_protected_one(repo):
+    _force_add(repo, "deals-notes/readme.md")
+    _force_add(repo, "inputs_schema/x.json")
+    assert tracked_offenders(repo) == []
+
+
+def test_an_allow_list_entry_does_not_shield_look_alike_paths(repo):
+    allowed = {"inputs/.gitkeep": "keeps the empty directory in a fresh clone; holds no data"}
+    for lookalike in ("inputs/.gitkeep.bak", "inputs/sub/.gitkeep", "inputs/.gitkeep2", "inputs/inputs/.gitkeep"):
+        _force_add(repo, lookalike)
+    _force_add(repo, "inputs/.gitkeep", "")
+    assert tracked_offenders(repo, allowed=allowed) == [
+        "inputs/.gitkeep.bak", "inputs/.gitkeep2", "inputs/inputs/.gitkeep", "inputs/sub/.gitkeep"]
+
+
+def test_a_missing_git_directory_fails_in_ci_but_skips_locally(monkeypatch):
+    real_exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda self: False if self.name == ".git" else real_exists(self))
+    monkeypatch.delenv("CI", raising=False)
+    with pytest.raises(BaseException) as local:
+        _locate_real_repo()
+    assert local.type is pytest.skip.Exception
+    monkeypatch.setenv("CI", "true")
+    with pytest.raises(BaseException) as ci:
+        _locate_real_repo()
+    assert ci.type is pytest.fail.Exception
+
+
+def test_git_output_that_is_not_valid_utf8_is_decoded_not_raised(repo):
+    # A repo config value holding a lone 0xff byte makes git emit invalid UTF-8; `_git` must decode it with
+    # replacement instead of raising UnicodeDecodeError (a path like that could not be created on Windows).
+    config = repo / ".git" / "config"
+    config.write_bytes(config.read_bytes() + b"[user]\n\tname = a\xffb\n")
+    result = _git(repo, "config", "user.name")
+    assert result.returncode == 0 and result.stdout.strip() == "a\ufffdb"

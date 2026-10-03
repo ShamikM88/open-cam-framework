@@ -69,7 +69,14 @@ def test_modules_are_matched_by_file_stem_on_either_path_style():
     assert parsed == {"alpha": 91.0, "beta": 92.0}
 
 
-@pytest.mark.parametrize("entry", [{}, {"summary": {}}, {"summary": {"percent_covered": "high"}}, None])
+def test_two_measured_files_with_the_same_module_name_are_an_error_not_an_overwrite():
+    with pytest.raises(ValueError, match="share the module name 'alpha'"):
+        check_coverage.module_percentages({"files": {
+            "scripts/alpha.py": {"summary": {"percent_covered": 99}},
+            "scripts/sub/alpha.py": {"summary": {"percent_covered": 1}}}})
+
+
+@pytest.mark.parametrize("entry", [{},{"summary": {}}, {"summary": {"percent_covered": "high"}}, None])
 def test_a_file_entry_without_a_percentage_is_an_error_not_a_zero(entry):
     with pytest.raises(ValueError, match=r"no summary.percent_covered for scripts/alpha.py"):
         check_coverage.module_percentages({"files": {"scripts/alpha.py": entry}})

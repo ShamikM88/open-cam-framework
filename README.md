@@ -261,7 +261,7 @@ tests/` with no key set at all. Dedicated test files cover the dependency-free m
 (`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
 `deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
 `pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
-`check_test_count.py`) plus a
+`check_test_count.py`, `check_coverage.py`) plus a
 prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
 against the code they're meant to stay in sync with. The command-line surface is tested for real:
 `test_cli_subprocess.py` runs every script's `--help` / a representative input / a bad input as a

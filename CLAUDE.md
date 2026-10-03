@@ -695,11 +695,15 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   `spreading_builder`, `spreading_check` (every ratio the CAM reports), `state_manager`, `deal_export`,
   `docx_builder` (persisted state and the exported documents) -- because one overall number would let a
   well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **90% floor for the lines
-  a pull request changes** (`diff-cover`, pull requests only; a change that touches no measured line passes).
+  a pull request changes** (`diff-cover coverage.xml --config-file pyproject.toml`, pull requests only; a
+  change that touches no measured line passes). diff-cover reads `pyproject.toml` **only** with
+  `--config-file`; without it the floor is silently 0 -- `tests/test_ci_workflow.py` runs CI's exact command
+  against an uncovered change to prove it fails. Code that only runs on Windows looks uncovered on the Linux
+  job and needs `# pragma: no cover - reason`; this applies to later pull requests that touch `scripts/`.
   Lowering a floor or dropping a module from the list is a reviewed decision (`tests/test_check_coverage.py`
   pins the minimums); raising one is a one-line change.
 - **The command-line surface is tested as a user meets it** (issue #144). `tests/test_cli_subprocess.py` runs each
-  of the 12 scripts that has a `__main__` block as a real subprocess in a throwaway working directory, with the
+  of the 13 scripts that have a `__main__` block as a real subprocess in a throwaway working directory, with the
   Anthropic variables removed and the home/config directories pointed at an empty directory (the SDK also
   reads an on-disk credentials profile, which would otherwise let a child make a paid call): `--help` exits 0, an unknown flag exits 2, a representative minimal input does the
   job, and an impossible input exits non-zero. `orchestrator.py` is the one script that cannot be run end to end

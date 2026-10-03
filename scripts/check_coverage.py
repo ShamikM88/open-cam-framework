@@ -60,6 +60,9 @@ def module_percentages(report):
     for filename, data in (report.get("files") or {}).items():
         path = Path(filename.replace("\\", "/"))
         if path.suffix == ".py":
+            if path.stem in percentages:
+                raise ValueError(f"two measured files share the module name {path.stem!r} ({filename}); "
+                                 "modules are matched by name, so this would be ambiguous")
             try:
                 percentages[path.stem] = float(data["summary"]["percent_covered"])
             except (KeyError, TypeError, ValueError):

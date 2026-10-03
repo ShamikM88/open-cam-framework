@@ -7,7 +7,12 @@ the passed-test count differ between environments, which badges/test-count.json 
 runs it on every pull request, and `zizmor .github/workflows` does so locally. No YAML library is needed: the
 workflow is laid out in a fixed, conventional shape.
 """
+import os
 import re
+import shlex
+import shutil
+import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -127,11 +132,86 @@ def test_the_test_job_measures_and_enforces_coverage_from_the_pyproject_floors()
     assert "python scripts/check_coverage.py coverage.json" in body
     diff_step = re.search(r"- name: Enforce coverage of the lines this pull request changes\n(.*?)\n\n", body, re.S)
     assert diff_step and "github.event_name == 'pull_request'" in diff_step.group(1)
-    assert re.search(r"run: diff-cover coverage\.xml\s*$", diff_step.group(1), re.M), \
-        "the floor and base come from [tool.diff_cover], not from flags here"
+    assert re.search(r"run: diff-cover coverage\.xml --config-file pyproject\.toml\s*$", diff_step.group(1), re.M), \
+        "the floor and base come from [tool.diff_cover]; diff-cover reads it only with --config-file"
     assert "fetch-depth: 0" in body, "diff-cover needs the base branch"
     for flag in ("--fail-under", "--cov-fail-under", "--update-snapshots", "--report-only"):
         assert flag not in body, f"{flag} would bypass or duplicate the pyproject.toml configuration"
+
+
+def ci_diff_cover_command():
+    step = re.search(r"- name: Enforce coverage of the lines this pull request changes\n(.*?)\n\n",
+                     split_jobs(workflow_text())["test"], re.S).group(1)
+    return shlex.split(re.search(r"run: (diff-cover .+)$", step, re.M).group(1))
+
+
+def _git(cwd, *args):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+                    *args], cwd=cwd, check=True, capture_output=True, env=env, timeout=60)
+
+
+def _measure(cwd, run_script):
+    """Run run_script under coverage.py (ignoring the repository's own coverage config) and write coverage.xml."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("COV_CORE", "COVERAGE"))}
+    for command in (["run", "--rcfile=cov.rc", "--branch", "--source=scripts", "--data-file=.cov", run_script],
+                    ["xml", "--rcfile=cov.rc", "--data-file=.cov", "-o", "coverage.xml"]):
+        subprocess.run([sys.executable, "-m", "coverage", *command], cwd=cwd, check=True, capture_output=True,
+                       env=env, timeout=120)
+
+
+def test_the_diff_cover_step_really_fails_on_an_uncovered_change_and_passes_on_a_covered_one(tmp_path):
+    """The command line CI runs, executed for real: a gate that is configured but not read cannot fail (it was
+    exactly that before this test existed)."""
+    command = ci_diff_cover_command()
+    assert command[:1] == ["diff-cover"]
+    run_diff_cover = [sys.executable, "-m", "diff_cover.diff_cover_tool", *command[1:]]
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "m.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "run.py").write_text("import sys\nsys.path.insert(0, 'scripts')\nimport m\nm.f()\n", encoding="utf-8")
+    (tmp_path / "cov.rc").write_text("", encoding="utf-8")
+    shutil.copy(REPO_ROOT / "pyproject.toml", tmp_path / "pyproject.toml")     # the real [tool.diff_cover]
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "base")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")           # compare_branch = origin/main
+
+    changed = "def f():\n    return 1\n\n\ndef g():\n    return 2\n\n\ndef h():\n    return 3\n"
+    (tmp_path / "scripts" / "m.py").write_text(changed, encoding="utf-8")
+    _measure(tmp_path, "run.py")                                                # g and h are never called
+    uncovered = subprocess.run(run_diff_cover, cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert uncovered.returncode != 0 and "Failure" in uncovered.stderr, uncovered.stdout + uncovered.stderr
+
+    (tmp_path / "run.py").write_text("import sys\nsys.path.insert(0, 'scripts')\nimport m\nm.f()\nm.g()\nm.h()\n",
+                                     encoding="utf-8")
+    _measure(tmp_path, "run.py")
+    covered = subprocess.run(run_diff_cover, cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert covered.returncode == 0, covered.stdout + covered.stderr
+
+    without_config = subprocess.run([sys.executable, "-m", "diff_cover.diff_cover_tool", "coverage.xml"],
+                                    cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert without_config.returncode == 0       # documents why --config-file is needed: no flag, no floor
+
+
+def test_runs_that_pipe_into_tee_fail_when_the_first_command_fails():
+    body = split_jobs(workflow_text())["test"]
+    step = next(s for s in body.split("\n      - name: ") if "| tee pytest_output.txt" in s)
+    assert "set -o pipefail" in step and step.index("set -o pipefail") < step.index("pytest tests/")
+
+
+def test_no_run_block_interpolates_a_github_expression_into_the_shell():
+    """`${{ github.head_ref }}` (or any user-controlled value) inside a `run:` is script injection. zizmor reports
+    it, but the security job is not a required check, so this test makes it a failing test as well."""
+    for path in [WORKFLOW]:
+        for job_id, body in split_jobs(path.read_text(encoding="utf-8")).items():
+            for step in body.split("\n      - name: "):
+                if "\n        run:" in step:
+                    run_part = step.split("\n        run:", 1)[1]
+                    assert "${{" not in run_part, (path.name, job_id, step.splitlines()[0])
+
+
+def test_in_progress_runs_are_cancelled_for_pull_requests_only():
+    assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in workflow_text()
 
 
 def test_the_count_check_in_the_test_job_runs_after_the_suite_and_never_writes():

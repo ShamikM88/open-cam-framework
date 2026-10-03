@@ -364,7 +364,7 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
         # financials_source_disclosed above. Whether the draft actually
         # *complies* with the policy is never checked here -- that's the
         # Risk Reviewer's own independent, qualitative audit (Audit
-        # Checklist item 5), not something this deterministic layer can
+        # Checklist item 4), not something this deterministic layer can
         # judge.
         if credit_policy_present and not underwriter_output["credit_policy_considered"]:
             reasons.append(

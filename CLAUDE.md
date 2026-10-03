@@ -738,8 +738,11 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   rejected, so a setting cannot be deleted without a test failing.
 - **Numbered cross-references between prompts and docs are guarded** (`tests/test_prompt_consistency.py`, issue
   #107). "Guideline N" and "Audit Checklist item N" are plain numbers in prose, so inserting an item mid-list
-  silently re-points every later reference. The test finds those two exact phrases in `CLAUDE.md`, `README.md`,
-  `.claude/commands/`, `agents/`, `templates/`, `evals/README.md` and the two tracked `config/*.md` files, resolves
+  silently re-points every later reference. The test finds those two exact phrases (singular, capitalised, digits;
+  also when one line break splits them, since the files are hard-wrapped; `Guidelines 9 and 10` or `guideline 9`
+  are not recognised, so write `Guideline 9 and Guideline 10`) in `CLAUDE.md`, `README.md`, `.claude/commands/`,
+  `agents/`, `templates/`, `evals/README.md`, the two tracked `config/*.md` files and `scripts/*.py` (comments and
+  the text sent to the model), resolves
   each number against the real numbered list (column-0 `N. ` lines of `agents/underwriter_agent.md`; the "###
   Audit Checklist" section of `agents/risk_reviewer_agent.md`, which must run 1..N without gaps), and requires the
   item to still be the subject pinned for that number in `EXPECTED_SUBJECTS`. A failure names file, line and

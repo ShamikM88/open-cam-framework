@@ -282,7 +282,11 @@ def test_risk_reviewer_prompt_documents_research_brief_handling(risk_reviewer_pr
 # lists and update EXPECTED_SUBJECTS in the same change.
 # ---------------------------------------------------------------------------
 
-REFERENCE_RE = re.compile(r"\b(Guideline|Audit Checklist item) (\d+)\b")
+# Between the words: spaces, or ONE line break (the files are hard-wrapped, so "Guideline" can end a line and "9)"
+# start the next; a wrapped code comment or block quote continues after its own `#` / `>` marker) -- but never a blank
+# line, and never a continuation that begins a numbered-list item ("1. ").
+_GAP = r"(?:[ \t]+|[ \t]*\n[ \t]*(?:[#>][ \t]*)?(?!\d+\.[ \t]))"
+REFERENCE_RE = re.compile(rf"\b(Guideline|Audit{_GAP}Checklist{_GAP}item){_GAP}(\d+)\b")
 NUMBERED_ITEM_RE = re.compile(r"^(\d+)\. (.+)$")
 HEADING_RE = re.compile(r"^(#{1,6}) ")
 
@@ -299,7 +303,8 @@ EXPECTED_SUBJECTS = {
     "Audit Checklist item": {4: "calibrated credit policy"},
 }
 SCANNED_FILES = ("CLAUDE.md", "README.md", ".claude/commands/*.md", "agents/*.md", "templates/cam/*.md",
-                 "templates/README.md", "evals/README.md", "config/skills_registry.md", "config/system_instructions.md")
+                 "templates/README.md", "evals/README.md", "config/skills_registry.md", "config/system_instructions.md",
+                 "scripts/*.py")     # code comments and the prompt/error text the scripts send to the model
 
 
 def numbered_items(text, under_heading=None):
@@ -334,9 +339,17 @@ def numbered_items(text, under_heading=None):
 
 
 def find_references(text):
-    """[(line_number, kind, number, the line)] for every `Guideline N` / `Audit Checklist item N` in `text`."""
-    return [(line_number, match.group(1), int(match.group(2)), line.strip())
-            for line_number, line in enumerate(text.split("\n"), 1) for match in REFERENCE_RE.finditer(line)]
+    """[(line_number, kind, number, context)] for every `Guideline N` / `Audit Checklist item N` in `text`, also when
+    a single line break splits the phrase. `line_number` is where the phrase starts; `context` is the line (or the two
+    lines) it sits on. Only singular, capitalised, digit-numbered forms are recognised."""
+    lines = text.split("\n")
+    found = []
+    for match in REFERENCE_RE.finditer(text):
+        first = text.count("\n", 0, match.start())
+        last = text.count("\n", 0, match.end())
+        kind = "Audit Checklist item" if match.group(1).startswith("Audit") else "Guideline"
+        found.append((first + 1, kind, int(match.group(2)), " ".join(line.strip() for line in lines[first:last + 1])))
+    return found
 
 
 def stale_references(references, items_by_kind, expected_subjects):
@@ -383,17 +396,26 @@ def test_the_guard_finds_the_references_it_is_meant_to_guard():
     root = Path(__file__).resolve().parents[1]
     found = [(path.name, kind, number) for path in _scanned_paths()
              for _, kind, number, _ in find_references(path.read_text(encoding="utf-8"))]
-    assert len(found) >= 20
+    assert len(found) >= 30
     assert {kind for _, kind, _ in found} == {"Guideline", "Audit Checklist item"}
-    assert len({name for name, _, _ in found}) >= 6
-    assert {(kind, number) for _, kind, number in found} == {(k, n) for k, nums in EXPECTED_SUBJECTS.items() for n in nums}, \
-        "EXPECTED_SUBJECTS pins a number nothing references, or a reference is missing from it"
+    assert len({name for name, _, _ in found}) >= 8
+    assert {name for name, _, _ in found} >= {"orchestrator.py", "policy_checks.py", "spreading_check.py"}, \
+        "the scripts are scanned too"
 
 
-def test_the_real_numbered_lists_are_contiguous_and_have_the_expected_size():
+def test_the_real_numbered_lists_are_contiguous_and_cover_every_pinned_number():
+    """numbered_items() already fails on a gap or repeat; a list that shrank below a pinned number is also wrong.
+    (No hard-coded length: appending a legitimate new item must not need a test edit.)"""
     items = _real_items()
-    assert list(items["Guideline"]) == list(range(1, 13))
-    assert list(items["Audit Checklist item"]) == [1, 2, 3, 4, 5]
+    for kind, pinned in EXPECTED_SUBJECTS.items():
+        assert list(items[kind]) == list(range(1, len(items[kind]) + 1))
+        assert max(pinned) <= max(items[kind]), kind
+
+
+def test_a_phrase_split_across_a_line_break_is_found_where_it_starts():
+    real = (Path(__file__).resolve().parents[1] / "scripts" / "spreading_check.py").read_text(encoding="utf-8")
+    assert any(kind == "Guideline" and number == 9 and "Guideline 9" in context.replace("\n", " ")
+               for _, kind, number, context in find_references(real)), "the wrapped reference in spreading_check.py"
 
 
 # --- the machinery, on synthetic text ---------------------------------------------------------------------------
@@ -438,6 +460,30 @@ def test_inserting_an_item_mid_list_makes_exactly_the_shifted_references_stale()
     assert len(problems) == 1                              # Guideline 1 did not move; Guideline 3 did
     assert "'Guideline 3' is now 'A NEW ITEM.'" in problems[0] and "'disclosure'" in problems[0]
     assert "stale after a renumbering" in problems[0]
+
+
+def test_a_reference_wrapped_over_a_line_break_is_found_and_reported_where_it_starts():
+    text = "intro\nSee the Audit\nChecklist item 2 and, per\nGuideline\n3 here.\nAudit Checklist\nitem 4 too."
+    assert [(n, k, num) for n, k, num, _ in find_references(text)] == [
+        (2, "Audit Checklist item", 2), (4, "Guideline", 3), (6, "Audit Checklist item", 4)]
+    problems = _synthetic_problems("padding\nper\nGuideline\n9 wrapped")
+    assert len(problems) == 1 and problems[0].startswith("doc.md:3:") and "Guideline 9 wrapped" in problems[0]
+
+
+def test_a_reference_wrapped_inside_a_code_comment_or_block_quote_is_found():
+    comment = "    # qualitative audit (Audit\n    # Checklist item 5), not something\n    # per Guideline\n    # 9 only"
+    assert [(n, k, num) for n, k, num, _ in find_references(comment)] == [(1, "Audit Checklist item", 5), (3, "Guideline", 9)]
+    assert [(k, num) for _, k, num, _ in find_references("> see Guideline\n> 12 for details")] == [("Guideline", 12)]
+
+
+@pytest.mark.parametrize("prose", [
+    "the Guideline\n\n3 steps",                    # a blank line is a paragraph break, not a wrap
+    "see the Guideline\n1. First item of a list",   # a numbered-list line is not a continuation
+    "Guideline\n  \n4",
+    "see the Guideline\n# 1. First item",           # a comment-marked list item is not a continuation either
+])
+def test_a_wrap_is_never_bridged_across_a_blank_line_or_into_a_list_item(prose):
+    assert find_references(prose) == []
 
 
 def test_two_references_on_one_line_are_both_checked():

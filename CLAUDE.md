@@ -72,6 +72,8 @@ open-cam-framework/
 ├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" below
 ├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
+├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
+├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eight governance modules (diagnostic report, never a merge gate)
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" below
 └── README.md
 ```
@@ -731,6 +733,17 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   every third-party action is pinned to a full commit SHA with a `# vX.Y.Z` comment (Dependabot keeps
   them current); `permissions: {}` at the top and `contents: read` per job; `persist-credentials: false`
   on every checkout; no `pull_request_target`; CI never passes `--write` or `--update-snapshots`.
+- **Mutation testing** (`.github/workflows/mutation.yml`, configuration `[tool.mutmut]` in `pyproject.toml`,
+  issue #146): mutmut changes one line of a governance module at a time and checks that a test then fails;
+  a surviving mutant is a line that coverage counts as executed but nothing really asserts on. It runs
+  **weekly (Mondays) and on demand only -- never on a pull request or push**, on Ubuntu (mutmut forks, so
+  not Windows), over exactly the eight `critical_modules` of `[tool.opencam.coverage]` (a test pins the two
+  lists together) with the ten test files that exercise them. The result is a downloadable `mutation-report`
+  artifact (survivors, statistics, per-file metadata under mutants/src, run log) and a score in the job summary.
+  **It is diagnostic: no score is enforced and the job is not a required check.** A threshold is decided
+  from the first full run's numbers in a later, reviewed change. The job fails only if mutmut produced no
+  result at all. To run it by hand on Linux/macOS: `pip install -r requirements-dev.txt -r requirements-mutation.txt &&
+  ln -s scripts src && mutmut run` (and `rm src` afterwards; `src` and `mutants/` are git-ignored).
 - **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than
   examples -- the chunker loses no text, the merge loop never drops a field, `values_match` is symmetric,
   ratios are finite or `N/A` whenever the denominators are non-negative. The default `ci` profile (60 examples, fixed seed, no example database)

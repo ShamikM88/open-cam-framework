@@ -189,7 +189,7 @@ jobs:
           pip install -r requirements-security.txt
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit -r requirements.txt -r requirements-dev.txt -r requirements-security.txt
+        run: pip-audit -r requirements.txt -r requirements-dev.txt -r requirements-security.txt -r requirements-mutation.txt
 
       - name: Audit workflows
         env:

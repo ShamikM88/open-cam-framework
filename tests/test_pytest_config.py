@@ -12,6 +12,7 @@ repository's pyproject.toml, against a deliberately bad snippet and expecting it
 - CI uses the config-driven ruff command and bandit at `-ll`.
 """
 import json
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -145,6 +146,21 @@ def test_asserts_and_fixed_subprocess_calls_are_allowed_in_tests_but_not_other_r
 def test_a_clean_snippet_passes():
     assert _codes(_ruff("def f(p):\n    with open(p, encoding='utf-8') as fh:\n        return fh.read()\n",
                         "scripts/_probe.py")) == set()
+
+
+def test_ruff_excludes_only_the_root_mutation_directories_not_every_directory_named_src(tmp_path):
+    """mutmut's working copy (mutants/) and the `src` alias of scripts/ are generated and not linted; a bare "src"
+    pattern would also silently exempt any tests/src or pkg/src that ever appears."""
+    shutil.copy(PYPROJECT, tmp_path / "pyproject.toml")
+    bad = "def f():\n    open('x')\n"          # PLW1514: open() without an encoding
+    for relative in ("src/bad.py", "mutants/bad.py", "tests/src/bad.py", "scripts/bad.py"):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text(bad, encoding="utf-8")
+    result = subprocess.run([sys.executable, "-m", "ruff", "check", "--no-cache", "--output-format", "json", "."],
+                            cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    flagged = {Path(f["filename"]).relative_to(tmp_path).as_posix() for f in json.loads(result.stdout)
+               if f["code"] == "PLW1514"}
+    assert flagged == {"tests/src/bad.py", "scripts/bad.py"}
 
 
 def test_the_preview_rule_does_not_switch_on_other_preview_rules():

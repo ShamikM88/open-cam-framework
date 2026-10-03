@@ -3,6 +3,6 @@
 # have been run on; raise it deliberately, not by bumping blindly.
 anthropic>=1.11.0
 python-docx>=1.2.0
-openpyxl>=3.1.2
+openpyxl>=3.1.5
 pydantic>=2.13.5
 pypdf>=6.19.0

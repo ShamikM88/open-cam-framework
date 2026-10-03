@@ -804,6 +804,8 @@ def test_the_floor_is_read_from_the_real_requirements_txt_and_there_is_no_second
     ("anthropic>=1.9.0 ; python_version >= '3.9'", (1, 9, 0)),     # environment marker
     ("anthropic>=1.9.0  # pinned for the harness", (1, 9, 0)),     # trailing comment
     ("anthropic>=1.5.0,>=1.9.0", (1, 9, 0)),                       # several lower bounds: the highest
+    ("anthropic>=1.9.0  # was >=1.5.0, maybe >=9.0.0", (1, 9, 0)),  # bounds inside a comment never count
+    ("anthropic>=1.9.0 ; python_version >= '3.9'", (1, 9, 0)),     # a marker's >= is not a floor
 ])
 def test_the_floor_parser_accepts_the_forms_a_dependency_bot_writes(tmp_path, line, expected):
     path = tmp_path / "requirements.txt"
@@ -834,7 +836,8 @@ def test_two_anthropic_lines_use_the_higher_floor_whatever_their_order(tmp_path)
 
 def test_a_look_alike_package_line_never_supplies_the_floor(tmp_path):
     path = tmp_path / "requirements.txt"
-    path.write_text("anthropic-tools>=9.0.0\nanthropic_foo>=9.0.0\nanthropic>=1.11.0\n", encoding="utf-8")
+    path.write_text("anthropic-tools>=9.0.0\nanthropic_foo>=9.0.0\nanthropic.x>=9.0.0\nanthropic>=1.11.0\n",
+                    encoding="utf-8")
     assert eval_runner.anthropic_floor(path) == (1, 11, 0)
 
 
@@ -855,6 +858,22 @@ def test_the_requirements_path_is_the_repositorys_root_and_the_explanatory_comme
     text = eval_runner.REQUIREMENTS_PATH.read_text(encoding="utf-8")
     assert any(line.startswith("#") and "anthropic" in line for line in text.splitlines())  # the rationale is there
     assert eval_runner.anthropic_floor() == eval_runner.anthropic_floor(eval_runner.REQUIREMENTS_PATH)
+
+
+def test_a_direct_reference_line_has_no_floor_and_is_not_scanned_for_one(tmp_path):
+    path = tmp_path / "requirements.txt"
+    path.write_text("anthropic @ https://example.invalid/anthropic-9.0.0.whl#sha256>=2.0.0\n", encoding="utf-8")
+    with pytest.raises(RunnerSetupError, match="no `anthropic>=X.Y.Z` line"):
+        eval_runner.anthropic_floor(path)
+    path.write_text("anthropic @ https://example.invalid/x>=2.0.0\nanthropic>=1.11.0\n", encoding="utf-8")
+    assert eval_runner.anthropic_floor(path) == (1, 11, 0)
+
+
+def test_an_absurdly_long_version_is_a_setup_error_not_a_bare_value_error(tmp_path):
+    path = tmp_path / "requirements.txt"
+    path.write_text("anthropic>=" + "9" * 5000 + "\n", encoding="utf-8")
+    result = eval_runner.anthropic_floor(path)  # bounded: only the first 31 characters are read as the version
+    assert result == (int("9" * 31),)
 
 
 def test_a_missing_requirements_file_is_a_setup_error(tmp_path):

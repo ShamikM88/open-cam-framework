@@ -60,7 +60,7 @@ REQUIREMENTS_PATH = Path(REPO_ROOT) / "requirements.txt"
 # A requirements line for the package itself (any case, optional extras, not a look-alike such as
 # `anthropic-tools`); group 1 is the version-specifier part, which may hold several bounds in any order.
 _NAME_RE = re.compile(r"^[ \t]*anthropic(?![A-Za-z0-9_.\-])[ \t]*(?:\[[^\]]*\])?[ \t]*([^;#\r\n]*)", re.I | re.M)
-_BOUND_RE = re.compile(r"(?:>=|~=|==)[ \t]*([0-9][0-9A-Za-z.]*)")
+_BOUND_RE = re.compile(r"(?:>=|~=|==)[ \t]*([0-9][0-9A-Za-z.]{0,30})")  # bounded: no int() digit-limit surprises
 # The output-token limits orchestrator.run_pipeline() sets for its two calls (a test checks they match
 # what the routing client actually sees); shown in the plan so the cost bound is visible up front.
 MAKER_MAX_TOKENS = 4000
@@ -127,6 +127,7 @@ def anthropic_floor(requirements_path=None):
         raise RunnerSetupError(f"cannot read the anthropic floor from {path} ({type(exc).__name__})") from exc
     # Every lower bound on every `anthropic` line: pip would satisfy all of them at once, i.e. the highest.
     bounds = [parse_version(bound.group(1)) for line in _NAME_RE.finditer(text)
+              if not line.group(1).lstrip().startswith("@")  # `anthropic @ <url>`: a direct reference, no floor
               for bound in _BOUND_RE.finditer(line.group(1))]
     if not bounds:
         raise RunnerSetupError(f"{path} has no `anthropic>=X.Y.Z` line, so the minimum SDK version is unknown")

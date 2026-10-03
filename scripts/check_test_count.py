@@ -24,15 +24,26 @@ from pathlib import Path
 DEFAULT_BADGE_PATH = Path(__file__).resolve().parent.parent / "badges" / "test-count.json"
 
 PASSED_RE = re.compile(r"(\d+) passed")
-# A clause that means the run was not a complete green run. It is applied to pytest's SUMMARY line only
-# (the last line that carries "N passed"), never to the whole output: with -v / -rA / -s the output also
-# holds test names and captured text that can contain "3 failed" and would wrongly refuse a green run.
-# (`xfailed` / `xpassed` are not matched: the digit is directly followed by "failed"/"error" only for
-# real failures. `deselected` means a -k / --deselect subset, whose count is not the suite's.)
-NOT_GREEN_RE = re.compile(r"\b\d+ (?:failed|errors?|deselected)\b")
-# pytest prints this banner (a long run of '!') when a run is cut short (Ctrl-C, a collection error
-# stopping the session); a stray line that merely starts with '!' is not one.
-INTERRUPTED_RE = re.compile(r"^!{5,} .*\b(?:Interrupted|KeyboardInterrupt)\b", re.M)
+# pytest's final line ends with its wall-clock time ("... in 44.25s", or "in 61.2s (0:01:01)").
+TIMING_RE = re.compile(r"\bin \d+(?:\.\d+)?s\b")
+# Colour codes (`--color=yes`, `PYTEST_ADDOPTS`, some CI terminals) sit between the digit and its word.
+ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+# A clause that means the run was not a complete green run. It is applied to pytest's SUMMARY line only,
+# never to the whole output: with -v / -rA / -s the output also holds test names and captured text that can
+# contain "3 failed" and would wrongly refuse a green run. (`xfailed` / `xpassed` are not matched: the digit
+# is directly followed by "failed"/"error" only for real failures. `deselected` means a -k / --deselect
+# subset, whose count is not the suite's.)
+NOT_GREEN_RE = re.compile(r"\d+ (?:failed|errors?|deselected)\b")
+# pytest prints a banner made of a long run of '!' when a run is cut short -- Ctrl-C ("KeyboardInterrupt"), a
+# collection error ("Interrupted"), pytest.exit() ("_pytest.outcomes.Exit"), --maxfail ("stopping after") --
+# and every such run reports a partial count. A stray line that merely starts with one or two '!' is not one.
+HALTED_RE = re.compile(r"^!{5,}[ !]*(\S[^\r\n]*?)[ !]*$", re.M)
+
+
+def plain(text):
+    """The output without ANSI colour codes and with LF line endings (output captured on Windows has CRLF,
+    which would otherwise defeat the end-of-line anchors below)."""
+    return ANSI_RE.sub("", text.replace("\r\n", "\n"))
 
 
 def parse_passed_count(pytest_output):
@@ -42,24 +53,33 @@ def parse_passed_count(pytest_output):
     -- pytest always reports the passed count first among the summary's
     comma-separated clauses when there's more than one.
     """
-    matches = PASSED_RE.findall(pytest_output)
-    if not matches:
-        raise ValueError('pytest output has no "N passed" summary line -- did the suite fail entirely?')
-    return int(matches[-1])  # the summary is the last such line; earlier text may mention "N passed"
+    line = summary_line(pytest_output)
+    match = PASSED_RE.search(line) if line else None
+    if not match:
+        raise ValueError('pytest output has no "N passed" summary line (a collect-only, -qq, all-failed or '
+                         'empty run has none)')
+    return int(match.group(1))
 
 
 def summary_line(pytest_output):
-    """pytest's summary line: the last line that carries an "N passed" count (None if there is none)."""
-    lines = [line for line in pytest_output.splitlines() if PASSED_RE.search(line)]
-    return lines[-1].strip() if lines else None
+    """pytest's summary line, colour codes removed: the last line that ends with its timing ("... in 12.3s"),
+    else the last line that carries an "N passed" count. Judging that one line -- not test ids or captured
+    text earlier in the output -- is what keeps `-v` / `-rA` / `-s` runs working. None if there is none."""
+    lines = plain(pytest_output).splitlines()
+    for matcher in (TIMING_RE, PASSED_RE):
+        found = [line for line in lines if matcher.search(line)]
+        if found:
+            return found[-1].strip()
+    return None
 
 
 def not_green_reason(pytest_output):
-    """Why this output is not a complete green run (None if it is): an interrupted session, or a summary
-    that reports failed / errored / deselected tests. The reason quotes what matched."""
-    banner = INTERRUPTED_RE.search(pytest_output)
+    """Why this output is not a complete green run (None if it is): a halted session (Ctrl-C, a collection
+    error, pytest.exit(), --maxfail), or a summary that reports failed / errored / deselected tests. The
+    reason quotes what matched."""
+    banner = HALTED_RE.search(plain(pytest_output))
     if banner:
-        return f"the run was interrupted ({banner.group(0).strip(' !')[:80]})"
+        return f"the run was halted early ('{banner.group(1)[:80]}')"
     line = summary_line(pytest_output)
     clause = NOT_GREEN_RE.search(line) if line else None
     if clause:

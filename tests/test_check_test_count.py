@@ -327,3 +327,98 @@ def test_a_test_name_that_mentions_keyboardinterrupt_is_not_an_interrupted_run(t
             "========== 1112 passed in 44.25s ==========\n")
     assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 0
     assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 1112}
+
+
+# ---------------------------------------------------------------------------
+# Third review round for #161: colour codes, pytest.exit(), the real summary line
+# ---------------------------------------------------------------------------
+
+ESC = "\x1b"
+
+
+@pytest.mark.parametrize("text, quoted", [
+    (f"{ESC}[1m{ESC}[31m2 failed{ESC}[0m, {ESC}[32m4 passed{ESC}[0m in 1.2s", "2 failed"),
+    (f"{ESC}[32m1 passed{ESC}[0m, {ESC}[33m2 deselected{ESC}[0m in 0.4s", "2 deselected"),
+    (f"{ESC}[31m{ESC}[1m1 error{ESC}[0m, 5 passed in 1s", "1 error"),
+])
+def test_colour_codes_do_not_hide_a_failure_or_a_subset(tmp_path, capsys, text, quoted):
+    badge = _write_badge(tmp_path, 430)
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    assert quoted in capsys.readouterr().out
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+def test_a_green_coloured_run_is_accepted_and_counted(tmp_path):
+    badge = _write_badge(tmp_path, 1)
+    text = f"{ESC}[32m.....{ESC}[0m\n{ESC}[32m========== 1120 passed{ESC}[0m, {ESC}[33m3 warnings{ESC}[0m in 44.25s ==========\n"
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 0
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 1120}
+
+
+@pytest.mark.parametrize("banner, quoted", [
+    ("!!!!!!!!!!!!! _pytest.outcomes.Exit: stop here !!!!!!!!!!!!!", "_pytest.outcomes.Exit: stop here"),
+    ("!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!", "stopping after 1 failures"),
+    ("!!!!!!!!!!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!!!!!!!!!!", "KeyboardInterrupt"),
+    ("!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!", "Interrupted: 1 error during collection"),
+])
+def test_any_pytest_halt_banner_is_refused_wherever_it_appears_in_the_output(tmp_path, capsys, banner, quoted):
+    badge = _write_badge(tmp_path, 430)
+    # the banner is NOT the first line, and the summary after it looks green
+    text = f"tests/test_a.py ....\ntests/test_b.py ..\n{banner}\n== 6 passed, 1 warning in 0.5s ==\n"
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    assert quoted in capsys.readouterr().out
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+def test_a_short_bang_line_in_a_green_run_is_not_a_halt_banner(tmp_path):
+    badge = _write_badge(tmp_path, 1)
+    text = "!! just a log line\n!!!! four\n== 9 passed in 1s ==\n"
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 0
+
+
+def test_the_summary_line_is_the_timing_line_not_a_test_id_that_mentions_passed(tmp_path, capsys):
+    badge = _write_badge(tmp_path, 430)
+    # every test failed, so the real summary has no "passed", and a test id mentions one
+    text = "tests/test_x.py::test_a[5 passed] FAILED\n========== 1 failed in 0.17s ==========\n"
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    out = capsys.readouterr().out
+    assert "'1 failed'" in out and json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+@pytest.mark.parametrize("text", ["3 tests collected in 0.01s", "collected 0 items", "========== no tests ran in 0.01s =========="])
+def test_runs_with_no_passed_count_are_refused_with_an_accurate_message(tmp_path, capsys, text):
+    badge = _write_badge(tmp_path, 430)
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    out = capsys.readouterr().out
+    assert "collect-only, -qq, all-failed or empty run" in out and "fail entirely" not in out
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}
+
+
+def test_a_collect_only_listing_with_failure_like_test_ids_is_not_misreported(tmp_path, capsys):
+    badge = _write_badge(tmp_path, 430)
+    text = "tests/test_x.py::test_a[1 failed, 5 passed in 1s]\n3 tests collected in 0.01s\n"
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    out = capsys.readouterr().out
+    assert "the summary line reports" not in out  # the timing line is "3 tests collected", not a test id
+
+
+def test_output_captured_with_windows_line_endings_is_judged_the_same(tmp_path, capsys):
+    badge = _write_badge(tmp_path, 430)
+    crlf_output = "tests/test_a.py ..\r\n!!!!!!!!! KeyboardInterrupt !!!!!!!!!\r\n== 2 passed in 0.5s ==\r\n"
+    out = tmp_path / "pytest_output.txt"
+    out.write_bytes(crlf_output.encode("utf-8"))
+    assert main([str(out), "--badge-path", str(badge), "--write"]) == 1
+    assert "KeyboardInterrupt" in capsys.readouterr().out
+    out.write_bytes(b"tests/test_a.py ..\r\n== 2 passed in 0.5s ==\r\n")
+    assert main([str(out), "--badge-path", str(badge), "--write"]) == 0
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 2}
+
+
+def test_a_coloured_halt_banner_is_still_a_halt_and_the_refusal_prints_no_escape_codes(tmp_path, capsys):
+    badge = _write_badge(tmp_path, 430)
+    text = (f"tests/test_a.py ..\n{ESC}[1m{ESC}[31m!!!!!!!!!! KeyboardInterrupt !!!!!!!!!!{ESC}[0m\n"
+            f"{ESC}[32m== 2 passed{ESC}[0m in 0.5s ==\n")
+    assert main([str(_pytest_output(tmp_path, text)), "--badge-path", str(badge), "--write"]) == 1
+    out = capsys.readouterr().out
+    assert "KeyboardInterrupt" in out and ESC not in out
+    assert json.loads(badge.read_text(encoding="utf-8")) == {"passed": 430}

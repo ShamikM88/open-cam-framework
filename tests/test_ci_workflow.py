@@ -202,7 +202,7 @@ def test_runs_that_pipe_into_tee_fail_when_the_first_command_fails():
 def test_no_run_block_interpolates_a_github_expression_into_the_shell():
     """`${{ github.head_ref }}` (or any user-controlled value) inside a `run:` is script injection. zizmor reports
     it, but the security job is not a required check, so this test makes it a failing test as well."""
-    for path in [WORKFLOW]:
+    for path in all_workflows():
         for job_id, body in split_jobs(path.read_text(encoding="utf-8")).items():
             for step in body.split("\n      - name: "):
                 if "\n        run:" in step:
@@ -234,7 +234,8 @@ def test_the_runtime_job_installs_only_the_runtime_requirements():
 
 def test_the_security_job_audits_every_requirements_file_and_the_workflows():
     body = split_jobs(workflow_text())["security"]
-    for requirements in ("requirements.txt", "requirements-dev.txt", "requirements-security.txt"):
+    for requirements in ("requirements.txt", "requirements-dev.txt", "requirements-security.txt",
+                         "requirements-mutation.txt"):
         assert f"-r {requirements}" in body.split("pip-audit", 1)[1].splitlines()[0]
     assert "zizmor .github/workflows" in body
     assert "-r requirements-security.txt" in body.split("pip-audit", 1)[0]
@@ -254,3 +255,81 @@ def test_the_security_requirements_file_names_both_tools():
              if line.strip() and not line.startswith("#")}
     assert names == {"pip-audit", "zizmor"}
 
+
+# ---------------------------------------------------------------------------
+# Every workflow file (issue #138, #141) and the weekly mutation workflow (issue #146)
+# ---------------------------------------------------------------------------
+
+MUTATION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation.yml"
+
+
+def all_workflows():
+    files = sorted(WORKFLOW.parent.glob("*.y*ml"))
+    assert len(files) >= 2, files
+    return files
+
+
+def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free():
+    for path in all_workflows():
+        text = path.read_text(encoding="utf-8")
+        assert unpinned_actions(text) == [], path.name
+        assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M), path.name
+        assert "pull_request_target" not in text and "workflow_run" not in text, path.name
+        for job_id, body in split_jobs(text).items():
+            assert job_permissions(body) == {"contents": "read"}, (path.name, job_id)
+            assert len(re.findall(r"persist-credentials:\s*false", body)) == body.count("actions/checkout@"), \
+                (path.name, job_id)
+            assert "timeout-minutes:" in body, (path.name, job_id)
+
+
+def test_the_mutation_workflow_is_weekly_and_manual_only_never_on_a_pull_request_or_push():
+    text = MUTATION_WORKFLOW.read_text(encoding="utf-8")
+    triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"schedule", "workflow_dispatch"}
+    assert re.search(r'cron: "\d{1,2} \d{1,2} \* \* [0-6]"', triggers), "a weekly schedule: fixed minute, hour and weekday"
+
+
+def test_the_mutation_workflow_is_a_diagnostic_report_not_a_gate():
+    jobs = split_jobs(MUTATION_WORKFLOW.read_text(encoding="utf-8"))
+    assert list(jobs) == ["mutation"]
+    body = jobs["mutation"]
+    assert "runs-on: ubuntu-latest" in body                       # mutmut forks: no Windows
+    assert int(re.search(r"timeout-minutes:\s*(\d+)", body).group(1)) <= 120
+    run_step = next(s for s in body.split("\n      - name: ") if s.startswith("Run mutmut"))
+    assert "continue-on-error: true" in run_step                  # survivors never fail the job by themselves...
+    assert int(re.search(r"timeout-minutes:\s*(\d+)", run_step).group(1)) < 120, "a step timeout, so reports run"
+    final = body.split("- name: Fail if mutmut produced no result", 1)[1]
+    assert "if: always()" in final and "ran == 0" in final         # ...but a run that tested nothing does
+    assert body.index("ln -s scripts src") < body.index("mutmut run")
+    upload = next(s for s in body.split("\n      - name: ") if "actions/upload-artifact@" in s)
+    assert "if: always()" in upload and "mutmut-run.log" in upload and "mutmut-cicd-stats.json" in upload
+    assert "mutants/src/*.meta" in upload and "mutants/scripts" not in upload    # the src alias is the real path
+    assert 's["no_tests"]' not in final.split("ran = ", 1)[1].splitlines()[0], "no_tests is not a run mutant"
+    assert "--fail-under" not in body and "--min" not in body, "no threshold is enforced until the first run is read"
+
+
+def test_the_mutation_job_is_not_one_of_the_required_checks():
+    required = set(REQUIRED_JOBS)
+    assert "mutation" not in required
+    assert "mutation" not in split_jobs(workflow_text())
+
+
+def test_mutmut_is_installed_by_the_mutation_workflow_only():
+    mutation_requirements = (REPO_ROOT / "requirements-mutation.txt").read_text(encoding="utf-8")
+    assert re.search(r"^mutmut>=\d", mutation_requirements, re.M)
+    assert "mutmut" not in (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    assert "mutmut" not in workflow_text()
+    assert "-r requirements-mutation.txt" in MUTATION_WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_the_mutation_config_mutates_exactly_the_coverage_critical_modules_with_tests_that_exist():
+    tomllib = pytest.importorskip("tomllib")
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]
+    critical = {f"src/{m}.py" for m in config["opencam"]["coverage"]["critical_modules"]}   # src/ is scripts/
+    assert set(config["mutmut"]["only_mutate"]) == critical
+    for test_file in config["mutmut"]["pytest_add_cli_args_test_selection"]:
+        assert (REPO_ROOT / test_file).is_file(), test_file
+    assert ".github" in config["mutmut"]["also_copy"]
+    assert config["mutmut"]["source_paths"] == ["src"]
+    for module in config["opencam"]["coverage"]["critical_modules"]:
+        assert (REPO_ROOT / "scripts" / f"{module}.py").is_file(), module

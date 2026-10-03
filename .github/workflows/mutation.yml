@@ -1,0 +1,114 @@
+name: Mutation testing
+
+# Weekly and on demand -- NEVER on a pull request or push (issue #146). Mutation testing changes one line of a
+# governance module at a time and checks that some test then fails; a mutant that survives is a line nothing
+# really tests. It takes far too long to gate a pull request, and the numbers are advisory: the first full run is
+# diagnostic, thresholds are decided from it afterwards, and no result here blocks a merge.
+on:
+  schedule:
+    - cron: "17 3 * * 1"      # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: mutation
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: mutation
+    runs-on: ubuntu-latest      # mutmut forks; it does not run on Windows
+    timeout-minutes: 120        # a full run took 10 minutes; a hung run is stopped well before the 360-minute limit
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            requirements-mutation.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt -r requirements-mutation.txt
+
+      - name: Expose scripts/ to mutmut as src/
+        # The tests import the modules as top-level names; mutmut only understands that layout from src/
+        # (see [tool.mutmut] in pyproject.toml). src is git-ignored.
+        run: ln -s scripts src
+
+      - name: Run mutmut
+        # What to mutate and which tests to run: [tool.mutmut] in pyproject.toml. A failing exit status here does
+        # not stop the report steps below; the final step fails the job only if mutmut produced no result at all.
+        id: mutmut
+        continue-on-error: true
+        timeout-minutes: 90    # a step timeout, so the report steps below still run when mutmut hangs
+        run: |
+          set -o pipefail
+          mutmut run 2>&1 | tee mutmut-run.log
+
+      - name: Collect results
+        if: always()
+        env:
+          MUTMUT_OUTCOME: ${{ steps.mutmut.outcome }}
+        run: |
+          mutmut export-cicd-stats || true
+          mutmut results > mutation-survivors.txt || true
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os, pathlib
+          path = pathlib.Path("mutants/mutmut-cicd-stats.json")
+          print("## Mutation testing (diagnostic, not a merge gate)")
+          print(f"mutmut step outcome: **{os.environ.get('MUTMUT_OUTCOME', 'unknown')}**")
+          if not path.exists():
+              print("mutmut produced no statistics; see the run log artifact.")
+          else:
+              s = json.loads(path.read_text(encoding="utf-8"))
+              tested = s["total"] - s["skipped"]
+              score = 100.0 * (s["killed"] + s["timeout"]) / tested if tested else 0.0
+              print(f"**Mutation score: {score:.1f}%** ({s['killed']} killed, {s['timeout']} timed out, "
+                    f"{s['survived']} survived, {s['no_tests']} with no tests, {s['suspicious']} suspicious, "
+                    f"{s['skipped']} skipped, of {s['total']})")
+          PY
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: mutation-report
+          path: |
+            mutmut-run.log
+            mutation-survivors.txt
+            mutants/mutmut-cicd-stats.json
+            mutants/src/*.meta
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Fail if mutmut produced no result
+        # "Stopping early" (a wrong module path, say) still writes a statistics file, with every mutant unchecked:
+        # require that at least one mutant was actually run.
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, sys
+          try:
+              with open("mutants/mutmut-cicd-stats.json", encoding="utf-8") as f:
+                  s = json.load(f)
+          except (OSError, ValueError) as exc:
+              sys.exit(f"no mutation statistics: {exc}")
+          # "no_tests" is deliberately NOT counted: a wrong test selection puts every mutant there.
+          ran = s["killed"] + s["survived"] + s["timeout"] + s["suspicious"] + s["segfault"]
+          if ran == 0:
+              sys.exit(f"no mutant was actually tested ({s['no_tests']} had no test) out of {s['total']}; "
+                       "see mutmut-run.log")
+          PY

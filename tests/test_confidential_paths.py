@@ -53,6 +53,8 @@ NOT_CONFIDENTIAL = {
     "htmlcov/": "coverage.py HTML report; build output, not data",
     "coverage.xml": "coverage.py XML report; build output, not data",
     "coverage.json": "coverage.py JSON report (scripts/check_coverage.py reads it); build output, not data",
+    "mutants/": "mutmut working copy of scripts/ and tests/ (issue #146); build output, not data",
+    "/src": "mutation run's alias (symlink) of scripts/ (issue #146); contains nothing of its own",
     ".hypothesis/": "hypothesis example database (explore profile only); generated, synthetic, not data",
     ".env": "secrets file; covered by the repository's secret scanning and push protection (see #149)",
     "*.key": "secret key files; covered by the repository's secret scanning and push protection (see #149)",

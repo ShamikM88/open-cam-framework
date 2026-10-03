@@ -289,6 +289,12 @@ hung test (`pytest-timeout`), so install the dev requirements (`pip install -r r
 before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`); there
 is no coverage gate yet.
 
+Beyond example-based unit tests the suite includes property-based tests (`hypothesis`), historical and
+malformed `state.json` fixtures, and golden-output tests that compare the exported `.docx`/`.xlsx` with
+reviewed text snapshots in `tests/snapshots/`. After an intended change to an export, regenerate the
+snapshots with `pytest tests/test_golden_outputs.py --update-snapshots` and review the diff; CI never
+does this. See `CLAUDE.md` ("Testing and static analysis") for details.
+
 **Test-count badge.** `badges/test-count.json` (`{"passed": <int>}`) is this project's own
 checked-in record of how many tests currently pass -- unlike everything else this framework
 persists, this one is deliberately public and git-tracked, not gitignored, since it's a project

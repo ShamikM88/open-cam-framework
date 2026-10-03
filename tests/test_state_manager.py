@@ -451,6 +451,131 @@ def test_file_lock_raises_timeout_error_when_already_held(tmp_path):
             _FileLock(lock_target, timeout=0.2).__enter__()
 
 
+# ---------------------------------------------------------------------------
+# _FileLock's retry path, driven deterministically (issue #104). On Windows a genuine O_EXCL collision can surface
+# as PermissionError instead of FileExistsError, and `except (FileExistsError, PermissionError)` is what makes the
+# lock retry rather than crash. A real race cannot be forced reliably (and never on Linux CI), so os.open, the clock
+# and the sleep are replaced by fakes: no filesystem race, no real waiting.
+# ---------------------------------------------------------------------------
+
+class _FakeClock:
+    """Stands in for the `time` module inside state_manager: a monotonic clock that only sleep() advances."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+class _FlakyOs:
+    """Stands in for `os` inside state_manager: os.open raises the queued errors first (forever if `forever`),
+    then really creates the file; everything else is the real os."""
+
+    def __init__(self, errors, forever=False):
+        self.errors, self.forever, self.open_calls = list(errors), forever, 0
+
+    MAX_OPEN_CALLS = 200     # a correct lock needs about a dozen; more means the retry loop no longer terminates
+
+    def open(self, *args, **kwargs):
+        self.open_calls += 1
+        if self.open_calls > self.MAX_OPEN_CALLS:
+            # Without this a regression that removes the sleep (so the fake clock never advances) would spin until
+            # pytest-timeout, re-raising one exception whose traceback grows without bound (about 1 GB in 8 s).
+            raise AssertionError(f"_FileLock retried {self.open_calls} times without timing out: runaway loop")
+        if self.errors:
+            error = self.errors[0] if self.forever else self.errors.pop(0)
+            raise error
+        return os.open(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+
+@pytest.fixture
+def flaky_lock(monkeypatch):
+    """flaky_lock(errors, forever=False) -> (fake_os, fake_clock), installed into state_manager."""
+    def install(errors, forever=False):
+        fake_os, clock = _FlakyOs(errors, forever), _FakeClock()
+        monkeypatch.setattr(state_manager, "os", fake_os)
+        monkeypatch.setattr(state_manager, "time", clock)
+        return fake_os, clock
+    return install
+
+
+@pytest.mark.parametrize("error", [PermissionError(13, "Access is denied"), FileExistsError(17, "File exists")],
+                         ids=["PermissionError", "FileExistsError"])
+def test_a_lock_collision_is_retried_with_the_normal_backoff_until_the_lock_is_free(tmp_path, flaky_lock, error):
+    fake_os, clock = flaky_lock([error, error, error])
+    target = str(tmp_path / "state.json")
+
+    with _FileLock(target) as lock:
+        assert lock._fd is not None and os.path.exists(target + ".lock")    # acquired on the 4th attempt
+
+    assert fake_os.open_calls == 4
+    assert clock.sleeps == [state_manager._LOCK_POLL_INTERVAL_SECONDS] * 3   # the same fixed poll between attempts
+    assert not os.path.exists(target + ".lock")                              # released and removed on exit
+
+
+def test_permission_error_and_file_exists_error_are_treated_identically(tmp_path, flaky_lock):
+    """The point of catching PermissionError: it must behave exactly like the ordinary collision."""
+    results = {}
+    for name, error in (("permission", PermissionError(13, "denied")), ("exists", FileExistsError(17, "exists"))):
+        fake_os, clock = flaky_lock([error] * 2)
+        with _FileLock(str(tmp_path / f"{name}.json")):
+            pass
+        results[name] = (fake_os.open_calls, clock.sleeps)
+    assert results["permission"] == results["exists"] == (3, [state_manager._LOCK_POLL_INTERVAL_SECONDS] * 2)
+
+
+@pytest.mark.parametrize("error", [PermissionError(13, "Access is denied"), FileExistsError(17, "File exists")],
+                         ids=["PermissionError", "FileExistsError"])
+def test_a_lock_that_never_frees_times_out_after_the_configured_wait(tmp_path, flaky_lock, error):
+    fake_os, clock = flaky_lock([error], forever=True)
+    target = str(tmp_path / "state.json")
+    poll = state_manager._LOCK_POLL_INTERVAL_SECONDS
+
+    with pytest.raises(TimeoutError, match="Could not acquire lock") as caught:
+        _FileLock(target, timeout=0.5).__enter__()
+
+    message = str(caught.value)
+    assert repr(target + ".lock") in message and "0.5s" in message and "stale lock" in message
+    assert caught.value.__cause__ is error                     # the collision that was being retried is chained
+    waited = sum(clock.sleeps)
+    assert 0.5 - poll <= waited <= 0.5 + poll                  # waits the configured time, not one poll, not forever
+    assert set(clock.sleeps) == {poll} and fake_os.open_calls == len(clock.sleeps) + 1
+    assert not os.path.exists(target + ".lock")                # a failed acquisition leaves nothing behind
+
+
+def test_a_zero_timeout_gives_up_at_the_first_collision_without_sleeping(tmp_path, flaky_lock):
+    fake_os, clock = flaky_lock([PermissionError(13, "denied")], forever=True)
+    with pytest.raises(TimeoutError):
+        _FileLock(str(tmp_path / "state.json"), timeout=0).__enter__()
+    assert fake_os.open_calls == 1 and clock.sleeps == []
+
+
+def test_the_default_timeout_and_poll_interval_are_unchanged():
+    assert state_manager.LOCK_TIMEOUT_SECONDS == 10 and state_manager._LOCK_POLL_INTERVAL_SECONDS == 0.05
+    assert _FileLock("x")._timeout == state_manager.LOCK_TIMEOUT_SECONDS
+
+
+@pytest.mark.parametrize("error", [OSError(28, "No space left on device"), FileNotFoundError(2, "no such directory"),
+                                   IsADirectoryError(21, "is a directory")],
+                         ids=["ENOSPC", "FileNotFoundError", "IsADirectoryError"])
+def test_other_os_errors_are_not_retried(tmp_path, flaky_lock, error):
+    """Only a collision is worth waiting for. Broadening the except clause to every OSError would turn a real fault
+    (a full disk, a missing directory) into a ten-second hang followed by a misleading 'stale lock' message."""
+    fake_os, clock = flaky_lock([error])
+    with pytest.raises(OSError) as caught:
+        _FileLock(str(tmp_path / "state.json")).__enter__()
+    assert caught.value is error and fake_os.open_calls == 1 and clock.sleeps == []
+
+
 def test_concurrent_write_state_calls_do_not_clobber_each_others_update(tmp_path):
     """Without the lock, two concurrent write_state() calls each read the
     same starting state, compute an update from it, and the second write

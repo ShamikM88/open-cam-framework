@@ -320,6 +320,11 @@ under the following paths is git-ignored and must stay that way:
 - `deals/` — generated output for real borrowers (names, financials, PII) — also holds, one level
   above each dated deal folder, any borrower-specific persisted spreading convention
   (`_conventions.json`) or deal learnings (`_learnings.md`) for that company
+- `evals/results/` — output of the local live-model evaluation harness (review packs, full model
+  output), kept out of git even though the evaluation data itself is synthetic
+
+This is checked automatically: `tests/test_confidential_paths.py` fails CI if any of these is tracked
+by git or loses its `.gitignore` rule.
 
 Only the framework itself (agent prompts, scripts, blank templates, config, docs) should ever
 be committed. If you're contributing a template change, make sure every field is a generic

@@ -472,6 +472,21 @@ a second look in review.
   `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
   any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
   (reusing an existing one per the auto-discovery above), and returns the full merged state.
+  **`write_state()` and `append_review_trail()` never downgrade a state (issue #170).** Before touching anything, they
+  `append_review_trail()` compare the file's recorded `schema_version` with this code's `SCHEMA_VERSION`,
+  numerically per `MAJOR.MINOR.PATCH` part (`1.10.0` is newer than `1.9.0`; `parse_schema_version()`). Equal,
+  older, and absent (read back as `LEGACY_SCHEMA_VERSION`, `0.0.0`) are written and upgraded to `SCHEMA_VERSION`
+  as before, unknown fields preserved. A **newer** version raises `SchemaVersionError` (a `ValueError`) naming
+  both versions and the file, and a **malformed** one (not a string, or not exactly `MAJOR.MINOR.PATCH` digits:
+  `null`, `1.2`, `v1.1.0`, ...) raises it too, since it cannot be shown to be older -- in both cases the file is
+  left byte-for-byte unchanged and no temp file is left behind. Reading such a file is unaffected. The fix for a
+  newer file is to update this checkout of the framework, never to edit the version by hand. **Limits:** the
+  guard covers only those two functions, i.e. `spreading_check.py` (the `/spread` and `/project` Bash steps) and
+  `orchestrator.py`; the slash commands that record their step by writing `state.json` directly with Claude's
+  file tools (`/triage`, `/research`, `/commercial`, `/collateral`, `/review`, `/assemble`) bypass it. Those two
+  CLIs currently show the refusal as a raw `SchemaVersionError` traceback (`orchestrator.py` refuses at its first
+  `write_state`, before any model call); turning state errors into one-line messages is issue #171.
+  A caller that passes `schema_version=` explicitly still overrides the stamp (unchanged behaviour).
 - **`scripts/source_manifest.py`** — no `anthropic` dependency, same testability pattern as
   `state_manager.py` (reuses its date-resolution/locking/sanitization directly rather than
   duplicating it). `save_source(company, proposal, *, step, claim, source_path, url=None,

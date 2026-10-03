@@ -5,12 +5,15 @@ import time
 import pytest
 from datetime import datetime
 
+import state_manager
 from deal_export import export_deal
 from state_manager import (
     LEGACY_SCHEMA_VERSION,
     SCHEMA_VERSION,
+    SchemaVersionError,
     _FileLock,
     append_review_trail,
+    parse_schema_version,
     read_state,
     required_steps_completed,
     resolve_date_str,
@@ -29,7 +32,7 @@ def test_read_state_returns_none_when_no_file_exists(tmp_path):
 # read_state() never assumes it's present on an older file.
 # ---------------------------------------------------------------------------
 
-def test_write_state_sets_schema_version_unconditionally(tmp_path):
+def test_write_state_stamps_the_current_schema_version_on_a_fresh_deal(tmp_path):
     base = str(tmp_path)
     state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
     assert state["schema_version"] == SCHEMA_VERSION == "1.1.0"
@@ -65,6 +68,119 @@ def test_write_state_upgrades_a_legacy_file_to_the_current_schema_version(tmp_pa
         json.dump({"company": "Acme Corp", "proposal": "Fleet Loan", "date": "2026-01-15"}, f)
 
     state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base, deal_type="asset_finance")
+    assert state["schema_version"] == SCHEMA_VERSION
+
+
+# ---------------------------------------------------------------------------
+# Never downgrade (issue #170): a file recorded as NEWER than SCHEMA_VERSION is refused, not re-stamped.
+# ---------------------------------------------------------------------------
+
+def _write_raw_state(base, recorded_version, **extra):
+    """A state.json on disk with exactly this schema_version value (a missing key if the sentinel is MISSING)."""
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    content = {"company": "Acme Corp", "proposal": "Fleet Loan", "date": "2026-01-15", **extra}
+    if recorded_version is not MISSING:
+        content["schema_version"] = recorded_version
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(content, f)
+    with open(path, "rb") as f:
+        return path, f.read()
+
+
+MISSING = object()
+
+
+@pytest.mark.parametrize("text, expected", [("1.1.0", (1, 1, 0)), ("0.0.0", (0, 0, 0)), ("1.10.0", (1, 10, 0)),
+                                            ("10.20.30", (10, 20, 30)), ("01.002.0", (1, 2, 0))])
+def test_parse_schema_version_returns_integers(text, expected):
+    assert parse_schema_version(text) == expected
+
+
+def test_versions_compare_numerically_not_as_strings():
+    assert parse_schema_version("1.10.0") > parse_schema_version("1.9.0")      # as strings, "1.10.0" < "1.9.0"
+    assert parse_schema_version("2.0.0") > parse_schema_version("1.99.99")
+    assert parse_schema_version("1.1.0") == parse_schema_version("1.1.0")
+    assert parse_schema_version("1.1.1") > parse_schema_version("1.1.0")
+
+
+MALFORMED_VERSIONS = ["", "abc", "1", "1.2", "1.2.3.4", "v1.1.0", "1.1.0-beta", " 1.1.0", "1.1.0 ", "1.1.0\n", "1..0",
+                      "1.-1.0", "-1.0.0", "1.1.x", "\u0661.\u0661.\u0660", None, 1, 1.1, True, [], ["1.1.0"], {"v": "1.1.0"}]
+
+
+@pytest.mark.parametrize("value", MALFORMED_VERSIONS, ids=repr)
+def test_parse_schema_version_rejects_anything_that_is_not_major_minor_patch_digits(value):
+    with pytest.raises(ValueError, match="not a MAJOR.MINOR.PATCH"):
+        parse_schema_version(value)
+
+
+def test_a_newer_schema_version_is_refused_and_the_file_is_left_byte_for_byte_unchanged(tmp_path):
+    path, before = _write_raw_state(str(tmp_path), "9.9.9", future_key={"nested": [1, 2]})
+    with pytest.raises(SchemaVersionError) as caught:
+        write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path), inputs={"pd": "0.2%"})
+    message = str(caught.value)
+    assert "9.9.9" in message and SCHEMA_VERSION in message and path in message and "downgrade" in message
+    with open(path, "rb") as f:
+        assert f.read() == before
+    assert os.listdir(os.path.dirname(path)) == ["state.json"]          # no temp file left behind
+
+
+def test_the_refusal_is_a_value_error_so_existing_handlers_still_catch_it():
+    assert issubclass(SchemaVersionError, ValueError)
+
+
+def test_the_comparison_is_semantic_so_1_10_0_is_newer_than_1_9_0(tmp_path, monkeypatch):
+    monkeypatch.setattr(state_manager, "SCHEMA_VERSION", "1.9.0")
+    _write_raw_state(str(tmp_path), "1.10.0")
+    with pytest.raises(SchemaVersionError):
+        write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path))
+    monkeypatch.setattr(state_manager, "SCHEMA_VERSION", "1.10.0")           # and 1.9.0 is older than 1.10.0
+    _write_raw_state(str(tmp_path), "1.9.0")
+    assert write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path))["schema_version"] == "1.10.0"
+
+
+@pytest.mark.parametrize("recorded", ["1.1.0", "1.0.9", "1.0.0", "0.9.9", "0.0.0", MISSING],
+                         ids=["equal", "older-patch", "older-minor", "older-major", "legacy", "missing"])
+def test_equal_older_and_missing_versions_are_written_and_upgraded_as_before(tmp_path, recorded):
+    _write_raw_state(str(tmp_path), recorded, keep="me")
+    state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path), deal_type="x")
+    assert state["schema_version"] == SCHEMA_VERSION and state["keep"] == "me" and state["deal_type"] == "x"
+    assert read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path))["schema_version"] == SCHEMA_VERSION
+
+
+def test_unknown_fields_survive_a_permitted_write(tmp_path):
+    _write_raw_state(str(tmp_path), "1.0.0", future_key={"nested": [1, 2, {"deeper": True}]}, x_note="keep me")
+    state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path), deal_type="x")
+    assert state["future_key"] == {"nested": [1, 2, {"deeper": True}]} and state["x_note"] == "keep me"
+
+
+@pytest.mark.parametrize("value", [v for v in MALFORMED_VERSIONS if v is not None] + [None], ids=repr)
+def test_a_malformed_recorded_version_is_refused_not_overwritten(tmp_path, value):
+    """It cannot be compared, so it cannot be shown to be older: overwriting it could be the same silent downgrade."""
+    path, before = _write_raw_state(str(tmp_path), value)
+    with pytest.raises(SchemaVersionError, match="not a MAJOR.MINOR.PATCH"):
+        write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path), deal_type="x")
+    with open(path, "rb") as f:
+        assert f.read() == before
+
+
+def test_append_review_trail_refuses_a_newer_schema_too(tmp_path):
+    path, before = _write_raw_state(str(tmp_path), "2.0.0")
+    with pytest.raises(SchemaVersionError):
+        append_review_trail("Acme Corp", "Fleet Loan", "APPROVED", date_str="2026-01-15", base_dir=str(tmp_path))
+    with open(path, "rb") as f:
+        assert f.read() == before
+
+
+def test_reading_a_newer_schema_is_still_allowed(tmp_path):
+    """Only writing is refused: a newer file stays readable (the deal-export and policy checks read it)."""
+    _write_raw_state(str(tmp_path), "9.9.9", future_key=1)
+    state = read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path))
+    assert state["schema_version"] == "9.9.9" and state["future_key"] == 1
+
+
+def test_a_fresh_deal_with_no_file_is_still_created_at_the_current_version(tmp_path):
+    state = write_state("Fresh Co", "Loan", date_str="2026-01-15", base_dir=str(tmp_path))
     assert state["schema_version"] == SCHEMA_VERSION
 
 

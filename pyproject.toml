@@ -33,6 +33,11 @@ filterwarnings = ["error"]            # every warning is a failure; fix the caus
 [tool.coverage.run]
 source = ["scripts"]
 branch = true                         # line + branch coverage (issue #142)
+# Follow the Python subprocesses the CLI tests start (tests/test_cli_subprocess.py), so each script's
+# `if __name__ == "__main__":` block counts. coverage >= 7.10; each child writes its own data file and
+# pytest-cov combines them.
+patch = ["subprocess"]
+parallel = true
 
 [tool.coverage.report]
 show_missing = true

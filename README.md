@@ -263,7 +263,10 @@ tests/` with no key set at all. Dedicated test files cover the dependency-free m
 `pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
 `check_test_count.py`) plus a
 prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
-against the code they're meant to stay in sync with.
+against the code they're meant to stay in sync with. The command-line surface is tested for real:
+`test_cli_subprocess.py` runs every script's `--help` / a representative input / a bad input as a
+subprocess, and `test_command_flags.py` checks that every `--flag` the slash commands and docs tell
+Claude to pass still exists in the script, naming the file and line when one does not.
 
 Separately, `evals/` holds a **local-only live-model evaluation harness** (`python scripts/run_evals.py`,
 see [`evals/README.md`](evals/README.md)) for measuring what those tests cannot -- whether the actual

@@ -480,8 +480,14 @@ class _FlakyOs:
     def __init__(self, errors, forever=False):
         self.errors, self.forever, self.open_calls = list(errors), forever, 0
 
+    MAX_OPEN_CALLS = 200     # a correct lock needs about a dozen; more means the retry loop no longer terminates
+
     def open(self, *args, **kwargs):
         self.open_calls += 1
+        if self.open_calls > self.MAX_OPEN_CALLS:
+            # Without this a regression that removes the sleep (so the fake clock never advances) would spin until
+            # pytest-timeout, re-raising one exception whose traceback grows without bound (about 1 GB in 8 s).
+            raise AssertionError(f"_FileLock retried {self.open_calls} times without timing out: runaway loop")
         if self.errors:
             error = self.errors[0] if self.forever else self.errors.pop(0)
             raise error

@@ -1,0 +1,154 @@
+{
+  "company": "Synthetic Legacy Co",
+  "proposal": "Synthetic Fleet Loan",
+  "date": "2026-01-01",
+  "deal_type": "corporate_credit",
+  "inputs": {
+    "pd": "0.50%",
+    "lgd": "LGD 3 (15%)",
+    "experian_score": "62"
+  },
+  "financials": {
+    "FY-2": {
+      "raw": {
+        "revenue": 4000,
+        "cost_of_sales": 2600,
+        "admin_expenses": 500,
+        "depreciation": 40,
+        "interest_paid": 110,
+        "scheduled_principal": 150,
+        "capex": 60,
+        "tax_paid": 25,
+        "cash": 220,
+        "trade_debtors": 520,
+        "stock": 310,
+        "tangible_assets": 900,
+        "trade_creditors": 330,
+        "long_term_debt": 1400,
+        "share_capital": 100,
+        "retained_profit": 500
+      },
+      "gross_profit": 1400,
+      "operating_profit": 860,
+      "ebitda": 900,
+      "profit_before_tax": 750,
+      "net_profit": 725,
+      "fcf": 705,
+      "current_assets": 1050,
+      "current_liabilities": 330,
+      "total_assets": 1950,
+      "total_liabilities": 1730,
+      "total_equity": 600,
+      "total_debt": 1400,
+      "tangible_net_worth": 600
+    },
+    "FY-1": {
+      "raw": {
+        "revenue": 4300,
+        "cost_of_sales": 2750,
+        "admin_expenses": 520,
+        "depreciation": 40,
+        "interest_paid": 105,
+        "scheduled_principal": 150,
+        "capex": 60,
+        "tax_paid": 25,
+        "cash": 260,
+        "trade_debtors": 560,
+        "stock": 320,
+        "tangible_assets": 900,
+        "trade_creditors": 340,
+        "long_term_debt": 1250,
+        "share_capital": 100,
+        "retained_profit": 640
+      },
+      "gross_profit": 1550,
+      "operating_profit": 990,
+      "ebitda": 1030,
+      "profit_before_tax": 885,
+      "net_profit": 860,
+      "fcf": 840,
+      "current_assets": 1140,
+      "current_liabilities": 340,
+      "total_assets": 2040,
+      "total_liabilities": 1590,
+      "total_equity": 740,
+      "total_debt": 1250,
+      "tangible_net_worth": 740
+    },
+    "FY-Current": {
+      "raw": {
+        "revenue": 4650,
+        "cost_of_sales": 2900,
+        "admin_expenses": 540,
+        "depreciation": 40,
+        "interest_paid": 98,
+        "scheduled_principal": 150,
+        "capex": 60,
+        "tax_paid": 25,
+        "cash": 310,
+        "trade_debtors": 600,
+        "stock": 330,
+        "tangible_assets": 900,
+        "trade_creditors": 350,
+        "long_term_debt": 1100,
+        "share_capital": 100,
+        "retained_profit": 790
+      },
+      "gross_profit": 1750,
+      "operating_profit": 1170,
+      "ebitda": 1210,
+      "profit_before_tax": 1072,
+      "net_profit": 1047,
+      "fcf": 1027,
+      "current_assets": 1240,
+      "current_liabilities": 350,
+      "total_assets": 2140,
+      "total_liabilities": 1450,
+      "total_equity": 890,
+      "total_debt": 1100,
+      "tangible_net_worth": 890
+    }
+  },
+  "ratios": {
+    "FY-2": {
+      "dscr": 3.4615384615384617,
+      "gross_leverage": 1.5555555555555556,
+      "current_ratio": 3.1818181818181817,
+      "gearing": 2.3333333333333335,
+      "ebit_interest_cover": 7.818181818181818,
+      "ebitda_interest_cover": 8.181818181818182
+    },
+    "FY-1": {
+      "dscr": 4.03921568627451,
+      "gross_leverage": 1.2135922330097086,
+      "current_ratio": 3.3529411764705883,
+      "gearing": 1.6891891891891893,
+      "ebit_interest_cover": 9.428571428571429,
+      "ebitda_interest_cover": 9.80952380952381
+    },
+    "FY-Current": {
+      "dscr": 4.879032258064516,
+      "gross_leverage": 0.9090909090909091,
+      "current_ratio": 3.5428571428571427,
+      "gearing": 1.2359550561797752,
+      "ebit_interest_cover": 11.938775510204081,
+      "ebitda_interest_cover": 12.346938775510203
+    }
+  },
+  "collateral": [
+    {
+      "asset_id": "AST-001",
+      "asset_class": "Vehicles",
+      "exposure": 800,
+      "collateral_value": 700,
+      "perfection_status": "Registered"
+    }
+  ],
+  "steps_completed": [
+    "triage",
+    "spread",
+    "collateral"
+  ],
+  "review_verdict": "APPROVED",
+  "draft_path": "deals/Synthetic Legacy Co/Synthetic Fleet Loan_draft.md"
+}

@@ -53,6 +53,7 @@ open-cam-framework/
 │   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" below)
 │   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only: --validate/--list/--dry-run make zero model calls; --live spends real API calls under a hard cap; --export-baseline/--compare) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap), eval_runner.py (the isolated live runner), eval_baseline.py (baseline export/compare); see "Execution scripts" below and issue #151
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json (`--write` updates the file by hand) -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
+│   ├── check_coverage.py        Checks coverage.py's JSON report against the floors in pyproject.toml -- overall plus a higher per-module floor for the eight governance modules; CI's code-enforced coverage gate (no anthropic dependency; see "Testing and static analysis" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   ├── spreading_check.py       Standalone CLI wrapper around spreading_builder.py's formula evaluation -- compute(); callable from /spread's and /project's own Bash steps so the slash-command interface gets the same code-enforced subtotal/ratio computation orchestrator.py's headless pipeline does (no anthropic dependency; see "Execution scripts" below)
@@ -69,7 +70,9 @@ open-cam-framework/
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
 ├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" below
-├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, diff-cover, ruff, bandit
+├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
+├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
+├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" below
 └── README.md
 ```
 
@@ -566,6 +569,12 @@ a second look in review.
   company names left over in a calibrated `templates/local/cam/*.md` override -- the second line
   of defense (after a by-hand review) before promoting one upstream to the shared `templates/cam/`
   defaults; see the confidentiality rule's "Promoting a local override upstream" note below.
+- **`scripts/check_coverage.py`** — no `anthropic` dependency. `python scripts/check_coverage.py coverage.json`
+  compares coverage.py's JSON report (`pytest --cov --cov-report=json`) with `[tool.opencam.coverage]` in
+  `pyproject.toml`: an `overall` floor and a higher `critical` floor that each module in `critical_modules` must
+  meet on its own (a critical module missing from the report fails; it is never a pass). Exit 0 when met, 1 when
+  not, 2 for an unreadable report or config; `--report-only` prints the table and always exits 0. See "Testing
+  and static analysis" for the floors.
 - **`scripts/check_test_count.py`** — no `anthropic` dependency. `parse_passed_count(pytest_output)`
   extracts the passed-test count from pytest's own summary line (e.g. `"430 passed in 16.27s"` or
   `"428 passed, 2 skipped in 12.34s"`); `read_badge_count(badge_path=None)` reads
@@ -680,7 +689,15 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   running `pytest`, or pytest rejects the options.
 - **Coverage**: `pytest --cov` measures line + branch coverage of `scripts/`. `# pragma: no cover` is allowed
   only with a reason on the same line (`# pragma: no cover - why`; `tests/test_repo_conventions.py`).
-  There is no coverage gate yet.
+  CI enforces the floors in `pyproject.toml`: `[tool.opencam.coverage]` (read by `scripts/check_coverage.py`)
+  sets an **overall floor of 85%** and a **90% floor for each of eight governance modules** on its own --
+  `policy_engine`, `policy_checks`, `policy_check` (covenant/security/CP evaluation and the draft audit),
+  `spreading_builder`, `spreading_check` (every ratio the CAM reports), `state_manager`, `deal_export`,
+  `docx_builder` (persisted state and the exported documents) -- because one overall number would let a
+  well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **90% floor for the lines
+  a pull request changes** (`diff-cover`, pull requests only; a change that touches no measured line passes).
+  Lowering a floor or dropping a module from the list is a reviewed decision (`tests/test_check_coverage.py`
+  pins the minimums); raising one is a one-line change.
 - **The command-line surface is tested as a user meets it** (issue #144). `tests/test_cli_subprocess.py` runs each
   of the 12 scripts that has a `__main__` block as a real subprocess in a throwaway working directory, with the
   Anthropic variables removed and the home/config directories pointed at an empty directory (the SDK also
@@ -698,6 +715,18 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   repository's `pyproject.toml` against deliberately bad snippets (a leaked file, a socket connection, an
   overrun test, `zip()` without `strict=`, `open()` without an encoding, ...) and expects each to be
   rejected, so a setting cannot be deleted without a test failing.
+- **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test`
+  (Ubuntu; the ruleset's required check -- keep the name) runs ruff, bandit, the suite with coverage, the
+  test-count check, the coverage floors and diff coverage, and uploads `coverage.xml`/`coverage.json`/the
+  pytest output/`pip freeze` as a 30-day artifact. `test-windows` runs the same suite on Windows (the
+  primary development platform: cp1252 console, backslash paths, CRLF). `runtime-smoke` installs **only**
+  `requirements.txt` and runs `tests/runtime_smoke.py --expect-clean`: no development package importable,
+  every module imports, every CLI prints usage, a deal exports end to end -- what a fresh clone gets.
+  `security` runs `pip-audit` on all requirements files and `zizmor` on the workflows (an advisory
+  published tomorrow can turn it red on an unrelated PR; that is the point). Workflow rules, all tested:
+  every third-party action is pinned to a full commit SHA with a `# vX.Y.Z` comment (Dependabot keeps
+  them current); `permissions: {}` at the top and `contents: read` per job; `persist-credentials: false`
+  on every checkout; no `pull_request_target`; CI never passes `--write` or `--update-snapshots`.
 - **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than
   examples -- the chunker loses no text, the merge loop never drops a field, `values_match` is symmetric,
   ratios are finite or `N/A` whenever the denominators are non-negative. The default `ci` profile (60 examples, fixed seed, no example database)

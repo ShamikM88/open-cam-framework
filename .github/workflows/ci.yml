@@ -6,16 +6,35 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Least privilege (issue #141): nothing by default; each job grants itself read access to the repository and
+# nothing else. No job needs to write to the repository, the pull request or the checks API.
+permissions: {}
+
+# A new push to a pull request supersedes the run still going for the previous one. Runs on main are never cancelled.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Every third-party action is pinned to a full commit SHA (issue #141); the trailing comment names the release so
+# Dependabot can propose the next one. Tool settings (ruff, pytest, coverage floors) live in pyproject.toml.
 jobs:
   test:
+    name: test
+    # Required status check "test" (ruleset "Main Branch Protection") -- keep this job's name.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0              # diff-cover needs the base branch to find the lines a pull request changes
+          persist-credentials: false  # no later step needs the token
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -31,10 +50,144 @@ jobs:
       - name: Security scan with Bandit
         run: bandit -r scripts/ -ll
 
-      - name: Run test suite
+      - name: Run test suite with coverage
         run: |
           set -o pipefail
-          pytest tests/ | tee pytest_output.txt
+          pytest tests/ --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
 
       - name: Verify checked-in test count
         run: python scripts/check_test_count.py pytest_output.txt
+
+      - name: Enforce coverage floors
+        # Overall and per-governance-module floors: [tool.opencam.coverage] in pyproject.toml.
+        run: python scripts/check_coverage.py coverage.json
+
+      - name: Enforce coverage of the lines this pull request changes
+        if: github.event_name == 'pull_request'
+        # compare_branch and fail_under: [tool.diff_cover] in pyproject.toml. A change that touches no measured
+        # line (tests, docs, workflows only) passes; there is nothing to cover.
+        run: diff-cover coverage.xml
+
+      - name: Record the resolved dependency versions
+        if: always()
+        run: pip freeze > pip-freeze.txt
+
+      - name: Upload coverage and environment records
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ci-records-ubuntu
+          path: |
+            coverage.xml
+            coverage.json
+            pytest_output.txt
+            pip-freeze.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  test-windows:
+    name: test-windows
+    # The framework's primary development platform is Windows (cp1252 console, backslash paths, CRLF checkouts);
+    # the UTF-8 policy (issue #137) and the snapshot comparisons exist because of it. Same suite, no coverage.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run test suite
+        run: pytest tests/
+
+  runtime-smoke:
+    name: runtime-smoke
+    # Installs ONLY requirements.txt (no development tools) and checks that every module imports, every CLI
+    # prints usage, and a deal exports end to end -- what a user who just cloned the repository gets.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
+
+      - name: Install runtime dependencies only
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Smoke check
+        run: python tests/runtime_smoke.py --expect-clean
+
+      - name: Record the resolved dependency versions
+        if: always()
+        run: pip freeze > pip-freeze-runtime.txt
+
+      - name: Upload environment record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ci-records-runtime
+          path: pip-freeze-runtime.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  security:
+    name: security
+    # Known-vulnerable dependencies and unsafe workflow patterns. A new advisory can turn this red on an unrelated
+    # pull request; that is the point, and it is why this job is not part of the required checks.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: requirements-security.txt
+
+      - name: Install audit tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-security.txt
+
+      - name: Audit dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt -r requirements-dev.txt -r requirements-security.txt
+
+      - name: Audit workflows
+        env:
+          GH_TOKEN: ${{ github.token }}   # zizmor's online audits (impostor commits, known-vulnerable actions)
+        run: zizmor .github/workflows

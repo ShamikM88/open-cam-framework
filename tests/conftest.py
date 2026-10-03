@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -7,6 +8,17 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
+
+# Hypothesis profiles (tests/test_properties.py, issue #143). CI and a plain `pytest` use "ci": a bounded number
+# of examples with a fixed seed (derandomize) and no stored example database, so a run is the same run every time.
+# `HYPOTHESIS_PROFILE=explore pytest tests/test_properties.py` searches harder with random seeds (and keeps a
+# .hypothesis/ database of failures, which is git-ignored) -- use it when changing the code those tests guard.
+from hypothesis import HealthCheck, settings  # noqa: E402  (after the sys.path line above on purpose)
+
+settings.register_profile("ci", max_examples=60, derandomize=True, deadline=None, database=None,
+                          suppress_health_check=[HealthCheck.too_slow])
+settings.register_profile("explore", max_examples=1000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "ci"))
 
 
 @pytest.fixture

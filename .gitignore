@@ -13,6 +13,9 @@ pytest_output.txt
 htmlcov/
 coverage.xml
 
+# Hypothesis example database (HYPOTHESIS_PROFILE=explore only; the CI profile keeps none)
+.hypothesis/
+
 # Environment / secrets
 .env
 *.key

@@ -248,6 +248,6 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
   call -- so a stalled connection is bounded only approximately; Ctrl-C is the backstop.
 - **SDK version.** The runner reads the minimum from the `anthropic>=` line in `requirements.txt` at run
   time (there is no second copy in the code, so a dependency bump needs no matching edit) and refuses an
-  older installed SDK at client construction, with the exact `pip install -U` to run, so a baseline cannot come
+  older installed SDK at client construction (the refusal names the exact `pip install -U` command), so a baseline cannot come
   from an unreproducible environment; the installed version is recorded in `results.json`
   (`environment`), the review pack and the baseline, and a comparison flags a difference.

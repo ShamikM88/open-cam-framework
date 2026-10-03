@@ -56,8 +56,11 @@ CLIENT_TIMEOUT_SECONDS = 180
 # line (anthropic_floor()), the single source of truth, so a dependency bump never leaves a second copy
 # stale. An older installed SDK is refused at client construction rather than silently producing a
 # baseline nobody can reproduce.
-REQUIREMENTS_PATH = Path(__file__).resolve().parents[1] / "requirements.txt"
-_FLOOR_RE = re.compile(r"^[ \t]*anthropic[ \t]*(?:>=|~=|==)[ \t]*([0-9][0-9A-Za-z.]*)", re.M)
+REQUIREMENTS_PATH = Path(REPO_ROOT) / "requirements.txt"
+# A requirements line for the package itself (any case, optional extras, not a look-alike such as
+# `anthropic-tools`); group 1 is the version-specifier part, which may hold several bounds in any order.
+_NAME_RE = re.compile(r"^[ \t]*anthropic(?![A-Za-z0-9_.\-])[ \t]*(?:\[[^\]]*\])?[ \t]*([^;#\r\n]*)", re.I | re.M)
+_BOUND_RE = re.compile(r"(?:>=|~=|==)[ \t]*([0-9][0-9A-Za-z.]*)")
 # The output-token limits orchestrator.run_pipeline() sets for its two calls (a test checks they match
 # what the routing client actually sees); shown in the plan so the cost bound is visible up front.
 MAKER_MAX_TOKENS = 4000
@@ -122,10 +125,12 @@ def anthropic_floor(requirements_path=None):
         text = read_text(str(path))
     except (OSError, TextEncodingError) as exc:
         raise RunnerSetupError(f"cannot read the anthropic floor from {path} ({type(exc).__name__})") from exc
-    match = _FLOOR_RE.search(text)
-    if not match or not parse_version(match.group(1)):
+    # Every lower bound on every `anthropic` line: pip would satisfy all of them at once, i.e. the highest.
+    bounds = [parse_version(bound.group(1)) for line in _NAME_RE.finditer(text)
+              for bound in _BOUND_RE.finditer(line.group(1))]
+    if not bounds:
         raise RunnerSetupError(f"{path} has no `anthropic>=X.Y.Z` line, so the minimum SDK version is unknown")
-    return parse_version(match.group(1))
+    return max(bounds)
 
 
 _INSTALLED = object()  # "look it up"; distinct from None, which means "no SDK installed"

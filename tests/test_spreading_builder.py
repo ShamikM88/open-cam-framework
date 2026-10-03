@@ -3,7 +3,7 @@
 openpyxl only stores formula strings -- it does not calculate them -- so the
 formula-correctness tests below include a small recursive evaluator that
 resolves cell references and re-implements the handful of Excel functions
-the workbook actually uses (SUM, IFERROR). It exists only to let tests
+the workbook actually uses (SUM, IFERROR, IF). It exists only to let tests
 assert on computed values without depending on Excel or LibreOffice being
 installed in CI.
 """
@@ -62,11 +62,38 @@ def _eval_expr(ws, expr, memo):
     if m:
         inner, fallback = m.group(1), m.group(2)
         try:
-            return _eval_arith(ws, inner, memo)
+            return _eval_expr(ws, inner, memo)
         except ZeroDivisionError:
             return fallback
 
+    m = re.fullmatch(r"IF\((.+)\)", expr)
+    if m:
+        condition, when_true, when_false = _split_top_level_args(m.group(1))
+        chosen = when_true if _eval_arith(ws, condition, memo) else when_false
+        text = re.fullmatch(r'"([^"]*)"', chosen)
+        return text.group(1) if text else _eval_arith(ws, chosen, memo)
+
     return _eval_arith(ws, expr, memo)
+
+
+def _split_top_level_args(arguments):
+    """'(a)>0,(b)/(c),"N/A"' -> three strings, splitting only on commas outside parentheses and quotes."""
+    parts, depth, in_quotes, current = [], 0, False, ""
+    for char in arguments:
+        if char == '"':
+            in_quotes = not in_quotes
+        elif not in_quotes and char == "(":
+            depth += 1
+        elif not in_quotes and char == ")":
+            depth -= 1
+        if char == "," and depth == 0 and not in_quotes:
+            parts.append(current)
+            current = ""
+        else:
+            current += char
+    parts.append(current)
+    assert len(parts) == 3, f"IF() needs exactly three arguments: {arguments!r}"
+    return parts
 
 
 def _eval_arith(ws, expr, memo):
@@ -642,20 +669,31 @@ def test_zero_denominator_ratios_are_undefined_not_zero():
     assert ratios["gross_leverage"] == 0.0
 
 
-def test_nonzero_denominator_ratios_still_compute_normally_including_negative_equity():
-    """Confirms the None-for-zero-denominator change doesn't affect any
-    ratio whose denominator is genuinely nonzero -- including a legitimate
-    (if alarming) negative-equity gearing ratio, which must still compute
-    rather than being coerced to None or 0."""
+def test_positive_denominator_ratios_still_compute_normally():
+    """The N/A rule applies to the denominator only: every ratio whose denominator is positive computes as before,
+    including one with a NEGATIVE numerator (here net debt / EBITDA of a cash-rich company is negative, correctly)."""
     result = evaluate_financial_model({
         "FY-Current": {
             "revenue": 1000, "cost_of_sales": 400,
-            "share_capital": 100, "retained_profit": -500,  # total_equity = -400
-            "current_debt": 200,
+            "share_capital": 100, "retained_profit": 300,   # total_equity = 400
+            "current_debt": 200, "cash": 900,
         },
     })
     ratios = result["ratios"]["FY-Current"]
-    assert ratios["gearing"] == pytest.approx(200 / -400)
+    assert ratios["gearing"] == pytest.approx(200 / 400)
+    assert ratios["gross_leverage"] == pytest.approx(200 / 600)
+    assert ratios["net_debt_to_ebitda"] == pytest.approx((200 - 900) / 600) and ratios["net_debt_to_ebitda"] < 0
+
+
+def test_a_negative_equity_gearing_is_na_not_a_negative_number():
+    """Issue #169: this used to assert gearing == 200 / -400 (a 'legitimate if alarming' negative figure). A negative
+    gearing is below every maximum covenant threshold, so the loss-making borrower passed it; it is N/A instead."""
+    result = evaluate_financial_model({
+        "FY-Current": {"revenue": 1000, "cost_of_sales": 400, "share_capital": 100,
+                       "retained_profit": -500, "current_debt": 200},   # total_equity = -400
+    })
+    assert result["financials"]["FY-Current"]["total_equity"] == -400
+    assert result["ratios"]["FY-Current"]["gearing"] is None
 
 
 # ---------------------------------------------------------------------------

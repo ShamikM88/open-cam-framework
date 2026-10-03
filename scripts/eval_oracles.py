@@ -99,6 +99,7 @@ def build_context(case):
     else:
         downside_case = deal.get("downside_case", {})  # a seeded state's own, as run_pipeline reuses
     policy_state = evaluate_deal_policy({
+        "financials": financials,          # as run_pipeline does: lets an N/A covenant ratio carry its reason (#169)
         "ratios": ratios, "collateral": collateral,
         "covenants": deal.get("covenants", []),
         "security_package": deal.get("security_package", []),

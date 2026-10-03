@@ -48,18 +48,25 @@ DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict
 # purposes only. It must never be referenced by the Profit Before Tax / Net
 # Profit chain below -- principal repayments are a balance-sheet/financing
 # event, not a P&L expense, and folding it into PBT would misstate earnings.
+def _ratio(numerator, denominator, scale=""):
+    """A ratio cell: the quotient only when the denominator is POSITIVE, "N/A" otherwise (issue #169). IFERROR alone
+    only caught a zero denominator; a negative one (negative EBITDA or equity) produced a finite negative ratio that
+    read as, and passed, a maximum covenant. Mirrors safe_div() in evaluate_financial_model() exactly."""
+    return f'=IFERROR(IF(({denominator})>0,({numerator})/({denominator}){scale},"N/A"),"N/A")'
+
+
 PNL_ROWS = [
     ("Revenue", None),
     ("Cost of Goods Sold", None),
     ("Gross Profit", "={Revenue}-{Cost of Goods Sold}"),
-    ("Gross Profit Margin %", '=IFERROR({Gross Profit}/{Revenue},"N/A")'),
+    ("Gross Profit Margin %", _ratio("{Gross Profit}", "{Revenue}")),
     ("Admin Expenses", None),
     ("Depreciation", None),
     ("Amortisation", None),
     ("Other Income", None),
     ("Operating Profit",
      "={Gross Profit}-{Admin Expenses}-{Depreciation}-{Amortisation}+{Other Income}"),
-    ("Operating Margin %", '=IFERROR({Operating Profit}/{Revenue},"N/A")'),
+    ("Operating Margin %", _ratio("{Operating Profit}", "{Revenue}")),
     ("EBITDA", "={Operating Profit}+{Depreciation}+{Amortisation}"),
     ("Interest Paid", None),
     ("Interest Received", None),
@@ -81,9 +88,9 @@ PNL_ROWS = [
 # Gross Leverage, which needs Balance Sheet debt rows that don't exist yet
 # at this point in the sheet -- see KEY_METRIC_ROWS below.
 RATIO_ROWS = [
-    ("DSCR", '=IFERROR({EBITDA}/({Interest Paid}+{Scheduled Principal Repayment}),"N/A")'),
-    ("EBIT/Interest", '=IFERROR({Operating Profit}/{Interest Paid},"N/A")'),
-    ("EBITDA/Interest", '=IFERROR({EBITDA}/{Interest Paid},"N/A")'),
+    ("DSCR", _ratio("{EBITDA}", "{Interest Paid}+{Scheduled Principal Repayment}")),
+    ("EBIT/Interest", _ratio("{Operating Profit}", "{Interest Paid}")),
+    ("EBITDA/Interest", _ratio("{EBITDA}", "{Interest Paid}")),
     # FCF = cash generated after tax, net interest, and capex. Deliberately
     # does NOT net off Scheduled Principal Repayment -- that's a financing
     # (balance-sheet) outflow, not an operating/FCF concept, and DSCR above
@@ -95,7 +102,7 @@ RATIO_ROWS = [
     # of Profit & Loss above -- no Balance Sheet dependency, unlike Gross
     # Leverage / Net Debt / EBITDA below.
     ("FCF", "={EBITDA}-{Capital Expenditure}-{Tax}-{Interest Paid}+{Interest Received}"),
-    ("FCF Conversion %", '=IFERROR({FCF}/{EBITDA},"N/A")'),
+    ("FCF Conversion %", _ratio("{FCF}", "{EBITDA}")),
 ]
 
 BALANCE_SHEET_ROWS = [
@@ -135,19 +142,16 @@ KEY_METRIC_ROWS = [
     ("Tangible Net Worth (TNW)", "={Total Equity}-{Intangible Fixed Assets}"),
     ("TNW + Loan Notes / Preference Shares",
      "={Tangible Net Worth (TNW)}+{Loan Notes / Preference Shares}"),
-    ("Gearing % (Interest-Bearing Debt / Equity)",
-     '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{Total Equity},"N/A")'),
-    ("Current Ratio", '=IFERROR({Total Current Assets}/{Total Current Liabilities},"N/A")'),
-    ("Gross Leverage",
-     '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares})/{EBITDA},"N/A")'),
+    ("Gearing % (Interest-Bearing Debt / Equity)", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{Total Equity}")),
+    ("Current Ratio", _ratio("{Total Current Assets}", "{Total Current Liabilities}")),
+    ("Gross Leverage", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{EBITDA}")),
     # Net Debt / EBITDA: the same interest-bearing debt aggregate as Gross
     # Leverage above, netted against Cash -- a standard institutional
     # leverage metric Gross Leverage alone doesn't capture (a cash-rich
     # borrower can look more levered on a gross basis than its net cash
     # position actually implies). "N/A" fallback matches every other ratio's
     # own convention here -- see FCF Conversion % above for the same choice.
-    ("Net Debt / EBITDA",
-     '=IFERROR(({Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash})/{EBITDA},"N/A")'),
+    ("Net Debt / EBITDA", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash}", "{EBITDA}")),
 ]
 
 # Debtor/creditor/stock days are themselves derived ratios (a balance-sheet
@@ -157,9 +161,9 @@ KEY_METRIC_ROWS = [
 # have formula_template=None with no FIELD_LABELS entry to populate them
 # from either, so the exported workbook left them permanently blank).
 WORKING_CAPITAL_ROWS = [
-    ("Trade Debtor Days", '=IFERROR({Accounts Receivable}/{Revenue}*365,"N/A")'),
-    ("Trade Creditor Days", '=IFERROR({Accounts Payable}/{Cost of Goods Sold}*365,"N/A")'),
-    ("Stock Days", '=IFERROR({Stock}/{Cost of Goods Sold}*365,"N/A")'),
+    ("Trade Debtor Days", _ratio("{Accounts Receivable}", "{Revenue}", "*365")),
+    ("Trade Creditor Days", _ratio("{Accounts Payable}", "{Cost of Goods Sold}", "*365")),
+    ("Stock Days", _ratio("{Stock}", "{Cost of Goods Sold}", "*365")),
     ("Working Capital Cycle (days)", "={Trade Debtor Days}+{Stock Days}-{Trade Creditor Days}"),
 ]
 
@@ -317,6 +321,55 @@ def validate_row_formulas(sections=None):
                 )
 
 
+def _raw_figure(period_financials, key):
+    return (period_financials.get("raw") or {}).get(key, 0) or 0
+
+
+# metric -> (display name, [(denominator label, how to read it from one period's `financials` dict), ...]).
+# This is the denominator side of evaluate_financial_model()'s safe_div() calls, written down once so that a covenant
+# on a ratio that came out N/A can say WHY (policy_engine) without re-deriving the arithmetic.
+RATIO_DENOMINATORS = {
+    "dscr": ("DSCR", [("debt service (interest paid + scheduled principal)",
+                       lambda f: _raw_figure(f, "interest_paid") + _raw_figure(f, "scheduled_principal"))]),
+    "gross_leverage": ("gross leverage", [("EBITDA", lambda f: f.get("ebitda", 0) or 0)]),
+    "net_debt_to_ebitda": ("net debt / EBITDA", [("EBITDA", lambda f: f.get("ebitda", 0) or 0)]),
+    "fcf_conversion_pct": ("FCF conversion", [("EBITDA", lambda f: f.get("ebitda", 0) or 0)]),
+    "gearing": ("gearing", [("total equity", lambda f: f.get("total_equity", 0) or 0)]),
+    "current_ratio": ("current ratio", [("current liabilities", lambda f: f.get("current_liabilities", 0) or 0)]),
+    "ebit_interest_cover": ("EBIT interest cover", [("interest paid", lambda f: _raw_figure(f, "interest_paid"))]),
+    "ebitda_interest_cover": ("EBITDA interest cover", [("interest paid", lambda f: _raw_figure(f, "interest_paid"))]),
+    "trade_debtor_days": ("trade debtor days", [("revenue", lambda f: _raw_figure(f, "revenue"))]),
+    "trade_creditor_days": ("trade creditor days", [("cost of sales", lambda f: _raw_figure(f, "cost_of_sales"))]),
+    "stock_days": ("stock days", [("cost of sales", lambda f: _raw_figure(f, "cost_of_sales"))]),
+    "working_capital_cycle_days": ("working capital cycle", [("revenue", lambda f: _raw_figure(f, "revenue")),
+                                                             ("cost of sales", lambda f: _raw_figure(f, "cost_of_sales"))]),
+}
+RATIO_DENOMINATORS["EBIT/Interest"] = RATIO_DENOMINATORS["ebit_interest_cover"]
+RATIO_DENOMINATORS["EBITDA/Interest"] = RATIO_DENOMINATORS["ebitda_interest_cover"]
+
+
+def describe_undefined_ratio(metric, period_financials):
+    """Why `metric` is N/A for this period, as one sentence naming the metric and its denominator, e.g. "gross leverage
+    not meaningful: EBITDA is negative" or "gearing not defined: total equity is zero". Returns None when the metric is
+    not a ratio with a known denominator, or when every denominator is positive (the ratio is then not N/A for this
+    reason). `period_financials` is one period's `financials` dict from evaluate_financial_model(); without it the
+    denominator cannot be inspected and the sentence says so."""
+    entry = RATIO_DENOMINATORS.get(metric)
+    if entry is None:
+        return None
+    name, denominators = entry
+    if not isinstance(period_financials, dict):
+        labels = " / ".join(label for label, _ in denominators)
+        return f"{name} is not available: no financials are recorded for this period, so its denominator ({labels}) cannot be checked"
+    for label, read in denominators:
+        value = read(period_financials)
+        if value < 0:
+            return f"{name} not meaningful: {label} is negative"
+        if value == 0:
+            return f"{name} not defined: {label} is zero"
+    return None
+
+
 def evaluate_financial_model(multi_period_data):
     """Programmatically evaluate the same row chains spreading_builder.py
     writes as Excel formulas, for each period in `multi_period_data` --
@@ -407,15 +460,27 @@ def evaluate_financial_model(multi_period_data):
         total_debt = current_debt + overdraft + long_term_debt + loan_notes
 
         def safe_div(numerator, denominator):
-            """A zero denominator here means the ratio is genuinely
-            undefined (e.g. no interest expense at all -- infinite
-            coverage, not zero coverage; no equity -- not "0% geared").
-            Returning 0 in that case would misrepresent a debt-free or
-            distressed company as if it were failing the ratio outright;
-            None lets a covenant check (policy_engine._evaluate_covenant)
-            correctly treat it as UNRESOLVABLE instead of a false FAIL.
+            """A zero OR NEGATIVE denominator means the ratio is not
+            meaningful, so the result is None (N/A), never a number
+            (issue #169).
+
+            Zero: genuinely undefined (e.g. no interest expense at all --
+            infinite coverage, not zero coverage; no equity -- not "0%
+            geared"); returning 0 would misrepresent a debt-free or
+            distressed company as if it were failing the ratio outright.
+
+            Negative (negative EBITDA, or negative equity): dividing anyway
+            gives a finite negative ratio that is not a measure of anything
+            and that sorts BELOW every maximum covenant threshold -- a
+            loss-making borrower would PASS "leverage <= 3.5x". None lets a
+            covenant check (policy_engine._evaluate_covenant) treat it as
+            UNRESOLVABLE, with describe_undefined_ratio() giving the reason.
+
+            Only the DENOMINATOR is tested: a negative numerator over a
+            positive denominator is a real, meaningful number (DSCR below
+            zero, net cash giving negative net debt / EBITDA) and is kept.
             """
-            return numerator / denominator if denominator else None
+            return numerator / denominator if denominator > 0 else None
 
         def safe_div_days(numerator, denominator):
             """Same undefined-denominator discipline as safe_div() above,

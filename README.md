@@ -261,7 +261,7 @@ tests/` with no key set at all. Dedicated test files cover the dependency-free m
 (`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
 `deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
 `pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
-`check_test_count.py`) plus a
+`check_test_count.py`, `check_coverage.py`) plus a
 prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
 against the code they're meant to stay in sync with. The command-line surface is tested for real:
 `test_cli_subprocess.py` runs every script's `--help` / a representative input / a bad input as a
@@ -286,8 +286,16 @@ bandit -r scripts/ -ll
 `pyproject.toml` is the one place for tool settings (ruff rules, pytest options, coverage). The test
 run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
 hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
-before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`); there
-is no coverage gate yet.
+before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`). CI
+enforces an 85% overall floor, a 90% floor on each of eight governance modules, and 90% on the lines a
+pull request changes; the numbers and the module list live in `pyproject.toml`. To check locally:
+```bash
+pytest --cov --cov-report=json
+python scripts/check_coverage.py coverage.json
+```
+CI runs four jobs: `test` (Ubuntu), `test-windows`, `runtime-smoke` (installs only `requirements.txt` and
+checks that a fresh clone works) and `security` (`pip-audit`, `zizmor`). All actions are pinned to commit
+SHAs and every job has read-only permissions.
 
 Beyond example-based unit tests the suite includes property-based tests (`hypothesis`), historical and
 malformed `state.json` fixtures, and golden-output tests that compare the exported `.docx`/`.xlsx` with

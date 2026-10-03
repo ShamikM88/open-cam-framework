@@ -32,7 +32,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_test_count", "conventions", "deal_export", "orchestrator", "pii_scan", "policy_check",
+    "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "orchestrator", "pii_scan", "policy_check",
     "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
 )
 
@@ -263,6 +263,31 @@ def test_spreading_check_no_update_financials_source_leaves_the_flag_alone(cli):
 def test_spreading_check_on_a_missing_input_fails(cli):
     result = cli("spreading_check", "--company", "A", "--proposal", "P", "--financials", "nope.json")
     assert result.returncode != 0 and "nope.json" in result.stderr
+
+
+def test_check_coverage_passes_a_compliant_report_and_fails_a_weak_one(cli):
+    config = cli.workdir / "pyproject.toml"
+    config.write_text(
+        '[tool.opencam.coverage]\noverall = 85\ncritical = 90\ncritical_modules = ["alpha"]\n', encoding="utf-8")
+    report = cli.workdir / "coverage.json"
+
+    def write(overall, alpha):
+        report.write_text(json.dumps({"totals": {"percent_covered": overall},
+                                      "files": {"scripts/alpha.py": {"summary": {"percent_covered": alpha}}}}),
+                          encoding="utf-8")
+
+    write(96, 96)
+    ok = cli("check_coverage", report, "--config", config)
+    assert ok.returncode == 0 and "Coverage floors met." in ok.stdout
+    write(96, 50)
+    weak = cli("check_coverage", report, "--config", config)
+    assert weak.returncode == 1 and "FAIL: alpha coverage 50.00%" in weak.stdout
+    assert cli("check_coverage", report, "--config", config, "--report-only").returncode == 0
+
+
+def test_check_coverage_on_a_missing_report_exits_two_naming_the_file(cli):
+    result = cli("check_coverage", "no-such-report.json")
+    assert result.returncode == 2 and "no-such-report.json" in result.stderr
 
 
 def test_check_test_count_passes_on_a_match_and_fails_on_a_mismatch(cli):

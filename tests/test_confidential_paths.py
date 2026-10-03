@@ -52,6 +52,7 @@ NOT_CONFIDENTIAL = {
     ".coverage.*": "coverage.py per-process data files; build output, not data",
     "htmlcov/": "coverage.py HTML report; build output, not data",
     "coverage.xml": "coverage.py XML report; build output, not data",
+    "coverage.json": "coverage.py JSON report (scripts/check_coverage.py reads it); build output, not data",
     ".hypothesis/": "hypothesis example database (explore profile only); generated, synthetic, not data",
     ".env": "secrets file; covered by the repository's secret scanning and push protection (see #149)",
     "*.key": "secret key files; covered by the repository's secret scanning and push protection (see #149)",

@@ -44,3 +44,22 @@ show_missing = true
 skip_covered = true
 # `# pragma: no cover` is allowed only with a reason comment on the same line (tests/test_repo_conventions.py).
 exclude_also = []
+
+# Coverage floors enforced by CI (issue #142), read by scripts/check_coverage.py. coverage.py can only enforce one
+# overall number, so the modules that decide a draft's code-enforced verdict or compute the figures a CAM reports
+# get a higher floor of their own. Raising a floor is a one-line change here; LOWERING one is a decision that needs
+# its reason in the PR (tests/test_check_coverage.py pins the minimum values and the module list).
+[tool.opencam.coverage]
+overall = 85
+critical = 90
+critical_modules = [
+    "policy_engine", "policy_checks", "policy_check",   # covenant / security / CP evaluation and the draft audit
+    "spreading_builder", "spreading_check",             # every ratio and subtotal the CAM reports
+    "state_manager", "deal_export", "docx_builder",     # the persisted deal state and the exported documents
+]
+
+# Coverage of the lines a pull request changes (diff-cover reads this table itself). CI runs it on pull
+# requests only; on a push to main there is no base to compare with.
+[tool.diff_cover]
+compare_branch = "origin/main"
+fail_under = 90

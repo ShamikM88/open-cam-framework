@@ -40,19 +40,27 @@ import re
 import shutil
 import tempfile
 from contextlib import redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
 
 from eval_budget import BudgetedClient, CallBudget, CallCapExceeded
 from eval_oracles import RunOutput, build_context, evaluate_case
 from eval_report import REPO_ROOT, append_run_line, build_record, live_run
 from policy_checks import FENCED_JSON_RE
+from textio import TextEncodingError, read_text
 
 MAX_CONSECUTIVE_ERRORS = 3
 # The SDK's per-phase httpx timeout (connect / read / write each), NOT a wall-clock cap on a call.
 CLIENT_TIMEOUT_SECONDS = 180
-# Must equal requirements.txt's `anthropic>=...` (a test keeps the two in step): an older SDK is refused
-# at client construction rather than silently producing a baseline nobody can reproduce.
-MIN_ANTHROPIC_VERSION = (1, 7, 0)
+# The minimum anthropic SDK is NOT written down here: it is read from requirements.txt's `anthropic>=...`
+# line (anthropic_floor()), the single source of truth, so a dependency bump never leaves a second copy
+# stale. An older installed SDK is refused at client construction rather than silently producing a
+# baseline nobody can reproduce.
+REQUIREMENTS_PATH = Path(REPO_ROOT) / "requirements.txt"
+# A requirements line for the package itself (any case, optional extras, not a look-alike such as
+# `anthropic-tools`); group 1 is the version-specifier part, which may hold several bounds in any order.
+_NAME_RE = re.compile(r"^[ \t]*anthropic(?![A-Za-z0-9_.\-])[ \t]*(?:\[[^\]]*\])?[ \t]*([^;#\r\n]*)", re.I | re.M)
+_BOUND_RE = re.compile(r"(?:>=|~=|==)[ \t]*([0-9][0-9A-Za-z.]{0,30})")  # bounded: no int() digit-limit surprises
 # The output-token limits orchestrator.run_pipeline() sets for its two calls (a test checks they match
 # what the routing client actually sees); shown in the plan so the cost bound is visible up front.
 MAKER_MAX_TOKENS = 4000
@@ -109,15 +117,34 @@ def sdk_version():
         return None
 
 
+def anthropic_floor(requirements_path=None):
+    """The minimum anthropic version, as a tuple, read from requirements.txt (the single source of truth).
+    Raises RunnerSetupError, never a guess, if the file or the `anthropic>=X` line cannot be read."""
+    path = Path(requirements_path) if requirements_path is not None else REQUIREMENTS_PATH
+    try:
+        text = read_text(str(path))
+    except (OSError, TextEncodingError) as exc:
+        raise RunnerSetupError(f"cannot read the anthropic floor from {path} ({type(exc).__name__})") from exc
+    # Every lower bound on every `anthropic` line: pip would satisfy all of them at once, i.e. the highest.
+    bounds = [parse_version(bound.group(1)) for line in _NAME_RE.finditer(text)
+              if not line.group(1).lstrip().startswith("@")  # `anthropic @ <url>`: a direct reference, no floor
+              for bound in _BOUND_RE.finditer(line.group(1))]
+    if not bounds:
+        raise RunnerSetupError(f"{path} has no `anthropic>=X.Y.Z` line, so the minimum SDK version is unknown")
+    return max(bounds)
+
+
 _INSTALLED = object()  # "look it up"; distinct from None, which means "no SDK installed"
 
 
-def check_sdk_version(version=_INSTALLED):
+def check_sdk_version(version=_INSTALLED, floor=None):
     version = sdk_version() if version is _INSTALLED else version
-    if version is None or parse_version(version) < MIN_ANTHROPIC_VERSION:
-        needed = ".".join(str(n) for n in MIN_ANTHROPIC_VERSION)
+    floor = anthropic_floor() if floor is None else floor
+    if version is None or parse_version(version) < floor:
+        needed = ".".join(str(n) for n in floor)
         raise RunnerSetupError(f"the installed anthropic SDK is {version or 'missing'}; this harness needs "
-                               f">= {needed} (see requirements.txt). Run: pip install -U \"anthropic>={needed}\"")
+                               f">= {needed} (the floor in requirements.txt). "
+                               f"Run: pip install -U \"anthropic>={needed}\"")
     return version
 
 

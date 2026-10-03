@@ -1,4 +1,7 @@
-anthropic>=1.7.0
+# The anthropic floor below is read at run time by scripts/eval_runner.py (the live evaluation harness
+# refuses an older installed SDK). 1.11.0 is the version the harness's tests and mock-transport checks
+# have been run on; raise it deliberately, not by bumping blindly.
+anthropic>=1.11.0
 python-docx>=1.2.0
 openpyxl>=3.1.5
 pydantic>=2.13.5

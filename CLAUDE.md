@@ -621,7 +621,7 @@ a second look in review.
   the API key, and the per-run `stop_reason`/token counts/served model are recorded (a baseline keeps
   the served model beside the requested one), with incomplete output flagged in the pack. The plan shows
   the models, `max_tokens`, output-token bound and endpoint before the `yes`, and the runner refuses an
-  installed `anthropic` older than `requirements.txt`'s floor (the installed version is recorded). A
+  installed `anthropic` older than `requirements.txt`'s floor (read from that file at run time, no second copy; the installed version is recorded). A
   baseline keeps only an abort *category* (never the free-text reason), and `--export-baseline`
   **refuses a partial run** (aborted, errored, interrupted, truncated or incomplete) unless
   `--allow-partial`, which marks the file `partial`. Three result types are kept apart: **deterministic

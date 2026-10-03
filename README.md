@@ -290,7 +290,15 @@ it itself the same way it tracks everything else: code-enforced, not hand-mainta
 "Verify checked-in test count" step (`scripts/check_test_count.py`) parses the real count out of
 `pytest`'s own summary line and fails the build if it doesn't match this file -- it never
 auto-corrects the value itself (that would mean a bot committing to `main`), so bumping the test
-count means updating `badges/test-count.json` in the same PR.
+count means updating `badges/test-count.json` in the same PR. That is one command from your own
+checkout: `pytest tests/ | tee pytest_output.txt` then
+`python scripts/check_test_count.py pytest_output.txt --write` (CI only ever runs the plain check).
+Run it on a complete green run of the whole suite: `--write` looks at pytest's summary line and refuses
+one that reports failed, errored or deselected tests (the refusal quotes what matched), and a run that was
+interrupted. Test names and captured output with `-v`/`-s` are not mistaken for failures. It reads UTF-8
+(with or without a byte-order mark) and UTF-16, which Windows PowerShell 5.1 can produce for `tee`/`>`.
+When two open PRs both change the count, merge them one at a time; whoever merges second rebases,
+reruns pytest and runs that command (issue #147).
 
 ### Configuration
 

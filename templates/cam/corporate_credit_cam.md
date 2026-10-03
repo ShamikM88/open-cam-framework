@@ -76,6 +76,13 @@
 
 *Ground every statement in a verifiable source (company website, Companies House / equivalent registry, audited accounts, rating agency report). Never state a fact you cannot trace to a source.*
 
+*For an ownership chain with more than one hop, render it as a tree alongside the narrative (see `agents/underwriter_agent.md`'s Guideline 12), e.g.:*
+```
+[Borrower] (UK)
+└── [Immediate Parent] (UK) — 100%
+    └── [Ultimate Parent] (FR) — 100%
+```
+
 ## 7. Management
 
 - [Governance structure — Board / Executive Team composition]
@@ -88,6 +95,12 @@
 | Concentration | Competition | Barriers to Entry | Substitutes | Buyer Power | Supplier Power |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | [Low/Moderate/High] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] |
+
+*Optional -- include when the borrower's competitive position is material to this facility (see `agents/underwriter_agent.md`'s Guideline 7); every point must trace to a fact already cited elsewhere in this CAM:*
+
+| Strengths | Weaknesses | Opportunities | Threats |
+| :--- | :--- | :--- | :--- |
+| [Point] | [Point] | [Point] | [Point] |
 
 ## 9. Customers & Suppliers
 

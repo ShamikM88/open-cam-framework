@@ -187,4 +187,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     main()

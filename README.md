@@ -235,6 +235,12 @@ For automation, CI, or running outside an interactive Claude Code session.
    Same output as `/calibrate` above. Add `--mock` (or just omit the API key) to smoke-test this
    without calling the API — it writes clearly-labeled placeholder output instead, to verify the
    PDF-reading/file-writing pipeline works before spending real API credits.
+
+   Each API call takes at most 12,000 characters of sample text. If your samples are longer,
+   the script stops before calling anything and asks whether to ignore the overflow or to split
+   it into parts and merge the results (nothing is dropped silently). `--on-overflow
+   {ask,split,ignore}` answers in advance; with no terminal (CI), the default is `split`. Your
+   sample PDFs are never modified.
 4. **Run a deal:**
    ```bash
    python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance" --pd "0.20%" --lgd "LGD 3 (15%)"
@@ -251,12 +257,22 @@ pytest
 
 The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
 `anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking, and CI itself runs `pytest
-tests/` with no key set at all. Sixteen test files cover the dependency-free modules directly
-(`spreading_builder.py`, `docx_builder.py`, `template_resolver.py`, `deal_export.py`,
-`state_manager.py`, `source_manifest.py`, `conventions.py`, `pii_scan.py`,
-`policy_engine.py`/`policy_checks.py`/`policy_check.py`, `check_test_count.py`) plus a
+tests/` with no key set at all. Dedicated test files cover the dependency-free modules directly
+(`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
+`deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
+`pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
+`check_test_count.py`) plus a
 prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
 against the code they're meant to stay in sync with.
+
+Separately, `evals/` holds a **local-only live-model evaluation harness** (`python scripts/run_evals.py`,
+see [`evals/README.md`](evals/README.md)) for measuring what those tests cannot -- whether the actual
+model follows the prompts (no invented figures, planted instructions not obeyed). It is run by hand with
+your own API key, on synthetic data only, under a hard call cap, and writes only to the git-ignored
+`evals/results/`; nothing runs it automatically, and the tests only ever drive it with fake clients. It
+ships its dataset, deterministic oracles, a zero-model-call `--dry-run`, a capped `--live` runner and
+baseline export/compare; no live evaluation has been run yet. Read its README before trusting any
+result: most oracles check the *form* of the output, not its judgement.
 
 CI also runs `ruff check . --select=E9,F63,F7,F82` and `bandit -r scripts/ -lll` before `pytest` --
 run those locally too if you want to catch what CI will catch before pushing:

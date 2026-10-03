@@ -583,9 +583,11 @@ a second look in review.
   changed the passing-test count must update `badges/test-count.json` in that same PR, and CI is
   only the thing that catches it if they forget. **`--write`** (issue #147) makes that update one
   command from a developer's own checkout -- it rewrites the file from the same captured pytest
-  output instead of failing, **refusing anything but a complete green run** -- judged on pytest's
-  summary line (failed / errored / deselected) and an interrupt banner, so `-v`/`-s` output is not
-  mistaken for failures, and the refusal quotes what matched -- and a test pins that no CI workflow file (any `.yml`/`.yaml` under `.github/`)
+  output instead of failing, **refusing runs that are visibly not a complete green run** -- judged on
+  pytest's own summary line (failed / errored / deselected, colour codes stripped) and its `!!!!!`
+  halt banners (Ctrl-C, collection error, `pytest.exit()`, `--maxfail`), so `-v`/`-s` output is not
+  mistaken for failures and the refusal quotes what matched. It cannot know that you ran only part of
+  the suite by path (`pytest tests/test_x.py`), so run the whole suite -- and a test pins that no CI workflow file (any `.yml`/`.yaml` under `.github/`)
   that runs the check ever passes it. Because every
   PR that adds tests edits this one-line file, PRs that touch it are merged one at a time; whoever
   merges second rebases, reruns pytest and runs `--write`:

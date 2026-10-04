@@ -64,7 +64,7 @@ def slug(heading_text):
 def heading_slugs(text):
     """The set of anchors a Markdown file defines, with GitHub's -1, -2 suffixes for repeated headings."""
     seen, slugs = {}, set()
-    for line in strip_code(text).split("\n"):
+    for line in strip_fences(text).split("\n"):
         match = re.match(r"^#{1,6}\s+(.*?)\s*#*\s*$", line)
         if match:
             base = slug(match.group(1))
@@ -178,3 +178,9 @@ def test_the_link_check_reports_a_missing_file_and_a_missing_anchor(tmp_path):
     found = broken_links(page, root=tmp_path)
     assert [t for t, _ in found] == ["gone.md", "target.md#nope"]
     assert "no such file" in found[0][1] and "#nope" in found[1][1]
+
+
+def test_a_heading_with_inline_code_keeps_its_code_text_in_the_anchor():
+    """GitHub keeps the text of inline code in a heading's anchor (it only drops the backticks)."""
+    text = "## `orchestrator.py` ends in a traceback\n\n### What `config/settings.json` controls\n"
+    assert heading_slugs(text) == {"orchestratorpy-ends-in-a-traceback", "what-configsettingsjson-controls"}

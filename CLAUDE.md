@@ -17,7 +17,7 @@ Three layers, each with one job:
 - **`README.md`** -- the public landing page: what OpenCAM is, the two ways to run it, a quick start.
 - **`docs/`** -- the human-facing documentation corpus (index: [docs/README.md](docs/README.md)): architecture,
   design decisions ([docs/decisions.md](docs/decisions.md)), reference pages for the scripts, state, financial
-  model, outputs, configuration, testing, security and evaluation.
+  model, outputs, configuration, workflows, commands, troubleshooting, testing, security and evaluation.
 - **`CLAUDE.md`** (this file) -- the rules and engineering contracts Claude Code follows when it changes this
   repository. It is not a user manual: put an explanation, example or reference in `docs/`, and a rule that a
   change must not break here.
@@ -40,7 +40,7 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | :--- | :--- | :--- |
 | `agents/` | The two agent prompts: Underwriter (Maker) and Risk Reviewer (Checker) | [architecture](docs/architecture.md) |
 | `.claude/commands/` | The slash commands (the interactive interface) | `config/skills_registry.md` |
-| `config/` | `settings.json`, the shared system prompt, the slash-command registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
+| `config/` | `settings.json`, `system_instructions.md` (reference text that nothing loads), the slash-command registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
 | `scripts/` | The deterministic core (state, spreading, policy engine and checks, export, source manifest, conventions, text I/O), the headless entry points (`calibrate.py`, `orchestrator.py`) and the test-tooling scripts (`check_*`, `mutation_report.py`, `run_evals.py` and its `eval_*` modules) | [cli reference](docs/cli-reference.md), [data model](docs/data-model.md), [financial model](docs/financial-model.md) |
 | `templates/` | Shipped generic CAM templates (`cam/`), the reference workbook layout (`spreading/`), git-ignored local overrides (`local/`) | [outputs](docs/outputs.md) |
 | `tests/` | The pytest suite, golden snapshots (`snapshots/`), synthetic state fixtures (`fixtures/`) | [testing](docs/testing.md) |
@@ -267,49 +267,20 @@ confidentiality rule below.
 `.claude/commands/*.md` implement [`config/skills_registry.md`](config/skills_registry.md) as
 native Claude Code commands, run in an interactive session with no `ANTHROPIC_API_KEY` needed:
 
-- **`/calibrate --type <deal_type>`** — Claude reads the PDFs in `inputs/calibration_samples/`
-  directly (native PDF support), writes `config/style_guide.md`, and derives a template to
-  `templates/local/cam/<deal_type>_cam.md` -- the slash-command equivalent of `calibrate.py`.
+The per-command descriptions (what each command does, its inputs and outputs, the state it writes) are in
+[docs/commands.md](docs/commands.md); the files in `.claude/commands/` are authoritative. The facts a change
+must not break:
 
-- **`/calibrate-policy`** — org-wide, one-time setup (no `--type`, unlike `/calibrate`): Claude
-  reads this institution's own credit policy document(s) from `inputs/credit_policy/` directly,
-  extracts lending criteria, required mitigants, structuring norms, and risk appetite boundaries
-  into `config/credit_policy.md`. Once present, every future `/assemble`/`/review` run (and
-  `orchestrator.py`'s headless pipeline) automatically picks it up -- the Underwriter drafts with
-  awareness of it (advisory), and the Risk Reviewer audits the draft against it (mandatory). No
-  headless equivalent yet (slash-command-only, matching `/review`'s own original minimal-scope
-  introduction).
-
-- **`/triage`, `/spread`, `/commercial`, `/collateral`, `/project`** — each loads the Underwriter
-  role (`agents/underwriter_agent.md`) and performs one step from `skills_registry.md`.
-  `/project` is the slash-command capture point for forward-year financials, stress-test
-  assumptions (deriving the downside case), covenants, and guarantees -- all four independently
-  optional -- mirroring what `orchestrator.py`'s `--financials`/`--stress-assumptions` CLI flags
-  and hand-edited `state.json` already support in the headless pipeline. `/spread`'s default mode
-  and `/project`'s forward-year/downside-case handling both run
-  `python scripts/spreading_check.py --company ... --proposal ... --financials ...
-  [--stress-assumptions ...]` as a Bash step rather than having Claude recalculate the same
-  subtotals/ratios by hand in prose (see issue #98) -- `/spread`'s analyst-supplied alternative
-  mode is unaffected, since that path deliberately skips independent recomputation either way.
-
-- **`/research`** — standalone alternative to the full pipeline for a deal that doesn't (yet, or
-  ever) need a full CAM: combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector
-  research into one step, writing the exact same `triage`/`commercial` state.json keys those two
-  commands would (so the deal can still continue into the full pipeline later without redoing
-  anything). Loops `/review --research-brief` until APPROVED before exporting (issue #87), mirroring
-  `/assemble`'s own review loop but scoped to what applies before any credit structuring exists —
-  then exports a standalone brief via
-  `python scripts/research_export.py --company ... --proposal ... --brief ...` as its Bash step.
-
-- **`/review`** — loads the Risk Reviewer role (`agents/risk_reviewer_agent.md`) and audits a
-  draft, returning `APPROVED`/`REJECTED`. This is the Checker half of Maker-Checker actually
-  made runnable as a command for the first time (the registry documented it; nothing wired it up
-  before this).
-
-- **`/assemble`** — resolves the CAM template via `template_resolver` logic (local override,
-  else shipped default), drafts into it from the prior steps' output, loops `/review` until
-  `APPROVED`, then runs `python scripts/deal_export.py --company ... --proposal ... --type ... --draft ...`
-  as its Bash step to create the output folder and export `.docx`/`.xlsx`.
+- `/spread`'s default mode and `/project`'s forward-year and downside-case handling run `python
+  scripts/spreading_check.py` as a Bash step rather than recalculating subtotals and ratios by hand (issue
+  #98); `/project` always passes `--no-update-financials-source`, and `/spread`'s analyst-supplied mode
+  deliberately skips independent recomputation.
+- `/research` loops `/review --research-brief` until `APPROVED` (issue #87), then exports with
+  `python scripts/research_export.py`; `/assemble` loops `/review` until `APPROVED`, then exports with
+  `python scripts/deal_export.py`.
+- `/review` loads the Risk Reviewer role and returns `APPROVED` or `REJECTED`; a code-enforced reason makes
+  `REJECTED` mandatory.
+- `/calibrate-policy` and `/research` have no headless equivalent.
 
 **Gotcha when editing these files:** there is no `@path/to/file` inline file-inclusion syntax in
 Claude Code slash commands (a common misconception) -- use plain prose instructing Claude to

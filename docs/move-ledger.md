@@ -211,3 +211,14 @@ A moved block's relative links are re-based one directory down (`templates/` bec
 - In `CLAUDE.md`: "Documentation layers and source of truth", "File map", "Editing the agent prompts and commands", the condensed "Execution scripts" entries (except `textio.py` and the credentials paragraph, which are kept as they were), the short "What `config/settings.json` actually controls", and the condensed "Testing and static analysis" list.
 - In `README.md`: "Authentication, cost and credentials", the short Maker-Checker, Templates, Running tests and Confidentiality sections, and the Documentation index.
 - The `docs/` page introductions and status banners, and `tests/test_docs.py`.
+
+## Second tranche (documentation D2)
+
+The state of `README.md` and `CLAUDE.md` at the start of D2 is `b75cdb1` (the D1 merge). D2 added `docs/workflows.md`, `docs/commands.md` and `docs/troubleshooting.md`, wrote new reader-facing sections at the top of `docs/cli-reference.md`, `data-model.md`, `financial-model.md`, `outputs.md` and `configuration.md` (the D1 material follows each, marked), added `docs/examples/synthetic_co/` and `tests/test_docs_examples.py`, and made these moves and corrections:
+
+| Where | Moved or corrected | Notes |
+| :--- | :--- | :--- |
+| `CLAUDE.md` "Slash commands (primary interface)" | the six per-command bullets (`/calibrate`, `/calibrate-policy`, `/triage` ... `/project`, `/research`, `/review`, `/assemble`) moved word for word to `docs/commands.md`, "Implementation notes" | `CLAUDE.md` keeps a short pointer and the facts a change must not break; the four "Gotcha" paragraphs stay |
+| `docs/configuration.md` | `is the shared top-level system prompt both agents inherit` replaced by `is a short statement of the framework's principles ... no script or command loads it` | no script, command or agent prompt reads `config/system_instructions.md`; found while documenting configuration |
+| `docs/architecture.md` | `system_instructions.md   Top-level system prompt shared across the pipeline` replaced by `system_instructions.md   Principles statement (reference text; no script or command loads it)` | the file is not loaded by anything; found while documenting configuration |
+| `docs/architecture.md`, `README.md`, `docs/configuration.md` | "stops ... before any model call" for `orchestrator.py` without a key replaced by "fails at its first model call with a missing-credentials error and sends nothing" | what the script actually prints (a traceback ending `Could not resolve authentication method`) |

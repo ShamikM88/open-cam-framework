@@ -159,7 +159,8 @@ so in its Related line) when a later decision supersedes it.
 - **Why.** One implementation of anything deterministic, and a clear cost boundary: the commands use the session's
   login, the scripts use an API key.
 - **Consequences.** A capability that needs a person's confirmation (persisted conventions, `/calibrate-policy`)
-  has no headless equivalent. See [Architecture](architecture.md#two-ways-to-run-it).
+  has no headless equivalent, and neither does `/research` (a standalone brief, not a CAM): the headless
+  pipeline produces only the full CAM. See [Architecture](architecture.md#two-ways-to-run-it).
 
 ## D11. One text encoding: UTF-8, never character substitution
 

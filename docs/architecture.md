@@ -13,16 +13,22 @@ user-supplied risk inputs; an independent **Checker** (the Risk Reviewer agent) 
 covenant results, required conditions, security gaps) is computed by code, handed to both agents as ground
 truth, and enforced by code on the draft, so the agents narrate and judge rather than calculate. Every step
 checkpoints its results to a per-deal `state.json`, so nothing important lives only in a conversation. The
-result is exported as an editable `.docx` and an auditable `.xlsx`.
+result is exported as an editable `.docx` and an auditable `.xlsx` (a research-only deal run through `/research` exports a standalone `.docx` brief instead).
 
 ## Two ways to run it
 
-Both paths run the same pipeline, read the same templates, style guide and policy, write the same `state.json`
-and produce the same files. They differ in **who calls the model, how it is authenticated and what it costs**.
+Both paths share the deterministic core (spreading, the policy engine and its checks, state handling, export),
+the state model, the templates, and the style-guide and credit-policy configuration. The full-CAM workflow
+(`/triage` through `/assemble`, or `orchestrator.py`) is available through both and produces the same `.docx` and
+`.xlsx`. Some capabilities are specific to one interface: `/research` (a standalone research brief, exported as a
+`.docx` through `research_export.py`, with no financials, no CAM and no workbook) and `/calibrate-policy` exist
+only as Claude Code commands, and so does the interactive confirmation behind persisted conventions (the
+headless pipeline can inherit what has been confirmed but cannot create it). The two paths differ in **who calls
+the model, how it is authenticated and what it costs**.
 
 | | Claude Code slash commands | Headless Python scripts |
 | :--- | :--- | :--- |
-| Entry points | `/calibrate`, `/calibrate-policy`, `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project`, `/assemble`, `/review` | `scripts/calibrate.py`, `scripts/orchestrator.py` (and the local evaluation harness, `scripts/run_evals.py`) |
+| Entry points | `/calibrate`, `/calibrate-policy`, `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project`, `/assemble`, `/review` (`/research` and `/calibrate-policy` have no headless equivalent) | `scripts/calibrate.py`, `scripts/orchestrator.py` (and the local evaluation harness, `scripts/run_evals.py`) |
 | Where it runs | Interactively, inside a Claude Code session opened on this repository | From a terminal, a scheduler or CI |
 | Who calls the model | Claude Code itself, as the model running your session | The `anthropic` Python SDK, from `scripts/` |
 | Authentication | Your Claude Code login. **No `ANTHROPIC_API_KEY` is needed or read.** | `ANTHROPIC_API_KEY` in the environment of the process |

@@ -20,8 +20,11 @@ your house writing style and your own CAM layouts, rather than assuming any one 
   directly, so they need their own `ANTHROPIC_API_KEY` (a separate cost from a Claude Code
   subscription).
 
-Both paths produce the same outputs and share the same templates, style guide, and
-confidentiality rules — pick whichever fits how you work.
+Both paths share the same core, templates, style guide, and confidentiality rules, and the full CAM
+workflow (`/triage` through `/assemble`, or `orchestrator.py`) produces the same `.docx` and `.xlsx`
+either way — pick whichever fits how you work. Two Claude Code commands have no headless
+equivalent: `/research` (a standalone research brief, not a CAM or a workbook) and
+`/calibrate-policy`.
 
 ## Authentication, cost and credentials
 

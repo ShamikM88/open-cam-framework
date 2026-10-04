@@ -2,9 +2,9 @@
 
 The record of what moved where when the documentation was reorganised in the first tranche of issue #117. Its source is `README.md` and `CLAUDE.md` exactly as they were at commit `2d1dffb` (read them with `git show 2d1dffb:README.md` and `git show 2d1dffb:CLAUDE.md`); each is divided into blocks (a heading, a top-level list item with its continuation lines, or a paragraph), and every block has a row below. This is a migration record, not a living document: it is not updated when the pages change afterwards.
 
-**Dispositions.** *kept*: stays in the same file, unchanged. *moved*: removed from the source file and present, word for word apart from the fixes listed below, at the destination (a short or condensed rule is often kept in the source file as well; the note says so). *kept + copied*: present in both. *dropped*: a heading with no content of its own, replaced by a new one.
+**Dispositions.** *kept*: stays in the same file, unchanged. *moved*: removed from the source file and present, word for word apart from the fixes listed below, at the destination (a short or condensed rule is often kept in the source file as well; the note says so). *kept (edited)*: stays, with the one edit named in the note. *kept + copied*: present in both. *dropped*: a heading with no content of its own, replaced by a new one.
 
-**Verification.** A script split both source files into paragraphs and checked that each one, after applying the recorded fixes, still occurs verbatim in the union of the new `README.md`, `CLAUDE.md` and `docs/` pages. The only paragraph not carried over is the heading `Directory layout`, which became `Repository map`.
+**Verification.** A script split both source files into paragraphs and checked that each one, after applying the recorded fixes, still occurs verbatim in the union of the new `README.md`, `CLAUDE.md` and `docs/` pages. The only paragraphs not carried over verbatim are the heading `Directory layout` (it became `Repository map`) and README block 7, whose claim that both interfaces "produce the same outputs" was narrowed after review: the full-CAM workflow is shared, while `/research` and `/calibrate-policy` are Claude Code only.
 
 ## README.md
 
@@ -56,7 +56,7 @@ The record of what moved where when the documentation was reorganised in the fir
 | 4 | L11-11 | `Two ways to run it, covered in full under Getting started:` | README.md | kept |  |
 | 5 | L13-17 | `- Claude Code slash commands (primary, recommended) — /calibrate, /cal` | README.md | kept |  |
 | 6 | L18-21 | `- Headless Python scripts (scripts/calibrate.py, scripts/orchestrator.` | README.md | kept |  |
-| 7 | L23-24 | `Both paths produce the same outputs and share the same templates, styl` | README.md | kept |  |
+| 7 | L23-24 | `Both paths produce the same outputs and share the same templates, styl` | README.md | kept (edited) | narrowed after review: the full CAM workflow is shared; /research and /calibrate-policy are Claude Code only |
 | 8 | L26-26 | `## How it works` | README.md | kept |  |
 | 9 | L28-66 | `1. Setup (once per organization/desk): calibrate against a handful of` | README.md | kept |  |
 | 10 | L68-74 | `If a deal's --type doesn't match any template — neither a calibrated o` | README.md | kept |  |

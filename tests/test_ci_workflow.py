@@ -257,6 +257,69 @@ def test_the_security_requirements_file_names_both_tools():
 
 
 # ---------------------------------------------------------------------------
+# Ignoring a reviewed advisory is documented, deliberate and never a weakening of the audit (issue #141)
+# ---------------------------------------------------------------------------
+
+IGNORE_VULN_RE = re.compile(r"--ignore-vuln(?:\s+|=)([^\s\\]+)")
+IGNORE_COMMENT = (r"^\s*#\s*pip-audit ignore:\s*{id}\s+--\s+\S.*--\s+reason:\s+\S.*--\s+revisit by:\s+"
+                  r"\d{{4}}-\d{{2}}-\d{{2}}\s*$")
+WEAKENINGS = ("continue-on-error", "|| true", "||true", "--no-deps", "--disable-pip")
+
+
+def ignored_advisories(job_text):
+    """IDs passed to pip-audit as `--ignore-vuln <ID>` (or `=<ID>`) anywhere in the job."""
+    return IGNORE_VULN_RE.findall(job_text)
+
+
+def undocumented_ignores(job_text):
+    """Ignored IDs with no comment of the documented shape:
+    `# pip-audit ignore: <ID> -- <package> -- reason: <why> -- revisit by: YYYY-MM-DD`."""
+    lines = job_text.splitlines()
+    return [advisory for advisory in ignored_advisories(job_text)
+            if not any(re.match(IGNORE_COMMENT.format(id=re.escape(advisory)), line) for line in lines)]
+
+
+def test_the_security_job_ignores_no_advisory_without_a_documented_reason():
+    body = split_jobs(workflow_text())["security"]
+    assert undocumented_ignores(body) == []
+
+
+def test_the_security_job_has_nothing_that_weakens_the_audit():
+    body = split_jobs(workflow_text())["security"]
+    code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
+    for weakening in WEAKENINGS:
+        assert weakening not in code, weakening
+    assert "pip-audit -r requirements.txt" in code and "zizmor .github/workflows" in code
+
+
+def test_the_ignore_checks_can_fail():
+    """The two checks above must be able to catch what they exist for."""
+    bare = "run: pip-audit -r requirements.txt --ignore-vuln GHSA-xxxx-yyyy-zzzz"
+    assert ignored_advisories(bare) == ["GHSA-xxxx-yyyy-zzzz"]
+    assert undocumented_ignores(bare) == ["GHSA-xxxx-yyyy-zzzz"]
+    assert ignored_advisories("pip-audit --ignore-vuln=PYSEC-2024-1 \\\n --ignore-vuln CVE-2025-1") == [
+        "PYSEC-2024-1", "CVE-2025-1"]
+    documented = ("# pip-audit ignore: GHSA-xxxx-yyyy-zzzz -- examplepkg -- reason: only reachable through a "
+                  "feature this project does not use -- revisit by: 2027-01-31\n" + bare)
+    assert undocumented_ignores(documented) == []
+    for incomplete in ("# pip-audit ignore: GHSA-xxxx-yyyy-zzzz -- examplepkg -- revisit by: 2027-01-31",
+                       "# pip-audit ignore: GHSA-xxxx-yyyy-zzzz -- examplepkg -- reason:  -- revisit by: 2027-01-31",
+                       "# pip-audit ignore: GHSA-xxxx-yyyy-zzzz -- examplepkg -- reason: ok -- revisit by: soon",
+                       "# ignore GHSA-xxxx-yyyy-zzzz because reasons",
+                       "# pip-audit ignore: GHSA-other -- examplepkg -- reason: ok -- revisit by: 2027-01-31"):
+        assert undocumented_ignores(incomplete + "\n" + bare) == ["GHSA-xxxx-yyyy-zzzz"], incomplete
+    assert undocumented_ignores("run: pip-audit -r requirements.txt") == []
+
+
+def test_the_advisory_ignore_procedure_is_documented_where_a_contributor_looks():
+    for name in ("CLAUDE.md", "README.md"):
+        text = (REPO_ROOT / name).read_text(encoding="utf-8")
+        assert "--ignore-vuln" in text and "pip-audit" in text, name
+    claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "# pip-audit ignore: <ID> -- <package> -- reason:" in claude and "revisit by: YYYY-MM-DD" in claude
+
+
+# ---------------------------------------------------------------------------
 # Every workflow file (issue #138, #141) and the weekly mutation workflow (issue #146)
 # ---------------------------------------------------------------------------
 

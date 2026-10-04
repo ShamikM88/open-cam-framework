@@ -295,7 +295,9 @@ python scripts/check_coverage.py coverage.json
 ```
 CI runs four jobs: `test` (Ubuntu), `test-windows`, `runtime-smoke` (installs only `requirements.txt` and
 checks that a fresh clone works) and `security` (`pip-audit`, `zizmor`). All actions are pinned to commit
-SHAs and every job has read-only permissions. Separately, a **weekly mutation-testing run**
+SHAs and every job has read-only permissions. A reviewed advisory with no fix available is ignored only through
+a reviewed PR that adds `--ignore-vuln <ID>` and a reason comment to the `pip-audit` command (see CLAUDE.md,
+"Testing and static analysis"); the audit itself is never switched off. Separately, a **weekly mutation-testing run**
 (`.github/workflows/mutation.yml`, Linux only, also startable by hand from the Actions tab) mutates the
 eight governance modules and reports which mutants no test caught; it is a diagnostic report, not a
 merge gate.

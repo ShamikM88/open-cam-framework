@@ -7,7 +7,8 @@ block or cell -- so a snapshot is a readable, reviewable diff:
 * docx: body blocks in order -- paragraphs as `P[<style>] <text>` with `**bold**`, `*italic*`, `` `monospace` `` and
   `<link: url | text>` markers (adjacent runs with the same formatting are merged, so how the builder splits runs
   is not part of the snapshot), tables as `TABLE` plus one `| cell | cell |` line per row (a cell's alignment
-  and bold are shown). Core properties (created/modified timestamps, author) are never read.
+  and bold are shown), an embedded image as `<image alt="description">` (its caption is an ordinary italic
+  paragraph; an image that could not be embedded is the visible placeholder paragraph). Core properties (created/modified timestamps, author) are never read.
 * xlsx: for each sheet its name, used range, column widths and merged ranges, then every non-empty cell as
   `<coordinate>: <value or formula>` plus its number format and bold/italic when not default. Formulas are kept
   as text (the file is never opened by Excel, so there are no cached values).
@@ -54,7 +55,10 @@ def _run_text(run_element):
         elif child.tag == qn("w:br"):
             parts.append("\n")
         elif child.tag == qn("w:drawing"):
-            parts.append("<image>")
+            # The accessibility description is part of what a reader (or a screen reader) gets, so a lost one shows.
+            properties = child.find(".//" + qn("wp:docPr"))
+            alt = properties.get("descr") if properties is not None else None
+            parts.append(f'<image alt="{alt}">' if alt else "<image>")
     return "".join(parts)
 
 

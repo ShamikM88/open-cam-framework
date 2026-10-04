@@ -886,9 +886,12 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   modules is set, in a reviewed change, by adding `[tool.opencam.mutation] target_critical = <percent>` to
   `pyproject.toml` once the per-module numbers of a full run have been read; the report then marks each of them
   met/below, and still never fails a build. The job fails only if mutmut produced no result at all.
-  **Survivor triage** is recorded on issue #146 (first full run: 506 survivors, 141 mutants with no test, 22
-  timeouts); the biggest cluster is `main()` command-line wrappers, which are exercised only by the subprocess tests
-  (`tests/test_cli_subprocess.py`) that neither run under mutmut nor are visible to it. To run it by hand on Linux/macOS: `pip install -r requirements-dev.txt -r requirements-mutation.txt &&
+  **Survivor triage** (first full run with the per-module report: 3,741 mutants, 78.0% overall, 680 survivors, 142
+  with no test, 26 timeouts; critical modules from 96.6% for `state_manager` down to 71.0% for `deal_export` and
+  35.1% for `spreading_check`): the biggest cluster is the `main()` command-line wrappers (~200 mutants), exercised
+  only by the subprocess tests (`tests/test_cli_subprocess.py`), which neither run under mutmut nor are visible to
+  it -- issue #182; the draft-audit and covenant functions of `policy_checks`/`policy_engine` are #183; the
+  `calibrate.py` helpers #184. To run it by hand on Linux/macOS: `pip install -r requirements-dev.txt -r requirements-mutation.txt &&
   ln -s scripts src && mutmut run` (and `rm src` afterwards; `src` and `mutants/` are git-ignored).
 - **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than
   examples -- the chunker loses no text, the merge loop never drops a field, `values_match` is symmetric,

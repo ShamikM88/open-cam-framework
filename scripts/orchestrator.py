@@ -40,10 +40,13 @@ def _load_settings():
     hardcoded constant. Falls back to {} if the config file is missing or
     malformed rather than raising here -- _resolve_maker_checker_config()
     below is the one that decides whether an empty/incomplete result is
-    actually fatal (it is, for a missing maker_model); other settings this
-    file may also hold (max_tokens, output_directory, ...) are read
-    elsewhere with their own fallback handling and shouldn't be blocked by
-    a maker_model-specific failure mode living in this shared loader.
+    actually fatal (it is, for a missing maker_model). Only the model and
+    temperature keys are read from this file (see CLAUDE.md, "What
+    config/settings.json actually controls"); max_tokens, default_currency,
+    output_directory, template_directory and spreading_template_directory
+    may also appear in it but NO script reads them -- the corresponding
+    values are constants in the code, so editing those keys changes
+    nothing (issue #108).
     """
     try:
         with open("config/settings.json", encoding="utf-8") as f:

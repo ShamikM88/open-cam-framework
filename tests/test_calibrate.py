@@ -508,3 +508,99 @@ def test_style_guide_is_written_as_utf8_and_reads_back_identically(project_root,
 
     written = read_text(project_root / "config" / "style_guide.md")  # strict UTF-8
     assert written.endswith(text)
+
+
+# ---------------------------------------------------------------------------
+# --mock and the automatic no-API-key fallback (issue #103). CLAUDE.md documents --mock as THE smoke-test path for a
+# fresh fork or CI with no key ("Triggers automatically ... whenever ANTHROPIC_API_KEY isn't set"), so what it writes
+# and when it triggers are pinned exactly.
+# ---------------------------------------------------------------------------
+
+AUTO_MOCK_NOTICE = "[INFO] ANTHROPIC_API_KEY not found. Running calibrate.py in --mock mode."
+
+
+def _sample_pdf(root):
+    samples = root / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    _write_pdf(samples / "sample.pdf", "Synthetic Co", pages=1, lines_per_page=5)
+
+
+def test_the_mock_texts_are_labelled_placeholders_with_no_figures_in_them():
+    for text in (calibrate.MOCK_STYLE_GUIDE, calibrate.MOCK_TEMPLATE):
+        first_line = text.splitlines()[0]
+        assert first_line.startswith("# ") and first_line.endswith("(MOCK)")
+        assert "no Anthropic API call was made" in text
+        assert not any(char.isdigit() for char in text), "a mock must never carry an invented figure"
+    assert "[Company Name]" in calibrate.MOCK_TEMPLATE                      # bracketed placeholders only
+
+
+@pytest.mark.parametrize("with_key", [False, True], ids=["no-key", "key-set"])
+def test_explicit_mock_writes_exactly_the_mock_texts_and_never_calls_the_client(project_root, monkeypatch, capsys,
+                                                                                with_key):
+    _sample_pdf(project_root)
+    if with_key:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    else:
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    client = MockClient([])                                                  # a call would raise IndexError
+    monkeypatch.setattr(calibrate, "client", client)
+
+    run_calibration("asset_finance", mock=True)
+
+    out = capsys.readouterr().out
+    assert AUTO_MOCK_NOTICE not in out                                       # only the AUTOMATIC path says this
+    assert "[MOCK] Read" in out and "[MOCK] Wrote placeholder `config/style_guide.md`." in out
+    assert (project_root / "config" / "style_guide.md").read_text(encoding="utf-8") == calibrate.MOCK_STYLE_GUIDE
+    template = project_root / "templates" / "local" / "cam" / "asset_finance_cam.md"
+    assert template.read_text(encoding="utf-8") == calibrate.MOCK_TEMPLATE
+    assert client.calls == []
+
+
+def test_without_an_api_key_it_falls_back_to_mock_by_itself(project_root, monkeypatch, capsys):
+    """`mock=False` and no ANTHROPIC_API_KEY: the notice is printed, the mock path is taken, nothing is sent."""
+    _sample_pdf(project_root)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    client = MockClient([])
+    monkeypatch.setattr(calibrate, "client", client)
+
+    run_calibration("asset_finance", mock=False)
+
+    out = capsys.readouterr().out
+    assert AUTO_MOCK_NOTICE in out and out.index(AUTO_MOCK_NOTICE) < out.index("[MOCK] Read")
+    assert (project_root / "config" / "style_guide.md").read_text(encoding="utf-8") == calibrate.MOCK_STYLE_GUIDE
+    template = project_root / "templates" / "local" / "cam" / "asset_finance_cam.md"
+    assert template.read_text(encoding="utf-8") == calibrate.MOCK_TEMPLATE
+    assert client.calls == []
+
+
+def test_an_empty_api_key_counts_as_no_key(project_root, monkeypatch, capsys):
+    _sample_pdf(project_root)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(calibrate, "client", MockClient([]))
+    run_calibration("asset_finance")
+    assert AUTO_MOCK_NOTICE in capsys.readouterr().out
+
+
+def test_with_an_api_key_the_real_path_is_taken_not_the_mock(project_root, monkeypatch, capsys):
+    _sample_pdf(project_root)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    client = MockClient(["REAL STYLE GUIDE", "REAL TEMPLATE"])
+    monkeypatch.setattr(calibrate, "client", client)
+
+    run_calibration("asset_finance", mock=False)
+
+    assert AUTO_MOCK_NOTICE not in capsys.readouterr().out
+    assert len(client.calls) == 2
+    style_guide = (project_root / "config" / "style_guide.md").read_text(encoding="utf-8")
+    template = (project_root / "templates" / "local" / "cam" / "asset_finance_cam.md").read_text(encoding="utf-8")
+    assert "REAL STYLE GUIDE" in style_guide and "REAL TEMPLATE" in template
+    assert "(MOCK)" not in style_guide and "(MOCK)" not in template
+
+
+def test_the_fallback_still_stops_at_no_samples_without_writing_anything(project_root, monkeypatch, capsys):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    run_calibration("asset_finance")
+    out = capsys.readouterr().out
+    assert AUTO_MOCK_NOTICE in out and "No sample PDFs found" in out
+    assert not (project_root / "config" / "style_guide.md").exists()
+    assert not (project_root / "templates").exists()

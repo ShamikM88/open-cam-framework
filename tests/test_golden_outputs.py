@@ -133,6 +133,80 @@ def test_golden_files_contain_nothing_that_looks_like_real_data():
 
 
 # ---------------------------------------------------------------------------
+# Images and image placeholders (issue #114, #145): what an image line becomes in the exported document
+# ---------------------------------------------------------------------------
+
+def _image_export(tmp_path, monkeypatch, capsys):
+    """Export the synthetic images draft; the image files are generated here (no binary fixtures in the repo).
+
+    Returns (docx_path, stderr text). The draft's references are relative, so they resolve against the working
+    directory exactly as they would for a real export."""
+    from test_docx_builder import _write_png
+    monkeypatch.chdir(tmp_path)
+    _write_png(tmp_path / "synthetic_chart.png", 40, 20)
+    _write_png(tmp_path / "synthetic_wide_chart.png", 2000, 100)
+    (tmp_path / "synthetic_chart.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+    (tmp_path / "synthetic_corrupt_chart.png").write_bytes(b"this is not a png")
+    folder = tmp_path / "deals" / COMPANY / f"{PROPOSAL}_{DATE}"
+    folder.mkdir(parents=True)
+    state = (FIXTURES / "state" / "02_pre_spreading_check.json").read_text(encoding="utf-8")
+    (folder / "state.json").write_text(state, encoding="utf-8")
+    draft = (FIXTURES / "snapshots" / "synthetic_images_draft.md").read_text(encoding="utf-8")
+    capsys.readouterr()
+    out = Path(deal_export.export_deal(COMPANY, PROPOSAL, "corporate_credit", draft, date_str=DATE))
+    return next(out.glob("*_CAM.docx")), capsys.readouterr().err
+
+
+@pytest.fixture
+def image_export(tmp_path, monkeypatch, capsys):
+    return _image_export(tmp_path, monkeypatch, capsys)
+
+
+def test_the_image_export_matches_its_golden_file(image_export, update_snapshots):
+    compare_to_snapshot("cam_images.docx.txt", normalize_docx(image_export[0]), update_snapshots)
+
+
+def test_every_image_line_is_embedded_or_a_visible_placeholder_never_dropped(image_export):
+    lines = normalize_docx(image_export[0]).splitlines()
+    assert sum(line.startswith("P[Normal] <image") for line in lines) == 3     # chart, chart without alt, wide chart
+    placeholders = [line for line in lines if "[Image not embedded" in line]
+    assert [p.removeprefix("P[Normal] ") for p in placeholders[:3]] == [
+        "[Image not embedded: Synthetic missing chart -- file not found]",
+        "[Image not embedded: Synthetic remote chart -- remote URLs aren't supported]",
+        "[Image not embedded: Synthetic vector chart -- not a supported image type (png/jpg/gif/bmp)]"]
+    assert len(placeholders) == 4
+    assert placeholders[3].startswith("P[Normal] [Image not embedded: Synthetic corrupt chart -- could not be read")
+
+
+def test_each_placeholder_also_warns_on_stderr_and_the_detector_flags_the_document(image_export):
+    """The Risk Reviewer audits the Markdown, not the export, so the warning and the visible text are all that
+    would reveal a missing chart; the leak detector used on the CAM goldens must see it too."""
+    warnings = [line for line in image_export[1].splitlines() if "Image not embedded" in line]
+    assert len(warnings) == 4
+    assert forbidden_content(visible_text_docx(image_export[0])) != []
+
+
+def test_an_embedded_image_keeps_its_description_and_caption_and_is_scaled_to_the_page(image_export):
+    document = docx.Document(str(image_export[0]))
+    section = document.sections[0]
+    text_width = section.page_width - section.left_margin - section.right_margin
+    shapes = list(document.inline_shapes)
+    assert len(shapes) == 3
+    descriptions = [shape._inline.docPr.get("descr") for shape in shapes]
+    assert descriptions == ["Synthetic revenue trend", None, "Synthetic wide chart"]
+    assert all(shape.width <= text_width for shape in shapes)
+    assert shapes[2].width == text_width and shapes[0].width < text_width        # scaled down, never up
+    snapshot = normalize_docx(image_export[0])
+    assert 'P[Normal] <image alt="Synthetic revenue trend">\nP[Normal] *Synthetic revenue trend*\n' in snapshot
+
+
+def test_the_caption_less_image_has_no_caption_paragraph(image_export):
+    lines = normalize_docx(image_export[0]).splitlines()
+    index = lines.index("P[Normal] <image>")
+    assert not lines[index + 1].startswith("P[Normal] *")
+
+
+# ---------------------------------------------------------------------------
 # The machinery itself
 # ---------------------------------------------------------------------------
 

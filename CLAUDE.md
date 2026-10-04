@@ -850,7 +850,16 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   `requirements.txt` and runs `tests/runtime_smoke.py --expect-clean`: no development package importable,
   every module imports, every CLI prints usage, a deal exports end to end -- what a fresh clone gets.
   `security` runs `pip-audit` on all requirements files and `zizmor` on the workflows (an advisory
-  published tomorrow can turn it red on an unrelated PR; that is the point). Workflow rules, all tested:
+  published tomorrow can turn it red on an unrelated PR; that is the point). **Ignoring a reviewed advisory
+  (issue #141):** the fix for a red `security` job is to pin a fixed version; only when none exists and the advisory
+  has been reviewed as not exploitable here is it ignored, and the *only* supported way is a reviewed pull request
+  that adds `--ignore-vuln <ID>` to the `pip-audit` command in `ci.yml` together with a comment line of exactly this
+  shape (a test fails on an ignore without one, and on the known ways of weakening the job: `continue-on-error`, `|| true`, `--no-deps`):
+  `# pip-audit ignore: <ID> -- <package> -- reason: <why it cannot be exploited here> -- revisit by: YYYY-MM-DD`.
+  Never `continue-on-error`, `|| true`, or dropping a requirements file from the audit; the ignore is removed in the
+  PR that pins a fixed version, and the same advisory dismissed in GitHub's Dependabot alerts is dismissed with a
+  reason that links that PR. Findings from `zizmor` are fixed, or silenced with a `# zizmor: ignore[<rule>]` comment
+  on the line itself plus the same reason, reviewed the same way. Workflow rules, all tested:
   every third-party action is pinned to a full commit SHA with a `# vX.Y.Z` comment (Dependabot keeps
   them current); `permissions: {}` at the top and `contents: read` per job; `persist-credentials: false`
   on every checkout; no `pull_request_target`; CI never passes `--write` or `--update-snapshots`.
@@ -885,7 +894,11 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   `pytest tests/test_golden_outputs.py --update-snapshots` and review the snapshot diff like code.
   A missing snapshot fails rather than being created, and CI never passes the flag (tested). The same
   file asserts that no client-facing document contains leaked Markdown, the stripped structured-output
-  JSON, `nan`/`None` or error text. A new `openpyxl`/`python-docx` release that changes serialisation will
+  JSON, `nan`/`None` or error text. A separate synthetic draft (`tests/fixtures/snapshots/synthetic_images_draft.md`,
+  its image files generated at test time, so no binary fixtures) pins what image lines become -- an embedded image
+  (`<image alt="...">` plus its italic caption, none without alt text, scaled down to the page width, never up) and
+  every kind of unhonourable reference (missing file, remote URL, unsupported type, corrupt file) as a visible
+  `[Image not embedded: ...]` placeholder plus a stderr warning -- in `cam_images.docx.txt` (issue #145). A new `openpyxl`/`python-docx` release that changes serialisation will
   show up here as a snapshot diff: regenerate only after confirming the difference is cosmetic.
 
 ## Confidentiality rule for new features

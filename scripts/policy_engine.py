@@ -37,7 +37,7 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 
-from spreading_builder import describe_undefined_ratio
+from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
 
@@ -488,6 +488,44 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     return breaches
 
 
+def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None):
+    """Every covenant against every forward BASE-CASE year the deal has projected (issue #176).
+
+    Policy: a covenant applies to each forward year (`FY+1`, `FY+2`, `FY+3`) that has a recorded, non-empty ratio
+    set in `all_ratios`. A year with no projection (absent, null or empty) is not evaluated -- there is nothing to
+    test, and the list says nothing about it. state.json carries no covenant tenor, so "covered by the projection"
+    is the whole definition: a covenant that really ends earlier is still reported for the later projected years.
+
+    This is a separate, complete record next to `covenant_results` (which stays FY-Current only, and which
+    `policy_checks.py` turns into reject reasons) and `downside_covenant_breaches` (base PASS -> stressed
+    FAIL/UNRESOLVABLE only). It is DISCLOSURE ONLY: nothing in the code-enforced check reads it, so a forward-year
+    FAIL or UNRESOLVABLE never rejects a deal by itself, but it can never go unrecorded either -- before this, a
+    forward year whose own base-case ratio was N/A (or failing) appeared nowhere.
+
+    Each entry is exactly `_evaluate_covenant()`'s result (metric, type, threshold, actual, status, headroom_pct,
+    reason -- same #169 rules: a ratio whose denominator is zero or negative is UNRESOLVABLE, never PASS) plus
+    `year` and a stable `forward_id`, "FORWARD-<year>-<metric>" built from _slugify() like `breach_id`, with a
+    numeric suffix when two covenants name the same metric in the same year. Results are in year order, then
+    covenant order, so the same input always gives the same list.
+    """
+    if not isinstance(all_ratios, dict):
+        return []
+    used_ids = set()
+    results = []
+    for period in FORWARD_PERIOD_KEYS:
+        period_ratios = all_ratios.get(period)
+        if not isinstance(period_ratios, dict) or not period_ratios:
+            continue
+        period_financials = _period_dict(base_financials, period)
+        for covenant in covenants:
+            result = _evaluate_covenant(covenant, period_ratios, period_financials)
+            result["year"] = period
+            result["forward_id"] = _unique_id(
+                "FORWARD", f"{_slugify(period)}-{_slugify(covenant.get('metric'))}", used_ids)
+            results.append(result)
+    return results
+
+
 def _period_dict(financials, period):
     """One period's `financials` dict, or None if `financials` is absent or not shaped like {period: {...}} --
     it only feeds an explanatory sentence, so a malformed value must never turn into a new failure here."""
@@ -500,8 +538,8 @@ def evaluate_deal_policy(state_dict):
 
     Reads (all optional, default to empty): `ratios` (the full multi-period
     dict -- `ratios["FY-Current"]` drives `covenant_results` below exactly
-    as before; any `"FY+1"`/`"FY+2"`/`"FY+3"` entries feed the downside
-    check only), `collateral` (a flat list of asset dicts, each expected to
+    as before; any `"FY+1"`/`"FY+2"`/`"FY+3"` entries feed `forward_covenant_results` and the downside
+    check), `collateral` (a flat list of asset dicts, each expected to
     carry an `asset_id`), `security_package` (a flat list of
     {"secures_asset_id", "perfection_status", "ranking"} dicts), `guarantees`
     (a flat list of {"provider", "type", "amount"} dicts), `covenants`
@@ -517,6 +555,8 @@ def evaluate_deal_policy(state_dict):
         "required_conditions_subsequent": [{"cs_id", "text"}, ...],
         "downside_covenant_breaches": [{"year", "metric", "base_actual", "downside_actual", "threshold", "breach_id",
                                         "downside_status", "reason"}, ...],
+        "forward_covenant_results": [{"year", "forward_id", "metric", "type", "threshold", "actual", "status",
+                                      "headroom_pct", "reason"}, ...],
     }
     """
     state_dict = state_dict or {}
@@ -536,6 +576,7 @@ def evaluate_deal_policy(state_dict):
     downside_covenant_breaches = _evaluate_downside_covenants(
         covenants, all_ratios, downside_ratios, base_financials,
         (state_dict.get("downside_case") or {}).get("financials"))
+    forward_covenant_results = _evaluate_forward_covenants(covenants, all_ratios, base_financials)
 
     required_conditions_precedent = (
         list(STANDARD_CONDITIONS_PRECEDENT) + security_cps + guarantee_cps
@@ -553,4 +594,5 @@ def evaluate_deal_policy(state_dict):
         "required_conditions_precedent": required_conditions_precedent,
         "required_conditions_subsequent": required_conditions_subsequent,
         "downside_covenant_breaches": downside_covenant_breaches,
+        "forward_covenant_results": forward_covenant_results,
     }

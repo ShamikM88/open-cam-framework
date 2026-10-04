@@ -445,6 +445,13 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                     json.dumps(policy_state['downside_covenant_breaches'], indent=2),
                 )
             )
+        # Forward-year base-case results that are not PASS (issue #176). The full list stays in policy_state; the
+        # model only gets the entries that need telling. Data only: nothing here is checked by code.
+        forward_exceptions = [r for r in policy_state.get("forward_covenant_results") or []
+                              if r.get("status") != "PASS"]
+        if forward_exceptions:
+            parts.append("\nForward-year covenant results that are not PASS (from policy_state, base case):")
+            parts.append(_xml_block("forward_covenant_results", json.dumps(forward_exceptions, indent=2)))
     return "\n".join(parts)
 
 

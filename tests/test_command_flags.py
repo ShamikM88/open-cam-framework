@@ -33,7 +33,7 @@ def documents():
     paths = sorted((REPO_ROOT / ".claude" / "commands").glob("*.md"))
     for name in ("README.md", "CLAUDE.md"):
         paths.append(REPO_ROOT / name)
-    for pattern in ("evals/*.md", "templates/*.md", "config/*.md", "agents/*.md"):
+    for pattern in ("docs/*.md", "evals/*.md", "templates/*.md", "config/*.md", "agents/*.md"):
         paths.extend(sorted(REPO_ROOT.glob(pattern)))
     return [p for p in paths if p.is_file()]
 
@@ -110,6 +110,7 @@ def test_the_scan_covers_the_command_files_and_the_docs_that_mention_scripts():
     names = {str(p.relative_to(REPO_ROOT)).replace("\\", "/") for p in documents()}
     assert ".claude/commands/spread.md" in names and ".claude/commands/assemble.md" in names
     assert {"README.md", "CLAUDE.md", "evals/README.md"} <= names
+    assert {"docs/cli-reference.md", "docs/testing.md", "docs/README.md"} <= names     # the relocated reference pages
 
 
 def test_the_real_help_parser_finds_the_known_options():

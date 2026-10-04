@@ -23,6 +23,24 @@ your house writing style and your own CAM layouts, rather than assuming any one 
 Both paths produce the same outputs and share the same templates, style guide, and
 confidentiality rules — pick whichever fits how you work.
 
+## Authentication, cost and credentials
+
+| | Claude Code slash commands | Headless Python scripts |
+| :--- | :--- | :--- |
+| Authentication | Your Claude Code login; no `ANTHROPIC_API_KEY` needed or read | `ANTHROPIC_API_KEY` in the environment of the process |
+| Billing | What your Claude Code plan covers | Per-token Anthropic **API** billing, separate from any subscription |
+| Without a key | n/a | `calibrate.py` runs in `--mock` mode (placeholder output, no API call); `orchestrator.py` stops before any model call |
+| What stays local | Your files, `state.json`, the generated documents and the deterministic scripts the commands run | The same |
+| What goes to an external service | What the session sends to Claude Code's model while it works; the public pages and filings a research step fetches | The prompts and documents each script sends to the Anthropic API |
+
+**Where credentials must not go.** The only credential the framework uses is the `ANTHROPIC_API_KEY` environment
+variable, and only the headless scripts read it. Set it in your own shell. Never write it into a file in this
+repository (`config/settings.json` is tracked and is not read for keys), a deal folder, a prompt or a command, and
+never paste a live key into an AI assistant's chat. The test suite makes no model calls and needs no key; the
+local evaluation harness calls the model only when you run it yourself with `--live`, under a hard call cap, on
+synthetic data. More: [architecture](docs/architecture.md#two-ways-to-run-it) and
+[configuration](docs/configuration.md#credentials).
+
 ## How it works
 
 1. **Setup (once per organization/desk):** calibrate against a handful of your own past CAMs in
@@ -75,24 +93,12 @@ layout.
 
 ## Maker-Checker agents
 
-| Agent | File | Role |
-| :--- | :--- | :--- |
-| Underwriter ("Maker") | [`agents/underwriter_agent.md`](agents/underwriter_agent.md) | Drafts the CAM: calculates TNW, EBITDA, DSCR, Gross Leverage, Working Capital Days; cites sources for every qualitative claim; never invents figures; discloses when spreading was analyst-supplied rather than independently recomputed; drafts with awareness of a calibrated credit policy and any persisted deal learnings once they exist. |
-| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md) | Independently audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
-
-The two prompts are kept deliberately independent — the Reviewer's value comes from auditing
-the Maker's work cold, not from sharing its reasoning.
-
-### Grounding rule
-
-Every fact in a generated CAM — company history, market/competitor data, management bios,
-financial figures — must trace back to a verified, credible source: audited financial
-statements, a company's own filings/website, a recognized credit bureau or rating agency
-report, or another primary document you supply. Neither agent should ever estimate or invent a
-figure it cannot source. Where no external rating system or in-house scoring tool (e.g. a
-Moody's/bureau integration) is wired up, PD/LGD grades are **user-supplied inputs** (via the
-`--pd` / `--lgd` flags) and are labelled as such in the output — the framework does not pretend
-to have scored the risk itself.
+An **Underwriter** agent drafts the CAM, grounded only in supplied source documents and user-provided risk inputs
+(never fabricated figures); an independent **Risk Reviewer** agent audits the draft and returns `APPROVED` or
+`REJECTED` with revision notes. The two prompts, [`agents/underwriter_agent.md`](agents/underwriter_agent.md) and
+[`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md), are kept deliberately independent, and everything
+that can be computed (ratios, covenant results, required conditions) is computed and enforced by code rather than
+left to either model. Details, including the grounding rule: [architecture](docs/architecture.md).
 
 ## Skills / slash commands
 
@@ -113,60 +119,12 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |
 | `/review` | A drafted CAM (usually called automatically by `/assemble`), or a `/research` brief with `--research-brief` | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent |
 
-`/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, and `/project` each load
-[`agents/underwriter_agent.md`](agents/underwriter_agent.md)'s role; `/review` loads
-[`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md)'s. `/assemble` resolves the
-right CAM template (local override, else shipped default), drafts into it, loops `/review` until
-`APPROVED`, then calls [`scripts/deal_export.py`](scripts/deal_export.py) — the folder-creation
-and `.docx`/`.xlsx` export logic, factored out of `orchestrator.py` specifically so it has no
-`anthropic` dependency and can run from a slash command's Bash step. `/research` calls the
-lighter [`scripts/research_export.py`](scripts/research_export.py) instead, so a research-only
-deal never triggers the full-CAM side effects (template auto-save, `.xlsx` export).
-
 ## Templates
 
-All reference templates live under [`templates/`](templates/) — see
-[`templates/README.md`](templates/README.md) for the full breakdown. In short:
-
-- [`templates/cam/corporate_credit_cam.md`](templates/cam/corporate_credit_cam.md) — general
-  corporate lending (RCF/term loan/overdraft): facility terms, covenants, security package, full
-  financial spreading, industry/competitive analysis, risks & mitigants.
-- [`templates/cam/asset_finance_cam.md`](templates/cam/asset_finance_cam.md) — asset-backed /
-  equipment or fleet finance: adds per-asset LGD/RV/collateral-cover tables and asset-specific
-  facility conditions (max asset age, sublet terms, residual value treatment) on top of the same
-  financial-analysis and risk sections.
-- [`templates/spreading/default_spreading_template.xlsx`](templates/spreading/default_spreading_template.xlsx) —
-  reference copy of the financial spreading workbook layout (see below), blank/formula-only.
-
-The CAM templates are plain Markdown with bracketed `[placeholder]` fields — safe to fork and
-edit directly, and readable as a diff in git. New deal types are added the same way (manually,
-under `templates/cam/`, or auto-generated by the orchestrator the first time that `--type` is
-used).
-
-### Calibrated overrides (`templates/local/`)
-
-`templates/local/cam/<deal_type>_cam.md` — written by `scripts/calibrate.py` (from your own
-samples) or auto-saved by `orchestrator.py` (from a genuinely new deal type's first draft) —
-always takes precedence over the matching file in `templates/cam/`. It's git-ignored: unlike
-the shipped defaults, anything under `templates/local/` may contain structure derived from your
-own real, confidential deal history, so it stays local to your fork rather than getting
-committed. Delete a file there to fall back to the shipped default for that deal type.
-
-### Financial spreading workbook
-
-[`scripts/spreading_builder.py`](scripts/spreading_builder.py) builds the `.xlsx` output as a
-full P&L → Balance Sheet → key-ratio spread (Revenue down to Working Capital Cycle), with the
-subtotals and ratios (Gross Profit, EBITDA, TNW, Gearing, Current Ratio, etc.) written as **Excel
-formulas** referencing the raw input rows — not pre-baked numbers — so anyone reviewing the
-workbook can see exactly how each figure was derived and re-check it. A second sheet,
-`Collateral & Exposure`, gives the same treatment to asset-backed exposure/coverage figures.
-`templates/spreading/default_spreading_template.xlsx` is a checked-in, blank reference copy of
-that exact layout, so you can inspect the format without running any code.
-
-> **Custom spreading templates:** if your organization already has a standard spreading Excel
-> template, that's on the roadmap to support directly (see below) — it would live alongside the
-> default under `templates/spreading/`. For now, `spreading_builder.py`'s layout is the only
-> format produced.
+Shipped CAM templates (`templates/cam/corporate_credit_cam.md`, `templates/cam/asset_finance_cam.md`) are plain
+Markdown with bracketed `[placeholder]` fields. A template derived from your own documents lives under the
+git-ignored `templates/local/cam/` and takes precedence. The `.xlsx` workbook is built with Excel formulas, not
+pre-baked numbers. Details: [outputs and templates](docs/outputs.md).
 
 ## Getting started
 
@@ -248,137 +206,49 @@ For automation, CI, or running outside an interactive Claude Code session.
    Output lands in `deals/Acme Corp/Fleet Loan_<date>/`. Internally this calls the same
    `scripts/deal_export.py` that the slash-command path's `/assemble` uses.
 
-### Running tests
+## Running tests
 
 ```bash
 pip install -r requirements-dev.txt
 pytest
 ```
 
-The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
-`anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking, and CI itself runs `pytest
-tests/` with no key set at all. Dedicated test files cover the dependency-free modules directly
-(`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
-`deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
-`pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
-`check_test_count.py`, `check_coverage.py`) plus a
-prompt-consistency suite (`test_prompt_consistency.py`) that cross-checks the two agent prompts
-against the code they're meant to stay in sync with. The command-line surface is tested for real:
-`test_cli_subprocess.py` runs every script's `--help` / a representative input / a bad input as a
-subprocess, and `test_command_flags.py` checks that every `--flag` the slash commands and docs tell
-Claude to pass still exists in the script, naming the file and line when one does not.
+The suite needs no `ANTHROPIC_API_KEY` and no network. CI also runs `ruff check .`, `bandit -r scripts/ -ll`,
+coverage floors, a Windows job and a security job. Details, including how to keep `badges/test-count.json`
+correct: [testing and CI](docs/testing.md).
 
-Separately, `evals/` holds a **local-only live-model evaluation harness** (`python scripts/run_evals.py`,
-see [`evals/README.md`](evals/README.md)) for measuring what those tests cannot -- whether the actual
-model follows the prompts (no invented figures, planted instructions not obeyed). It is run by hand with
-your own API key, on synthetic data only, under a hard call cap, and writes only to the git-ignored
-`evals/results/`; nothing runs it automatically, and the tests only ever drive it with fake clients. It
-ships its dataset, deterministic oracles, a zero-model-call `--dry-run`, a capped `--live` runner and
-baseline export/compare; no live evaluation has been run yet. Read its README before trusting any
-result: most oracles check the *form* of the output, not its judgement.
+## Documentation
 
-CI also runs `ruff check .` and `bandit -r scripts/ -ll` before `pytest` -- run those locally too if you
-want to catch what CI will catch before pushing:
-```bash
-ruff check .            # the rule set lives in pyproject.toml, not on the command line
-bandit -r scripts/ -ll
-```
-`pyproject.toml` is the one place for tool settings (ruff rules, pytest options, coverage). The test
-run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
-hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
-before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`). CI
-enforces an 85% overall floor, a 90% floor on each of eight governance modules, and 90% on the lines a
-pull request changes; the numbers and the module list live in `pyproject.toml`. To check locally:
-```bash
-pytest --cov --cov-report=json
-python scripts/check_coverage.py coverage.json
-```
-CI runs four jobs: `test` (Ubuntu), `test-windows`, `runtime-smoke` (installs only `requirements.txt` and
-checks that a fresh clone works) and `security` (`pip-audit`, `zizmor`). All actions are pinned to commit
-SHAs and every job has read-only permissions. A reviewed advisory with no fix available is ignored only through
-a reviewed PR that adds `--ignore-vuln <ID>` and a reason comment to the `pip-audit` command (see CLAUDE.md,
-"Testing and static analysis"); the audit itself is never switched off. Separately, a **weekly mutation-testing run**
-(`.github/workflows/mutation.yml`, Linux only, also startable by hand from the Actions tab) mutates the
-eight governance modules (and the `calibrate.py` helpers) and reports a score per module plus the mutants
-no test caught; it is a diagnostic report, not a merge gate.
-
-Beyond example-based unit tests the suite includes property-based tests (`hypothesis`), historical and
-malformed `state.json` fixtures, and golden-output tests that compare the exported `.docx`/`.xlsx` with
-reviewed text snapshots in `tests/snapshots/`. After an intended change to an export, regenerate the
-snapshots with `pytest tests/test_golden_outputs.py --update-snapshots` and review the diff; CI never
-does this. See `CLAUDE.md` ("Testing and static analysis") for details.
-
-**Test-count badge.** `badges/test-count.json` (`{"passed": <int>}`) is this project's own
-checked-in record of how many tests currently pass -- unlike everything else this framework
-persists, this one is deliberately public and git-tracked, not gitignored, since it's a project
-stat, not derived borrower/institutional data. GitHub's public API exposes merged-PR and
-closed-issue counts directly, but nothing queryable exposes "tests passing," so this repo tracks
-it itself the same way it tracks everything else: code-enforced, not hand-maintained. CI's
-"Verify checked-in test count" step (`scripts/check_test_count.py`) parses the real count out of
-`pytest`'s own summary line and fails the build if it doesn't match this file -- it never
-auto-corrects the value itself (that would mean a bot committing to `main`), so bumping the test
-count means updating `badges/test-count.json` in the same PR. That is one command from your own
-checkout: `pytest tests/ | tee pytest_output.txt` then
-`python scripts/check_test_count.py pytest_output.txt --write` (CI only ever runs the plain check).
-Run it on a complete green run of the whole suite: `--write` looks at pytest's summary line and refuses
-one that reports failed, errored or deselected tests (the refusal quotes what matched), and a run that halted
-early (Ctrl-C, a collection error, `pytest.exit()`, `--maxfail`). Test names and captured output with `-v`/`-s`
-are not mistaken for failures, and colour codes are ignored. It cannot tell that you ran only part of the suite
-by path, so run the whole suite. It reads UTF-8
-(with or without a byte-order mark) and UTF-16, which Windows PowerShell 5.1 can produce for `tee`/`>`.
-When two open PRs both change the count, merge them one at a time; whoever merges second rebases,
-reruns pytest and runs that command (issue #147).
-
-### Configuration
-
-[`config/settings.json`](config/settings.json) sets `maker_model` (required), plus optional
-`checker_model`/`maker_temperature`/`checker_temperature` to independently configure the Risk
-Reviewer vs. the Underwriter. It also accepts `max_tokens`/`default_currency`/`output_directory`/
-`template_directory`/`spreading_template_directory`, though no script reads them -- they have no
-effect (see CLAUDE.md, "What `config/settings.json` actually controls"). [`config/system_instructions.md`](config/system_instructions.md)
-is the shared top-level system prompt both agents inherit (objectivity, metric standardization,
-structured Markdown output).
+| Read | For |
+| :--- | :--- |
+| [docs/README.md](docs/README.md) | The documentation index and which source is authoritative for what |
+| [docs/architecture.md](docs/architecture.md) | How the pieces fit; the two execution modes; the pipeline |
+| [docs/decisions.md](docs/decisions.md) | Why it is built this way |
+| [docs/configuration.md](docs/configuration.md) | `config/settings.json`, credentials |
+| [docs/cli-reference.md](docs/cli-reference.md) | The headless scripts |
+| [docs/data-model.md](docs/data-model.md) | `state.json`, source manifests, persisted conventions |
+| [docs/financial-model.md](docs/financial-model.md) | Ratios, covenants, the policy engine |
+| [docs/outputs.md](docs/outputs.md) | Templates and the exported `.docx` / `.xlsx` |
+| [docs/testing.md](docs/testing.md) | Tests, CI, coverage, mutation testing |
+| [docs/security.md](docs/security.md) | What must never be committed |
+| [docs/evaluation.md](docs/evaluation.md) | The local live-model evaluation harness |
+| [`CLAUDE.md`](CLAUDE.md) | The rules Claude Code follows when it changes this repository |
 
 ## Confidentiality — what never belongs in this repo
 
-This is a **public, forkable framework repo**, not a place to store real deal data. Everything
-under the following paths is git-ignored and must stay that way:
-
-- `inputs/` — your calibration sample PDFs and credit policy documents (real historical CAMs and
-  house policy — confidential by nature)
-- `config/style_guide.md` — derived from those samples, so treat it the same way
-- `config/credit_policy.md` — your calibrated institutional credit policy (`/calibrate-policy`)
-- `config/credit_policy_notes.md` — analyst-confirmed corrections to how specific policy clauses
-  have been interpreted
-- `config/spreading_conventions.json` — analyst-confirmed enterprise-wide spreading conventions
-- `config/deal_learnings.md` — analyst-confirmed enterprise-wide end-of-deal takeaways
-- `templates/local/` — calibration-derived or auto-saved template overrides; may reflect real
-  deal structure even though the shipped defaults in `templates/cam/` never do
-- `deals/` — generated output for real borrowers (names, financials, PII) — also holds, one level
-  above each dated deal folder, any borrower-specific persisted spreading convention
-  (`_conventions.json`) or deal learnings (`_learnings.md`) for that company
-- `evals/results/` — output of the local live-model evaluation harness (review packs, full model
-  output), kept out of git even though the evaluation data itself is synthetic
-
-This is checked automatically: `tests/test_confidential_paths.py` fails CI if any of these is tracked
-by git or loses its `.gitignore` rule.
-
-Only the framework itself (agent prompts, scripts, blank templates, config, docs) should ever
-be committed. If you're contributing a template change, make sure every field is a generic
-`[bracketed placeholder]` — never a real company name, person's name, or figure.
-
-**Adding a new feature that touches real reference material?** Put its storage location in
-`.gitignore` *before* writing anything there — never under a git-tracked path like
-`templates/cam/` or `templates/spreading/`. The shipped defaults must stay generic and safe to
-share across every fork; anything derived from one user's real documents belongs only in that
-fork — *unless* it's a genuinely useful, generalized structure (not just one deal's content) that
-other forks would benefit from. Once it's fully scrubbed of real data, that's worth contributing
-back: open a PR to add it under `templates/cam/` as a new shared default.
+This is a **public, forkable framework repo**, not a place to store real deal data. Everything derived from real
+material is git-ignored and must stay that way: `inputs/` (calibration PDFs and policy documents),
+`config/style_guide.md`, `config/credit_policy.md`, `config/credit_policy_notes.md`,
+`config/spreading_conventions.json`, `config/deal_learnings.md`, `templates/local/`, `deals/` (including each
+company's `_conventions.json` and `_learnings.md`) and `evals/results/`. `tests/test_confidential_paths.py` fails
+CI if one is tracked or loses its `.gitignore` rule. Only the framework itself (agent prompts, scripts, blank
+templates, config, docs) is ever committed, and every template field is a generic `[bracketed placeholder]`. The
+annotated list and the rules for adding a new location: [security and confidentiality](docs/security.md).
 
 ## Roadmap
 
 - [x] Derive a base CAM template shape from calibration samples, not just tone/style — done via
-      `templates/local/cam/` overrides (see above). Still open: a first-run *guided* setup
+      `templates/local/cam/` overrides (see [outputs and templates](docs/outputs.md)). Still open: a first-run *guided* setup
       (interactive prompt to add samples) rather than a manual file drop into
       `inputs/calibration_samples/`.
 - [ ] Support ingesting a user-supplied Excel spreading template, so subsequent spreads follow

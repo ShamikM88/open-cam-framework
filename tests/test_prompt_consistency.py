@@ -302,7 +302,7 @@ EXPECTED_SUBJECTS = {
                   11: "persisted deal learnings", 12: "parent/ubo support analysis"},
     "Audit Checklist item": {4: "calibrated credit policy"},
 }
-SCANNED_FILES = ("CLAUDE.md", "README.md", ".claude/commands/*.md", "agents/*.md", "templates/cam/*.md",
+SCANNED_FILES = ("CLAUDE.md", "README.md", "docs/*.md", ".claude/commands/*.md", "agents/*.md", "templates/cam/*.md",
                  "templates/README.md", "evals/README.md", "config/skills_registry.md", "config/system_instructions.md",
                  "scripts/*.py")     # code comments and the prompt/error text the scripts send to the model
 

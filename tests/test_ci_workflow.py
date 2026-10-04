@@ -312,7 +312,7 @@ def test_the_ignore_checks_can_fail():
 
 
 def test_the_advisory_ignore_procedure_is_documented_where_a_contributor_looks():
-    for name in ("CLAUDE.md", "README.md"):
+    for name in ("CLAUDE.md", "docs/testing.md"):
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         assert "--ignore-vuln" in text and "pip-audit" in text, name
     claude = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")

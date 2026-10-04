@@ -103,7 +103,7 @@ MAX_REVIEW_ITERATIONS = 3
 # wrongly-typed one is a StateShapeError naming the key, shown by the CLI as one `error:` line).
 STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
-                   "security_package", "guarantees")
+                   "security_package", "guarantees", "review_trail")   # review_trail: append_review_trail() reads it
 
 
 def _completion_kwargs(model, temperature):
@@ -524,7 +524,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # auto-discovery (see resolve_date_str()'s own docstring).
     date_str = resolve_date_str(company, proposal, new_review=new_review)
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
-    steps_completed = list(existing_state.get("steps_completed", []))
+    steps_completed = list(existing_state.get("steps_completed") or [])     # `or`: a null value is "not recorded"
 
     if multi_period_financials:
         model_data = evaluate_financial_model(multi_period_financials)
@@ -543,17 +543,17 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # trigger below already gates on financials_source itself).
         financials_source_note = ""
     else:
-        financials = existing_state.get("financials", {})
-        ratios = existing_state.get("ratios", {})
-        financials_source = existing_state.get("financials_source", "framework-computed")
+        financials = existing_state.get("financials") or {}
+        ratios = existing_state.get("ratios") or {}
+        financials_source = existing_state.get("financials_source") or "framework-computed"
         # Unlike financials_source itself, this headless pipeline can never
         # *originate* a convention note (see scripts/conventions.py's own
         # docstring -- there's no analyst here to confirm one), but it can
         # legitimately *inherit* one an earlier interactive /spread step
         # already confirmed and checkpointed to this deal's state.json.
-        financials_source_note = existing_state.get("financials_source_note", "")
+        financials_source_note = existing_state.get("financials_source_note") or ""
 
-    collateral = collateral_data if collateral_data else existing_state.get("collateral", [])
+    collateral = collateral_data if collateral_data else existing_state.get("collateral") or []
 
     # Downside (stressed) forward-year case. The raw forward-year base-case
     # financials and the stress_assumptions to apply to them don't have to
@@ -572,15 +572,15 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     multi_period_financials_for_downside = (
         multi_period_financials or existing_state.get("multi_period_financials")
     )
-    stress_assumptions_to_persist = stress_assumptions or existing_state.get("stress_assumptions", {})
+    stress_assumptions_to_persist = stress_assumptions or existing_state.get("stress_assumptions") or {}
     if multi_period_financials_for_downside and stress_assumptions_to_persist:
         downside_case = evaluate_downside_case(
             multi_period_financials_for_downside, stress_assumptions_to_persist,
         )
     else:
-        downside_case = existing_state.get("downside_case", {})
+        downside_case = existing_state.get("downside_case") or {}
     multi_period_financials_to_persist = (
-        multi_period_financials_for_downside or existing_state.get("multi_period_financials", {})
+        multi_period_financials_for_downside or existing_state.get("multi_period_financials") or {}
     )
 
     # Covenants/security/guarantees have no dedicated CLI flags yet -- they
@@ -592,9 +592,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     policy_state = evaluate_deal_policy({
         "ratios": ratios,
         "collateral": collateral,
-        "covenants": existing_state.get("covenants", []),
-        "security_package": existing_state.get("security_package", []),
-        "guarantees": existing_state.get("guarantees", []),
+        "covenants": existing_state.get("covenants") or [],
+        "security_package": existing_state.get("security_package") or [],
+        "guarantees": existing_state.get("guarantees") or [],
         "downside_case": downside_case,
     })
     # Same inputs the loop below already holds fixed across iterations

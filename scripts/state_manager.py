@@ -80,6 +80,8 @@ STATE_SHAPES = {
     "steps_completed": "list", "review_trail": "list",
     "financials_source": "source",
 }
+# STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
+# and the inner financials/ratios need only be objects.
 FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
 _SHAPE_DESCRIPTIONS = {
     "object": "an object ({...})",
@@ -122,6 +124,8 @@ def validate_state(state, keys=None, path="state.json"):
         raise StateShapeError(
             f"Cannot use {path}: the top level must be a JSON object ({{...}}), found {_json_type(state)}. "
             "Restore the file from a backup or fix it by hand; the file was not modified.")
+    if isinstance(keys, str):
+        raise TypeError("keys must be an iterable of key names or a {name: kind} mapping, not a single string")
     shapes = dict(STATE_SHAPES) if keys is None else (
         dict(keys) if isinstance(keys, dict) else {key: STATE_SHAPES[key] for key in keys})
     problems = []
@@ -134,19 +138,27 @@ def validate_state(state, keys=None, path="state.json"):
         elif kind == "object":
             if not isinstance(value, dict):
                 problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["object"]}, found {_json_type(value)}')
-        elif kind == "downside":
+        elif kind in ("downside", "downside_lenient"):
             if not isinstance(value, dict):
-                problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["downside"]}, found {_json_type(value)}')
+                if kind == "downside":     # "downside_lenient" tolerates a non-object, as deal_export always has
+                    problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["downside"]}, found {_json_type(value)}')
             else:
                 for inner in ("financials", "ratios"):
-                    if value.get(inner) is not None:
+                    if value.get(inner) is None:
+                        continue
+                    if kind == "downside":
                         problems.extend(_problems_with_periods(f"{key}.{inner}", value[inner]))
+                    elif not isinstance(value[inner], dict):       # lenient: the container only, not each period
+                        problems.append(f'"{key}.{inner}" must be {_SHAPE_DESCRIPTIONS["object"]}, '
+                                        f"found {_json_type(value[inner])}")
         elif kind == "list":
             if not isinstance(value, list):
                 problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["list"]}, found {_json_type(value)}')
         elif kind == "source":
             if value not in FINANCIALS_SOURCES:
-                problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["source"]}, found {value!r}')
+                problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["source"]}, found {repr(value)[:60]}')
+        else:
+            raise ValueError(f"unknown state shape kind {kind!r} for key {key!r}")
     if problems:
         raise StateShapeError(f"Cannot use {path}: " + "; ".join(problems) +
                               ". Fix the file by hand or restore it from a backup; the file was not modified.")
@@ -363,9 +375,12 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
     with open(path, encoding="utf-8") as f:
         try:
             state = json.load(f)
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
+            # Not valid UTF-8 JSON (a UTF-16 file from PowerShell's `>`, say) or nested absurdly deep: the file's
+            # fault, reported like any other unusable state rather than as a traceback.
+            detail = e if isinstance(e, json.JSONDecodeError) else f"{type(e).__name__}: {str(e)[:80]}"
             raise StateShapeError(
-                f"state.json at {path} is corrupted and could not be parsed ({e}). "
+                f"state.json at {path} is corrupted and could not be parsed ({detail}). "
                 "It may have been left partial by an interrupted write. Restore it "
                 "from a backup or fix it by hand before continuing."
             ) from e

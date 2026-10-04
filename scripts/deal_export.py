@@ -15,15 +15,18 @@ from datetime import datetime
 from docx_builder import export_to_docx
 from spreading_builder import export_to_xlsx
 from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
+from template_resolver import cam_template_path, local_cam_template_path
 
 # The state.json keys export_deal() reads, with the kind each is held to. Deliberately looser than STATE_SHAPES for
 # `financials`/`analyst_supplied_financials` ("object", not "periods"): a period whose value is not an object has always
 # been treated as empty here (_raw_financials), and a non-list `collateral` or a non-object `downside_case` as absent
-# (_collateral_data_from_state, _downside_financial_data_from_state); those documented tolerances are kept, so those two
-# keys are not validated at all and the raw-figure keys only need to be objects. `financials_source` decides which raw
-# store is read, so an unknown value is an error rather than silently "framework-computed".
-STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "financials_source": "source"}
-from template_resolver import cam_template_path, local_cam_template_path
+# (_collateral_data_from_state, _downside_financial_data_from_state); those documented tolerances are kept, so
+# `collateral` is not validated at all, `downside_case` may be any non-object but an object's inner
+# `financials`/`ratios` must be objects ("downside_lenient"), and the raw-figure keys only need to be objects.
+# `financials_source` decides which raw store is read, so an unknown value is an error rather than silently
+# "framework-computed".
+STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "downside_case": "downside_lenient",
+                   "financials_source": "source"}
 
 
 def _raw_financials(financials):

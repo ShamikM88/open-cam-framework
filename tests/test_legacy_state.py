@@ -346,6 +346,45 @@ def test_a_shape_a_consumer_never_reads_or_deliberately_tolerates_is_still_accep
     assert outcome is None, repr(outcome)
 
 
+# What each consumer reads, pinned here as LITERALS. Parametrizing over the modules' own constants would let a dropped
+# key take its test with it: a key is added or removed here deliberately, in the same change as the code.
+EXPECTED_KEYS_READ = {
+    "spreading_check": {"multi_period_financials": "periods", "financials": "periods", "ratios": "periods",
+                        "stress_assumptions": "object"},
+    "policy_check": {"financials": "periods", "ratios": "periods", "collateral": "list", "covenants": "list",
+                     "security_package": "list", "guarantees": "list", "downside_case": "downside",
+                     "financials_source": "source"},
+    "deal_export": {"financials": "object", "analyst_supplied_financials": "object",
+                    "downside_case": "downside_lenient", "financials_source": "source"},
+}
+
+
+def _actual_kinds(keys):
+    return dict(keys) if isinstance(keys, dict) else {key: state_manager.STATE_SHAPES[key] for key in keys}
+
+
+def test_each_consumers_declared_keys_are_exactly_the_pinned_ones():
+    assert _actual_kinds(spreading_check.STATE_KEYS_READ) == EXPECTED_KEYS_READ["spreading_check"]
+    assert _actual_kinds(policy_check.STATE_KEYS_READ) == EXPECTED_KEYS_READ["policy_check"]
+    assert _actual_kinds(deal_export.STATE_KEYS_READ) == EXPECTED_KEYS_READ["deal_export"]
+
+
+def _consumer_keys():
+    """(consumer, key, bad value) for every pinned key; the lenient downside tolerates a non-object by design."""
+    return [(consumer, key, 5 if kind == "source" else "x")
+            for consumer, kinds in EXPECTED_KEYS_READ.items() for key, kind in kinds.items()
+            if kind != "downside_lenient"]
+
+
+@pytest.mark.parametrize("consumer, key, bad", _consumer_keys(), ids=[f"{c}-{k}" for c, k, _ in _consumer_keys()])
+def test_every_key_a_consumer_declares_it_reads_is_actually_validated(tmp_path, monkeypatch, capsys, consumer, key, bad):
+    state = modern_state()
+    state[key] = bad
+    outcome, unchanged = run_consumer(consumer, tmp_path, monkeypatch, state, capsys)
+    assert isinstance(outcome, state_manager.StateShapeError) and f'"{key}"' in str(outcome), repr(outcome)
+    assert unchanged
+
+
 # ---------------------------------------------------------------------------
 # The deliberate tolerances, one by one, with what they actually produce
 # ---------------------------------------------------------------------------
@@ -377,6 +416,21 @@ def test_deal_export_treats_a_non_list_collateral_as_no_collateral(tmp_path, mon
         sheet = workbook["Collateral & Exposure"]
         assert [sheet.cell(row=2, column=c).value for c in (1, 2, 7, 9)] == [None, None, None, None]
         assert sheet.cell(row=3, column=1).value == "Total"                # one blank asset row, then the total
+
+
+def test_deal_export_checks_the_inner_containers_of_an_object_downside_case(tmp_path, monkeypatch, capsys):
+    """Only a NON-object downside_case is tolerated; an object whose financials/ratios are not objects used to crash
+    deep inside with an AttributeError."""
+    for inner in ("financials", "ratios"):
+        for bad in ([1], "x", 7):
+            state = modern_state()
+            state["downside_case"] = {inner: bad}
+            outcome, unchanged = run_consumer("deal_export", tmp_path, monkeypatch, state, capsys)
+            assert isinstance(outcome, state_manager.StateShapeError), (inner, bad, repr(outcome))
+            assert f'"downside_case.{inner}" must be an object' in str(outcome) and unchanged
+    state = modern_state()                                       # a non-object PERIOD inside is still tolerated here
+    state["downside_case"] = {"financials": {"FY+1": 5}, "ratios": None}
+    assert run_consumer("deal_export", tmp_path, monkeypatch, state, capsys)[0] is None
 
 
 def test_deal_export_treats_a_non_object_downside_case_as_no_downside(tmp_path, monkeypatch, capsys):
@@ -519,6 +573,36 @@ def test_read_state_checks_only_the_top_level_unless_told_which_keys_to_check(tm
     assert state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base)["financials"] == [1]
     with pytest.raises(state_manager.StateShapeError, match='"financials"'):
         state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base, keys=("financials",))
+
+
+@pytest.mark.parametrize("content, fragment", [
+    (b'{"financials": ', "Expecting value"),
+    ("{}".encode("utf-16"), "UnicodeDecodeError"),                  # what PowerShell's `>` writes
+    (b"\xff\xfe\x00garbage", "UnicodeDecodeError"),
+    (b"[" * 200000, "RecursionError"),                             # absurd nesting
+], ids=["truncated", "utf16", "binary", "deeply-nested"])
+def test_a_file_that_is_not_readable_json_is_a_state_shape_error_not_a_crash(tmp_path, content, fragment):
+    base = str(tmp_path)
+    path = state_manager.state_path("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    Path(path).parent.mkdir(parents=True)
+    Path(path).write_bytes(content)
+    with pytest.raises(state_manager.StateShapeError, match="is corrupted and could not be parsed") as caught:
+        state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    assert fragment in str(caught.value)
+    assert Path(path).read_bytes() == content
+
+
+def test_validate_state_rejects_misuse_of_its_own_arguments():
+    with pytest.raises(TypeError, match="not a single string"):
+        state_manager.validate_state({}, keys="financials")
+    with pytest.raises(ValueError, match="unknown state shape kind 'wat'"):
+        state_manager.validate_state({"collateral": []}, keys={"collateral": "wat"})
+
+
+def test_a_long_financials_source_value_is_truncated_in_the_message():
+    with pytest.raises(state_manager.StateShapeError) as caught:
+        state_manager.validate_state({"financials_source": "x" * 5000})
+    assert len(str(caught.value)) < 600
 
 
 def test_a_corrupt_file_is_a_state_shape_error_and_still_a_value_error(tmp_path):

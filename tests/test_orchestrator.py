@@ -17,8 +17,8 @@ _compliant_draft() below. Drafts used only to exercise an LLM-originated (or
 deliberately triggered code-enforced) REJECTED path don't need one.
 """
 import json
-from pathlib import Path
 import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import docx
@@ -418,12 +418,32 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD
 # A state.json the pipeline cannot use is refused up front (issue #171)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("bad_state, key", [({"steps_completed": "triage"}, "steps_completed"),
-                                            ({"financials": [1]}, "financials"),
-                                            ({"covenants": {"metric": "dscr"}}, "covenants"),
-                                            ({"financials_source": "made-up"}, "financials_source")])
-def test_a_malformed_state_is_refused_before_any_model_call_or_write(project_root, bad_state, key):
+def _bad_value_for(key):
+    from state_manager import STATE_SHAPES
+    return "made-up" if STATE_SHAPES[key] == "source" else "x"      # a string is wrong for every other kind
+
+
+# What run_pipeline reads from an existing state, pinned as a LITERAL (parametrizing over the module's own constant
+# would let a dropped key take its test with it).
+ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
+                           "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
+                           "security_package", "guarantees", "review_trail")
+
+
+def _orchestrator_state_keys():
+    return list(ORCHESTRATOR_STATE_KEYS)
+
+
+def test_the_orchestrators_declared_keys_are_exactly_the_pinned_ones():
+    import orchestrator
+    assert tuple(orchestrator.STATE_KEYS_READ) == ORCHESTRATOR_STATE_KEYS
+
+
+@pytest.mark.parametrize("key", _orchestrator_state_keys())
+def test_a_malformed_state_is_refused_before_any_model_call_or_write(project_root, key):
+    """For every key the orchestrator reads (the pinned literal above)."""
     from state_manager import StateShapeError
+    bad_state = {key: _bad_value_for(key)}
     write_state("Acme Corp", "Fleet Loan", **bad_state)
     path = Path(state_path("Acme Corp", "Fleet Loan"))
     before = path.read_bytes()
@@ -431,6 +451,15 @@ def test_a_malformed_state_is_refused_before_any_model_call_or_write(project_roo
     with pytest.raises(StateShapeError, match=key):
         run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
     assert client.call_count == 0 and path.read_bytes() == before
+
+
+@pytest.mark.parametrize("key", _orchestrator_state_keys())
+def test_a_null_value_is_not_recorded_for_every_key_the_orchestrator_reads(project_root, key):
+    """`.get(key, default)` returns None for a present-but-null key; the pipeline must treat it as absent. Reaching the
+    first model call (here: the mock refusing one) proves the saved state was read without a crash."""
+    write_state("Acme Corp", "Fleet Loan", **{key: None})
+    with pytest.raises(AssertionError, match="more calls than responses"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=MockClient([]))
 
 
 # ---------------------------------------------------------------------------

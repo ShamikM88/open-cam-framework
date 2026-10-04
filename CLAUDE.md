@@ -468,12 +468,14 @@ a second look in review.
   today, so a deal resumed on a later calendar day still finds its original file. (This is
   deliberately different from the bare `deal_export.export_deal()` default, which is still
   today -- so callers resolve the date themselves via `resolve_date_str()`, see that script's
-  entry above and issue #97.) `read_state(company, proposal)` returns the parsed dict or `None`.
+  entry above and issue #97.) `read_state(company, proposal, keys=())` returns the parsed dict or `None`; it
+  raises `StateShapeError` for a corrupt or non-UTF-8 file, a top level that is not an object, or (when `keys`
+  names them) a wrongly-typed key -- see "Malformed state fails clearly" below.
   `write_state(company, proposal, **fields)` shallow-merges `fields` into the existing state (if
   any), always keeps `company`/`proposal`/`date` in sync, creates the deal directory if needed
   (reusing an existing one per the auto-discovery above), and returns the full merged state.
   **`write_state()` and `append_review_trail()` never downgrade a state (issue #170).** Before touching anything, they
-  `append_review_trail()` compare the file's recorded `schema_version` with this code's `SCHEMA_VERSION`,
+  compare the file's recorded `schema_version` with this code's `SCHEMA_VERSION`,
   numerically per `MAJOR.MINOR.PATCH` part (`1.10.0` is newer than `1.9.0`; `parse_schema_version()`). Equal,
   older, and absent (read back as `LEGACY_SCHEMA_VERSION`, `0.0.0`) are written and upgraded to `SCHEMA_VERSION`
   as before, unknown fields preserved. A **newer** version raises `SchemaVersionError` (a `ValueError`) naming
@@ -503,9 +505,14 @@ a second look in review.
   tolerances, kept:** a null value is "not recorded" for every key (a null period is empty); `deal_export` treats a
   non-object period inside `financials`/`analyst_supplied_financials` as empty, a non-list `collateral` as no
   collateral (one blank row) and a non-object `downside_case` as no downside case, as it always has, and so
-  validates only that those two raw-figure keys are objects and that `financials_source` is a known value (it
-  decides which raw store is read). `export_deal()` reads and validates state before it creates the output folder or
-  auto-saves a template, so a refusal leaves nothing behind. Every CLI that reads state (`spreading_check`,
+  validates only that those two raw-figure keys are objects, that an object `downside_case`'s inner
+  `financials`/`ratios` are objects, and that `financials_source` is a known value (it decides which raw store is
+  read). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
+  other: earlier code silently read it as empty. `export_deal()` reads and validates state before it creates the
+  output folder or auto-saves a template, so a refusal leaves nothing behind; for a bare call with no `date_str`
+  this also means a deal whose state sits in an earlier dated folder is now found (before, the freshly created
+  empty folder was discovered first and the workbook came out blank); the CLI and the orchestrator always pass
+  the date, so they are unaffected. Every CLI that reads state (`spreading_check`,
   `policy_check`, `deal_export`, `orchestrator`, `state_manager --check-steps`, `source_manifest --check-sources`)
   catches `StateError` and prints one `error: ...` line to stderr with exit status 1, never a traceback; the "always
   exits 0" of the two `--check-*` modes is about their *results* (a missing step or source is not an error), not
@@ -530,8 +537,9 @@ a second look in review.
   own combined step tags its entries `"research"`) and floor-level (at least one saved source,
   not an exhaustive 1:1 match to every citation -- some sources are legitimately unsaveable, e.g.
   a bot-blocked page). Wired into the same three commands via a `--check-sources` CLI mode
-  (mirrors `state_manager.py`'s own `--check-steps`: prints JSON, always exits 0, the calling
-  command's prose decides what to do with a `true` result).
+  (mirrors `state_manager.py`'s own `--check-steps`: prints JSON and exits 0 whatever the result -- a
+  state.json it cannot read is an error, exit 1 -- and the calling command's prose decides what to do
+  with a `true` result).
 
 - **`scripts/policy_engine.py`** — no `anthropic` dependency. `evaluate_deal_policy(state_dict)`
   is the deterministic governance core: covenant PASS/FAIL/UNRESOLVABLE evaluation against

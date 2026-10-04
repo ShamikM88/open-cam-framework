@@ -424,6 +424,14 @@ def test_policy_check_reports_a_corrupt_state_file_cleanly(cli):
     _assert_a_clean_state_error(cli("policy_check", "--company", "Acme", "--proposal", "Loan"), "is corrupted")
 
 
+def test_policy_check_reports_a_utf16_state_file_cleanly(cli):
+    """What PowerShell's `>` redirection writes: not UTF-8, not a traceback."""
+    folder = cli.workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_bytes("{}".encode("utf-16"))
+    _assert_a_clean_state_error(cli("policy_check", "--company", "Acme", "--proposal", "Loan"), "is corrupted")
+
+
 def test_policy_check_reports_a_top_level_list_cleanly(cli):
     _write_state(cli.workdir, [1, 2, 3])
     _assert_a_clean_state_error(cli("policy_check", "--company", "Acme", "--proposal", "Loan"), "the top level must be")

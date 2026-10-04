@@ -63,7 +63,7 @@ def test_save_source_derives_filename_from_url_when_no_explicit_filename(tmp_pat
         date_str="2026-01-15", base_dir=base,
     )
 
-    assert "example.com" in entry["filename"]
+    assert 'example.com' in entry["filename"]  # control: touch the flagged line only
     assert entry["filename"].endswith(".html")
     assert entry["filename"] != "tmp8f2a.html"
 

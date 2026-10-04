@@ -37,6 +37,8 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 
+from spreading_builder import describe_undefined_ratio
+
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
 
 # Always required regardless of deal-specific structure.
@@ -80,9 +82,16 @@ def _slugify(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12].upper()
 
 
-def _evaluate_covenant(covenant, ratios):
+def _evaluate_covenant(covenant, ratios, financials=None):
     """One covenant's PASS/FAIL/UNRESOLVABLE result against `ratios`
     (a single period's ratios dict, e.g. state.json's ratios["FY-Current"]).
+    `financials` is that same period's `financials` dict, used only to explain WHY a ratio is N/A.
+
+    Every result carries a `reason`: None for PASS/FAIL, one sentence for UNRESOLVABLE. For a ratio that is N/A
+    because its denominator is zero or negative (issue #169) the sentence names the metric and the denominator,
+    e.g. "gross leverage not meaningful: EBITDA is negative". Such a covenant is UNRESOLVABLE -- never PASS, and
+    never FAIL either (the ratio is not a number; the covenant cannot be tested) -- and the same holds for a
+    minimum and a maximum covenant alike.
 
     Boundary rule: actual == threshold is a PASS for both minimum and
     maximum covenants (>= and <= both include equality).
@@ -91,7 +100,7 @@ def _evaluate_covenant(covenant, ratios):
     key), an unrecognized `type` (not "minimum"/"maximum"), a missing or
     non-numeric `threshold`, or a `metric` whose ratios value is itself
     missing/non-numeric (e.g. `None`, from a ratio spreading_builder.py
-    left undefined because its denominator was 0 -- see
+    left undefined because its denominator was zero or negative -- see
     evaluate_financial_model()) is UNRESOLVABLE, never silently skipped or
     allowed to crash the comparison below it -- the covenant still appears
     in the result with actual/headroom_pct left as None.
@@ -117,15 +126,31 @@ def _evaluate_covenant(covenant, ratios):
         "actual": None,
         "status": "UNRESOLVABLE",
         "headroom_pct": None,
+        "reason": None,
     }
 
     threshold_is_numeric = isinstance(threshold, (int, float)) and not isinstance(threshold, bool)
-    if covenant_type not in ("minimum", "maximum") or metric not in ratios or not threshold_is_numeric:
+    if covenant_type not in ("minimum", "maximum"):
+        result["reason"] = f"unrecognized covenant type {covenant_type!r} (expected 'minimum' or 'maximum')"
+        return result
+    if not threshold_is_numeric:
+        result["reason"] = "the covenant threshold is missing or not a number"
+        return result
+    if metric not in ratios:
+        result["reason"] = f"metric {metric!r} is not among this period's computed ratios"
         return result
 
     actual = ratios[metric]
     actual_is_numeric = isinstance(actual, (int, float)) and not isinstance(actual, bool)
+    explanation = describe_undefined_ratio(metric, financials)
+    if explanation is not None:
+        # A RECORDED denominator is zero or negative, so the ratio is not meaningful whatever number is stored next to
+        # it: a ratio recorded as given in analyst-supplied mode, or checkpointed by an earlier version that divided by
+        # a negative EBITDA, must not pass a covenant either (issue #169). The stored figure is ignored.
+        result["reason"] = explanation + (f" (the recorded value {actual!r} is ignored)" if actual_is_numeric else "")
+        return result
     if not actual_is_numeric:
+        result["reason"] = f"{metric} has no computed value for this period"
         return result
 
     result["actual"] = actual
@@ -400,7 +425,8 @@ def _guarantee_standing_cs(guarantees):
     return cs_list
 
 
-def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios):
+def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_financials=None,
+                                 downside_financials=None):
     """For each covenant, independently re-check it against every forward
     period that has both a base-case and a downside-case ratio set. Where
     the base case PASSes but the downside (stressed) case FAILs, record it
@@ -417,8 +443,14 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios):
     pre-sliced to one period, unlike `_evaluate_covenant`'s own `ratios`
     argument, since this needs every forward period present in both.
 
+    A covenant that PASSes in the base case but is UNRESOLVABLE in the downside case also counts (issue #169): if
+    the stress drives EBITDA or equity to zero or below, the leverage/gearing ratio is N/A, which is not a pass --
+    and silently dropping it here would hide exactly the severest stress outcome. Such an entry has
+    `downside_actual` None, `downside_status` "UNRESOLVABLE" and a `reason` naming the metric and denominator;
+    an ordinary FAIL has `downside_status` "FAIL" and `reason` None.
+
     Returns a list of {"year", "metric", "base_actual", "downside_actual",
-    "threshold", "breach_id"}. `breach_id` is built from _slugify() (the
+    "threshold", "breach_id", "downside_status", "reason"}. `breach_id` is built from _slugify() (the
     same stable-identifier convention as `cp_id`), so a downside breach for
     "FY+2"/"dscr" always slugifies to the same id (e.g.
     "DOWNSIDE-FY-2-DSCR" -- "+" is not alphanumeric, so it slugifies to
@@ -432,11 +464,15 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios):
         base_ratios_for_period = all_ratios[period] or {}
         downside_ratios_for_period = downside_ratios[period] or {}
 
-        for covenant in covenants:
-            base_result = _evaluate_covenant(covenant, base_ratios_for_period)
-            downside_result = _evaluate_covenant(covenant, downside_ratios_for_period)
+        base_financials_for_period = _period_dict(base_financials, period)
+        downside_financials_for_period = _period_dict(downside_financials, period)
 
-            if base_result["status"] == "PASS" and downside_result["status"] == "FAIL":
+        for covenant in covenants:
+            base_result = _evaluate_covenant(covenant, base_ratios_for_period, base_financials_for_period)
+            downside_result = _evaluate_covenant(covenant, downside_ratios_for_period,
+                                                 downside_financials_for_period)
+
+            if base_result["status"] == "PASS" and downside_result["status"] in ("FAIL", "UNRESOLVABLE"):
                 metric = covenant.get("metric")
                 breaches.append({
                     "year": period,
@@ -445,9 +481,18 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios):
                     "downside_actual": downside_result["actual"],
                     "threshold": base_result["threshold"],
                     "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                    "downside_status": downside_result["status"],
+                    "reason": downside_result["reason"],
                 })
 
     return breaches
+
+
+def _period_dict(financials, period):
+    """One period's `financials` dict, or None if `financials` is absent or not shaped like {period: {...}} --
+    it only feeds an explanatory sentence, so a malformed value must never turn into a new failure here."""
+    value = financials.get(period) if isinstance(financials, dict) else None
+    return value if isinstance(value, dict) else None
 
 
 def evaluate_deal_policy(state_dict):
@@ -466,11 +511,12 @@ def evaluate_deal_policy(state_dict):
 
     Returns:
     {
-        "covenant_results": [{"metric", "type", "threshold", "actual", "status", "headroom_pct"}, ...],
+        "covenant_results": [{"metric", "type", "threshold", "actual", "status", "headroom_pct", "reason"}, ...],
         "security_gaps": [str, ...],
         "required_conditions_precedent": [{"cp_id", "text"}, ...],
         "required_conditions_subsequent": [{"cs_id", "text"}, ...],
-        "downside_covenant_breaches": [{"year", "metric", "base_actual", "downside_actual", "threshold", "breach_id"}, ...],
+        "downside_covenant_breaches": [{"year", "metric", "base_actual", "downside_actual", "threshold", "breach_id",
+                                        "downside_status", "reason"}, ...],
     }
     """
     state_dict = state_dict or {}
@@ -482,10 +528,14 @@ def evaluate_deal_policy(state_dict):
     covenants = state_dict.get("covenants") or []
     downside_ratios = (state_dict.get("downside_case") or {}).get("ratios") or {}
 
-    covenant_results = [_evaluate_covenant(covenant, ratios) for covenant in covenants]
+    base_financials = state_dict.get("financials")
+    covenant_results = [_evaluate_covenant(covenant, ratios, _period_dict(base_financials, "FY-Current"))
+                        for covenant in covenants]
     security_gaps, security_cps = _evaluate_security(collateral, security_package)
     guarantee_cps = _guarantee_cps(guarantees)
-    downside_covenant_breaches = _evaluate_downside_covenants(covenants, all_ratios, downside_ratios)
+    downside_covenant_breaches = _evaluate_downside_covenants(
+        covenants, all_ratios, downside_ratios, base_financials,
+        (state_dict.get("downside_case") or {}).get("financials"))
 
     required_conditions_precedent = (
         list(STANDARD_CONDITIONS_PRECEDENT) + security_cps + guarantee_cps

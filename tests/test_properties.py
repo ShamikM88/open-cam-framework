@@ -11,12 +11,13 @@ Covered:
 - `policy_checks.values_match`: the tolerance rule's shape (monotonic, sign-symmetric, scale-invariant);
 - `spreading_check.compute`: merging the same raw period twice changes nothing, and a partial update never
   drops a previously recorded field (the bug class fixed in #122);
-- `spreading_builder.evaluate_financial_model`: zero denominators give None, nothing raises or yields NaN/inf, net
-  debt and scaling identities, determinism, and the caller's data is never mutated.
+- `spreading_builder.evaluate_financial_model`: zero or negative denominators give None, nothing raises or yields
+  NaN/inf, net debt and scaling identities, determinism, and the caller's data is never mutated.
 
-Negative denominators are NOT asserted to give "N/A": today they give a finite negative ratio, which lets a borrower
-with negative EBITDA or equity PASS a maximum-leverage or maximum-gearing covenant. That is a production defect found
-while writing these tests; it is recorded below as strict xfails and reported separately, not fixed here.
+Negative denominators once gave a finite negative ratio, which let a borrower with negative EBITDA or equity PASS a
+maximum-leverage or maximum-gearing covenant (found while writing these tests, tracked as #169, recorded here as
+strict xfails until fixed). They are now N/A and the covenant is UNRESOLVABLE; the regression tests are below and
+tests/test_nonpositive_denominators.py covers the covenant, downside and workbook sides.
 """
 import builtins
 import itertools
@@ -340,7 +341,7 @@ def test_the_merge_properties_catch_each_deliberate_breakage(broken):
 # ---------------------------------------------------------------------------
 
 raw_figures = st.dictionaries(st.sampled_from(RAW_FIELDS), st.one_of(amounts, st.none()), max_size=len(RAW_FIELDS))
-# Denominators of each ratio, as (raw, financials) -> number. Zero means the ratio is undefined.
+# Denominators of each ratio, as (raw, financials) -> number. Zero or negative means the ratio is N/A (issue #169).
 DENOMINATORS = {
     "dscr": lambda raw, fin: (raw.get("interest_paid") or 0) + (raw.get("scheduled_principal") or 0),
     "gross_leverage": lambda raw, fin: fin["ebitda"],
@@ -362,7 +363,7 @@ def check_zero_denominators(evaluate):
         out = evaluate({"FY-Current": raw})
         financials, ratios = out["financials"]["FY-Current"], out["ratios"]["FY-Current"]
         for name, denominator in DENOMINATORS.items():
-            assert (ratios[name] is None) == (denominator(raw, financials) == 0), name
+            assert (ratios[name] is None) == (denominator(raw, financials) <= 0), name
         days = [ratios[k] for k in ("trade_debtor_days", "stock_days", "trade_creditor_days")]
         assert (ratios["working_capital_cycle_days"] is None) == (None in days)
         assert ratios["EBIT/Interest"] == ratios["ebit_interest_cover"]
@@ -372,7 +373,7 @@ def check_zero_denominators(evaluate):
     prop()
 
 
-def test_a_zero_denominator_gives_none_and_nothing_raises_or_goes_nan_or_infinite():
+def test_a_zero_or_negative_denominator_gives_none_and_nothing_raises_or_goes_nan_or_infinite():
     check_zero_denominators(spreading_builder.evaluate_financial_model)
 
 
@@ -392,8 +393,19 @@ def _none_for_a_nonzero_denominator(multi_period_data):
     return out
 
 
-@pytest.mark.parametrize("broken", [_zero_instead_of_none, _none_for_a_nonzero_denominator],
-                         ids=["zero-instead-of-none", "none-when-defined"])
+def _a_number_for_a_negative_denominator(multi_period_data):
+    """The #169 defect itself: divide by a negative denominator anyway."""
+    out = spreading_builder.evaluate_financial_model(multi_period_data)
+    for period, ratios in out["ratios"].items():
+        for name, denominator in DENOMINATORS.items():
+            if denominator(multi_period_data[period], out["financials"][period]) < 0:
+                ratios[name] = -1.0
+    return out
+
+
+@pytest.mark.parametrize("broken", [_zero_instead_of_none, _none_for_a_nonzero_denominator,
+                                    _a_number_for_a_negative_denominator],
+                         ids=["zero-instead-of-none", "none-when-defined", "number-when-negative"])
 def test_the_denominator_property_catches_each_deliberate_breakage(broken):
     with pytest.raises(PROPERTY_FAILED):
         check_zero_denominators(broken)
@@ -411,7 +423,7 @@ def test_missing_and_none_inputs_are_treated_as_zero_and_the_empty_model_is_empt
 def test_net_debt_to_ebitda_is_total_debt_less_cash_over_ebitda(raw):
     out = spreading_builder.evaluate_financial_model({"FY-Current": raw})
     financials, ratios = out["financials"]["FY-Current"], out["ratios"]["FY-Current"]
-    if financials["ebitda"] == 0:
+    if financials["ebitda"] <= 0:
         assert ratios["net_debt_to_ebitda"] is None
     else:
         net_debt = financials["total_debt"] - (raw.get("cash") or 0)
@@ -448,19 +460,14 @@ def test_the_model_is_deterministic_and_never_mutates_or_aliases_its_input(raw):
 
 
 # ---------------------------------------------------------------------------
-# Negative denominators: a production defect, recorded and NOT fixed here
+# Negative denominators are N/A (issue #169; these were strict xfails until it was fixed)
 # ---------------------------------------------------------------------------
-
-DEFECT = ("production defect found by #143: a negative denominator yields a finite negative ratio instead of None "
-          "(N/A), so a negative-EBITDA or negative-equity borrower can PASS a maximum covenant; reported "
-          "separately -- remove this xfail when it is fixed (strict: it fails once the behaviour changes)")
 
 LOSS_MAKING = {"revenue": 1000, "cost_of_sales": 1200, "admin_expenses": 100, "interest_paid": 50,
                "scheduled_principal": 20, "long_term_debt": 500, "share_capital": 100, "retained_profit": -300,
                "cash": 10}
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 @pytest.mark.parametrize("ratio", ["gross_leverage", "net_debt_to_ebitda", "fcf_conversion_pct"])
 def test_a_negative_ebitda_gives_na_for_the_ratios_it_divides(ratio):
     model = spreading_builder.evaluate_financial_model({"FY-Current": LOSS_MAKING})
@@ -468,18 +475,16 @@ def test_a_negative_ebitda_gives_na_for_the_ratios_it_divides(ratio):
     assert model["ratios"]["FY-Current"][ratio] is None
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 def test_negative_equity_gives_na_gearing():
     model = spreading_builder.evaluate_financial_model({"FY-Current": LOSS_MAKING})
     assert model["financials"]["FY-Current"]["total_equity"] < 0
     assert model["ratios"]["FY-Current"]["gearing"] is None
 
 
-@pytest.mark.xfail(strict=True, reason=DEFECT)
 def test_a_loss_making_borrower_does_not_pass_maximum_leverage_and_gearing_covenants():
     model = spreading_builder.evaluate_financial_model({"FY-Current": LOSS_MAKING})
     state = {"financials": model["financials"], "ratios": model["ratios"], "covenants": [
         {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5},
         {"metric": "gearing", "type": "maximum", "threshold": 2.0}]}
     statuses = {r["metric"]: r["status"] for r in policy_engine.evaluate_deal_policy(state)["covenant_results"]}
-    assert "PASS" not in statuses.values(), statuses
+    assert statuses == {"gross_leverage": "UNRESOLVABLE", "gearing": "UNRESOLVABLE"}   # never PASS, never a false FAIL

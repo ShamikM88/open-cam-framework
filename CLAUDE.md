@@ -55,6 +55,7 @@ open-cam-framework/
 │   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only: --validate/--list/--dry-run make zero model calls; --live spends real API calls under a hard cap; --export-baseline/--compare) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap), eval_runner.py (the isolated live runner), eval_baseline.py (baseline export/compare); see "Execution scripts" below and issue #151
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json (`--write` updates the file by hand) -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" below)
 │   ├── check_coverage.py        Checks coverage.py's JSON report against the floors in pyproject.toml -- overall plus a higher per-module floor for the eight governance modules; CI's code-enforced coverage gate (no anthropic dependency; see "Testing and static analysis" below)
+│   ├── mutation_report.py       Per-module mutation score + completeness report from `mutmut results --all true`, run by the weekly mutation workflow -- diagnostic only, never fails over a score (no anthropic dependency; see "Testing and static analysis" below)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   ├── spreading_check.py       Standalone CLI wrapper around spreading_builder.py's formula evaluation -- compute(); callable from /spread's and /project's own Bash steps so the slash-command interface gets the same code-enforced subtotal/ratio computation orchestrator.py's headless pipeline does (no anthropic dependency; see "Execution scripts" below)
@@ -664,6 +665,11 @@ a second look in review.
   meet on its own (a critical module missing from the report fails; it is never a pass). Exit 0 when met, 1 when
   not, 2 for an unreadable report or config; `--report-only` prints the table and always exits 0. See "Testing
   and static analysis" for the floors.
+- **`scripts/mutation_report.py`** — no `anthropic` dependency. Turns `mutmut results --all true` output into a score
+  per module (see "Testing and static analysis", Mutation testing). `python scripts/mutation_report.py mutation-all.txt
+  [--config pyproject.toml] [--top 15] [--json report.json]` prints a Markdown table (the workflow appends it to the job
+  summary) and exits 0 whenever a report was produced, 2 for an unreadable results file or configuration. Module lists
+  come from `[tool.mutmut] only_mutate` and `[tool.opencam.coverage] critical_modules`.
 - **`scripts/check_test_count.py`** — no `anthropic` dependency. `parse_passed_count(pytest_output)`
   extracts the passed-test count from pytest's own summary line (e.g. `"430 passed in 16.27s"` or
   `"428 passed, 2 skipped in 12.34s"`); `read_badge_count(badge_path=None)` reads
@@ -814,7 +820,7 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   Lowering a floor or dropping a module from the list is a reviewed decision (`tests/test_check_coverage.py`
   pins the minimums); raising one is a one-line change.
 - **The command-line surface is tested as a user meets it** (issue #144). `tests/test_cli_subprocess.py` runs each
-  of the 13 scripts that have a `__main__` block as a real subprocess in a throwaway working directory, with the
+  of the 14 scripts that have a `__main__` block as a real subprocess in a throwaway working directory, with the
   Anthropic variables removed and the home/config directories pointed at an empty directory (the SDK also
   reads an on-disk credentials profile, which would otherwise let a child make a paid call): `--help` exits 0, an unknown flag exits 2, a representative minimal input does the
   job, and an impossible input exits non-zero. `orchestrator.py` is the one script that cannot be run end to end
@@ -867,12 +873,22 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   issue #146): mutmut changes one line of a governance module at a time and checks that a test then fails;
   a surviving mutant is a line that coverage counts as executed but nothing really asserts on. It runs
   **weekly (Mondays) and on demand only -- never on a pull request or push**, on Ubuntu (mutmut forks, so
-  not Windows), over exactly the eight `critical_modules` of `[tool.opencam.coverage]` (a test pins the two
-  lists together) with the ten test files that exercise them. The result is a downloadable `mutation-report`
-  artifact (survivors, statistics, per-file metadata under mutants/src, run log) and a score in the job summary.
-  **It is diagnostic: no score is enforced and the job is not a required check.** A threshold is decided
-  from the first full run's numbers in a later, reviewed change. The job fails only if mutmut produced no
-  result at all. To run it by hand on Linux/macOS: `pip install -r requirements-dev.txt -r requirements-mutation.txt &&
+  not Windows). **Scope:** the eight `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
+  chunker/merge helpers, as a *supporting* module -- scored and reported, but not governance-critical and so not in
+  the coverage floors); a test pins `only_mutate` to exactly those and the supporting list. The result is a
+  downloadable `mutation-report` artifact (survivors, **every mutant with its status** in `mutation-all.txt`, the
+  per-module report as JSON, statistics, per-file metadata under mutants/src, run log) and, in the job summary, the
+  overall score **and `scripts/mutation_report.py`'s per-module table**: a score per module
+  (`(killed + timed out) / (mutants - skipped)`, so a mutant no test reaches counts against its module), completeness
+  warnings (a configured module with no mutants, a module whose mutants mostly have no test, mutants never checked,
+  a survivors-only listing) and the largest groups of survivors, the starting point for triage.
+  **It is diagnostic: no score is enforced and the job is not a required check.** A target for the eight governance
+  modules is set, in a reviewed change, by adding `[tool.opencam.mutation] target_critical = <percent>` to
+  `pyproject.toml` once the per-module numbers of a full run have been read; the report then marks each of them
+  met/below, and still never fails a build. The job fails only if mutmut produced no result at all.
+  **Survivor triage** is recorded on issue #146 (first full run: 506 survivors, 141 mutants with no test, 22
+  timeouts); the biggest cluster is `main()` command-line wrappers, which are exercised only by the subprocess tests
+  (`tests/test_cli_subprocess.py`) that neither run under mutmut nor are visible to it. To run it by hand on Linux/macOS: `pip install -r requirements-dev.txt -r requirements-mutation.txt &&
   ln -s scripts src && mutmut run` (and `rm src` afterwards; `src` and `mutants/` are git-ignored).
 - **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than
   examples -- the chunker loses no text, the merge loop never drops a field, `values_match` is symmetric,

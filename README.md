@@ -299,8 +299,8 @@ SHAs and every job has read-only permissions. A reviewed advisory with no fix av
 a reviewed PR that adds `--ignore-vuln <ID>` and a reason comment to the `pip-audit` command (see CLAUDE.md,
 "Testing and static analysis"); the audit itself is never switched off. Separately, a **weekly mutation-testing run**
 (`.github/workflows/mutation.yml`, Linux only, also startable by hand from the Actions tab) mutates the
-eight governance modules and reports which mutants no test caught; it is a diagnostic report, not a
-merge gate.
+eight governance modules (and the `calibrate.py` helpers) and reports a score per module plus the mutants
+no test caught; it is a diagnostic report, not a merge gate.
 
 Beyond example-based unit tests the suite includes property-based tests (`hypothesis`), historical and
 malformed `state.json` fixtures, and golden-output tests that compare the exported `.docx`/`.xlsx` with

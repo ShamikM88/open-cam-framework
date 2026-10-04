@@ -32,8 +32,8 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "orchestrator", "pii_scan", "policy_check",
-    "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
+    "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "mutation_report", "orchestrator",
+    "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
 )
 
 
@@ -288,6 +288,29 @@ def test_check_coverage_passes_a_compliant_report_and_fails_a_weak_one(cli):
 def test_check_coverage_on_a_missing_report_exits_two_naming_the_file(cli):
     result = cli("check_coverage", "no-such-report.json")
     assert result.returncode == 2 and "no-such-report.json" in result.stderr
+
+
+def test_mutation_report_prints_a_per_module_table_and_never_fails_over_a_score(cli):
+    config = cli.workdir / "pyproject.toml"
+    config.write_text('[tool.mutmut]\nonly_mutate = ["src/alpha.py", "src/beta.py"]\n'
+                      '[tool.opencam.coverage]\ncritical_modules = ["alpha"]\n', encoding="utf-8")
+    results = cli.workdir / "all.txt"
+    results.write_text("    alpha.x_f__mutmut_1: killed\n    alpha.x_f__mutmut_2: survived\n"
+                       "    beta.x_g__mutmut_1: killed\n", encoding="utf-8")
+    out = cli.workdir / "report.json"
+    result = cli("mutation_report", results, "--config", config, "--json", out)
+    assert result.returncode == 0, result.stderr
+    assert "| alpha | critical | 2 | 1 | 0 | 1 | 0 | 50.0% | 50.0% |" in result.stdout
+    assert "| beta | supporting | 1 | 1 | 0 | 0 | 0 | 100.0% | 100.0% |" in result.stdout
+    assert json.loads(out.read_text(encoding="utf-8"))["total"]["total"] == 3
+    results.write_text("    alpha.x_f__mutmut_1: survived\n", encoding="utf-8")      # survivors only: warned, exit 0
+    poor = cli("mutation_report", results, "--config", config)
+    assert poor.returncode == 0 and "survivors-only" in poor.stdout
+
+
+def test_mutation_report_on_a_missing_results_file_exits_two_naming_it(cli):
+    result = cli("mutation_report", "no-such-results.txt")
+    assert result.returncode == 2 and "no-such-results.txt" in result.stderr
 
 
 def test_check_test_count_passes_on_a_match_and_fails_on_a_mismatch(cli):

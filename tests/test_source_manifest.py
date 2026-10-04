@@ -2,6 +2,7 @@ import json
 import os
 import threading
 import time
+from urllib.parse import urlparse
 from unittest.mock import patch
 
 import pytest
@@ -55,15 +56,18 @@ def test_save_source_writes_a_manifest_entry_with_all_fields(tmp_path):
 def test_save_source_derives_filename_from_url_when_no_explicit_filename(tmp_path):
     base = str(tmp_path)
     source_path = _local_file(tmp_path, name="tmp8f2a.html")  # meaningless scratch name
+    url = "https://example.com/about-us"
 
     entry = save_source(
         "Acme Corp", "Fleet Loan", step="commercial",
         claim="Company website About page",
-        source_path=source_path, url="https://example.com/about-us",
+        source_path=source_path, url=url,
         date_str="2026-01-15", base_dir=base,
     )
 
-    assert "example.com" in entry["filename"]
+    host = urlparse(url).hostname
+    assert host is not None
+    assert entry["filename"].startswith(f"{host}_")
     assert entry["filename"].endswith(".html")
     assert entry["filename"] != "tmp8f2a.html"
 

@@ -231,7 +231,7 @@ def test_the_repositorys_own_configuration_loads_and_covers_the_governance_modul
     config = load_config()
     assert set(config["critical"]) <= set(config["modules"])
     assert set(config["modules"]) - set(config["critical"]) == {"calibrate"}      # the supporting module (#146)
-    assert config["target_critical"] is None            # not set: decided from a full run's numbers, reviewed
+    assert config["target_critical"] == 75.0     # the diagnostic target chosen after the first full run (#146)
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +277,15 @@ def test_a_score_exactly_at_the_target_meets_it():
     text = results_text(lines("alpha", "x_f", ["killed", "survived"]))
     assert summarize(parse_results(text), dict(CONFIG, target_critical=50.0))["modules"]["alpha"]["meets_target"] is True
     assert summarize(parse_results(text), dict(CONFIG, target_critical=50.1))["modules"]["alpha"]["meets_target"] is False
+
+
+def test_a_module_below_the_repositorys_own_target_is_reported_below_and_the_exit_status_stays_zero(tmp_path, capsys):
+    """The 75% target is diagnostic (#146): below target is shown as `below`, never as a failure."""
+    config = load_config()
+    critical = config["critical"][0]
+    results = tmp_path / "all.txt"
+    results.write_text(lines(critical, "x_f", ["killed"] * 6 + ["survived"] * 4), encoding="utf-8")       # 60%
+    assert mutation_report.main([str(results)]) == 0
+    out = capsys.readouterr().out
+    assert f"| {critical} | critical | 10 | 6 | 0 | 4 | 0 | 60.0% | 60.0% | below |" in out
+    assert "Target for critical modules: 75.0%" in out

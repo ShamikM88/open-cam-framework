@@ -69,9 +69,9 @@ fail_under = 90
 # copies source_paths and tests/ into mutants/, mutates the eight governance modules plus calibrate.py (the
 # calibrate chunker/merge helpers, as a supporting module) one line at a time, and runs only the test files below
 # against each mutant. Linux/macOS only. scripts/mutation_report.py turns the result into a score per module. No
-# score is enforced: the report is diagnostic. To set a target for the eight governance modules, add
-# `[tool.opencam.mutation]` with `target_critical = <percent>` in a reviewed change once the per-module numbers of a
-# full run have been read; the report then marks each of them met/below, and still never fails a build.
+# score is enforced: the report is diagnostic. `target_critical` below is a diagnostic target for the eight
+# governance modules (chosen after the first full run, issue #146): the report marks each of them met or below,
+# and never fails a build over it. Changing it is a reviewed change.
 #
 # mutmut names a mutant after the module's path and strips a leading "src." only; the tests import these modules
 # as top-level names (`import deal_export`, via tests/conftest.py), so scripts/ is exposed to mutmut as src/
@@ -93,3 +93,8 @@ pytest_add_cli_args_test_selection = [
     "tests/test_calibrate.py", "tests/test_properties.py",
 ]
 also_copy = [".github"]    # a golden-output test reads the workflow files, so the mutants/ copy needs them
+
+# Diagnostic target, in percent, for the mutation score of each governance-critical module (issue #146). Not a gate:
+# the mutation workflow is not a required check, and a module below target is reported, never failed.
+[tool.opencam.mutation]
+target_critical = 75

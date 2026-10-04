@@ -12,10 +12,15 @@ state_manager.py's pattern.
 import argparse
 import json
 import os
+import sys
 
 from policy_checks import check_draft_compliance, ground_truth_figures
 from policy_engine import evaluate_deal_policy
-from state_manager import read_state
+from state_manager import StateError, read_state
+
+# The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
+STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
+                   "downside_case", "financials_source")
 
 
 def compute(company, proposal, draft_path=None):
@@ -45,7 +50,7 @@ def compute(company, proposal, draft_path=None):
     flag, not because the brief is actually sound, but because none of
     that data exists yet for this deal.
     """
-    state = read_state(company, proposal) or {}
+    state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
     financials = state.get("financials") or {}
     ratios = state.get("ratios") or {}
     collateral = state.get("collateral") or []
@@ -102,4 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("--draft", help="Path to a drafted CAM Markdown file to check for compliance")
     args = parser.parse_args()
 
-    print(json.dumps(compute(args.company, args.proposal, draft_path=args.draft), indent=2))
+    try:
+        print(json.dumps(compute(args.company, args.proposal, draft_path=args.draft), indent=2))
+    except StateError as exc:
+        sys.exit(f"error: {exc}")

@@ -483,10 +483,33 @@ a second look in review.
   newer file is to update this checkout of the framework, never to edit the version by hand. **Limits:** the
   guard covers only those two functions, i.e. `spreading_check.py` (the `/spread` and `/project` Bash steps) and
   `orchestrator.py`; the slash commands that record their step by writing `state.json` directly with Claude's
-  file tools (`/triage`, `/research`, `/commercial`, `/collateral`, `/review`, `/assemble`) bypass it. Those two
-  CLIs currently show the refusal as a raw `SchemaVersionError` traceback (`orchestrator.py` refuses at its first
-  `write_state`, before any model call); turning state errors into one-line messages is issue #171.
+  file tools (`/triage`, `/research`, `/commercial`, `/collateral`, `/review`, `/assemble`) bypass it. Every CLI
+  shows the refusal as one `error:` line and exit status 1 (see the next paragraph; `orchestrator.py` refuses at its
+  first `write_state`, before any model call).
   A caller that passes `schema_version=` explicitly still overrides the stamp (unchanged behaviour).
+  **Malformed state fails clearly (issue #171).** `StateError` (a `ValueError`) is the base for "this state.json's
+  content cannot be used": `SchemaVersionError` (above) and `StateShapeError` (corrupt JSON, a top level that is not
+  an object, or a key of the wrong type). `validate_state(state, keys=None, path=...)` checks the container types
+  in `STATE_SHAPES` -- `financials`, `ratios`, `multi_period_financials`, `analyst_supplied_financials` are objects
+  keyed by period whose values are objects; `inputs`, `stress_assumptions` are objects; `downside_case` is an object
+  whose optional `financials`/`ratios` are period objects; `collateral`, `covenants`, `security_package`,
+  `guarantees`, `steps_completed`, `review_trail` are lists (their elements are not inspected);
+  `financials_source` is `"framework-computed"` or `"analyst-supplied"` -- and raises one `StateShapeError` naming
+  every offending key, its required type and what was found, and the file. **Each consumer validates the keys it
+  reads**, via `read_state(..., keys=...)`: `spreading_check.STATE_KEYS_READ`, `policy_check.STATE_KEYS_READ`,
+  `deal_export.STATE_KEYS_READ`, `orchestrator.STATE_KEYS_READ`, `--check-steps` (`steps_completed`),
+  `append_review_trail` (`review_trail`); a deal is never rejected for a key that step does not use, and unknown
+  keys are never inspected (a newer framework's fields survive). The top level is checked on every read. **Deliberate
+  tolerances, kept:** a null value is "not recorded" for every key (a null period is empty); `deal_export` treats a
+  non-object period inside `financials`/`analyst_supplied_financials` as empty, a non-list `collateral` as no
+  collateral (one blank row) and a non-object `downside_case` as no downside case, as it always has, and so
+  validates only that those two raw-figure keys are objects and that `financials_source` is a known value (it
+  decides which raw store is read). `export_deal()` reads and validates state before it creates the output folder or
+  auto-saves a template, so a refusal leaves nothing behind. Every CLI that reads state (`spreading_check`,
+  `policy_check`, `deal_export`, `orchestrator`, `state_manager --check-steps`, `source_manifest --check-sources`)
+  catches `StateError` and prints one `error: ...` line to stderr with exit status 1, never a traceback; the "always
+  exits 0" of the two `--check-*` modes is about their *results* (a missing step or source is not an error), not
+  about a state.json they cannot read.
 - **`scripts/source_manifest.py`** — no `anthropic` dependency, same testability pattern as
   `state_manager.py` (reuses its date-resolution/locking/sanitization directly rather than
   duplicating it). `save_source(company, proposal, *, step, claim, source_path, url=None,
@@ -781,8 +804,10 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
 - **Legacy and malformed `state.json`** (`tests/test_legacy_state.py`, issue #152): five synthetic
   historical-shape fixtures in `tests/fixtures/state/` run through `spreading_check.compute`,
   `policy_check.compute` and `deal_export`. A change to `state.json`'s shape must keep those fixtures
-  working or add a new one. Wrongly-typed state is pinned as it behaves today (`TODAY` matrix) with strict
-  xfails for the clear-error behaviour #152 asks for but the code does not yet have.
+  working or add a new one. Wrongly-typed state (issue #171) is a matrix of 17 malformed shapes x 3 consumers
+  (`EXPECTED_ERROR`): where a consumer reads the key it must raise a `StateShapeError` naming it and leave the file
+  untouched, and each deliberate tolerance is asserted by name; `tests/test_cli_subprocess.py` runs the CLIs against
+  malformed, corrupt and newer-schema states and asserts one `error:` line, exit 1 and no traceback.
 - **Golden-output tests** (`tests/test_golden_outputs.py`, issue #145): the exported `.docx`/`.xlsx` for
   synthetic inputs are reduced by `tests/snapshot_utils.py` to readable text (no timestamps; adjacent
   runs merged) and compared with `tests/snapshots/`. After an *intended* output change run

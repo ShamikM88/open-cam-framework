@@ -23,6 +23,7 @@ from spreading_builder import evaluate_downside_case, evaluate_financial_model
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
+    StateError,
     write_state,
     append_review_trail,
     read_state,
@@ -97,6 +98,12 @@ def _resolve_maker_checker_config():
 
 
 MAX_REVIEW_ITERATIONS = 3
+
+# The state.json keys run_pipeline() reads from an existing deal (validated up front, before any model call: a
+# wrongly-typed one is a StateShapeError naming the key, shown by the CLI as one `error:` line).
+STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
+                   "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
+                   "security_package", "guarantees")
 
 
 def _completion_kwargs(model, temperature):
@@ -516,7 +523,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # second call site able to silently forget the flag and fall back to
     # auto-discovery (see resolve_date_str()'s own docstring).
     date_str = resolve_date_str(company, proposal, new_review=new_review)
-    existing_state = read_state(company, proposal, date_str=date_str) or {}
+    existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
     steps_completed = list(existing_state.get("steps_completed", []))
 
     if multi_period_financials:
@@ -737,8 +744,11 @@ if __name__ == "__main__":
     collateral_data = _load_json_file(args.collateral)
     stress_assumptions = _load_json_file(args.stress_assumptions)
 
-    run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,
-                 multi_period_financials=multi_period_financials,
-                 collateral_data=collateral_data,
-                 stress_assumptions=stress_assumptions,
-                 new_review=args.new_review)
+    try:
+        run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,
+                     multi_period_financials=multi_period_financials,
+                     collateral_data=collateral_data,
+                     stress_assumptions=stress_assumptions,
+                     new_review=args.new_review)
+    except StateError as exc:
+        sys.exit(f"error: {exc}")

@@ -17,6 +17,7 @@ _compliant_draft() below. Drafts used only to exercise an LLM-originated (or
 deliberately triggered code-enforced) REJECTED path don't need one.
 """
 import json
+from pathlib import Path
 import os
 from types import SimpleNamespace
 
@@ -411,6 +412,25 @@ def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD
     if credit_policy_considered is not None:
         payload["credit_policy_considered"] = credit_policy_considered
     return body + "\n\n```json\n" + json.dumps(payload) + "\n```"
+
+
+# ---------------------------------------------------------------------------
+# A state.json the pipeline cannot use is refused up front (issue #171)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad_state, key", [({"steps_completed": "triage"}, "steps_completed"),
+                                            ({"financials": [1]}, "financials"),
+                                            ({"covenants": {"metric": "dscr"}}, "covenants"),
+                                            ({"financials_source": "made-up"}, "financials_source")])
+def test_a_malformed_state_is_refused_before_any_model_call_or_write(project_root, bad_state, key):
+    from state_manager import StateShapeError
+    write_state("Acme Corp", "Fleet Loan", **bad_state)
+    path = Path(state_path("Acme Corp", "Fleet Loan"))
+    before = path.read_bytes()
+    client = MockClient([])                               # any model call would raise
+    with pytest.raises(StateShapeError, match=key):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    assert client.call_count == 0 and path.read_bytes() == before
 
 
 # ---------------------------------------------------------------------------

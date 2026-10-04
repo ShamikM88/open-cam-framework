@@ -1,8 +1,45 @@
 # CLI reference
 
-> **Status.** This page was assembled in the documentation tranche of issue #117 from material that used to live in `CLAUDE.md`, moved with only the textual fixes recorded in the [move ledger](move-ledger.md). A later tranche adds worked examples and explanation around it. The source of truth for behaviour is the code and tests; see the [index](README.md).
+> The sections "Calibrate", "Orchestrator" and "Export" were moved from `CLAUDE.md` (unchanged apart from the fixes in the [move ledger](move-ledger.md)); the rest of the page is written for readers.
 
-The headless Python scripts, which call the Anthropic API directly and need `ANTHROPIC_API_KEY` (see [Configuration](configuration.md#credentials)). The slash commands are described in the [README](../README.md) and, as rules, in `CLAUDE.md`; the scripts that do deterministic work (`spreading_check.py`, `policy_check.py`, `state_manager.py`, ...) are described in the [financial model](financial-model.md) and the [data model](data-model.md). For any flag, `python scripts/<name>.py --help` is authoritative.
+Usage reference for every script in `scripts/` that has a command line: what it does, its flags, what it prints, how it exits and whether it needs `ANTHROPIC_API_KEY`. The slash commands are described in the [command reference](commands.md); how the scripts fit together in the [workflows](workflows.md) and the [architecture](architecture.md). `python scripts/<name>.py --help` is authoritative for flags.
+
+## The scripts at a glance
+
+| Script | Does | Needs `ANTHROPIC_API_KEY` | Detail |
+| :--- | :--- | :--- | :--- |
+| `calibrate.py` | Derives a style guide and a template from your sample PDFs | Yes, unless `--mock` (automatic without a key) | [Calibrate](#calibrate) |
+| `orchestrator.py` | The whole deal pipeline in one process: draft, audit, checks, export | Yes | [Orchestrator](#orchestrator) |
+| `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
+| `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
+| `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
+| `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
+| `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
+| `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
+| `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
+| `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
+| `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
+
+Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic, makes no
+network call, and is what the slash commands run in their Bash steps.
+
+## Conventions common to the scripts
+
+- **Run from the repository root.** Paths such as `deals/`, `config/`, `templates/` and `agents/` are relative to the
+  working directory.
+- **A deal is named by `--company` and `--proposal`.** Together they select `deals/<Company>/<Proposal>_<Date>/`; the
+  dated folder is found automatically (the most recent one), so a deal resumed on another day finds its own state.
+- **Output.** Scripts that return data print JSON to standard output; export scripts print one `Done!` line with the
+  path. Progress and warnings go to standard error.
+- **Exit status.** `0` on success. `1` for a failure the script reports itself, including an unusable `state.json`
+  (printed as one `error: ...` line, never a traceback; see [Troubleshooting](troubleshooting.md#state-errors)).
+  `2` for a command-line usage error (an unknown flag or a missing required one). A few checks have their own rules,
+  noted per script; `--check-steps` and `--check-sources` exit `0` whatever their *result*, because the calling command
+  decides what a missing step or source means.
+- **Text.** Everything is read and written as UTF-8 and the output streams are made UTF-8 even when redirected, so a
+  non-ASCII name survives a pipe on Windows.
+- **`--help` is authoritative.** The flags below are checked against it by the test suite.
 
 ## Calibrate
 
@@ -58,6 +95,28 @@ folder-creation/template-auto-save/export work:
 python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance"
 ```
 
+## Orchestrator flags and defaults
+
+`scripts/orchestrator.py --company <name> --proposal <name> [--pd <PD>] [--lgd <LGD>] [--type <deal_type>]
+[--financials <json>] [--spread <json>] [--collateral <json>] [--stress-assumptions <json>] [--new-review]`
+
+- `--company` and `--proposal` are required and name the deal.
+- `--pd` (default `0.20%`) and `--lgd` (default `LGD 3 (15%)`) are **user-supplied risk inputs** and are used exactly as
+  given. The defaults are example values: if you omit the flags they flow into the CAM as if you had supplied them,
+  so always pass your own.
+- `--type` selects the template and defaults to `corporate_credit`.
+- `--financials` is a JSON file of raw line items per period (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`,
+  any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
+  own forecast, never derived by the tool.
+- `--collateral` is a JSON file holding a flat list of asset objects.
+- `--stress-assumptions` is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
+  `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none.
+- `--new-review` starts a fresh dated folder for a new annual review instead of resuming the most recent one, so it
+  never inherits last year's inputs.
+
+It needs `ANTHROPIC_API_KEY`; without one it fails at its first model call (after checkpointing the grounded figures)
+with a missing-credentials error and sends nothing. See [Troubleshooting](troubleshooting.md#orchestratorpy-ends-in-a-traceback-ending-could-not-resolve-authentication-method).
+
 ## Export
 
 **`scripts/deal_export.py`** — no `anthropic` dependency, so it's callable two ways: imported
@@ -79,3 +138,124 @@ exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims anoth
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
 patch to re-home `state.json`.
+
+## Research export
+
+`scripts/research_export.py --company ... --proposal ... --brief <path>` exports a drafted research brief (Markdown)
+to `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder, reusing the folder that exists or creating
+one. It is deliberately separate from `deal_export.py`, so a research-only deal never triggers a CAM's side effects
+(no workbook, no template auto-save). It has no Anthropic dependency.
+
+```bash
+python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --brief "deals/Synthetic Co/Synthetic Fleet Loan_brief.md"
+```
+
+```text
+Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
+```
+
+## Spreading check
+
+`scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
+[--no-update-financials-source]` recomputes `financials` and `ratios` from raw line items, derives the downside case
+when stress assumptions and at least one forward year exist, checkpoints everything to `state.json` and prints the
+updated state (`financials`, `ratios`, `downside_case`, `financials_source`). It merges what it is given into what
+the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
+re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
+what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
+always passes it. The slash commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
+
+```bash
+python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Policy check
+
+`scripts/policy_check.py --company ... --proposal ... [--draft <path>]` prints JSON: `policy_state` (required
+conditions precedent and subsequent, covenant results, security gaps, downside breaches, forward covenant results),
+`reasons` (every reason the draft is code-enforced rejected, empty without `--draft` unless the recorded structure
+itself forces one), `compliant`, and `cam_data_present` (false for a deal with no financials, ratios, covenants or
+security recorded, i.e. nothing was actually checked, as for a research-only deal). With `--draft` it audits that
+file's trailing structured JSON block. It exits `0` whether or not `reasons` is empty (an unusable `state.json` is the exception: one `error:` line, exit `1`); the caller decides what a non-empty `reasons` means.
+
+```bash
+python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --draft "deals/Synthetic Co/Synthetic Fleet Loan_draft.md"
+```
+
+## State manager
+
+`scripts/state_manager.py --check-steps --company ... --proposal ... --required <step,step>` checks that every named
+step appears in the deal's `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. It exits `0`
+whatever the result (an unreadable `state.json` is an error: one `error:` line, exit `1`). `--check-steps` is the only
+mode.
+
+```bash
+python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
+```
+
+## Source manifest
+
+`scripts/source_manifest.py --company ... --proposal ... --step <step> --claim <text> --file <path> [--url <url>]
+[--filename <name>]` copies an already-downloaded document into the deal's `sources/` folder and appends an entry
+(`filename`, `url`, `step`, `claim`, `fetched_date`) to `sources/manifest.json`; it never fetches anything. With
+`--check-sources` instead it prints `{"missing_saved_sources": true|false}`: true when the deal declared citations but
+saved no material. It exits `0` whatever the result.
+
+```bash
+python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \
+    --claim "Synthetic legal identity extract" --file registry_extract.txt --url https://example.invalid/registry
+python scripts/source_manifest.py --check-sources --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
+
+## Conventions
+
+`scripts/conventions.py (--company <name> | --enterprise) (--read | --write) [--financials-source <value>] [--note
+<text>] [--confirmed-date <date>] [--proposal <name>]` reads or writes a persisted, analyst-confirmed spreading
+convention: borrower-specific (`--company`, stored at `deals/<Company>/_conventions.json`) or enterprise-wide
+(`--enterprise`, `config/spreading_conventions.json`). `--write` requires `--financials-source`; it overwrites the
+current fields and appends to a history. `--read` prints `{"found": true|false, "convention": ...}`. It is run by
+`/spread` only; the headless pipeline never calls it, because nothing may be persisted without a person's explicit
+confirmation. See the [data model](data-model.md).
+
+```bash
+python scripts/conventions.py --enterprise --read
+```
+
+## PII scan
+
+`scripts/pii_scan.py <path>` scans one template file for likely-real data (currency figures, emails, phone numbers,
+dates, company names, registration numbers) and prints JSON findings. An empty list means only that nothing obvious
+was found; it is not a guarantee, and a human review is still required before a local template is promoted into
+`templates/cam/`. See [Security](security.md).
+
+```bash
+python scripts/pii_scan.py templates/local/cam/asset_finance_cam.md
+```
+
+## Test tooling
+
+- `scripts/check_coverage.py <coverage.json> [--config <pyproject.toml>] [--report-only]` compares coverage.py's JSON
+  report with the floors in `pyproject.toml`; exit `0` when met, `1` when not, `2` for an unreadable report or
+  configuration; `--report-only` prints the table and always exits `0`.
+- `scripts/check_test_count.py <pytest_output> [--badge-path <path>] [--write]` compares pytest's passed count with
+  `badges/test-count.json` (exit `1` on a mismatch); `--write` updates the file from a complete green run (never used
+  in CI).
+- `scripts/mutation_report.py <results> [--config <pyproject.toml>] [--top <n>] [--json <path>]` prints the
+  per-module mutation score from `mutmut results --all true`; exit `0` whenever a report is produced, `2` for an
+  unreadable file.
+
+Their rules and the reasoning are in [Testing](testing.md).
+
+## Evaluation harness
+
+`scripts/run_evals.py` validates the synthetic dataset (`--validate`, `--list`), plans and self-checks with zero model
+calls (`--dry-run`), and, only with `--live` and your own `ANTHROPIC_API_KEY`, runs the cases under a hard call cap
+(`--max-calls`, default 80, never above 250; `--repeats`, `--cases`, `--yes`, `--keep-work`, `--out`), exporting and
+comparing baselines (`--export-baseline`, `--allow-partial`, `--compare`). See [Evaluation](evaluation.md).
+
+```bash
+python scripts/run_evals.py --dry-run
+```

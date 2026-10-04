@@ -9,7 +9,10 @@ Claude Code follows when it works in this repository.
 | If you want to... | Read |
 | :--- | :--- |
 | Understand how the pieces fit together, and the difference between running through Claude Code and running the Python scripts | [Architecture](architecture.md) |
+| Walk through a deal end to end with worked examples | [Workflows](workflows.md) |
+| Look up what a slash command asks for and writes | [Command reference](commands.md) |
 | Know why something is the way it is | [Design decisions](decisions.md) |
+| Fix an error message or a surprising result | [Troubleshooting](troubleshooting.md) |
 | Run or script the tools, and know where credentials go | [Configuration](configuration.md), [CLI reference](cli-reference.md) |
 | Understand the figures: ratios, covenants, the policy engine, spreading | [Financial model and policy engine](financial-model.md) |
 | Understand `state.json`, source manifests and persisted conventions | [Data model](data-model.md) |
@@ -23,21 +26,24 @@ Claude Code follows when it works in this repository.
 | Document | Contents |
 | :--- | :--- |
 | [architecture.md](architecture.md) | The idea, the two execution modes (authentication, billing, what stays local), the pipeline, where code ends and the model begins, and the annotated repository map |
+| [workflows.md](workflows.md) | Worked synthetic examples: calibration, research, spreading, policy checking, assembly and export, review, resuming a deal |
+| [commands.md](commands.md) | The slash commands: inputs, outputs, state written, failure modes, cost and security |
 | [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |
-| [configuration.md](configuration.md) | `config/settings.json` (which keys are read and which are inert), credentials |
-| [cli-reference.md](cli-reference.md) | The headless scripts: `calibrate.py`, `orchestrator.py`, `deal_export.py` |
-| [data-model.md](data-model.md) | `state_manager.py` and `state.json`, source manifests, persisted-convention stores |
-| [financial-model.md](financial-model.md) | `policy_engine.py`, `policy_checks.py`, `policy_check.py`, `spreading_check.py` |
-| [outputs.md](outputs.md) | Templates, calibrated overrides, the spreading workbook, template resolution |
+| [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
+| [configuration.md](configuration.md) | Every config file and environment variable, which `settings.json` keys are read, credentials |
+| [cli-reference.md](cli-reference.md) | Every script's usage, flags, output and exit status; the headless pipeline |
+| [data-model.md](data-model.md) | `state.json`, its keys and versioning, the two raw-figure stores, sources, persisted conventions |
+| [financial-model.md](financial-model.md) | Financial terms and ratios with worked numbers, N/A and UNRESOLVABLE, covenants, the downside case, what the policy engine decides |
+| [outputs.md](outputs.md) | What a run produces: the `.docx` rendering rules, the workbook layout, the research brief, templates |
 | [testing.md](testing.md) | The test suite, static analysis, coverage, CI, mutation testing, the test-count badge |
 | [security.md](security.md) | Confidential paths, the PII scan |
 | [evaluation.md](evaluation.md) | The evaluation harness: what it measures, its boundaries, how its runner works |
 | [move-ledger.md](move-ledger.md) | Migration record: where every block of the old README and `CLAUDE.md` went |
 
-These pages were assembled from material that used to live in the README and `CLAUDE.md`, moved rather than
-rewritten. Further documentation (workflow walkthroughs with worked examples, a per-command reference, a
-financial-terms guide with worked numbers, troubleshooting, contributing and AI-assurance guides) is being added
-under the same issue (#117) and will be linked here as it lands.
+Parts of these pages (marked at the point where they start) were moved from the README and `CLAUDE.md` rather than
+rewritten; the examples on them are real runs of the synthetic deal in `docs/examples/synthetic_co/`, re-run by
+the tests. The remaining guides (contributing, AI assurance, security and testing in depth) are being added
+under the same issue (#117) and will be linked here as they land.
 
 ## Where each kind of fact is authoritative
 

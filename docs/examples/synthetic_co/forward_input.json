@@ -1,0 +1,16 @@
+{
+  "FY+1": {
+    "revenue": 4600, "cost_of_sales": 3000, "admin_expenses": 1050, "depreciation": 300,
+    "interest_paid": 150, "scheduled_principal": 350, "capex": 300, "tax_paid": 0,
+    "cash": 200, "trade_debtors": 600, "stock": 400, "trade_creditors": 450, "other_current_liabilities": 100,
+    "current_debt": 350, "long_term_debt": 1300,
+    "tangible_assets": 3100, "intangible_assets": 100, "share_capital": 500, "retained_profit": 1550
+  },
+  "FY+2": {
+    "revenue": 4000, "cost_of_sales": 3000, "admin_expenses": 1100, "depreciation": 300,
+    "interest_paid": 140, "scheduled_principal": 350, "capex": 200, "tax_paid": 0,
+    "cash": 150, "trade_debtors": 520, "stock": 400, "trade_creditors": 450, "other_current_liabilities": 100,
+    "current_debt": 350, "long_term_debt": 950,
+    "tangible_assets": 3000, "intangible_assets": 100, "share_capital": 500, "retained_profit": 1110
+  }
+}

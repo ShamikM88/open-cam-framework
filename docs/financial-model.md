@@ -1,8 +1,167 @@
 # Financial model and policy engine
 
-> **Status.** This page was assembled in the documentation tranche of issue #117 from material that used to live in `CLAUDE.md`, moved with only the textual fixes recorded in the [move ledger](move-ledger.md). A later tranche adds worked examples and explanation around it. The source of truth for behaviour is the code and tests; see the [index](README.md).
+> The sections before "Module reference" are written for readers; "Module reference" and what follows were moved from `CLAUDE.md` or the README, unchanged apart from the fixes in the [move ledger](move-ledger.md).
 
-The deterministic core that computes the figures a CAM reports and decides what a draft must contain: spreading and ratios, covenant results, required conditions, security gaps and the code-enforced audit of a draft. Why it is built this way: [design decisions](decisions.md) (D2, D4, D5, D6).
+The figures a CAM reports, how the framework decides whether a covenant passes, and what a draft must contain, explained from first principles with worked numbers. Why it is built this way: [design decisions](decisions.md) D2, D4, D5 and D6.
+
+## Terms and figures
+
+This page explains the figures a CAM reports and how the framework decides what a draft must say about them. It
+assumes no credit background. Figures are in whatever currency units you supply (the framework labels no currency);
+the examples use the synthetic deal from [Workflows](workflows.md), in "synthetic units". The definitions here
+describe `scripts/spreading_builder.py`, which is authoritative.
+
+### Statement figures
+
+Each is computed from the raw line items you supply for a period (`revenue`, `cost_of_sales`, and so on; the field
+list is in the [command reference](commands.md#spread)). A missing line item counts as 0; it is never invented.
+
+| Term | How it is computed | Plain meaning |
+| :--- | :--- | :--- |
+| Gross profit | revenue - cost of sales | What is left after the direct cost of what was sold |
+| Operating profit (EBIT) | gross profit - admin expenses - depreciation - amortisation + other income | Profit from running the business, before interest and tax |
+| EBITDA | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings |
+| Profit before tax | operating profit - interest paid + interest received - exceptional costs | |
+| Net profit | profit before tax - tax paid | |
+| Free cash flow (FCF) | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest. Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
+| Current assets / liabilities | assets: cash + trade debtors + stock + other current assets. Liabilities: trade creditors + current debt + overdraft + other current liabilities | What is expected to turn into cash, or fall due, within a year |
+| Total debt | current debt + overdraft + long-term debt + loan notes | Interest-bearing borrowing. Provisions and trade creditors are deliberately excluded |
+| Total equity | share capital + retained profit | The owners' stake |
+| Tangible net worth (TNW) | total equity - intangible assets | Net worth that does not rely on intangibles such as goodwill |
+
+### Ratios
+
+| Ratio (state key) | Formula | Reading |
+| :--- | :--- | :--- |
+| DSCR, debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | Times earnings cover the year's debt service. Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
+| Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
+| Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; stored as a fraction, so 0.87 reads as 87% |
+| Current ratio (`current_ratio`) | current assets / current liabilities | Short-term liquidity; above 1 means current assets cover current liabilities |
+| EBIT interest cover (`ebit_interest_cover`, alias `EBIT/Interest`) | operating profit / interest paid | Times profit covers interest |
+| EBITDA interest cover (`ebitda_interest_cover`, alias `EBITDA/Interest`) | EBITDA / interest paid | The same on EBITDA |
+| FCF conversion (`fcf_conversion_pct`) | FCF / EBITDA | The share of EBITDA that becomes free cash; stored as a fraction (0.35 is 35%) |
+| Trade debtor days (`trade_debtor_days`) | trade debtors / revenue x 365 | How long customers take to pay |
+| Stock days (`stock_days`) | stock / cost of sales x 365 | How long stock sits |
+| Trade creditor days (`trade_creditor_days`) | trade creditors / cost of sales x 365 | How long the company takes to pay suppliers |
+| Working capital cycle (`working_capital_cycle_days`) | debtor days + stock days - creditor days | Days of operating cash tied up |
+
+## Worked example
+
+`FY-Current` of the synthetic deal ([`financials_input.json`](examples/synthetic_co/financials_input.json)):
+revenue 5000, cost of sales 3000, admin expenses 1000, depreciation 300, interest paid 150, scheduled principal 350,
+capex 400, tax paid 100, cash 250, trade debtors 600, stock 400, trade creditors 450, other current liabilities 100,
+current debt 350, long-term debt 1650, intangible assets 100, share capital 500, retained profit 1800.
+
+- Gross profit = 5000 - 3000 = **2000**. Operating profit = 2000 - 1000 - 300 = **700**. EBITDA = 700 + 300 = **1000**.
+- Profit before tax = 700 - 150 = 550; net profit = 550 - 100 = 450. FCF = 1000 - 400 - 100 - 150 = **350**.
+- Total debt = 350 + 1650 = **2000**. Total equity = 500 + 1800 = 2300. TNW = 2300 - 100 = **2200**.
+- Current assets = 250 + 600 + 400 = 1250; current liabilities = 450 + 350 + 100 = 900.
+- **DSCR** = 1000 / (150 + 350) = **2.0**. **Gross leverage** = 2000 / 1000 = **2.0**.
+  **Net debt / EBITDA** = (2000 - 250) / 1000 = **1.75**. **Current ratio** = 1250 / 900 = **1.3889**.
+  **Gearing** = 2000 / 2300 = **0.8696**. **EBIT interest cover** = 700 / 150 = 4.6667. **FCF conversion** = 350 / 1000 = **0.35**.
+- Debtor days = 600 / 5000 x 365 = **43.8**; creditor days = 450 / 3000 x 365 = **54.75**; stock days = 400 / 3000 x 365 =
+  48.6667; working capital cycle = 43.8 + 48.6667 - 54.75 = **37.7167**.
+
+`spreading_check.py` produces exactly these values, and the workbook's formulas produce them too.
+
+## N/A and UNRESOLVABLE
+
+A ratio is only meaningful when its **denominator is positive**. If the denominator is zero or negative the ratio is
+**N/A**: `null` in `state.json`, the text `N/A` in the workbook. The denominators are EBITDA (gross leverage, net debt
+/ EBITDA, FCF conversion, EBITDA interest cover), interest paid plus scheduled principal (DSCR), total equity
+(gearing), interest paid (EBIT interest cover), current liabilities (current ratio), revenue (debtor days) and cost of
+sales (stock and creditor days).
+
+Why: dividing by a negative EBITDA gives a finite *negative* leverage, which sits below every maximum covenant
+threshold, so a loss-making borrower would appear to pass "leverage must not exceed 3.5x". Zero is genuinely undefined
+(no interest expense is infinite cover, not zero cover). Only the denominator is tested: a negative **numerator** over
+a positive denominator is a real number and is kept (an EBITDA of -100 over debt service of 490 gives a DSCR of
+-0.204, a real shortfall that fails a minimum-DSCR covenant; net cash gives a negative net debt / EBITDA).
+
+A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
+same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its
+threshold is missing or not a number, or its metric is not one of the computed ratios. Every covenant result carries
+a `reason`, empty for a pass or fail and one sentence for UNRESOLVABLE, for example `gross leverage not meaningful:
+EBITDA is negative`. If a stored ratio sits next to a recorded denominator that is zero or negative (an older
+checkpoint, or an analyst-supplied ratio), the covenant is still UNRESOLVABLE and the stored number is ignored.
+
+## Covenants
+
+A covenant is a condition in the facility: a **minimum** (the ratio must be at least the threshold) or a **maximum**
+(it must be at most the threshold), recorded as `{"metric": "dscr", "type": "minimum", "threshold": 1.25}`. Equality
+passes. Results: `PASS`, `FAIL` or `UNRESOLVABLE`, with `actual` and a **headroom** as a fraction of the threshold:
+for a minimum `(actual - threshold) / threshold`, for a maximum `(threshold - actual) / threshold`. In the example,
+DSCR 2.0 against a minimum of 1.25 has headroom 0.6; gross leverage 2.0 against a maximum of 3.5 has 0.4286. A
+threshold of exactly 0 has no percentage headroom (it is `null`), but the status is still decided by comparison.
+
+Covenants are tested in three places, with three different consequences:
+
+| Where | Which period | A FAIL or UNRESOLVABLE... |
+| :--- | :--- | :--- |
+| `covenant_results` | `FY-Current` | **rejects** the draft by code until the figures or the covenant record change |
+| `downside_covenant_breaches` | each forward year, **only** where the base case passes and the stressed case fails or cannot be tested | **rejects** the draft unless it addresses the breach by id (`downside_breaches_acknowledged`) |
+| `forward_covenant_results` | each projected forward year's own base case | **never rejects**; it is recorded, and the non-passing entries are shown to the model as plain data |
+
+A forward year with no projection recorded is not tested, and the state carries no covenant tenor, so a covenant that
+really ends earlier is still reported for later projected years.
+
+## The forward base case
+
+`FY+1`, `FY+2` and `FY+3` are management's own forecast: raw figures you supply, in the same shape as a historical
+year, computed by the same formulas. Nothing is extrapolated. In the example, `FY+1` has EBITDA 550 and total debt
+1650 (DSCR **1.1**, gross leverage **3.0**), and `FY+2` has EBITDA -100, so its gross leverage is N/A and its DSCR
+is -0.204. Against the covenants (minimum DSCR 1.25, maximum leverage 3.5): `FY+1` DSCR fails, `FY+1` leverage
+passes, `FY+2` DSCR fails and `FY+2` leverage is UNRESOLVABLE. All four are disclosed in `forward_covenant_results`
+(ids `FORWARD-FY-1-DSCR`, `FORWARD-FY-1-GROSS-LEVERAGE`, `FORWARD-FY-2-DSCR`, `FORWARD-FY-2-GROSS-LEVERAGE`) without
+rejecting the draft.
+
+## The downside case
+
+A downside case is a forward year re-run under three deterministic shocks, all optional (each defaults to no shock):
+
+- `shocked_revenue = revenue x (1 - revenue_haircut_pct / 100)`
+- `shocked_admin_expenses = admin_expenses x (1 + opex_increase_pct / 100)` (admin expenses only, never cost of sales)
+- `shocked_interest_paid = interest_paid + total_debt x interest_rate_bump_bps / 10000`
+
+Every other raw figure carries through unchanged. For the example's `FY+1` with a 5% revenue haircut and a 200 basis
+point interest rise: revenue 4600 becomes 4370, interest 150 becomes 150 + 1650 x 200 / 10000 = 183, EBITDA falls from
+550 to **320**, DSCR falls from 1.1 to **0.600** and gross leverage rises from 3.0 to **5.15625**, which breaches the
+3.5 maximum. Because the base case passed, that is a downside breach (`DOWNSIDE-FY-1-GROSS-LEVERAGE`) and the draft
+must address it. The `FY+1` DSCR already failed in the base case, so it is reported once, as a forward result, not
+again as a downside breach.
+
+## Analyst-supplied figures
+
+By default every subtotal and ratio is recomputed from raw line items. An institution may instead supply its own
+already-spread figures (its template may treat a line differently, for example depreciation inside cost of goods
+sold). The framework then records them **exactly as given**, sets `financials_source` to `"analyst-supplied"`, and the
+CAM must carry an explicit caveat that those figures were not independently recomputed. It never reconciles them to
+its own schema. One limit: a stored ratio whose denominator is not recorded (an analyst-supplied DSCR, say) cannot be
+cross-checked, so the N/A rule can only be applied where the denominator is on file.
+
+## What the policy engine decides
+
+From the recorded structure alone (no model), `policy_state` holds:
+
+- **Conditions precedent (CPs)**, things that must happen before drawdown, each with a stable `cp_id`. `KYC-AML` and
+  `FACILITY-EXECUTION` are always required. A charge that is not exactly `"Perfected"` adds `SEC-PERFECT-<asset>`; one
+  that does not rank exactly `"First"` adds `SEC-PRIORITY-<asset>`; each guarantee adds `GUARANTEE-<provider>`.
+- **Conditions subsequent (CSs)**, ongoing obligations after drawdown, each with a `cs_id`: `MI-REPORTING` always,
+  `CS-COVENANT-COMPLIANCE` when there are covenants, `CS-SEC-REPERFECT-<asset>` for each charge, and
+  `CS-GUARANTEE-<provider>` for each guarantee.
+- **Security gaps**: an uncharged asset, an unperfected charge, or a subordinate ranking.
+- **Covenant results, downside breaches and forward covenant results** as above.
+
+A draft must carry every required CP and CS, every downside breach, and a source for its narrative, state only
+figures that match the computed ones, and cover the risk taxonomy; `policy_checks.py` checks all of that and the
+reasons are listed in [Troubleshooting](troubleshooting.md#review-and-rejection). A passing check shows the draft is
+consistent with the computed facts and complete against the deal's own structure. It does not show the narrative is
+sound; that is the Risk Reviewer's and a person's job.
+
+## Module reference
+
+*The sections from here on are the module-level reference, moved from `CLAUDE.md` ([ledger](move-ledger.md)).*
 
 ## Policy engine
 

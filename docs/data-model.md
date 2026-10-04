@@ -1,8 +1,118 @@
 # Data model
 
-> **Status.** This page was assembled in the documentation tranche of issue #117 from material that used to live in `CLAUDE.md`, moved with only the textual fixes recorded in the [move ledger](move-ledger.md). A later tranche adds worked examples and explanation around it. The source of truth for behaviour is the code and tests; see the [index](README.md).
+> The sections before "Module reference" are written for readers; "Module reference" and what follows were moved from `CLAUDE.md` or the README, unchanged apart from the fixes in the [move ledger](move-ledger.md).
 
-How a deal's state is stored and guarded. The normative protocol (checkpoint after every step, re-hydrate first, no in-memory-only state) and the state-file schema example stay in `CLAUDE.md`, under "Context Window & State Management Protocol", "Source material persistence" and "Persisted conventions"; this page holds the script-level reference for the modules that implement them.
+How a deal's state is stored and guarded: the `state.json` file, its keys, the two raw-figure stores, resuming a deal, schema versions, saved sources and the persisted-convention stores. The normative protocol and the state-file schema example stay in `CLAUDE.md`.
+
+## state.json at a glance
+
+Each deal has one state file, `deals/<Company>/<Proposal>_<YYYY-MM-DD>/state.json`, plus a `sources/` folder beside
+it. It is the record of the deal: every step reads it first and writes its results back when it finishes, so a
+resumed session or a compacted conversation never has to reconstruct a figure from memory. (The rules are in
+`CLAUDE.md`, "Context Window & State Management Protocol"; the reasons in [Design decisions](decisions.md), D3.)
+`deals/` is git-ignored, so state never reaches version control.
+
+An annotated fragment of the synthetic deal's state after `/spread`, `/project` and the structure steps (values
+shortened):
+
+```json
+{
+  "company": "Synthetic Co",
+  "proposal": "Synthetic Fleet Loan",
+  "date": "2026-10-04",
+  "schema_version": "1.1.0",
+  "deal_type": "asset_finance",
+  "inputs": {"pd": "0.20%", "lgd": "LGD 3 (15%)"},
+  "steps_completed": ["spread", "project"],
+  "financials_source": "framework-computed",
+  "multi_period_financials": {"FY-Current": {"revenue": 5000, "cost_of_sales": 3000, "...": "..."}},
+  "financials": {"FY-Current": {"raw": {"...": "..."}, "ebitda": 1000, "tangible_net_worth": 2200, "...": "..."}},
+  "ratios": {"FY-Current": {"dscr": 2.0, "gross_leverage": 2.0, "...": "..."},
+             "FY+2": {"dscr": -0.20408163265306123, "gross_leverage": null, "...": "..."}},
+  "stress_assumptions": {"revenue_haircut_pct": 5, "interest_rate_bump_bps": 200},
+  "downside_case": {"financials": {"FY+1": {"...": "..."}}, "ratios": {"FY+1": {"gross_leverage": 5.15625, "...": "..."}}},
+  "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+  "collateral": [{"asset_id": "AST-001", "exposure": 1200, "collateral_value": 1500, "...": "..."}],
+  "security_package": [{"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"}],
+  "guarantees": [{"provider": "Synthetic Parent Holdings", "type": "Corporate Guarantee", "amount": 500}]
+}
+```
+
+### The keys
+
+| Key | Written by | Holds |
+| :--- | :--- | :--- |
+| `company`, `proposal`, `date`, `schema_version` | every write | Deal identity, kept in sync on every write; the schema version of the writing framework |
+| `deal_type`, `inputs` | `/triage`, `/collateral`, `/assemble`, the orchestrator | The CAM type; `pd`, `lgd` (user-supplied, never adjusted) and `experian_score` or another bureau score |
+| `steps_completed` | every step | The names of steps that have finished (`triage`, `spread`, ...); `/assemble` hard-gates on `spread` |
+| `triage`, `commercial` | `/triage`, `/commercial`, `/research` | The Go/No-Go verdict and rationale; the company and sector sections |
+| `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` (run by `/spread` and `/project`) | Per-period subtotals (each with its raw inputs under `raw`) and ratios; the raw inputs as supplied; `"framework-computed"` |
+| `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes |
+| `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
+| `collateral`, `security_package` | `/collateral` | One entry per asset; one per charge |
+| `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries; `{"provider", "type", "amount"}` entries |
+| `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
+| `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
+| `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
+
+Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
+floor.
+
+### Two raw-figure stores, never blended
+
+A deal's raw line items live in exactly one of two places, depending on `financials_source`:
+
+| `financials_source` | Raw figures live in | Written by |
+| :--- | :--- | :--- |
+| `"framework-computed"` (default) | `multi_period_financials`, and `financials[period]["raw"]` | `spreading_check.py` |
+| `"analyst-supplied"` | `analyst_supplied_financials` | `/spread`, when the analyst also gives a raw breakdown |
+
+Code that needs "this deal's raw figures" (the workbook exporter, for one) checks `financials_source` first and reads
+the matching store; it never assumes one store is universal. An analyst-supplied deal is not required to supply raw
+figures at all, only its own subtotals.
+
+### Resuming a deal
+
+A step begins by finding the deal's state (the most recent dated folder for that company and proposal; a bare library
+call or a brand-new deal gets today's date) and treats everything recorded there as true. A new annual review uses a
+fresh folder (`orchestrator.py --new-review`) so it never inherits last year's inputs. The orchestrator also
+checkpoints its grounded figures and `policy_state` to the state **before** it calls either agent, which is why a run
+that fails at its first model call (for instance with no API key) still leaves the figures on disk.
+
+### Schema versions and validation
+
+`schema_version` is `MAJOR.MINOR.PATCH`. A state written by an older or unversioned framework is read and upgraded on
+the next write; a **newer** or malformed version is refused on write (the file is left unchanged), because
+writing would silently drop fields. Reading a newer file still works. Each step validates only the keys it reads, so
+a deal is never rejected for a key a step does not use; the types it checks are: `financials`, `ratios`,
+`multi_period_financials` and `analyst_supplied_financials` are objects keyed by period; `inputs` and
+`stress_assumptions` are objects; `covenants`, `collateral`, `security_package`, `guarantees`, `steps_completed` and
+`review_trail` are lists; `financials_source` is `framework-computed` or `analyst-supplied`. A null value is "not
+recorded". The messages and fixes are in [Troubleshooting](troubleshooting.md#state-errors).
+
+### Saved sources
+
+`sources/manifest.json` is a list with one entry per saved document: `filename`, `url` (if it came from the web),
+`step`, `claim` (what it backs) and `fetched_date`. The document itself sits beside it. A step that declares
+citations but saved nothing is caught by `source_manifest.py --check-sources`.
+
+### Persisted conventions and learnings
+
+Three small stores keep analyst-confirmed knowledge between deals, each written only on an explicit yes, always
+disclosed where it is applied, and none ever created by the headless pipeline:
+
+| Store | Scope | Written by | Used by |
+| :--- | :--- | :--- | :--- |
+| `deals/<Company>/_conventions.json`, `config/spreading_conventions.json` | one borrower, or every borrower | `/spread` (via `conventions.py`) | `/spread` surfaces it; the CAM caveat quotes the note |
+| `config/credit_policy_notes.md` | the fork | `/review` | both agents; mandatory for the Risk Reviewer |
+| `deals/<Company>/_learnings.md`, `config/deal_learnings.md` | one borrower, or every borrower | `/assemble`, `/research` | the Underwriter, advisory only |
+
+The convention file looks like the example in [Workflows](workflows.md#spreading-the-financial-figures). These are
+plain local files, not a trained model.
+
+## Module reference
+
+*The sections from here on are the module-level reference, moved from `CLAUDE.md` ([ledger](move-ledger.md)).*
 
 ## State manager and state.json
 

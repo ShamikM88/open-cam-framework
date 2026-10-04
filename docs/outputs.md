@@ -1,6 +1,91 @@
 # Outputs and templates
 
-> **Status.** This page was assembled in the documentation tranche of issue #117 from material that used to live in `README.md` and `CLAUDE.md`, moved with only the textual fixes recorded in the [move ledger](move-ledger.md). A later tranche adds worked examples and explanation around it. The source of truth for behaviour is the code and tests; see the [index](README.md).
+> The sections "Templates" and "Template resolution" were moved from the README and `CLAUDE.md` (unchanged apart from the fixes in the [move ledger](move-ledger.md)); the rest of the page is written for readers.
+
+What the framework produces and how: the files in a deal's folder, how Markdown becomes the Word document, the layout of the workbook, the research brief, and the templates that drive drafting.
+
+## What a run produces
+
+For the synthetic deal, after `/assemble` (or the headless orchestrator) the deal's dated folder holds:
+
+```text
+deals/
+  Synthetic Co/
+    Synthetic Fleet Loan_2026-10-04/
+      state.json
+      Synthetic Co_Synthetic Fleet Loan_CAM.docx
+      Synthetic Co_Synthetic Fleet Loan_Spreading.xlsx
+      sources/                     (only if a step saved source documents)
+        manifest.json
+```
+
+A `/research` deal produces `Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx` in the same folder instead of the
+two files above. Everything under `deals/` is git-ignored: a deal's output is confidential by nature and never
+committed. The folder is the deal's existing dated folder, so the exports sit next to the state they were built from,
+however many days the work took. Exporting never changes `state.json`'s figures; it only reads them.
+
+## The CAM document (`.docx`)
+
+The draft is Markdown; `scripts/docx_builder.py` turns it into a Word document you can edit. The rendering rules are
+the ones that surprise authors:
+
+| In the Markdown | In the Word document |
+| :--- | :--- |
+| `#`, `##`, `###` | Heading 1, 2, 3. Deeper levels (`####` to `######`) all become Heading 3 |
+| `- item` | a bullet (List Bullet style) |
+| `1. item` | an ordinary paragraph that begins `1.` (not an automatic numbered list) |
+| a pipe table | a Word table; the header row is bold and `:---:` / `---:` alignment markers are honoured |
+| `**bold**`, `*italic*`, `` `code` `` | bold, italic, and monospace text |
+| `[text](url)` | a real hyperlink |
+| a fenced block (no tag, or any tag except `json`) | monospace lines, whitespace kept exactly (the ownership-tree diagram uses this) |
+| a fenced block tagged `json` | **removed**: it is reserved for the Underwriter's structured-output block, never shown to a client |
+| `![caption](path.png)` on its own line | an embedded image, scaled down (never up) to the page's text width, with the caption in italics; see below |
+| a horizontal rule | a rule |
+
+Two behaviours to remember:
+
+- **A single newline is a soft wrap, not a paragraph break**, as in ordinary Markdown. A header block of distinct
+  fields must be a bullet list (`- **Label:** value`) or separate paragraphs; a bare run of `**Label:** value` lines
+  merges into one paragraph.
+- **Images are never silently dropped.** Only a local file of type png, jpg, gif or bmp is embedded. A remote URL (the
+  exporter never touches the network), a missing file, an unsupported type such as SVG, or a corrupt file becomes a
+  visible `[Image not embedded: <caption> -- <reason>]` paragraph and a warning on standard error, because the Risk
+  Reviewer audits the Markdown, where the image line still looks fine. An image reference must be a line of its own,
+  and its path is resolved against the working directory.
+
+The exact output of these rules for a synthetic draft is pinned in `tests/snapshots/cam_draft.docx.txt` (and for
+images in `cam_images.docx.txt`), so an unintended change shows up as a readable diff. See [Testing](testing.md).
+
+## The spreading workbook (`.xlsx`)
+
+`scripts/spreading_builder.py` writes two sheets.
+
+**Financial Spreading** has one row per line item and one column per period: `Metric`, `FY-2`, `FY-1`, `FY-Current`,
+`FY+1`, `FY+2`, `FY+3`, then `FY+1 (Downside)`, `FY+2 (Downside)`, `FY+3 (Downside)`. It runs from Profit & Loss
+(Revenue down to Net Profit), through the Balance Sheet, to the key ratios and the working-capital days. Raw inputs
+are plain numbers; every subtotal and ratio is an **Excel formula** over those cells, never a pre-baked value, so a
+reviewer can click a cell and see how the figure was derived, and change an input to see the effect. A ratio formula
+returns `N/A` when its denominator is not positive, matching `state.json`'s `null` (see the
+[financial model](financial-model.md#na-and-unresolvable)). A period you did not supply is simply blank.
+
+**Collateral & Exposure** has one row per asset: `Asset Class`, `Exposure (Rental + RV)`, `Number of Units`,
+`Cap / Model Value`, `Non-Recovery`, `Costs`, `Collateral Value`, `CV % of Exposure` (a formula) and `Perfection
+Status`, filled from the deal's `collateral` list.
+
+For an analyst-supplied deal the raw-input cells are filled from `analyst_supplied_financials` for whichever labels
+match (the subtotals still come from the workbook's own formulas); the CAM carries the caveat that the figures were
+not independently recomputed. `templates/spreading/default_spreading_template.xlsx` is a blank, formula-only reference
+copy of the layout.
+
+## The research brief
+
+`/research` exports a standalone `.docx` from a Markdown brief (a short header as a bullet list, the Go/No-Go verdict
+with its rationale, then the company and sector sections), using the same rendering rules as the CAM. It has no
+workbook, no structured JSON block and no template side effects.
+
+## Templates in practice
+
+The sections below describe the shipped and calibrated templates and how one is chosen.
 
 ## Templates
 

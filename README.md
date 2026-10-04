@@ -32,7 +32,7 @@ equivalent: `/research` (a standalone research brief, not a CAM or a workbook) a
 | :--- | :--- | :--- |
 | Authentication | Your Claude Code login; no `ANTHROPIC_API_KEY` needed or read | `ANTHROPIC_API_KEY` in the environment of the process |
 | Billing | What your Claude Code plan covers | Per-token Anthropic **API** billing, separate from any subscription |
-| Without a key | n/a | `calibrate.py` runs in `--mock` mode (placeholder output, no API call); `orchestrator.py` stops before any model call |
+| Without a key | n/a | `calibrate.py` runs in `--mock` mode (placeholder output, no API call); `orchestrator.py` fails at its first model call, sending nothing |
 | What stays local | Your files, `state.json`, the generated documents and the deterministic scripts the commands run | The same |
 | What goes to an external service | What the session sends to Claude Code's model while it works; the public pages and filings a research step fetches | The prompts and documents each script sends to the Anthropic API |
 
@@ -226,6 +226,8 @@ correct: [testing and CI](docs/testing.md).
 | :--- | :--- |
 | [docs/README.md](docs/README.md) | The documentation index and which source is authoritative for what |
 | [docs/architecture.md](docs/architecture.md) | How the pieces fit; the two execution modes; the pipeline |
+| [docs/workflows.md](docs/workflows.md) | Worked end-to-end examples: research, spreading, policy checking, assembly, review, calibration, resuming |
+| [docs/commands.md](docs/commands.md) | Every slash command: inputs, outputs, state written, what can go wrong |
 | [docs/decisions.md](docs/decisions.md) | Why it is built this way |
 | [docs/configuration.md](docs/configuration.md) | `config/settings.json`, credentials |
 | [docs/cli-reference.md](docs/cli-reference.md) | The headless scripts |
@@ -234,6 +236,7 @@ correct: [testing and CI](docs/testing.md).
 | [docs/outputs.md](docs/outputs.md) | Templates and the exported `.docx` / `.xlsx` |
 | [docs/testing.md](docs/testing.md) | Tests, CI, coverage, mutation testing |
 | [docs/security.md](docs/security.md) | What must never be committed |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, meanings and fixes |
 | [docs/evaluation.md](docs/evaluation.md) | The local live-model evaluation harness |
 | [`CLAUDE.md`](CLAUDE.md) | The rules Claude Code follows when it changes this repository |
 

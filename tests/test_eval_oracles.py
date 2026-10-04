@@ -356,6 +356,18 @@ def test_build_context_uses_a_seeded_downside_case_and_policy_presence_by_key():
     assert ctx["credit_policy_present"] is True  # an empty policy FILE still exists, as the pipeline checks
     seeded["config_files"] = {}
     assert build_context(seeded)["credit_policy_present"] is False
+
+
+def test_build_context_carries_the_forward_covenant_results_the_pipeline_computes():
+    """Issue #176: the eval context's policy_state is the pipeline's own, forward-year results included."""
+    seeded = {"deal": {"company": "Synthetic Borrower X", "proposal": "Synthetic Facility X",
+                       "deal_type": "corporate_credit", "pd": "1%", "lgd": "L",
+                       "ratios": {"FY-Current": {"dscr": 1.5}, "FY+1": {"dscr": 1.0}, "FY+2": {"dscr": None}},
+                       "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}]},
+              "mode": "maker", "config_files": {}}
+    results = build_context(seeded)["policy_state"]["forward_covenant_results"]
+    assert [(r["year"], r["status"], r["forward_id"]) for r in results] == [
+        ("FY+1", "FAIL", "FORWARD-FY-1-DSCR"), ("FY+2", "UNRESOLVABLE", "FORWARD-FY-2-DSCR")]
 # ---- closing the mutation survivors -----------------------------------------------------------
 
 def test_a_fresh_multi_period_recomputation_always_resets_the_source_to_framework_computed():

@@ -550,7 +550,7 @@ a second look in review.
   and guarantee CPs only when the underlying gap/guarantee actually exists), and downside covenant
   breach detection (a covenant that PASSes in the base case but FAILs, or becomes UNRESOLVABLE, under stress).
   Returns `policy_state`: `{"required_conditions_precedent", "required_conditions_subsequent",
-  "covenant_results", "security_gaps", "downside_covenant_breaches"}`. **A ratio with a zero or negative
+  "covenant_results", "security_gaps", "downside_covenant_breaches", "forward_covenant_results"}`. **A ratio with a zero or negative
   denominator is N/A, and its covenant is UNRESOLVABLE (issue #169).** `spreading_builder` returns `None` for any
   ratio whose denominator (EBITDA, total equity, interest paid, debt service, current liabilities, revenue, cost of
   sales) is not positive -- before this, negative EBITDA or equity gave a finite negative leverage/gearing that sat
@@ -566,17 +566,30 @@ a second look in review.
   number is stored next to it (analyst-supplied ratios are recorded as given, and a state checkpointed before this
   fix may hold a negative leverage); the stored value is ignored and the reason says so. What it cannot catch: a
   stored ratio whose denominator is not recorded in `financials` (e.g. an analyst-supplied DSCR, which has no `raw`
-  block to check against), and a forward year whose own base-case ratio is N/A (`covenant_results` covers only
-  `FY-Current`; the downside check skips a covenant that is not PASS in the base case) -- see the follow-up issue
-  for the latter. The
+  block to check against), and a state checkpointed before the fix whose stored negative ratio still reaches the
+  grounding figures (re-run `/spread` to refresh it; only the covenant status is protected). The
   reason reaches the Maker in `covenant_results` and the code-enforced rejection text (UNRESOLVABLE has always been
   a code-enforced reject reason). A covenant that PASSes in the base case but is FAIL or UNRESOLVABLE in a downside
   year is a `downside_covenant_breaches` entry (new keys `downside_status` and `reason`), so a stress that wipes out
   EBITDA is disclosed, not silently dropped (the code-enforced rejection text for one reads "cannot be tested in
   FY+1 under stress (reason)", not "breaches threshold"). The exported workbook's ratio cells use the same rule
   (`IF(denominator>0, ..., "N/A")`, not just `IFERROR`; the working capital cycle row wraps its sum in `IFERROR`
-  so an "N/A" day row gives "N/A", not `#VALUE!`), so it agrees with `state.json` cell for cell. The margin rows
-  and the collateral sheet are workbook-only and not part of this rule. This is
+  so an "N/A" day row gives "N/A", not `#VALUE!`), so it agrees with `state.json` cell for cell. The margin rows use the same guard but have no `state.json`
+  counterpart, and the collateral cover cells are `IFERROR`-only; neither is a covenant metric. **Forward years
+  (issue #176):** a covenant applies to every forward base-case year (`FY+1`..`FY+3`) that has a recorded,
+  non-empty ratio set; a year with nothing recorded is not evaluated, and state.json carries no covenant tenor, so
+  a covenant that really ends earlier is still reported for later projected years. `forward_covenant_results` is
+  the complete record -- one entry per year and covenant, PASS included -- each being `_evaluate_covenant()`'s
+  result (same #169 rules, `reason` for UNRESOLVABLE) plus `year` and a stable `forward_id`
+  (`FORWARD-FY-1-GROSS-LEVERAGE`, numeric suffix for two covenants on one metric). It is a separate list rather
+  than a year dimension on `covenant_results` because every consumer of that list (the reject reasons, the
+  orchestrator context, the eval contexts) assumes one FY-Current entry per covenant, and `policy_checks.py` turns
+  any FAIL/UNRESOLVABLE in it into a rejection. **Disclosure only:** no code-enforced reason reads
+  `forward_covenant_results`, so a forward-year FAIL or UNRESOLVABLE never rejects a deal by itself, and it cannot
+  go unrecorded. `orchestrator.py` shows the model only the non-PASS entries, as neutral data (no instruction; the
+  wording for the Maker and Reviewer is post-baseline prompt work); the full list is persisted with `policy_state`
+  in state.json. It never repeats `downside_covenant_breaches` (which still reports only base PASS -> stressed
+  non-PASS): a year already failing in the base case appears only in the forward list. This is
   what both
   `orchestrator.py` (headless) and `scripts/policy_check.py` (slash-command interface, below) call
   to get the exact same code-enforced structural facts regardless of which interface a deal runs

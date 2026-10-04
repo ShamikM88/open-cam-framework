@@ -310,8 +310,26 @@ def test_calibrate_mock_writes_a_style_guide_and_a_template_from_a_sample_pdf(cl
     _write_pdf(samples / "sample.pdf", "Synthetic Co", pages=1, lines_per_page=5)
     result = cli("calibrate", "--mock", "--type", "asset_finance", "--on-overflow", "split")
     assert result.returncode == 0, result.stderr
-    assert (cli.workdir / "config" / "style_guide.md").is_file()
-    assert (cli.workdir / "templates" / "local" / "cam" / "asset_finance_cam.md").is_file()
+    from calibrate import MOCK_STYLE_GUIDE, MOCK_TEMPLATE
+    assert (cli.workdir / "config" / "style_guide.md").read_text(encoding="utf-8") == MOCK_STYLE_GUIDE
+    assert (cli.workdir / "templates" / "local" / "cam" / "asset_finance_cam.md").read_text(
+        encoding="utf-8") == MOCK_TEMPLATE
+
+
+def test_calibrate_without_the_mock_flag_and_without_a_key_falls_back_to_mock(cli):
+    """The documented onboarding path, run for real: no flag, no ANTHROPIC_* variable (child_env strips them)."""
+    from calibrate import MOCK_STYLE_GUIDE, MOCK_TEMPLATE
+    from test_calibrate import _write_pdf
+    samples = cli.workdir / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    (cli.workdir / "config").mkdir()
+    _write_pdf(samples / "sample.pdf", "Synthetic Co", pages=1, lines_per_page=5)
+    result = cli("calibrate", "--type", "asset_finance")
+    assert result.returncode == 0, result.stderr
+    assert "[INFO] ANTHROPIC_API_KEY not found. Running calibrate.py in --mock mode." in result.stdout
+    assert (cli.workdir / "config" / "style_guide.md").read_text(encoding="utf-8") == MOCK_STYLE_GUIDE
+    assert (cli.workdir / "templates" / "local" / "cam" / "asset_finance_cam.md").read_text(
+        encoding="utf-8") == MOCK_TEMPLATE
 
 
 def test_calibrate_without_sample_pdfs_says_so_and_writes_nothing(cli):

@@ -19,7 +19,7 @@ jobs:
   mutation:
     name: mutation
     runs-on: ubuntu-latest      # mutmut forks; it does not run on Windows
-    timeout-minutes: 120        # a full run took 10 minutes; a hung run is stopped well before the 360-minute limit
+    timeout-minutes: 120        # a full run took 10 to 20 minutes; a hung run is stopped well before the 360-minute limit
     permissions:
       contents: read
 

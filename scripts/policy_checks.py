@@ -322,12 +322,12 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
         acknowledged_breach_ids = set(underwriter_output["downside_breaches_acknowledged"])
         for breach in policy_state.get("downside_covenant_breaches", []):
             if breach["breach_id"] not in acknowledged_breach_ids:
-                explanation = f" ({breach['reason']})" if breach.get("reason") else ""
-                reasons.append(
-                    f"Undisclosed Downside Breach {breach['breach_id']}: {breach['metric']} "
-                    f"breaches threshold in {breach['year']} under stress{explanation} but is not "
-                    "addressed in the draft."
-                )
+                if breach.get("downside_status") == "UNRESOLVABLE":
+                    what = (f"cannot be tested in {breach['year']} under stress ({breach.get('reason')}) "
+                            "and is not addressed in the draft.")
+                else:
+                    what = f"breaches threshold in {breach['year']} under stress but is not addressed in the draft."
+                reasons.append(f"Undisclosed Downside Breach {breach['breach_id']}: {breach['metric']} {what}")
 
         # A lighter-weight companion to the CP/taxonomy/figure checks above:
         # this doesn't verify a citation's *accuracy* (a narrative claim like

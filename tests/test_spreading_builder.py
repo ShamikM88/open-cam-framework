@@ -63,7 +63,7 @@ def _eval_expr(ws, expr, memo):
         inner, fallback = m.group(1), m.group(2)
         try:
             return _eval_expr(ws, inner, memo)
-        except ZeroDivisionError:
+        except (ZeroDivisionError, TypeError):      # TypeError: arithmetic on an "N/A" text cell (Excel's #VALUE!)
             return fallback
 
     m = re.fullmatch(r"IF\((.+)\)", expr)

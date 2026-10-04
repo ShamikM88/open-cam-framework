@@ -140,7 +140,7 @@ def test_every_unresolvable_cause_has_a_reason():
         ({"metric": "dscr", "type": "minimum"}, "threshold is missing or not a number"),
         ({"metric": "dscr", "type": "minimum", "threshold": "1.25"}, "threshold is missing or not a number"),
         ({"metric": "nope", "type": "minimum", "threshold": 1}, "metric 'nope' is not among"),
-        ({"metric": "dscr", "type": "minimum", "threshold": 1}, "DSCR is not available: no financials are recorded"),
+        ({"metric": "dscr", "type": "minimum", "threshold": 1}, "dscr has no computed value for this period"),
     ]
     for covenant, expected in cases:
         result = policy_engine._evaluate_covenant(covenant, ratios)
@@ -206,8 +206,8 @@ def test_aliases_unknown_metrics_and_missing_financials():
     assert describe_undefined_ratio("EBITDA/Interest", {"raw": {"interest_paid": 0}}) == \
         "EBITDA interest cover not defined: interest paid is zero"
     assert describe_undefined_ratio("not_a_ratio", {"ebitda": -1}) is None
-    assert describe_undefined_ratio("gross_leverage", None).startswith("gross leverage is not available")
-    assert describe_undefined_ratio("gross_leverage", "garbage").startswith("gross leverage is not available")
+    assert describe_undefined_ratio("gross_leverage", None) is None          # nothing recorded: cannot say
+    assert describe_undefined_ratio("gross_leverage", "garbage") is None
 
 
 # ---------------------------------------------------------------------------
@@ -218,10 +218,13 @@ amount = st.integers(min_value=-5000, max_value=5000)
 raw_amounts = st.fixed_dictionaries({k: amount for k in (
     "revenue", "cost_of_sales", "admin_expenses", "interest_paid", "scheduled_principal", "cash", "current_debt",
     "long_term_debt", "share_capital", "retained_profit", "trade_debtors", "stock", "trade_creditors")})
+amount = st.one_of(st.integers(min_value=-5000, max_value=5000),
+                   st.floats(min_value=-5000, max_value=5000, allow_nan=False, allow_infinity=False))
 covenant_strategy = st.builds(
     lambda metric, kind, threshold: {"metric": metric, "type": kind, "threshold": threshold},
     st.sampled_from(["gross_leverage", "net_debt_to_ebitda", "gearing", "dscr", "current_ratio", "fcf_conversion_pct",
-                     "ebit_interest_cover", "ebitda_interest_cover"]),
+                     "ebit_interest_cover", "ebitda_interest_cover", "trade_debtor_days", "trade_creditor_days",
+                     "stock_days", "working_capital_cycle_days"]),
     st.sampled_from(["minimum", "maximum"]), st.integers(min_value=-10, max_value=10))
 
 
@@ -235,9 +238,9 @@ def test_a_covenant_is_unresolvable_exactly_when_its_ratio_is_na(raw, covenants)
         metric = covenant["metric"]
         if ratios[metric] is None:
             assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
-            assert result["reason"] and metric.replace("_", " ").split()[0] in result["reason"].lower() or result["reason"]
             _, denominators = RATIO_DENOMINATORS[metric]
-            assert any(read(financials) <= 0 for _, read in denominators)
+            assert any(read(financials) <= 0 for _, read in denominators)          # a denominator really is non-positive
+            assert result["reason"] == describe_undefined_ratio(metric, financials)  # and the reason is exactly that
         else:
             assert result["status"] in ("PASS", "FAIL") and result["reason"] is None
             assert (result["status"] == "PASS") == (
@@ -295,7 +298,7 @@ def test_a_malformed_downside_financials_value_never_adds_a_failure():
         state["downside_case"]["financials"] = broken
         breach = policy_engine.evaluate_deal_policy(state)["downside_covenant_breaches"][0]
         assert breach["downside_status"] == "UNRESOLVABLE"
-        assert breach["reason"].startswith("gross leverage is not available")     # honest about what it cannot check
+        assert breach["reason"] == "gross_leverage has no computed value for this period"   # honest: cannot say why
 
 
 # ---------------------------------------------------------------------------
@@ -324,8 +327,17 @@ def test_the_undisclosed_downside_breach_message_carries_the_explanation():
     draft = "Narrative.\n\n```json\n{\"downside_breaches_acknowledged\": []}\n```\n"
     reasons = policy_checks.check_draft_compliance(draft, policy, {})
     message = next(r for r in reasons if r.startswith("Undisclosed Downside Breach"))
-    assert "(gross leverage not meaningful: EBITDA is negative)" in message
-    assert "DOWNSIDE-FY-1-GROSS-LEVERAGE" in message
+    assert message == ("Undisclosed Downside Breach DOWNSIDE-FY-1-GROSS-LEVERAGE: gross_leverage cannot be tested in "
+                       "FY+1 under stress (gross leverage not meaningful: EBITDA is negative) and is not addressed "
+                       "in the draft.")
+
+
+def test_an_ordinary_downside_fail_keeps_the_breaches_threshold_wording():
+    policy = policy_engine.evaluate_deal_policy(downside_state(HEALTHY, [MIN_DSCR], {"revenue_haircut_pct": 30}))
+    draft = "Narrative.\n\n```json\n{\"downside_breaches_acknowledged\": []}\n```\n"
+    message = next(r for r in policy_checks.check_draft_compliance(draft, policy, {})
+                   if r.startswith("Undisclosed Downside Breach"))
+    assert message.endswith("dscr breaches threshold in FY+1 under stress but is not addressed in the draft.")
 
 
 # ---------------------------------------------------------------------------
@@ -337,7 +349,9 @@ WORKBOOK_ROWS = {
     "FCF Conversion %": "fcf_conversion_pct", "Gearing % (Interest-Bearing Debt / Equity)": "gearing",
     "Current Ratio": "current_ratio", "Gross Leverage": "gross_leverage", "Net Debt / EBITDA": "net_debt_to_ebitda",
     "Trade Debtor Days": "trade_debtor_days", "Trade Creditor Days": "trade_creditor_days", "Stock Days": "stock_days",
+    "Working Capital Cycle (days)": "working_capital_cycle_days",
 }
+GUARDED_ROWS = [label for label in WORKBOOK_ROWS if label != "Working Capital Cycle (days)"]
 
 
 @pytest.mark.parametrize("raw", [HEALTHY, NEGATIVE_EBITDA, NEGATIVE_EQUITY, ZERO_EBITDA, ZERO_EQUITY,
@@ -365,9 +379,90 @@ def test_the_workbook_formulas_guard_the_denominator_not_only_the_error(tmp_path
     spreading_builder.export_to_xlsx("Synthetic Co", str(path))
     sheet = openpyxl.load_workbook(path)["Financial Spreading"]
     row_of = {sheet.cell(row=r, column=1).value: r for r in range(1, sheet.max_row + 1)}
-    for label in WORKBOOK_ROWS:
+    for label in GUARDED_ROWS:
         formula = sheet.cell(row=row_of[label], column=4).value
         assert formula.startswith("=IFERROR(IF((") and ")>0," in formula and formula.endswith('"N/A"),"N/A")'), label
+    wcc = sheet.cell(row=row_of["Working Capital Cycle (days)"], column=4).value
+    assert wcc.startswith("=IFERROR(") and wcc.endswith(',"N/A")')      # sums three rows that may read "N/A"
+
+
+# ---------------------------------------------------------------------------
+# Review round: malformed or merely missing figures, and ratios recorded by something else (issue #169)
+# ---------------------------------------------------------------------------
+
+def _covenant_against(financials, ratios, covenant=MAX_LEVERAGE):
+    return policy_engine.evaluate_deal_policy(
+        {"financials": {"FY-Current": financials}, "ratios": {"FY-Current": ratios}, "covenants": [covenant]}
+    )["covenant_results"][0]
+
+
+@pytest.mark.parametrize("financials", [
+    {"ebitda": "abc"}, {"ebitda": "n/m"}, {"ebitda": True}, {"ebitda": False}, {"ebitda": [1]}, {"ebitda": {"v": 1}}, {"raw": "zzz"},
+    {"raw": ["x"]}, {"ebitda": None, "raw": None}, {}, {"total_equity": "?"},
+], ids=repr)
+def test_malformed_recorded_figures_never_crash_and_give_the_generic_reason(financials):
+    """On main these gave a clean UNRESOLVABLE; the explanation must not turn them into a crash."""
+    for metric in ("gross_leverage", "gearing", "dscr", "ebit_interest_cover", "stock_days", "working_capital_cycle_days"):
+        result = _covenant_against(financials, {metric: None}, {"metric": metric, "type": "maximum", "threshold": 3})
+        assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
+        assert result["reason"] == f"{metric} has no computed value for this period", (metric, result["reason"])
+
+
+@pytest.mark.parametrize("metric", ["dscr", "ebit_interest_cover", "ebitda_interest_cover"])
+def test_a_text_value_in_a_raw_denominator_item_gives_the_generic_reason(metric):
+    """Only the metrics that read `interest_paid` are affected by it being text; the others read other items."""
+    result = _covenant_against({"raw": {"interest_paid": "x"}}, {metric: None},
+                               {"metric": metric, "type": "minimum", "threshold": 1})
+    assert result["status"] == "UNRESOLVABLE" and result["reason"] == f"{metric} has no computed value for this period"
+
+
+def test_a_figure_that_is_merely_not_recorded_is_never_called_zero():
+    """An analyst-supplied deal records its own subtotals and no `raw` block; a missing EBITDA is not 'zero'."""
+    for financials in ({}, {"ebitda": None}, {"gross_profit": 5}):
+        assert _covenant_against(financials, {"gross_leverage": None})["reason"] == \
+            "gross_leverage has no computed value for this period"
+    # raw-based metrics need a raw block at all (only a framework-computed period has one)
+    assert _covenant_against({"ebitda": 5}, {"dscr": None}, MIN_DSCR)["reason"] == "dscr has no computed value for this period"
+    # a recorded zero, and a recorded negative, are still reported as such
+    assert "is zero" in _covenant_against({"ebitda": 0}, {"gross_leverage": None})["reason"]
+    assert "is negative" in _covenant_against({"ebitda": -1}, {"gross_leverage": None})["reason"]
+
+
+def test_an_unreadable_component_does_not_hide_a_readable_non_positive_one():
+    """The working capital cycle has two denominators; text in one must not stop the other from being reported."""
+    reason = _covenant_against({"raw": {"revenue": "n/m", "cost_of_sales": -5}}, {"working_capital_cycle_days": None},
+                               {"metric": "working_capital_cycle_days", "type": "maximum", "threshold": 90})["reason"]
+    assert reason == "working capital cycle not meaningful: cost of sales is negative"
+
+
+def test_inside_a_raw_block_a_missing_item_counts_as_zero_as_the_framework_reads_it():
+    reason = _covenant_against({"raw": {"revenue": 10}}, {"ebit_interest_cover": None},
+                               {"metric": "ebit_interest_cover", "type": "minimum", "threshold": 2})["reason"]
+    assert reason == "EBIT interest cover not defined: interest paid is zero"
+
+
+@pytest.mark.parametrize("covenant, stored", [(MAX_LEVERAGE, -5.0), (MIN_LEVERAGE, -5.0), (MAX_LEVERAGE, 0.0),
+                                              (MAX_GEARING, -2.0), (MAX_LEVERAGE, 1.2)])
+def test_a_stored_number_cannot_pass_when_the_recorded_denominator_is_not_positive(covenant, stored):
+    """Defence in depth: analyst-supplied ratios are recorded 'exactly as given', and a state checkpointed before this
+    fix may hold a negative leverage; neither may PASS against a recorded EBITDA / equity that is not positive."""
+    metric = covenant["metric"]
+    financials = {"ebitda": -100, "total_equity": -200}
+    result = _covenant_against(financials, {metric: stored}, covenant)
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None and result["headroom_pct"] is None
+    assert result["reason"].endswith(f"(the recorded value {stored!r} is ignored)")
+    assert "not meaningful" in result["reason"] and ("EBITDA" in result["reason"] or "equity" in result["reason"])
+
+
+def test_a_stored_number_is_trusted_when_the_denominator_is_positive_or_cannot_be_read():
+    assert _covenant_against({"ebitda": 400}, {"gross_leverage": 1.25})["status"] == "PASS"          # positive: trusted
+    assert _covenant_against({"ebitda": "n/m"}, {"gross_leverage": 1.25})["status"] == "PASS"        # unreadable: trusted
+    assert _covenant_against({}, {"gross_leverage": 1.25})["status"] == "PASS"                       # absent: trusted
+    # a DSCR from an analyst-supplied deal (no raw block) is theirs; the engine cannot check its denominator
+    assert _covenant_against({"ebitda": 100}, {"dscr": 2.0}, MIN_DSCR)["status"] == "PASS"
+    # and a meaningful negative numerator over a positive denominator still resolves as a real number
+    result = _covenant_against({"raw": {"interest_paid": 50, "scheduled_principal": 100}}, {"dscr": -0.66}, MIN_DSCR)
+    assert result["status"] == "FAIL" and result["actual"] == -0.66 and result["reason"] is None
 
 
 # ---------------------------------------------------------------------------

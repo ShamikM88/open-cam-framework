@@ -44,10 +44,6 @@ DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict
 # references: every formula names what it depends on, and its actual sheet
 # position is derived, never hardcoded.
 #
-# Accounting guard: "Scheduled Principal Repayment" is a memo line for DSCR
-# purposes only. It must never be referenced by the Profit Before Tax / Net
-# Profit chain below -- principal repayments are a balance-sheet/financing
-# event, not a P&L expense, and folding it into PBT would misstate earnings.
 def _ratio(numerator, denominator, scale=""):
     """A ratio cell: the quotient only when the denominator is POSITIVE, "N/A" otherwise (issue #169). IFERROR alone
     only caught a zero denominator; a negative one (negative EBITDA or equity) produced a finite negative ratio that
@@ -55,6 +51,10 @@ def _ratio(numerator, denominator, scale=""):
     return f'=IFERROR(IF(({denominator})>0,({numerator})/({denominator}){scale},"N/A"),"N/A")'
 
 
+# Accounting guard: "Scheduled Principal Repayment" is a memo line for DSCR
+# purposes only. It must never be referenced by the Profit Before Tax / Net
+# Profit chain below -- principal repayments are a balance-sheet/financing
+# event, not a P&L expense, and folding it into PBT would misstate earnings.
 PNL_ROWS = [
     ("Revenue", None),
     ("Cost of Goods Sold", None),
@@ -164,7 +164,9 @@ WORKING_CAPITAL_ROWS = [
     ("Trade Debtor Days", _ratio("{Accounts Receivable}", "{Revenue}", "*365")),
     ("Trade Creditor Days", _ratio("{Accounts Payable}", "{Cost of Goods Sold}", "*365")),
     ("Stock Days", _ratio("{Stock}", "{Cost of Goods Sold}", "*365")),
-    ("Working Capital Cycle (days)", "={Trade Debtor Days}+{Stock Days}-{Trade Creditor Days}"),
+    # Sums three rows that can each read "N/A": IFERROR keeps that "N/A" (state.json's None) instead of #VALUE!.
+    ("Working Capital Cycle (days)",
+     '=IFERROR({Trade Debtor Days}+{Stock Days}-{Trade Creditor Days},"N/A")'),
 ]
 
 SECTIONS = [
@@ -321,8 +323,31 @@ def validate_row_formulas(sections=None):
                 )
 
 
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _subtotal_figure(period_financials, key):
+    """A recorded subtotal (ebitda, total_equity, current_liabilities), or None if it is absent or not a number --
+    an analyst-supplied deal may record only some subtotals, or text such as "n/m". Never treated as zero."""
+    value = period_financials.get(key)
+    return value if _is_number(value) else None
+
+
 def _raw_figure(period_financials, key):
-    return (period_financials.get("raw") or {}).get(key, 0) or 0
+    """A raw line item, or None if it cannot be read. Only a framework-computed period carries `raw`; inside it a
+    missing item counts as 0, exactly as evaluate_financial_model() reads it (a null too), but text is unreadable."""
+    raw = period_financials.get("raw")
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get(key, 0)
+    if value is None:
+        return 0
+    return value if _is_number(value) else None
+
+
+def _sum_or_none(*figures):
+    return None if any(figure is None for figure in figures) else sum(figures)
 
 
 # metric -> (display name, [(denominator label, how to read it from one period's `financials` dict), ...]).
@@ -330,12 +355,12 @@ def _raw_figure(period_financials, key):
 # on a ratio that came out N/A can say WHY (policy_engine) without re-deriving the arithmetic.
 RATIO_DENOMINATORS = {
     "dscr": ("DSCR", [("debt service (interest paid + scheduled principal)",
-                       lambda f: _raw_figure(f, "interest_paid") + _raw_figure(f, "scheduled_principal"))]),
-    "gross_leverage": ("gross leverage", [("EBITDA", lambda f: f.get("ebitda", 0) or 0)]),
-    "net_debt_to_ebitda": ("net debt / EBITDA", [("EBITDA", lambda f: f.get("ebitda", 0) or 0)]),
-    "fcf_conversion_pct": ("FCF conversion", [("EBITDA", lambda f: f.get("ebitda", 0) or 0)]),
-    "gearing": ("gearing", [("total equity", lambda f: f.get("total_equity", 0) or 0)]),
-    "current_ratio": ("current ratio", [("current liabilities", lambda f: f.get("current_liabilities", 0) or 0)]),
+                       lambda f: _sum_or_none(_raw_figure(f, "interest_paid"), _raw_figure(f, "scheduled_principal")))]),
+    "gross_leverage": ("gross leverage", [("EBITDA", lambda f: _subtotal_figure(f, "ebitda"))]),
+    "net_debt_to_ebitda": ("net debt / EBITDA", [("EBITDA", lambda f: _subtotal_figure(f, "ebitda"))]),
+    "fcf_conversion_pct": ("FCF conversion", [("EBITDA", lambda f: _subtotal_figure(f, "ebitda"))]),
+    "gearing": ("gearing", [("total equity", lambda f: _subtotal_figure(f, "total_equity"))]),
+    "current_ratio": ("current ratio", [("current liabilities", lambda f: _subtotal_figure(f, "current_liabilities"))]),
     "ebit_interest_cover": ("EBIT interest cover", [("interest paid", lambda f: _raw_figure(f, "interest_paid"))]),
     "ebitda_interest_cover": ("EBITDA interest cover", [("interest paid", lambda f: _raw_figure(f, "interest_paid"))]),
     "trade_debtor_days": ("trade debtor days", [("revenue", lambda f: _raw_figure(f, "revenue"))]),
@@ -349,20 +374,21 @@ RATIO_DENOMINATORS["EBITDA/Interest"] = RATIO_DENOMINATORS["ebitda_interest_cove
 
 
 def describe_undefined_ratio(metric, period_financials):
-    """Why `metric` is N/A for this period, as one sentence naming the metric and its denominator, e.g. "gross leverage
-    not meaningful: EBITDA is negative" or "gearing not defined: total equity is zero". Returns None when the metric is
-    not a ratio with a known denominator, or when every denominator is positive (the ratio is then not N/A for this
-    reason). `period_financials` is one period's `financials` dict from evaluate_financial_model(); without it the
-    denominator cannot be inspected and the sentence says so."""
+    """If a RECORDED denominator of `metric` is zero or negative in this period, one sentence naming the metric and the
+    denominator, e.g. "gross leverage not meaningful: EBITDA is negative" or "gearing not defined: total equity is
+    zero"; otherwise None. None means "cannot say": the metric has no known denominator, every readable denominator is
+    positive, or the figures are not there to read (no `financials` for the period, a subtotal absent or not a number,
+    no `raw` block as in an analyst-supplied deal). It never raises on a malformed value and never calls a figure that
+    is merely not recorded "zero". `period_financials` is one period's `financials` dict from
+    evaluate_financial_model() (or an analyst's own, recorded as given)."""
     entry = RATIO_DENOMINATORS.get(metric)
-    if entry is None:
+    if entry is None or not isinstance(period_financials, dict):
         return None
     name, denominators = entry
-    if not isinstance(period_financials, dict):
-        labels = " / ".join(label for label, _ in denominators)
-        return f"{name} is not available: no financials are recorded for this period, so its denominator ({labels}) cannot be checked"
     for label, read in denominators:
         value = read(period_financials)
+        if value is None:
+            continue
         if value < 0:
             return f"{name} not meaningful: {label} is negative"
         if value == 0:

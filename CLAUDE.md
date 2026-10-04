@@ -558,12 +558,24 @@ a second look in review.
   covenant correctly FAILs on it). A covenant on an N/A ratio is UNRESOLVABLE for `minimum` and `maximum` alike --
   never PASS, never a false FAIL -- and every `covenant_results` entry now has a `reason` (None when resolved; for
   an N/A ratio one sentence naming the metric and denominator, e.g. "gross leverage not meaningful: EBITDA is
-  negative" / "gearing not defined: total equity is zero"; `spreading_builder.describe_undefined_ratio()`). The
+  negative" / "gearing not defined: total equity is zero"; `spreading_builder.describe_undefined_ratio()`, which
+  only speaks about a RECORDED denominator: a subtotal that is absent or not a number, or an analyst-supplied
+  deal's missing `raw` block, gives the generic "has no computed value for this period", never "is zero"). **Defence
+  in depth:** if the period's recorded denominator is zero or negative, the covenant is UNRESOLVABLE even when a
+  number is stored next to it (analyst-supplied ratios are recorded as given, and a state checkpointed before this
+  fix may hold a negative leverage); the stored value is ignored and the reason says so. What it cannot catch: a
+  stored ratio whose denominator is not recorded in `financials` (e.g. an analyst-supplied DSCR, which has no `raw`
+  block to check against), and a forward year whose own base-case ratio is N/A (`covenant_results` covers only
+  `FY-Current`; the downside check skips a covenant that is not PASS in the base case) -- see the follow-up issue
+  for the latter. The
   reason reaches the Maker in `covenant_results` and the code-enforced rejection text (UNRESOLVABLE has always been
   a code-enforced reject reason). A covenant that PASSes in the base case but is FAIL or UNRESOLVABLE in a downside
   year is a `downside_covenant_breaches` entry (new keys `downside_status` and `reason`), so a stress that wipes out
-  EBITDA is disclosed, not silently dropped. The exported workbook's ratio cells use the same rule
-  (`IF(denominator>0, ..., "N/A")`, not just `IFERROR`), so it agrees with `state.json` cell for cell. This is
+  EBITDA is disclosed, not silently dropped (the code-enforced rejection text for one reads "cannot be tested in
+  FY+1 under stress (reason)", not "breaches threshold"). The exported workbook's ratio cells use the same rule
+  (`IF(denominator>0, ..., "N/A")`, not just `IFERROR`; the working capital cycle row wraps its sum in `IFERROR`
+  so an "N/A" day row gives "N/A", not `#VALUE!`), so it agrees with `state.json` cell for cell. The margin rows
+  and the collateral sheet are workbook-only and not part of this rule. This is
   what both
   `orchestrator.py` (headless) and `scripts/policy_check.py` (slash-command interface, below) call
   to get the exact same code-enforced structural facts regardless of which interface a deal runs

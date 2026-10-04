@@ -100,7 +100,7 @@ def _evaluate_covenant(covenant, ratios, financials=None):
     key), an unrecognized `type` (not "minimum"/"maximum"), a missing or
     non-numeric `threshold`, or a `metric` whose ratios value is itself
     missing/non-numeric (e.g. `None`, from a ratio spreading_builder.py
-    left undefined because its denominator was 0 -- see
+    left undefined because its denominator was zero or negative -- see
     evaluate_financial_model()) is UNRESOLVABLE, never silently skipped or
     allowed to crash the comparison below it -- the covenant still appears
     in the result with actual/headroom_pct left as None.
@@ -142,9 +142,15 @@ def _evaluate_covenant(covenant, ratios, financials=None):
 
     actual = ratios[metric]
     actual_is_numeric = isinstance(actual, (int, float)) and not isinstance(actual, bool)
+    explanation = describe_undefined_ratio(metric, financials)
+    if explanation is not None:
+        # A RECORDED denominator is zero or negative, so the ratio is not meaningful whatever number is stored next to
+        # it: a ratio recorded as given in analyst-supplied mode, or checkpointed by an earlier version that divided by
+        # a negative EBITDA, must not pass a covenant either (issue #169). The stored figure is ignored.
+        result["reason"] = explanation + (f" (the recorded value {actual!r} is ignored)" if actual_is_numeric else "")
+        return result
     if not actual_is_numeric:
-        result["reason"] = describe_undefined_ratio(metric, financials) or (
-            f"{metric} has no computed value for this period")
+        result["reason"] = f"{metric} has no computed value for this period"
         return result
 
     result["actual"] = actual

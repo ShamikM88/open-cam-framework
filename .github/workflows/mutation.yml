@@ -19,7 +19,7 @@ jobs:
   mutation:
     name: mutation
     runs-on: ubuntu-latest      # mutmut forks; it does not run on Windows
-    timeout-minutes: 120        # a full run took 10 minutes; a hung run is stopped well before the 360-minute limit
+    timeout-minutes: 120        # a full run took 10 to 20 minutes; a hung run is stopped well before the 360-minute limit
     permissions:
       contents: read
 
@@ -65,6 +65,7 @@ jobs:
         run: |
           mutmut export-cicd-stats || true
           mutmut results > mutation-survivors.txt || true
+          mutmut results --all true > mutation-all.txt || true
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, os, pathlib
           path = pathlib.Path("mutants/mutmut-cicd-stats.json")
@@ -80,6 +81,11 @@ jobs:
                     f"{s['survived']} survived, {s['no_tests']} with no tests, {s['suspicious']} suspicious, "
                     f"{s['skipped']} skipped, of {s['total']})")
           PY
+          # Per-module scores, completeness warnings and the largest survivor groups (scripts/mutation_report.py).
+          # Diagnostic: it never fails the job over a score.
+          if ! python scripts/mutation_report.py mutation-all.txt --json mutation-report.json >> "$GITHUB_STEP_SUMMARY"; then
+            echo "The per-module report could not be produced; see mutation-all.txt." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload the report
         if: always()
@@ -89,6 +95,8 @@ jobs:
           path: |
             mutmut-run.log
             mutation-survivors.txt
+            mutation-all.txt
+            mutation-report.json
             mutants/mutmut-cicd-stats.json
             mutants/src/*.meta
           if-no-files-found: warn

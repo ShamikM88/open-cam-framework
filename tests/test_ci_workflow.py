@@ -371,6 +371,17 @@ def test_the_mutation_workflow_is_a_diagnostic_report_not_a_gate():
     assert "--fail-under" not in body and "--min" not in body, "no threshold is enforced until the first run is read"
 
 
+def test_the_mutation_workflow_produces_the_per_module_report_without_ever_failing_over_it():
+    body = split_jobs(MUTATION_WORKFLOW.read_text(encoding="utf-8"))["mutation"]
+    collect = next(s for s in body.split("\n      - name: ") if s.startswith("Collect results"))
+    assert "mutmut results --all true > mutation-all.txt" in collect       # every mutant, killed ones included
+    report = collect.split("if ! python scripts/mutation_report.py", 1)[1]
+    assert report.startswith(" mutation-all.txt --json mutation-report.json")
+    assert "if ! python scripts/mutation_report.py" in collect and "could not be produced" in collect
+    upload = next(s for s in body.split("\n      - name: ") if "actions/upload-artifact@" in s)
+    assert "mutation-all.txt" in upload and "mutation-report.json" in upload
+
+
 def test_the_mutation_job_is_not_one_of_the_required_checks():
     required = set(REQUIRED_JOBS)
     assert "mutation" not in required
@@ -385,11 +396,16 @@ def test_mutmut_is_installed_by_the_mutation_workflow_only():
     assert "-r requirements-mutation.txt" in MUTATION_WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_the_mutation_config_mutates_exactly_the_coverage_critical_modules_with_tests_that_exist():
+SUPPORTING_MUTATED_MODULES = {"calibrate"}      # the calibrate chunker/merge helpers (issue #146): scored, not critical
+
+
+def test_the_mutation_config_mutates_exactly_the_critical_modules_plus_the_named_supporting_ones():
     tomllib = pytest.importorskip("tomllib")
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]
     critical = {f"src/{m}.py" for m in config["opencam"]["coverage"]["critical_modules"]}   # src/ is scripts/
-    assert set(config["mutmut"]["only_mutate"]) == critical
+    supporting = {f"src/{m}.py" for m in SUPPORTING_MUTATED_MODULES}
+    assert set(config["mutmut"]["only_mutate"]) == critical | supporting
+    assert "tests/test_calibrate.py" in config["mutmut"]["pytest_add_cli_args_test_selection"]
     for test_file in config["mutmut"]["pytest_add_cli_args_test_selection"]:
         assert (REPO_ROOT / test_file).is_file(), test_file
     assert ".github" in config["mutmut"]["also_copy"]

@@ -66,9 +66,12 @@ compare_branch = "origin/main"
 fail_under = 90
 
 # Mutation testing (issue #146), run weekly by .github/workflows/mutation.yml -- never on a pull request. mutmut
-# copies source_paths and tests/ into mutants/, mutates the eight governance modules one line at a time, and runs
-# only the test files below against each mutant. Linux/macOS only. No score is enforced yet: the first full run is
-# diagnostic, and a threshold is decided from it in a later, reviewed change.
+# copies source_paths and tests/ into mutants/, mutates the eight governance modules plus calibrate.py (the
+# calibrate chunker/merge helpers, as a supporting module) one line at a time, and runs only the test files below
+# against each mutant. Linux/macOS only. scripts/mutation_report.py turns the result into a score per module. No
+# score is enforced: the report is diagnostic. `target_critical` below is a diagnostic target for the eight
+# governance modules (chosen after the first full run, issue #146): the report marks each of them met or below,
+# and never fails a build over it. Changing it is a reviewed change.
 #
 # mutmut names a mutant after the module's path and strips a leading "src." only; the tests import these modules
 # as top-level names (`import deal_export`, via tests/conftest.py), so scripts/ is exposed to mutmut as src/
@@ -80,11 +83,18 @@ only_mutate = [
     "src/policy_engine.py", "src/policy_checks.py", "src/policy_check.py",
     "src/spreading_builder.py", "src/spreading_check.py",
     "src/state_manager.py", "src/deal_export.py", "src/docx_builder.py",
+    "src/calibrate.py",
 ]
 pytest_add_cli_args_test_selection = [
     "tests/test_policy_engine.py", "tests/test_policy_checks.py", "tests/test_policy_check.py",
     "tests/test_spreading_builder.py", "tests/test_spreading_check.py",
     "tests/test_state_manager.py", "tests/test_deal_export.py", "tests/test_docx_builder.py",
     "tests/test_legacy_state.py", "tests/test_golden_outputs.py",
+    "tests/test_calibrate.py", "tests/test_properties.py",
 ]
 also_copy = [".github"]    # a golden-output test reads the workflow files, so the mutants/ copy needs them
+
+# Diagnostic target, in percent, for the mutation score of each governance-critical module (issue #146). Not a gate:
+# the mutation workflow is not a required check, and a module below target is reported, never failed.
+[tool.opencam.mutation]
+target_critical = 75

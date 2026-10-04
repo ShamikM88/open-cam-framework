@@ -28,6 +28,7 @@ import glob
 import json
 import os
 import re
+import sys
 import tempfile
 import time
 from datetime import datetime
@@ -49,10 +50,119 @@ LEGACY_SCHEMA_VERSION = "0.0.0"
 _SCHEMA_VERSION_RE = re.compile(r"([0-9]+)\.([0-9]+)\.([0-9]+)")   # ASCII digits only (\d also matches e.g. Arabic-Indic)
 
 
-class SchemaVersionError(ValueError):
+class StateError(ValueError):
+    """A problem with a state.json file's CONTENT (as opposed to a bug in the code reading it): corrupt JSON, the wrong
+    shape, a version this code must not overwrite. Every CLI that touches state turns it into one `error:` line and
+    exit status 1 instead of a traceback; it is still a ValueError for any caller that already catches that."""
+
+
+class SchemaVersionError(StateError):
     """write_state() refused to write because the file's recorded schema_version is newer than this code supports
     (it would have been silently downgraded) or is not a MAJOR.MINOR.PATCH string (it cannot be compared, so
     nothing is overwritten). Nothing was written."""
+
+
+class StateShapeError(StateError):
+    """state.json is not valid JSON, or a key this code relies on has the wrong type (see validate_state())."""
+
+
+# The structural contract of the keys the framework reads (issue #171). A key that is absent or null is simply
+# "not recorded" and is always accepted; unknown keys are never inspected (a newer framework may add them, and they
+# must survive a write). Only the container types are checked -- the shape of each element of a list is not.
+#   object:  a JSON object                          periods: an object keyed by period whose values are objects
+#   downside: an object whose optional "financials" and "ratios" are `periods`
+#   list:    a list                                 source: "framework-computed" or "analyst-supplied"
+STATE_SHAPES = {
+    "financials": "periods", "ratios": "periods", "multi_period_financials": "periods",
+    "analyst_supplied_financials": "periods",
+    "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
+    "collateral": "list", "covenants": "list", "security_package": "list", "guarantees": "list",
+    "steps_completed": "list", "review_trail": "list",
+    "financials_source": "source",
+}
+# STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
+# and the inner financials/ratios need only be objects.
+FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
+_SHAPE_DESCRIPTIONS = {
+    "object": "an object ({...})",
+    "periods": 'an object keyed by period whose values are objects (e.g. {"FY-Current": {...}})',
+    "downside": 'an object ({"financials": {...}, "ratios": {...}})',
+    "list": "a list ([...])",
+    "source": " or ".join(f'"{value}"' for value in FINANCIALS_SOURCES),
+}
+
+
+def _json_type(value):
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, dict):
+        return "object"
+    if isinstance(value, list):
+        return "list"
+    if isinstance(value, str):
+        return "string"
+    return "number"
+
+
+def _problems_with_periods(label, value):
+    """Problems for a `periods` value. A null period is "not recorded" (evaluate_financial_model treats it as empty)."""
+    if not isinstance(value, dict):
+        return [f'"{label}" must be {_SHAPE_DESCRIPTIONS["periods"]}, found {_json_type(value)}']
+    return [f'"{label}"[{period!r}] must be an object, found {_json_type(period_value)}'
+            for period, period_value in value.items() if period_value is not None and not isinstance(period_value, dict)]
+
+
+def validate_state(state, keys=None, path="state.json"):
+    """Raise StateShapeError, naming every offending key and the type it must have, if `state` (a parsed state.json)
+    is not usable. The top level must be an object. `keys` selects what to check: None means every key in
+    STATE_SHAPES; an iterable of names checks just those; a mapping {name: kind} also overrides the kind (deal_export
+    uses this to keep its documented tolerance of non-object periods). Each consumer validates the keys IT reads, so
+    a deal is never rejected for a key nothing in that step uses. Returns `state`."""
+    if not isinstance(state, dict):
+        raise StateShapeError(
+            f"Cannot use {path}: the top level must be a JSON object ({{...}}), found {_json_type(state)}. "
+            "Restore the file from a backup or fix it by hand; the file was not modified.")
+    if isinstance(keys, str):
+        raise TypeError("keys must be an iterable of key names or a {name: kind} mapping, not a single string")
+    shapes = dict(STATE_SHAPES) if keys is None else (
+        dict(keys) if isinstance(keys, dict) else {key: STATE_SHAPES[key] for key in keys})
+    problems = []
+    for key, kind in shapes.items():
+        value = state.get(key)
+        if value is None:
+            continue
+        if kind == "periods":
+            problems.extend(_problems_with_periods(key, value))
+        elif kind == "object":
+            if not isinstance(value, dict):
+                problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["object"]}, found {_json_type(value)}')
+        elif kind in ("downside", "downside_lenient"):
+            if not isinstance(value, dict):
+                if kind == "downside":     # "downside_lenient" tolerates a non-object, as deal_export always has
+                    problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["downside"]}, found {_json_type(value)}')
+            else:
+                for inner in ("financials", "ratios"):
+                    if value.get(inner) is None:
+                        continue
+                    if kind == "downside":
+                        problems.extend(_problems_with_periods(f"{key}.{inner}", value[inner]))
+                    elif not isinstance(value[inner], dict):       # lenient: the container only, not each period
+                        problems.append(f'"{key}.{inner}" must be {_SHAPE_DESCRIPTIONS["object"]}, '
+                                        f"found {_json_type(value[inner])}")
+        elif kind == "list":
+            if not isinstance(value, list):
+                problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["list"]}, found {_json_type(value)}')
+        elif kind == "source":
+            if value not in FINANCIALS_SOURCES:
+                problems.append(f'"{key}" must be {_SHAPE_DESCRIPTIONS["source"]}, found {repr(value)[:60]}')
+        else:
+            raise ValueError(f"unknown state shape kind {kind!r} for key {key!r}")
+    if problems:
+        raise StateShapeError(f"Cannot use {path}: " + "; ".join(problems) +
+                              ". Fix the file by hand or restore it from a backup; the file was not modified.")
+    return state
 
 
 def parse_schema_version(value):
@@ -232,7 +342,7 @@ def state_path(company, proposal, date_str=None, base_dir=None, new_review=False
     return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
 
 
-def read_state(company, proposal, date_str=None, base_dir=None, new_review=False):
+def read_state(company, proposal, date_str=None, base_dir=None, new_review=False, keys=()):
     """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
 
     Raises ValueError (not a raw json.JSONDecodeError) if the file exists
@@ -254,6 +364,10 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
     caller to guard against separately, it's normalized here: the returned
     dict always has a "schema_version" key, defaulting to
     LEGACY_SCHEMA_VERSION when the file itself doesn't carry one.
+
+    The top level must be a JSON object, or StateShapeError is raised. `keys` (default none) names the keys
+    the caller is about to rely on; they are checked with validate_state() so a wrongly-typed value fails here, naming
+    the key, instead of as an opaque AttributeError/TypeError later. A corrupt file is a StateShapeError too.
     """
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
     if not os.path.exists(path):
@@ -261,12 +375,16 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
     with open(path, encoding="utf-8") as f:
         try:
             state = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"state.json at {path} is corrupted and could not be parsed ({e}). "
+        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
+            # Not valid UTF-8 JSON (a UTF-16 file from PowerShell's `>`, say) or nested absurdly deep: the file's
+            # fault, reported like any other unusable state rather than as a traceback.
+            detail = e if isinstance(e, json.JSONDecodeError) else f"{type(e).__name__}: {str(e)[:80]}"
+            raise StateShapeError(
+                f"state.json at {path} is corrupted and could not be parsed ({detail}). "
                 "It may have been left partial by an interrupted write. Restore it "
                 "from a backup or fix it by hand before continuing."
             ) from e
+    validate_state(state, keys=keys, path=path)
     state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
     return state
 
@@ -405,7 +523,7 @@ def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
     # read taken before either write happened, and the second write would
     # clobber the first's appended entry with its own stale-based list.
     with _FileLock(path):
-        existing = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
+        existing = read_state(company, proposal, date_str=date_str, base_dir=base_dir, keys=("review_trail",)) or {}
         trail = list(existing.get("review_trail") or [])
         trail.append({
             "iteration": len(trail) + 1,
@@ -453,7 +571,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Check whether a deal's state.json has recorded all of a given set of "
                      "required steps in steps_completed. Prints JSON ({\"missing_steps\": [...], "
-                     "\"ok\": true/false}) to stdout and always exits 0 -- this project doesn't "
+                     "\"ok\": true/false}) to stdout and exits 0 whatever the result (a state.json it cannot read is an error instead: one 'error:' line, exit 1) -- this project doesn't "
                      "use exit codes as its enforcement mechanism (see policy_check.py); the "
                      "caller (a slash command's Bash step, read by the Claude session running "
                      "it) is the one that decides whether to stop and tell the user what's "
@@ -472,7 +590,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     required = [s.strip() for s in args.required.split(",") if s.strip()]
-    state = read_state(args.company, args.proposal) or {}
+    try:
+        state = read_state(args.company, args.proposal, keys=("steps_completed",)) or {}
+    except StateError as exc:
+        sys.exit(f"error: {exc}")    # a state it cannot read is an error, not a "missing steps" result
     missing = required_steps_completed(state.get("steps_completed") or [], required)
 
     print(json.dumps({"missing_steps": missing, "ok": len(missing) == 0}, indent=2))

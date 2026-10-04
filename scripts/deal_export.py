@@ -9,12 +9,24 @@ pipeline imports export_deal() directly instead of duplicating this logic.
 """
 import os
 import re
+import sys
 from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import export_to_xlsx
-from state_manager import read_state, resolve_date_str, sanitize_path_component
+from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
+
+# The state.json keys export_deal() reads, with the kind each is held to. Deliberately looser than STATE_SHAPES for
+# `financials`/`analyst_supplied_financials` ("object", not "periods"): a period whose value is not an object has always
+# been treated as empty here (_raw_financials), and a non-list `collateral` or a non-object `downside_case` as absent
+# (_collateral_data_from_state, _downside_financial_data_from_state); those documented tolerances are kept, so
+# `collateral` is not validated at all, `downside_case` may be any non-object but an object's inner
+# `financials`/`ratios` must be objects ("downside_lenient"), and the raw-figure keys only need to be objects.
+# `financials_source` decides which raw store is read, so an unknown value is an error rather than silently
+# "framework-computed".
+STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "downside_case": "downside_lenient",
+                   "financials_source": "source"}
 
 
 def _raw_financials(financials):
@@ -100,6 +112,19 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     date_str = date_str or datetime.now().strftime("%Y-%m-%d")
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
+
+    # Auto-discovers this deal's state.json regardless of which dated folder
+    # it actually lives in (see state_manager.py) -- a multi-day deal's
+    # figures may have been checkpointed before today, but they're still
+    # this deal's ground truth for populating the spreading workbook. Read
+    # (and validated) BEFORE anything is created: a state.json that cannot be
+    # used (issue #171) must not leave behind an empty output folder or a
+    # freshly auto-saved template from a run that then fails.
+    state = read_state(company, proposal, base_dir=base_dir, keys=STATE_KEYS_READ) or {}
+    financial_data = _financial_data_from_state(state)
+    downside_financial_data = _downside_financial_data_from_state(state)
+    collateral_data = _collateral_data_from_state(state)
+
     os.makedirs(output_dir, exist_ok=True)
 
     if cam_template_path(deal_type, base_dir=base_dir) is None:
@@ -116,15 +141,6 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
 
     docx_path = os.path.join(output_dir, f"{company}_{proposal}_CAM.docx")
     xlsx_path = os.path.join(output_dir, f"{company}_{proposal}_Spreading.xlsx")
-
-    # Auto-discovers this deal's state.json regardless of which dated folder
-    # it actually lives in (see state_manager.py) -- a multi-day deal's
-    # figures may have been checkpointed before today, but they're still
-    # this deal's ground truth for populating the spreading workbook.
-    state = read_state(company, proposal, base_dir=base_dir) or {}
-    financial_data = _financial_data_from_state(state)
-    downside_financial_data = _downside_financial_data_from_state(state)
-    collateral_data = _collateral_data_from_state(state)
 
     export_to_docx(draft_markdown, docx_path)
     export_to_xlsx(company, xlsx_path, financial_data=financial_data or None,
@@ -173,7 +189,10 @@ def main(argv=None):
     proposal = sanitize_path_component(args.proposal, "proposal")
     date_str = resolve_date_str(company, proposal, date_str=args.date_str)
 
-    output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
+    try:
+        output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
+    except StateError as exc:
+        sys.exit(f"error: {exc}")
     print(f"Done! Files generated in {output_dir}")
 
 

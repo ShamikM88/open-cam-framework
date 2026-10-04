@@ -1,3 +1,4 @@
+import json
 import os
 
 import docx
@@ -11,6 +12,24 @@ def _write(path, content="content"):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def test_a_bare_call_without_date_str_finds_the_state_of_an_earlier_dated_folder(tmp_path):
+    """The state is read BEFORE today's output folder is created. Before, makedirs ran first and the auto-discovery
+    (latest dated folder wins) then found the new, empty folder, so the workbook came out blank (#171 review)."""
+    base = str(tmp_path)
+    earlier = os.path.join(base, "deals", "Acme Corp", "Fleet Loan_2026-01-01")
+    os.makedirs(earlier)
+    with open(os.path.join(earlier, "state.json"), "w", encoding="utf-8") as f:
+        json.dump({"financials": {"FY-Current": {"raw": {"revenue": 4321}}}}, f)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+
+    output_dir = export_deal("Acme Corp", "Fleet Loan", "asset_finance", "# Draft", base_dir=base)   # no date_str
+
+    assert os.path.basename(output_dir) != "Fleet Loan_2026-01-01"           # a new dated folder for today...
+    sheet = openpyxl.load_workbook(os.path.join(output_dir, "Acme Corp_Fleet Loan_Spreading.xlsx"))["Financial Spreading"]
+    revenue_row = next(r for r in sheet.iter_rows(values_only=True) if r[0] == "Revenue")
+    assert 4321 in revenue_row                                              # ...but the earlier folder's figures
 
 
 def test_creates_dated_output_folder(tmp_path):

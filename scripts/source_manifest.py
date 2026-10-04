@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from datetime import date
 
 from state_manager import (
@@ -234,7 +235,8 @@ if __name__ == "__main__":
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--check-sources", action="store_true",
                          help="Check mode instead of saving: prints "
-                              '{"missing_saved_sources": true/false} and always exits 0 -- the '
+                              '{"missing_saved_sources": true/false} and exits 0 whatever the result (a '
+                              "state.json it cannot read is an error instead: one 'error:' line, exit 1) -- the "
                               "caller (a slash command's own prose) decides whether to warn the "
                               "user. See missing_saved_sources()'s docstring for what this does "
                               "and deliberately does not check.")
@@ -246,8 +248,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.check_sources:
-        from state_manager import read_state
-        state = read_state(args.company, args.proposal) or {}
+        from state_manager import StateError, read_state
+        try:
+            state = read_state(args.company, args.proposal) or {}
+        except StateError as exc:
+            sys.exit(f"error: {exc}")
         manifest = read_manifest(args.company, args.proposal)
         print(json.dumps({"missing_saved_sources": missing_saved_sources(state, manifest)}, indent=2))
     else:

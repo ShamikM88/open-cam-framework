@@ -373,3 +373,107 @@ def test_orchestrator_on_a_missing_input_file_fails_before_starting(tmp_path):
         cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert result.returncode != 0 and "nope.json" in result.stderr
     assert not (work / "deals").exists()
+
+
+# ---------------------------------------------------------------------------
+# A state.json the code cannot use is an error message and exit status 1, never a traceback (issues #170, #171)
+# ---------------------------------------------------------------------------
+
+def _write_state(workdir, content):
+    folder = workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    folder.mkdir(parents=True, exist_ok=True)
+    text = content if isinstance(content, str) else json.dumps(content)
+    (folder / "state.json").write_text(text, encoding="utf-8")
+    return folder / "state.json"
+
+
+def _assert_a_clean_state_error(result, *fragments):
+    assert result.returncode == 1, (result.returncode, result.stdout, result.stderr)
+    assert "Traceback" not in result.stderr and result.stdout == ""
+    assert result.stderr.startswith("error: ") and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    for fragment in fragments:
+        assert fragment in result.stderr, (fragment, result.stderr)
+
+
+def test_spreading_check_reports_a_malformed_state_cleanly(cli):
+    state_file = _write_state(cli.workdir, {"multi_period_financials": [1]})
+    before = state_file.read_bytes()
+    (cli.workdir / "fin.json").write_text(json.dumps({"FY-Current": {"revenue": 100}}), encoding="utf-8")
+    result = cli("spreading_check", "--company", "Acme", "--proposal", "Loan", "--financials", "fin.json")
+    _assert_a_clean_state_error(result, '"multi_period_financials" must be an object keyed by period', "state.json")
+    assert state_file.read_bytes() == before
+
+
+def test_spreading_check_reports_a_newer_schema_cleanly(cli):
+    state_file = _write_state(cli.workdir, {"schema_version": "9.9.9"})
+    before = state_file.read_bytes()
+    (cli.workdir / "fin.json").write_text(json.dumps({"FY-Current": {"revenue": 100}}), encoding="utf-8")
+    result = cli("spreading_check", "--company", "Acme", "--proposal", "Loan", "--financials", "fin.json")
+    _assert_a_clean_state_error(result, "9.9.9", "downgrade")
+    assert state_file.read_bytes() == before
+
+
+def test_policy_check_reports_a_malformed_state_cleanly(cli):
+    _write_state(cli.workdir, {"financials": [1, 2], "covenants": "none"})
+    result = cli("policy_check", "--company", "Acme", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, '"financials"', '"covenants"')
+
+
+def test_policy_check_reports_a_corrupt_state_file_cleanly(cli):
+    _write_state(cli.workdir, '{"financials": ')
+    _assert_a_clean_state_error(cli("policy_check", "--company", "Acme", "--proposal", "Loan"), "is corrupted")
+
+
+def test_policy_check_reports_a_utf16_state_file_cleanly(cli):
+    """What PowerShell's `>` redirection writes: not UTF-8, not a traceback."""
+    folder = cli.workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_bytes("{}".encode("utf-16"))
+    _assert_a_clean_state_error(cli("policy_check", "--company", "Acme", "--proposal", "Loan"), "is corrupted")
+
+
+def test_policy_check_reports_a_top_level_list_cleanly(cli):
+    _write_state(cli.workdir, [1, 2, 3])
+    _assert_a_clean_state_error(cli("policy_check", "--company", "Acme", "--proposal", "Loan"), "the top level must be")
+
+
+def test_deal_export_reports_a_malformed_state_cleanly(cli):
+    _write_state(cli.workdir, {"financials_source": 5})
+    (cli.workdir / "draft.md").write_text("# Draft\n", encoding="utf-8")
+    result = cli("deal_export", "--company", "Acme", "--proposal", "Loan", "--draft", "draft.md")
+    _assert_a_clean_state_error(result, '"financials_source" must be "framework-computed" or "analyst-supplied"')
+
+
+def test_state_manager_check_steps_reports_a_malformed_state_cleanly(cli):
+    _write_state(cli.workdir, {"steps_completed": "triage"})
+    result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan", "--required", "spread")
+    _assert_a_clean_state_error(result, '"steps_completed" must be a list')
+
+
+def test_state_manager_check_steps_still_exits_zero_for_a_missing_step(cli):
+    """The documented 'always exits 0' is about RESULTS: a state that cannot be read is an error, a missing step is not."""
+    _write_state(cli.workdir, {"steps_completed": ["triage"]})
+    result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan", "--required", "spread")
+    assert result.returncode == 0 and json.loads(result.stdout) == {"missing_steps": ["spread"], "ok": False}
+
+
+def test_source_manifest_check_sources_reports_a_malformed_state_cleanly(cli):
+    _write_state(cli.workdir, [1])
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "the top level must be")
+
+
+def test_the_orchestrator_reports_a_malformed_state_cleanly_before_any_model_call(tmp_path):
+    work = tmp_path / "orchestrator-cwd"
+    shutil.copytree(REPO_ROOT / "agents", work / "agents")
+    shutil.copytree(REPO_ROOT / "templates" / "cam", work / "templates" / "cam")
+    (work / "config").mkdir()
+    shutil.copy(REPO_ROOT / "config" / "settings.json", work / "config" / "settings.json")
+    _write_state(work, {"steps_completed": "triage"})
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "Acme", "--proposal", "Loan"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120,
+        stdin=subprocess.DEVNULL)
+    assert result.returncode == 1 and "Traceback" not in result.stderr
+    assert result.stderr.startswith("error: ") and '"steps_completed" must be a list' in result.stderr
+    assert "Underwriter Agent drafting" not in result.stdout        # stopped before the pipeline did anything

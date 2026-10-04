@@ -19,9 +19,13 @@ No `anthropic` dependency, matching policy_check.py/deal_export.py's pattern.
 """
 import argparse
 import json
+import sys
 
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
-from state_manager import read_state, write_state
+from state_manager import StateError, read_state, write_state
+
+# The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
+STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
 
 
 def compute(company, proposal, multi_period_financials=None, stress_assumptions=None,
@@ -81,7 +85,7 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     Returns the full merged state dict (same contract as
     state_manager.write_state()).
     """
-    existing_state = read_state(company, proposal) or {}
+    existing_state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
     existing_multi_period = existing_state.get("multi_period_financials") or {}
 
     merged_multi_period = dict(existing_multi_period)
@@ -176,8 +180,11 @@ def main(argv=None):
         with open(args.stress_assumptions, encoding="utf-8") as f:
             stress_assumptions = json.load(f)
 
-    state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
-                     update_financials_source=args.update_financials_source)
+    try:
+        state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
+                         update_financials_source=args.update_financials_source)
+    except StateError as exc:
+        sys.exit(f"error: {exc}")
     print(json.dumps({
         "financials": state.get("financials"),
         "ratios": state.get("ratios"),

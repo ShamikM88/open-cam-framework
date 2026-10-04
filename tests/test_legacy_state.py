@@ -20,9 +20,9 @@ policy_check.compute, and deal_export (the raw-figures read for the workbook).
 A state written by a NEWER framework (fixture 05) is read but never written: see test_a_state_written_by_a_newer
 framework_is_refused_and_left_untouched (issue #170).
 
-Wrongly-typed state is a separate matter: the issue asks that it "fail with a clear error instead of being silently
-reinterpreted". Today none of it does -- see the end of this file, which pins what happens now and records the gap as
-strict xfails rather than changing production code.
+Wrongly-typed state is a separate matter: the issue asked that it "fail with a clear error instead of being silently
+reinterpreted". That is issue #171 (see the end of this file): each consumer validates the keys it reads and raises a
+StateShapeError naming the key, with the deliberate tolerances listed and tested.
 """
 import copy
 import json
@@ -232,8 +232,14 @@ def test_the_downside_columns_are_filled_only_when_the_state_has_a_downside_case
 
 
 # ---------------------------------------------------------------------------
-# Wrongly-typed state: what happens today, and the gap
+# Wrongly-typed state (issue #171): a clear StateShapeError naming the key, from the consumers that read it
 # ---------------------------------------------------------------------------
+#
+# Each consumer validates the keys IT reads (state_manager.validate_state; spreading_check.STATE_KEYS_READ,
+# policy_check.STATE_KEYS_READ, deal_export.STATE_KEYS_READ), so a deal is never rejected for a key nothing in that
+# step uses. The 17 shapes x 3 consumers below were first characterised as opaque AttributeError/TypeError (issue
+# #152, strict xfails); this is the same matrix, now asserting the clear error where one is due and, explicitly, the
+# deliberate tolerances where it is not.
 
 def modern_state():
     state = load_fixture("03_pre_merge_fix")
@@ -268,27 +274,30 @@ MALFORMED = {
     "toplevel_list": [1, 2, 3],
 }
 CONSUMERS = ("spreading_check", "policy_check", "deal_export")
-# What each consumer does TODAY with each malformed state: "ok" (it ignores the key or has an explicit tolerance for
-# the shape, e.g. deal_export treats a non-dict period as empty and a non-list collateral as no collateral) or
-# "raises" (an opaque AttributeError / TypeError / ValueError from deep inside, naming no key).
-TODAY = {
-    "financials_is_list":            ("raises", "raises", "raises"),
-    "financials_is_string":          ("raises", "raises", "raises"),
-    "financials_is_null":            ("ok", "ok", "ok"),
-    "ratios_is_string":              ("raises", "raises", "ok"),
-    "ratios_is_list":                ("raises", "raises", "ok"),
-    "period_is_number":              ("ok", "raises", "ok"),
-    "collateral_is_dict":            ("ok", "raises", "ok"),
-    "collateral_is_string":          ("ok", "raises", "ok"),
-    "covenants_is_dict":             ("ok", "raises", "ok"),
-    "covenants_is_string":           ("ok", "raises", "ok"),
-    "security_package_is_string":    ("ok", "raises", "ok"),
-    "multi_period_is_list":          ("raises", "ok", "ok"),
-    "multi_period_period_is_number": ("ok", "ok", "ok"),
-    "steps_is_string":               ("ok", "ok", "ok"),
-    "downside_is_list":              ("ok", "raises", "ok"),
-    "financials_source_is_number":   ("ok", "ok", "ok"),
-    "toplevel_list":                 ("raises", "raises", "raises"),
+# For each shape and consumer: the text the StateShapeError must contain (the offending key), or None when that
+# consumer accepts the shape -- either because it never reads that key, or by a DELIBERATE tolerance:
+#   - a null value is "not recorded" (financials_is_null) everywhere;
+#   - deal_export treats a non-object period as empty (period_is_number), a non-list collateral as no collateral
+#     (collateral_is_*) and a non-object downside_case as no downside case (downside_is_list), as it always has.
+# steps_completed is read only by the orchestrator and `state_manager --check-steps` (tested separately below).
+EXPECTED_ERROR = {
+    "financials_is_list":            ('"financials"', '"financials"', '"financials"'),
+    "financials_is_string":          ('"financials"', '"financials"', '"financials"'),
+    "financials_is_null":            (None, None, None),
+    "ratios_is_string":              ('"ratios"', '"ratios"', None),
+    "ratios_is_list":                ('"ratios"', '"ratios"', None),
+    "period_is_number":              ('"financials"', '"financials"', None),
+    "collateral_is_dict":            (None, '"collateral"', None),
+    "collateral_is_string":          (None, '"collateral"', None),
+    "covenants_is_dict":             (None, '"covenants"', None),
+    "covenants_is_string":           (None, '"covenants"', None),
+    "security_package_is_string":    (None, '"security_package"', None),
+    "multi_period_is_list":          ('"multi_period_financials"', None, None),
+    "multi_period_period_is_number": ('"multi_period_financials"', None, None),
+    "steps_is_string":               (None, None, None),
+    "downside_is_list":              (None, '"downside_case"', None),
+    "financials_source_is_number":   (None, '"financials_source"', '"financials_source"'),
+    "toplevel_list":                 ("top level", "top level", "top level"),
 }
 
 
@@ -296,7 +305,8 @@ def run_consumer(consumer, tmp_path, monkeypatch, state, capsys):
     folder = tmp_path / "deals" / COMPANY / f"{PROPOSAL}_{DATE}"
     if folder.exists():
         shutil.rmtree(tmp_path / "deals")
-    install(tmp_path, monkeypatch, state)
+    folder = install(tmp_path, monkeypatch, state)
+    before = (folder / "state.json").read_bytes()
     try:
         if consumer == "spreading_check":
             spreading_check.compute(COMPANY, PROPOSAL, {"FY+2": {"revenue": 1}})
@@ -304,34 +314,307 @@ def run_consumer(consumer, tmp_path, monkeypatch, state, capsys):
             policy_check.compute(COMPANY, PROPOSAL)
         else:
             deal_export.export_deal(COMPANY, PROPOSAL, "corporate_credit", DRAFT, date_str=DATE)
-        return None
+        outcome = None
     except Exception as exc:   # noqa: BLE001 - the whole point is to classify whatever comes out
-        return exc
+        outcome = exc
     finally:
         capsys.readouterr()
+    return outcome, (folder / "state.json").read_bytes() == before
 
 
-MATRIX = [(shape, consumer, TODAY[shape][i]) for shape in MALFORMED for i, consumer in enumerate(CONSUMERS)]
+MATRIX = [(shape, consumer, EXPECTED_ERROR[shape][i]) for shape in MALFORMED for i, consumer in enumerate(CONSUMERS)]
 
 
-@pytest.mark.parametrize("shape, consumer, expected", MATRIX, ids=[f"{s}-{c}" for s, c, _ in MATRIX])
-def test_what_each_consumer_does_today_with_wrongly_typed_state(tmp_path, monkeypatch, capsys, shape, consumer,
-                                                                 expected):
-    """Characterisation: pins today's behaviour so a change to it -- including adding validation -- is a reviewed
-    diff to TODAY, not an accident."""
-    outcome = run_consumer(consumer, tmp_path, monkeypatch, copy.deepcopy(MALFORMED[shape]), capsys)
-    assert ("raises" if outcome else "ok") == expected, repr(outcome)
+@pytest.mark.parametrize("shape, consumer, expected_key", [m for m in MATRIX if m[2]],
+                         ids=[f"{s}-{c}" for s, c, k in MATRIX if k])
+def test_wrongly_typed_state_fails_with_a_clear_error_naming_the_key(tmp_path, monkeypatch, capsys, shape, consumer,
+                                                                     expected_key):
+    outcome, unchanged = run_consumer(consumer, tmp_path, monkeypatch, copy.deepcopy(MALFORMED[shape]), capsys)
+    assert isinstance(outcome, state_manager.StateShapeError), repr(outcome)
+    assert isinstance(outcome, ValueError) and isinstance(outcome, state_manager.StateError)
+    message = str(outcome)
+    assert expected_key in message, message
+    assert "deals" in message and "state.json" in message             # names the file
+    assert message.endswith("the file was not modified.") and unchanged  # and it was not
 
 
-GAP = ("gap found by #152: wrongly-typed state.json fails with an opaque AttributeError/TypeError that names no key "
-       "(or is silently tolerated), not a clear error; reported separately, not fixed here -- remove this xfail when "
-       "a validator raises a ValueError naming the key (strict: it fails once the behaviour changes)")
-RAISING = [(s, c) for s, c, expected in MATRIX if expected == "raises"]
+@pytest.mark.parametrize("shape, consumer", [(s, c) for s, c, k in MATRIX if not k],
+                         ids=[f"{s}-{c}" for s, c, k in MATRIX if not k])
+def test_a_shape_a_consumer_never_reads_or_deliberately_tolerates_is_still_accepted(tmp_path, monkeypatch, capsys,
+                                                                                    shape, consumer):
+    outcome, _ = run_consumer(consumer, tmp_path, monkeypatch, copy.deepcopy(MALFORMED[shape]), capsys)
+    assert outcome is None, repr(outcome)
 
 
-@pytest.mark.xfail(strict=True, reason=GAP)
-@pytest.mark.parametrize("shape, consumer", RAISING, ids=[f"{s}-{c}" for s, c in RAISING])
-def test_wrongly_typed_state_fails_with_a_clear_error_naming_the_key(tmp_path, monkeypatch, capsys, shape, consumer):
-    outcome = run_consumer(consumer, tmp_path, monkeypatch, copy.deepcopy(MALFORMED[shape]), capsys)
-    key = shape.split("_is_")[0].replace("multi_period", "multi_period_financials")
-    assert isinstance(outcome, ValueError) and key in str(outcome), repr(outcome)
+# What each consumer reads, pinned here as LITERALS. Parametrizing over the modules' own constants would let a dropped
+# key take its test with it: a key is added or removed here deliberately, in the same change as the code.
+EXPECTED_KEYS_READ = {
+    "spreading_check": {"multi_period_financials": "periods", "financials": "periods", "ratios": "periods",
+                        "stress_assumptions": "object"},
+    "policy_check": {"financials": "periods", "ratios": "periods", "collateral": "list", "covenants": "list",
+                     "security_package": "list", "guarantees": "list", "downside_case": "downside",
+                     "financials_source": "source"},
+    "deal_export": {"financials": "object", "analyst_supplied_financials": "object",
+                    "downside_case": "downside_lenient", "financials_source": "source"},
+}
+
+
+def _actual_kinds(keys):
+    return dict(keys) if isinstance(keys, dict) else {key: state_manager.STATE_SHAPES[key] for key in keys}
+
+
+def test_each_consumers_declared_keys_are_exactly_the_pinned_ones():
+    assert _actual_kinds(spreading_check.STATE_KEYS_READ) == EXPECTED_KEYS_READ["spreading_check"]
+    assert _actual_kinds(policy_check.STATE_KEYS_READ) == EXPECTED_KEYS_READ["policy_check"]
+    assert _actual_kinds(deal_export.STATE_KEYS_READ) == EXPECTED_KEYS_READ["deal_export"]
+
+
+def _consumer_keys():
+    """(consumer, key, bad value) for every pinned key; the lenient downside tolerates a non-object by design."""
+    return [(consumer, key, 5 if kind == "source" else "x")
+            for consumer, kinds in EXPECTED_KEYS_READ.items() for key, kind in kinds.items()
+            if kind != "downside_lenient"]
+
+
+@pytest.mark.parametrize("consumer, key, bad", _consumer_keys(), ids=[f"{c}-{k}" for c, k, _ in _consumer_keys()])
+def test_every_key_a_consumer_declares_it_reads_is_actually_validated(tmp_path, monkeypatch, capsys, consumer, key, bad):
+    state = modern_state()
+    state[key] = bad
+    outcome, unchanged = run_consumer(consumer, tmp_path, monkeypatch, state, capsys)
+    assert isinstance(outcome, state_manager.StateShapeError) and f'"{key}"' in str(outcome), repr(outcome)
+    assert unchanged
+
+
+# ---------------------------------------------------------------------------
+# The deliberate tolerances, one by one, with what they actually produce
+# ---------------------------------------------------------------------------
+
+def _export(tmp_path, monkeypatch, state):
+    install(tmp_path, monkeypatch, state)
+    out = Path(deal_export.export_deal(COMPANY, PROPOSAL, "corporate_credit", DRAFT, date_str=DATE))
+    return next(out.glob("*_Spreading.xlsx"))
+
+
+def test_deal_export_treats_a_non_object_period_as_empty(tmp_path, monkeypatch, capsys):
+    state = modern_state()
+    state["financials"]["FY-Current"] = 5
+    revenue = revenue_cells(_export(tmp_path, monkeypatch, state))
+    capsys.readouterr()
+    assert revenue["FY-Current"] is None and revenue["FY-2"] == 4000      # that period blank, nothing invented, the rest intact
+
+
+def test_deal_export_treats_a_non_list_collateral_as_no_collateral(tmp_path, monkeypatch, capsys):
+    """The #106 gap: the fallback's OUTPUT, not just 'does not crash' -- the Collateral sheet gets its single blank
+    placeholder row, exactly as for a deal with no collateral at all."""
+    for index, collateral in enumerate(({"a": 1}, "none", 7)):
+        state = modern_state()
+        state["collateral"] = collateral
+        workdir = tmp_path / f"case{index}"
+        workdir.mkdir()
+        workbook = openpyxl.load_workbook(_export(workdir, monkeypatch, state))
+        capsys.readouterr()
+        sheet = workbook["Collateral & Exposure"]
+        assert [sheet.cell(row=2, column=c).value for c in (1, 2, 7, 9)] == [None, None, None, None]
+        assert sheet.cell(row=3, column=1).value == "Total"                # one blank asset row, then the total
+
+
+def test_deal_export_checks_the_inner_containers_of_an_object_downside_case(tmp_path, monkeypatch, capsys):
+    """Only a NON-object downside_case is tolerated; an object whose financials/ratios are not objects used to crash
+    deep inside with an AttributeError."""
+    for inner in ("financials", "ratios"):
+        for bad in ([1], "x", 7):
+            state = modern_state()
+            state["downside_case"] = {inner: bad}
+            outcome, unchanged = run_consumer("deal_export", tmp_path, monkeypatch, state, capsys)
+            assert isinstance(outcome, state_manager.StateShapeError), (inner, bad, repr(outcome))
+            assert f'"downside_case.{inner}" must be an object' in str(outcome) and unchanged
+    state = modern_state()                                       # a non-object PERIOD inside is still tolerated here
+    state["downside_case"] = {"financials": {"FY+1": 5}, "ratios": None}
+    assert run_consumer("deal_export", tmp_path, monkeypatch, state, capsys)[0] is None
+
+
+def test_deal_export_treats_a_non_object_downside_case_as_no_downside(tmp_path, monkeypatch, capsys):
+    state = modern_state()
+    state["downside_case"] = [1]
+    revenue = revenue_cells(_export(tmp_path, monkeypatch, state))
+    capsys.readouterr()
+    assert revenue["FY+1 (Downside)"] is None
+
+
+def test_a_failed_export_leaves_no_output_folder_and_no_auto_saved_template(tmp_path, monkeypatch, capsys):
+    """The state is read and validated before anything is created: a state.json that cannot be used must not leave
+    an empty dated folder or a freshly auto-saved template (which holds this deal's draft) behind."""
+    install(tmp_path, monkeypatch, mutated(financials_source=5))
+    folder_listing = sorted(p.name for p in (tmp_path / "deals" / COMPANY).iterdir())
+    with pytest.raises(state_manager.StateShapeError):
+        deal_export.export_deal(COMPANY, PROPOSAL, "brand_new_type", DRAFT, date_str="2026-02-02")
+    capsys.readouterr()
+    assert sorted(p.name for p in (tmp_path / "deals" / COMPANY).iterdir()) == folder_listing
+    assert not (tmp_path / "templates").exists()
+
+
+@pytest.mark.parametrize("key", sorted(state_manager.STATE_SHAPES))
+def test_a_null_value_means_not_recorded_for_every_key_at_every_consumer(tmp_path, monkeypatch, capsys, key):
+    for consumer in CONSUMERS:
+        state = modern_state()
+        state[key] = None
+        outcome, _ = run_consumer(consumer, tmp_path, monkeypatch, state, capsys)
+        assert outcome is None, (consumer, key, repr(outcome))
+
+
+def test_a_null_period_is_accepted_as_empty():
+    state_manager.validate_state({"financials": {"FY-Current": None}, "ratios": {"FY-Current": None}})
+
+
+def test_unknown_keys_are_never_inspected_or_rejected(tmp_path, monkeypatch, capsys):
+    state = modern_state()
+    state.update(future_key=[1, {"x": 2}], x_note="anything", triage="not even an object", inputs={"pd": "1%"})
+    for consumer in CONSUMERS:
+        outcome, _ = run_consumer(consumer, tmp_path, monkeypatch, copy.deepcopy(state), capsys)
+        assert outcome is None, (consumer, repr(outcome))
+
+
+@pytest.mark.parametrize("name", FIXTURES)
+def test_every_historical_fixture_passes_the_full_validation(name):
+    """The five historical shapes (and the newer one with unknown fields) must stay loadable."""
+    state_manager.validate_state(load_fixture(name))
+
+
+# ---------------------------------------------------------------------------
+# Keys read by the orchestrator, `state_manager --check-steps`, and the review trail
+# ---------------------------------------------------------------------------
+
+def test_append_review_trail_rejects_a_review_trail_that_is_not_a_list(tmp_path):
+    base = str(tmp_path)
+    path = state_manager.state_path("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    Path(path).parent.mkdir(parents=True)
+    Path(path).write_text(json.dumps({"review_trail": "oops"}), encoding="utf-8")
+    before = Path(path).read_bytes()
+    with pytest.raises(state_manager.StateShapeError, match='"review_trail" must be a list'):
+        state_manager.append_review_trail("Acme", "Loan", "APPROVED", date_str="2026-01-01", base_dir=base)
+    assert Path(path).read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# validate_state itself
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("state", [[], [1], "text", 3, None, True])
+def test_the_top_level_must_be_an_object(state):
+    with pytest.raises(state_manager.StateShapeError, match="the top level must be a JSON object"):
+        state_manager.validate_state(state, path="x/state.json")
+
+
+@pytest.mark.parametrize("key, bad, expected", [
+    ("financials", [1], "found list"), ("financials", "x", "found string"), ("financials", 5, "found number"),
+    ("financials", True, "found boolean"), ("ratios", {"FY": 5}, "[\'FY\'] must be an object, found number"),
+    ("multi_period_financials", {"FY": [1]}, "[\'FY\'] must be an object, found list"),
+    ("analyst_supplied_financials", [], "found list"),
+    ("inputs", [], 'must be an object ({...}), found list'), ("stress_assumptions", "5", "found string"),
+    ("downside_case", [], "found list"), ("downside_case", {"financials": []}, '"downside_case.financials"'),
+    ("downside_case", {"ratios": {"FY+1": 3}}, '"downside_case.ratios"[\'FY+1\'] must be an object'),
+    ("collateral", {}, "must be a list"), ("covenants", "x", "found string"), ("security_package", 1, "found number"),
+    ("guarantees", {}, "must be a list"), ("steps_completed", "triage", "found string"), ("review_trail", {}, "found object"),
+    ("financials_source", 5, "found 5"), ("financials_source", "analyst_supplied", "found 'analyst_supplied'"),
+    ("financials_source", ["analyst-supplied"], "must be \"framework-computed\" or \"analyst-supplied\""),
+])
+def test_each_key_kind_rejects_the_wrong_type_with_a_message_naming_the_key(key, bad, expected):
+    with pytest.raises(state_manager.StateShapeError) as caught:
+        state_manager.validate_state({key: bad}, path="deals/A/B/state.json")
+    message = str(caught.value)
+    assert expected in message and message.startswith("Cannot use deals/A/B/state.json: ")
+    assert key in message
+
+
+@pytest.mark.parametrize("key, good", [
+    ("financials", {}), ("financials", {"FY": {}}), ("ratios", {"FY": {"dscr": None}}),
+    ("multi_period_financials", {"FY": {"revenue": 1}}), ("analyst_supplied_financials", {}), ("inputs", {}),
+    ("stress_assumptions", {"revenue_haircut_pct": 10}), ("downside_case", {}),
+    ("downside_case", {"financials": {"FY+1": {}}, "ratios": {"FY+1": {}}}), ("downside_case", {"financials": None}),
+    ("collateral", []), ("collateral", [1, "x", None]), ("covenants", []), ("security_package", []),
+    ("guarantees", [{}]), ("steps_completed", ["a"]), ("review_trail", []),
+    ("financials_source", "framework-computed"), ("financials_source", "analyst-supplied"),
+])
+def test_each_key_kind_accepts_the_right_type_including_any_list_elements(key, good):
+    state = {key: good}
+    assert state_manager.validate_state(state) is state
+
+
+def test_every_problem_is_reported_together_not_one_at_a_time():
+    with pytest.raises(state_manager.StateShapeError) as caught:
+        state_manager.validate_state({"financials": [], "covenants": "x", "steps_completed": {}, "ratios": {"FY": 1}})
+    message = str(caught.value)
+    for fragment in ('"financials"', '"covenants"', '"steps_completed"', '"ratios"[\'FY\']'):
+        assert fragment in message
+    assert message.split(". Fix the file")[0].count("; ") == 3          # four problems, three separators
+
+
+def test_keys_selects_what_is_checked_and_a_mapping_overrides_the_kind():
+    bad = {"financials": [], "covenants": "x"}
+    state_manager.validate_state(bad, keys=())                                   # nothing but the top level
+    state_manager.validate_state(bad, keys=("ratios", "steps_completed"))        # keys it does not look at
+    with pytest.raises(state_manager.StateShapeError, match='"covenants"'):
+        state_manager.validate_state(bad, keys=("covenants",))
+    state_manager.validate_state({"financials": {"FY": 5}}, keys={"financials": "object"})   # looser kind, as deal_export
+    with pytest.raises(state_manager.StateShapeError, match="must be an object"):
+        state_manager.validate_state({"financials": []}, keys={"financials": "object"})
+
+
+def test_an_unknown_key_name_in_keys_is_a_programming_error():
+    with pytest.raises(KeyError):
+        state_manager.validate_state({}, keys=("not_a_state_key",))
+
+
+def test_read_state_checks_only_the_top_level_unless_told_which_keys_to_check(tmp_path):
+    base = str(tmp_path)
+    path = state_manager.state_path("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    Path(path).parent.mkdir(parents=True)
+    Path(path).write_text(json.dumps({"financials": [1]}), encoding="utf-8")
+    assert state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base)["financials"] == [1]
+    with pytest.raises(state_manager.StateShapeError, match='"financials"'):
+        state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base, keys=("financials",))
+
+
+@pytest.mark.parametrize("content, fragment", [
+    (b'{"financials": ', "Expecting value"),
+    ("{}".encode("utf-16"), "UnicodeDecodeError"),                  # what PowerShell's `>` writes
+    (b"\xff\xfe\x00garbage", "UnicodeDecodeError"),
+    (b"[" * 200000, "RecursionError"),                             # absurd nesting
+], ids=["truncated", "utf16", "binary", "deeply-nested"])
+def test_a_file_that_is_not_readable_json_is_a_state_shape_error_not_a_crash(tmp_path, content, fragment):
+    base = str(tmp_path)
+    path = state_manager.state_path("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    Path(path).parent.mkdir(parents=True)
+    Path(path).write_bytes(content)
+    with pytest.raises(state_manager.StateShapeError, match="is corrupted and could not be parsed") as caught:
+        state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    assert fragment in str(caught.value)
+    assert Path(path).read_bytes() == content
+
+
+def test_validate_state_rejects_misuse_of_its_own_arguments():
+    with pytest.raises(TypeError, match="not a single string"):
+        state_manager.validate_state({}, keys="financials")
+    with pytest.raises(ValueError, match="unknown state shape kind 'wat'"):
+        state_manager.validate_state({"collateral": []}, keys={"collateral": "wat"})
+
+
+def test_a_long_financials_source_value_is_truncated_in_the_message():
+    with pytest.raises(state_manager.StateShapeError) as caught:
+        state_manager.validate_state({"financials_source": "x" * 5000})
+    assert len(str(caught.value)) < 600
+
+
+def test_a_corrupt_file_is_a_state_shape_error_and_still_a_value_error(tmp_path):
+    base = str(tmp_path)
+    path = state_manager.state_path("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+    Path(path).parent.mkdir(parents=True)
+    Path(path).write_text('{"financials": ', encoding="utf-8")
+    with pytest.raises(state_manager.StateShapeError, match="is corrupted and could not be parsed"):
+        state_manager.read_state("Acme", "Loan", date_str="2026-01-01", base_dir=base)
+
+
+def test_the_error_hierarchy():
+    assert issubclass(state_manager.SchemaVersionError, state_manager.StateError)
+    assert issubclass(state_manager.StateShapeError, state_manager.StateError)
+    assert issubclass(state_manager.StateError, ValueError)

@@ -332,8 +332,8 @@ reruns pytest and runs that command (issue #147).
 [`config/settings.json`](config/settings.json) sets `maker_model` (required), plus optional
 `checker_model`/`maker_temperature`/`checker_temperature` to independently configure the Risk
 Reviewer vs. the Underwriter. It also accepts `max_tokens`/`default_currency`/`output_directory`/
-`template_directory`/`spreading_template_directory`, though those aren't read by any script yet
-(tracked in issue #108). [`config/system_instructions.md`](config/system_instructions.md)
+`template_directory`/`spreading_template_directory`, though no script reads them -- they have no
+effect (see CLAUDE.md, "What `config/settings.json` actually controls"). [`config/system_instructions.md`](config/system_instructions.md)
 is the shared top-level system prompt both agents inherit (objectivity, metric standardization,
 structured Markdown output).
 

@@ -854,7 +854,7 @@ same file, so a rule or threshold changes in one reviewed diff and never in a wo
   (issue #141):** the fix for a red `security` job is to pin a fixed version; only when none exists and the advisory
   has been reviewed as not exploitable here is it ignored, and the *only* supported way is a reviewed pull request
   that adds `--ignore-vuln <ID>` to the `pip-audit` command in `ci.yml` together with a comment line of exactly this
-  shape (a test fails on an ignore without one, and on any weakening of the job):
+  shape (a test fails on an ignore without one, and on the known ways of weakening the job: `continue-on-error`, `|| true`, `--no-deps`):
   `# pip-audit ignore: <ID> -- <package> -- reason: <why it cannot be exploited here> -- revisit by: YYYY-MM-DD`.
   Never `continue-on-error`, `|| true`, or dropping a requirements file from the audit; the ignore is removed in the
   PR that pins a fixed version, and the same advisory dismissed in GitHub's Dependabot alerts is dismissed with a

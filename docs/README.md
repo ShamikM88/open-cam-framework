@@ -31,6 +31,7 @@ Claude Code follows when it works in this repository.
 - **An analyst using the framework:** [Architecture](architecture.md) (the two ways to run it), [Workflows](workflows.md), [Command reference](commands.md), then [Troubleshooting](troubleshooting.md) when something surprises you. [Financial model](financial-model.md) explains every figure.
 - **Someone deciding whether to trust the output:** [Architecture](architecture.md#where-the-code-ends-and-the-model-begins), then [AI assurance](ai-assurance.md), then [Evaluation](evaluation.md) and the [project status](#project-status).
 - **A contributor:** [Contributing](contributing.md), [Testing and CI](testing.md), [Security](security.md) and [Design decisions](decisions.md).
+- **Tracing a product decision to its delivery evidence:** [MVP v1 PRD](mvp-v1-prd.md) for what was decided and why, then [Design decisions](decisions.md) for the principles behind it, then the pull requests each page cites.
 - **A maintainer:** [Operations runbook](operations.md), with [Testing and CI](testing.md) for what each check means and [Evaluation](evaluation.md) before running anything that spends money.
 
 ## What is in this folder

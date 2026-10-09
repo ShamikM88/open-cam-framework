@@ -43,9 +43,10 @@ analyst two independent AI opinions to work from, not one agent wearing two hats
 ## Product principles
 
 The principles below are the subset of [design decisions](decisions.md) that were in force by MVP v1's close
-([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20), merged 2026-09-13) and its immediate
-follow-on hardening. Later decisions in that document - D6, D7 and D10 through D14 - are refinements from
-hardening work that followed MVP v1 by several weeks and are out of scope for this document.
+([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20), merged 2026-09-13). Two further decisions in
+that document, D8 and D9, were made weeks later during subsequent hardening and are described under
+[What changed after MVP](#what-changed-after-mvp) instead of here; D6, D7 and D10 through D14 are later still and
+are out of scope for this document.
 
 - **The Maker and the Checker are independent prompts** ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
   They never import each other or share the Maker's reasoning, and can optionally run on different underlying
@@ -64,12 +65,11 @@ hardening work that followed MVP v1 by several weeks and are out of scope for th
 - **A ratio with a non-positive denominator is N/A, and its covenant is UNRESOLVABLE**
   ([D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable)). Never
   PASS, never a false FAIL - the rule the debt-free DSCR case forced into existence, now codified for every ratio.
-- **Persisted conventions are deterministic local memory, confirmed by a person**
-  ([D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person)). Nothing is
-  inferred from the conversation continuing; an unconfirmed assumption never silently changes a deal.
-- **Anything derived from real material is git-ignored, and a test enforces it**
-  ([D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it)). The
-  repository is public and forkable; confidentiality is a tested rule, not a documented one.
+
+Keeping confidential material out of version control was already a practice at MVP v1's close - a `.gitignore`
+entry for calibration inputs and deal outputs was added 2026-09-12, the same day as the project's first merged
+pull request - but it was not yet the CI-enforced guarantee D9 later codified; see
+[What changed after MVP](#what-changed-after-mvp).
 
 ## MVP v1 scope
 
@@ -120,8 +120,9 @@ formulas so the numbers stay auditable rather than a drafted table.
 **NFR2 - Independence.** Maker and Checker share no reasoning context, and this is validated rather than merely
 stated - see the Issue #31 reopening under [What changed after MVP](#what-changed-after-mvp).
 
-**NFR3 - Confidentiality.** Anything derived from real deal material is git-ignored and enforced by a failing
-test if it is ever tracked.
+**NFR3 - Confidentiality.** Anything derived from real deal material stays out of version control, via
+`.gitignore` from the project's earliest commits. The CI test that fails the build if such material is ever
+tracked anyway was added after MVP v1 - see [What changed after MVP](#what-changed-after-mvp).
 
 **NFR4 - Fail closed.** Where the system cannot establish a valid result, it exposes the uncertainty (N/A,
 UNRESOLVABLE) rather than guessing.
@@ -155,17 +156,17 @@ The layer boundaries below are the product's own controls, not an implementation
 1. The analyst supplies source material (borrower financials, research, prior CAMs where available).
 2. Deterministic computation runs first: `spreading_builder.py` produces ratios and subtotals, `policy_engine.py`
    evaluates covenants and policy rules against them.
-3. The Maker (Underwriter) drafts the narrative, working from the evidence and the already-computed figures - it
-   never recalculates them itself.
-4. A ground-truth check compares every figure the Maker's draft reports against the deterministically computed
-   financials, to within 0.5% tolerance, before the Checker ever sees the draft.
+3. The Maker (Underwriter) drafts the narrative. It receives the figures step 2 already computed deterministically
+   as input, and never recalculates them itself.
+4. A ground-truth check compares every figure the Maker's draft *reports* in its narrative against those same
+   deterministically computed figures, to within 0.5% tolerance, before the Checker ever sees the draft.
 5. The Checker (Risk Reviewer) audits the draft cold, with no shared reasoning context with the Maker, and can
    only downgrade its verdict.
 6. The analyst reviews the audited draft and makes the credit decision; neither agent is permitted to make it.
 
-Each arrow in that sequence is a trust boundary. The Maker is only ever handed ground-truth-checked figures to
-narrate around; the Checker only ever reviews narrative it can still downgrade; the analyst is the only party who
-decides.
+Each transition in that sequence is a trust boundary. The Maker receives deterministically computed ground-truth
+figures as input; what it writes back is checked against those same figures before the Checker ever reviews the
+draft; the Checker only ever reviews narrative it can still downgrade; the analyst is the only party who decides.
 
 ## What changed after MVP
 
@@ -190,6 +191,17 @@ an edge case in testing (a ratio with no meaningful value) is, in production, th
 borrower and a flagged one. [D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable)
 exists because this was found the hard way, not reasoned out in advance.
 
+Two further decisions in [design decisions](decisions.md) came later still, as the project moved into broader
+hardening. [D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person) -
+persisting analyst-confirmed conventions as local memory - traces to
+[issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86) and
+[issue #89](https://github.com/ShamikM88/open-cam-framework/issues/89), both opened 2026-09-25.
+[D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it) - the CI-enforced
+guard against confidential material being tracked - traces to
+[issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149), opened 2026-10-02. The underlying
+practice predates the guarantee: a `.gitignore` entry excluding calibration inputs and deal outputs was already
+in place from 2026-09-12. D9 is what turned that practice into a tested rule rather than a documented one.
+
 ## Success measures
 
 Two test-count checkpoints are fixed, historical facts, each tied to an immutable merge:
@@ -209,9 +221,10 @@ Other measures, kept to what was actually validated rather than inflated into a 
   with one analyst, not a measured production SLA.
 - **Silent financial errors.** Zero tolerated by design; the debt-free DSCR case is the concrete instance where
   this was tested and held.
-- **Confidentiality.** No real deal data in source control, enforced by a failing CI test
-  ([D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it)), not just a
-  documented rule.
+- **Confidentiality.** No real deal data in source control since the project's earliest commits; the CI test
+  that fails the build over it
+  ([D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it)) followed as
+  part of later hardening, not at MVP v1.
 - **Adoption.** One analyst to date. Early-stage, not yet evidence of scale.
 
 ## What MVP v1 did and didn't prove
@@ -234,10 +247,11 @@ validated single-analyst MVP to something a wider credit organisation could trus
 
 | Claim in this document | Evidence |
 | :--- | :--- |
-| MVP v1 boundary | [PRs #1-20](https://github.com/ShamikM88/open-cam-framework/pull/1) |
+| MVP v1 boundary | [PR #1](https://github.com/ShamikM88/open-cam-framework/pull/1) (foundation) through [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) (closing audit) |
 | Fast-follow: policy checks in the primary interface | [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) |
 | The debt-free DSCR defect and its fix | [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) |
 | The 19-issue backlog opened at MVP close, and its first four closing pull requests | [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41), [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42), [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43), [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) |
-| Maker/Checker independence, deterministic computation and the other principles above | [Design decisions](decisions.md), D1 through D5, D8 and D9 |
+| Maker/Checker independence, deterministic computation and the MVP v1 principles above | [Design decisions](decisions.md), D1 through D5 |
+| Persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - both post-MVP | [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149) (D9) |
 | Test-count checkpoints | PR #20's own checklist (188), [PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118) (439) |
 | 0.5% ground-truth tolerance, one-analyst validation, 15-30 minute target | the published OpenCAM case study (linked from the project README) |

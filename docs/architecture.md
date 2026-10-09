@@ -225,3 +225,5 @@ open-cam-framework/
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`
 └── README.md
 ```
+
+Not shown in the tree: `docs/` (this documentation corpus, indexed by [README.md](README.md), with the synthetic worked deal in `docs/examples/synthetic_co/`), `CLAUDE.md`, `LICENSE`, `.gitignore` and `.github/dependabot.yml`.

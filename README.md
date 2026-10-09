@@ -235,9 +235,12 @@ correct: [testing and CI](docs/testing.md).
 | [docs/financial-model.md](docs/financial-model.md) | Ratios, covenants, the policy engine |
 | [docs/outputs.md](docs/outputs.md) | Templates and the exported `.docx` / `.xlsx` |
 | [docs/testing.md](docs/testing.md) | Tests, CI, coverage, mutation testing |
-| [docs/security.md](docs/security.md) | What must never be committed |
-| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, meanings and fixes |
+| [docs/security.md](docs/security.md) | What must never be committed; the security layers |
+| [docs/ai-assurance.md](docs/ai-assurance.md) | What code guarantees, what tests show, what the model is only expected to do |
 | [docs/evaluation.md](docs/evaluation.md) | The local live-model evaluation harness |
+| [docs/contributing.md](docs/contributing.md) | How to change the repository |
+| [docs/operations.md](docs/operations.md) | The maintainer runbook |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, meanings and fixes |
 | [`CLAUDE.md`](CLAUDE.md) | The rules Claude Code follows when it changes this repository |
 
 ## Confidentiality — what never belongs in this repo

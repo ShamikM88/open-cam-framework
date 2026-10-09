@@ -11,39 +11,54 @@ Claude Code follows when it works in this repository.
 | Understand how the pieces fit together, and the difference between running through Claude Code and running the Python scripts | [Architecture](architecture.md) |
 | Walk through a deal end to end with worked examples | [Workflows](workflows.md) |
 | Look up what a slash command asks for and writes | [Command reference](commands.md) |
-| Know why something is the way it is | [Design decisions](decisions.md) |
-| Fix an error message or a surprising result | [Troubleshooting](troubleshooting.md) |
-| Run or script the tools, and know where credentials go | [Configuration](configuration.md), [CLI reference](cli-reference.md) |
 | Understand the figures: ratios, covenants, the policy engine, spreading | [Financial model and policy engine](financial-model.md) |
 | Understand `state.json`, source manifests and persisted conventions | [Data model](data-model.md) |
+| Run or script the tools | [CLI reference](cli-reference.md) |
 | Customise templates or understand the exported documents | [Outputs and templates](outputs.md) |
+| Know where credentials go and which settings do anything | [Configuration](configuration.md) |
 | Run the tests, understand CI, coverage and mutation testing | [Testing and CI](testing.md) |
-| Know what must never be committed | [Security and confidentiality](security.md) |
+| Know what must never be committed, and what the security layers are | [Security and confidentiality](security.md) |
+| Judge how far a generated memo can be trusted, and on what evidence | [AI assurance](ai-assurance.md) |
 | Understand the local live-model evaluation harness | [Evaluation](evaluation.md) |
+| Change the repository: rules, sources of truth, what must stay green | [Contributing](contributing.md) |
+| Maintain it: verify, diagnose CI, triage mutation survivors, handle advisories, check readiness | [Operations runbook](operations.md) |
+| Fix an error message or a surprising result | [Troubleshooting](troubleshooting.md) |
+| Know why something is the way it is | [Design decisions](decisions.md) |
+
+## Reading paths
+
+- **An analyst using the framework:** [Architecture](architecture.md) (the two ways to run it), [Workflows](workflows.md), [Command reference](commands.md), then [Troubleshooting](troubleshooting.md) when something surprises you. [Financial model](financial-model.md) explains every figure.
+- **Someone deciding whether to trust the output:** [Architecture](architecture.md#where-the-code-ends-and-the-model-begins), then [AI assurance](ai-assurance.md), then [Evaluation](evaluation.md) and the [project status](#project-status).
+- **A contributor:** [Contributing](contributing.md), [Testing and CI](testing.md), [Security](security.md) and [Design decisions](decisions.md).
+- **A maintainer:** [Operations runbook](operations.md), with [Testing and CI](testing.md) for what each check means and [Evaluation](evaluation.md) before running anything that spends money.
 
 ## What is in this folder
+
+The pages are listed in reading order: how it works, how to use it, what it produces, how it is checked, how it is changed and run, and why it is the way it is.
 
 | Document | Contents |
 | :--- | :--- |
 | [architecture.md](architecture.md) | The idea, the two execution modes (authentication, billing, what stays local), the pipeline, where code ends and the model begins, and the annotated repository map |
 | [workflows.md](workflows.md) | Worked synthetic examples: calibration, research, spreading, policy checking, assembly and export, review, resuming a deal |
 | [commands.md](commands.md) | The slash commands: inputs, outputs, state written, failure modes, cost and security |
-| [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |
-| [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
-| [configuration.md](configuration.md) | Every config file and environment variable, which `settings.json` keys are read, credentials |
-| [cli-reference.md](cli-reference.md) | Every script's usage, flags, output and exit status; the headless pipeline |
-| [data-model.md](data-model.md) | `state.json`, its keys and versioning, the two raw-figure stores, sources, persisted conventions |
 | [financial-model.md](financial-model.md) | Financial terms and ratios with worked numbers, N/A and UNRESOLVABLE, covenants, the downside case, what the policy engine decides |
+| [data-model.md](data-model.md) | `state.json`, its keys and versioning, the two raw-figure stores, sources, persisted conventions |
+| [cli-reference.md](cli-reference.md) | Every script's usage, flags, output and exit status; the headless pipeline |
 | [outputs.md](outputs.md) | What a run produces: the `.docx` rendering rules, the workbook layout, the research brief, templates |
-| [testing.md](testing.md) | The test suite, static analysis, coverage, CI, mutation testing, the test-count badge |
-| [security.md](security.md) | Confidential paths, the PII scan |
-| [evaluation.md](evaluation.md) | The evaluation harness: what it measures, its boundaries, how its runner works |
+| [configuration.md](configuration.md) | Every config file and environment variable, which `settings.json` keys are read, credentials |
+| [testing.md](testing.md) | How the suite is organised and what a green run means, static analysis, coverage, CI, mutation testing, the test-count badge, the contract tests |
+| [security.md](security.md) | The security layers and which are settings rather than files, what crosses a boundary, untrusted content, confidential paths, the PII scan |
+| [ai-assurance.md](ai-assurance.md) | What code guarantees, what the tests show, what the prompts only expect, what live evaluation has not shown, what stays with a person |
+| [evaluation.md](evaluation.md) | The evaluation harness: what it can and cannot show, reading a result, baselines, cost and safety, how its runner works |
+| [contributing.md](contributing.md) | Sources of truth, keeping documentation aligned, synthetic data, confidentiality, testing expectations, state compatibility, snapshots, security review, prompt-change boundaries, pull-request sequencing |
+| [operations.md](operations.md) | The maintainer runbook: full-suite verification, the badge, diagnosing CI, coverage and mutation reports, dependencies and advisories, documentation upkeep, live-evaluation boundaries, a readiness checklist |
+| [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
+| [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |
 | [move-ledger.md](move-ledger.md) | Migration record: where every block of the old README and `CLAUDE.md` went |
 
 Parts of these pages (marked at the point where they start) were moved from the README and `CLAUDE.md` rather than
 rewritten; the examples on them are real runs of the synthetic deal in `docs/examples/synthetic_co/`, re-run by
-the tests. The remaining guides (contributing, AI assurance, security and testing in depth) are being added
-under the same issue (#117) and will be linked here as they land.
+the tests.
 
 ## Where each kind of fact is authoritative
 
@@ -66,12 +81,17 @@ and the page is a bug.
 Some facts are repeated on purpose (a flag in a quick start, a rule in `CLAUDE.md` and the page that explains
 it). A few of those repetitions are checked by tests, so a rename or removal fails CI with the file and line:
 every `--flag` a document tells a reader to pass, every relative link and heading anchor, every `Guideline N` /
-`Audit Checklist item N` reference, and the headings that code and commands cite by name.
+`Audit Checklist item N` reference, the headings that code and commands cite by name, the figures and messages the
+worked examples quote, the list of slash commands, the settings documented as read or inert, the CI jobs the pages
+name, the repository paths they cite and the schema version the data-model page shows
+([the contract tests](testing.md#the-contract-tests)).
 
 ## Project status
 
-*As of 2026-10-04.* No live model evaluation has been run yet; the first run and first baseline are deliberate,
-manual steps tracked in issue #151, and prompt hardening is gated on them (issue #150). This section is the only
+*As of 2026-10-09.* No live model evaluation has produced a result: the harness is built, and the two one-call
+smoke-test attempts so far were rejected by the API for insufficient credit before any output, so there is no baseline
+(issue #151). The first successful run and first baseline are deliberate, manual steps, and prompt hardening is
+gated on them (issue #150). This section is the only
 dated status in the documentation; the [evaluation guide](evaluation.md) describes how the harness works and does
 not depend on it.
 

@@ -1,6 +1,54 @@
 # Testing and CI
 
-> **Status.** This page was assembled in the documentation tranche of issue #117 from material that used to live in `README.md` and `CLAUDE.md`, moved with only the textual fixes recorded in the [move ledger](move-ledger.md). A later tranche adds worked examples and explanation around it. The source of truth for behaviour is the code and tests; see the [index](README.md).
+> The sections from "Running the tests" to "Test tooling scripts" were moved from the README and `CLAUDE.md` (unchanged apart from the fixes in the [move ledger](move-ledger.md)); "How the suite is organised", "What a green run means", "Writing a test" and "The contract tests" were written for this page. The source of truth for behaviour is the code and tests; see the [index](README.md). The maintainer procedures (reading a red run, a mutation report, a snapshot diff) are in the [operations runbook](operations.md).
+
+## How the suite is organised
+
+The suite checks the framework without a model, so it is organised by what a failure would tell you. Counts change with every pull request and are deliberately not quoted here; the checked-in figure is `badges/test-count.json`.
+
+| What it protects | Test files | A failure here means |
+| :--- | :--- | :--- |
+| **The deterministic core**: figures, policy facts, state, sources, conventions, text I/O | `test_spreading_builder`, `test_spreading_check`, `test_policy_engine`, `test_policy_checks`, `test_policy_check`, `test_forward_covenants`, `test_nonpositive_denominators`, `test_state_manager`, `test_source_manifest`, `test_conventions`, `test_textio`, `test_stdio_encoding`, `test_properties` | A number, a verdict reason or a stored record is wrong |
+| **State over time**: old and malformed `state.json` | `test_legacy_state` | A deal written earlier can no longer be read, or a bad shape is not handled |
+| **The pipeline with scripted models**: the revision loop, the code-enforced override, checkpointing, calibration | `test_orchestrator`, `test_calibrate` | The control flow around the model is wrong (the model itself is replaced by a scripted reply) |
+| **What a user receives**: the `.docx`, `.xlsx`, research brief, templates | `test_deal_export`, `test_docx_builder`, `test_research_export`, `test_template_resolver`, `test_golden_outputs` | A document changed content or layout |
+| **The command-line surface and a fresh clone** | `test_cli_subprocess`, `test_command_flags`, `test_runtime_smoke` (which drives `runtime_smoke.py`) | A script cannot be run as a user runs it, or a document tells a reader to use a flag that is gone |
+| **Contracts between files** | `test_prompt_consistency`, `test_docs`, `test_docs_examples`, `test_docs_contracts`, `test_ci_workflow`, `test_confidential_paths`, `test_repo_conventions`, `test_pytest_config` | Two files that must agree no longer do (see [The contract tests](#the-contract-tests)) |
+| **The tooling itself**: the badge check, the coverage check, the mutation report, the PII scan | `test_check_test_count`, `test_check_coverage`, `test_mutation_report`, `test_pii_scan` | A guard that guards the others is broken |
+| **The evaluation harness**, driven only with fake clients | `test_eval_cases`, `test_eval_oracles`, `test_eval_runner`, `test_eval_budget`, `test_eval_report`, `test_eval_baseline`, `test_run_evals` | The harness's validation, scoring, call cap or report is wrong (no live call is made) |
+
+## What a green run means
+
+A full green run means the code does what its tests say, on the inputs the tests construct. It does not say that a real model follows the prompts, that a narrative is grounded or that a memo is fit to approve: every model call in the suite is a scripted reply. The distinction, and what does measure model behaviour, is in [AI assurance](ai-assurance.md). Coverage tells you which lines ran; [mutation testing](#mutation-testing) asks whether a test would notice a wrong answer there; neither says anything about the model.
+
+## Writing a test
+
+- **Test behaviour through the public function** (or the real command line, as a subprocess, for a CLI), not the private helpers it happens to use. A refactor should not break a test that is about behaviour.
+- **Show that a guard can fail.** Every contract test in this repository also runs its check on deliberately wrong input (a renamed flag, a missing anchor, an unpinned action) and expects it to be reported. A guard that has never been seen to fail is a guess.
+- **Be deterministic.** No network (`pytest-socket` enforces it), no real clock or randomness without a fixed seed, no dependence on the working directory (use `tmp_path`), and the `ci` Hypothesis profile (fixed seed, no example database). Tests of text-file handling use the `cp1252_default_open` fixture in `tests/conftest.py`, which makes an `open()` with no encoding behave as on Windows so such a bug cannot hide on Linux.
+- **Use the fakes, not the SDK.** Model calls are replaced by scripted clients (`tests/eval_fakes.py` and the orchestrator tests); a test that needs a key or a network is a bug.
+- **Do not make the passing count depend on the environment.** A test that skips where a tool is missing makes the count differ between machines, which the badge cannot allow (this is why `zizmor` runs in CI's `security` job and not from the suite).
+- **Prefer an assertion to a snapshot.** Snapshots are for rendered documents, where a human reviews the diff; a number or a message is asserted directly.
+- **Record known-bad behaviour as a strict `xfail`** naming its issue, so fixing it fails the test until the marker is removed.
+- **Use synthetic data** ([contributing](contributing.md#synthetic-data-only)).
+
+## The contract tests
+
+Some tests do not test behaviour; they pin a relationship between two files that nothing else would keep aligned. They are cheap and they fail with the file and line, so they are the first place to look when a rename breaks something far away.
+
+| Relationship | Test | Pins |
+| :--- | :--- | :--- |
+| Prompts and the code that parses their output | `test_prompt_consistency` | The structured-output example parses, its schema matches the parser, the named risk categories and grounding headers exist, every `Guideline N` / `Audit Checklist item N` reference resolves to the pinned subject |
+| Links and cited headings | `test_docs` | Relative links and heading anchors resolve; every `docs/` page is in the index; the `CLAUDE.md` headings that code cites exist; the evaluation page stays evergreen |
+| Documents and the scripts' flags | `test_command_flags` | Every `--flag` a document or command passes to a script is in that script's `--help` |
+| Quoted examples and the real output | `test_docs_examples` | Every figure and message the worked pages quote is what the scripts print |
+| Documents and the source of truth | `test_docs_contracts` | The slash commands in `.claude/commands/` equal those on the commands page, in the registry and on the repository map; the settings documented as read or inert are the ones the code reads (and each inert key is named in `CLAUDE.md`); the CI jobs the pages name are the jobs in `ci.yml`; every repository path the pages cite as inline code exists (git-ignored locations excepted); the schema version the data-model page shows equals `SCHEMA_VERSION` |
+| The CLI inventory | `test_cli_subprocess` | The list of scripts equals the scripts that have a `__main__` block |
+| CI's structure and security rules | `test_ci_workflow` | Required job names, SHA-pinned actions, least privilege, no `pull_request_target`, the coverage and diff-cover steps, the advisory-ignore rule, the weekly mutation workflow |
+| What may be tracked | `test_confidential_paths` | No protected path is tracked or loses its ignore rule; every ignore line is classified |
+| Conventions in `scripts/` | `test_repo_conventions`, `test_pytest_config`, `test_stdio_encoding` | `# pragma: no cover` carries a reason; the tool settings really reject bad code; every CLI configures UTF-8 output first |
+
+A change that adds a relationship worth pinning adds a small test here, named for the relationship. It does not add a generic parser: each check above is a few lines over the text it compares.
 
 ## Running the tests
 

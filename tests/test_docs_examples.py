@@ -385,7 +385,7 @@ def test_the_examples_and_the_new_pages_contain_no_real_looking_data():
     """Synthetic names and figures only: the PII scan finds nothing in the examples or the pages that quote them,
     apart from ISO dates (an example date is not sensitive)."""
     files = [*EXAMPLES.glob("*.md"), *EXAMPLES.glob("*.json"), DOCS / "workflows.md", DOCS / "commands.md",
-             DOCS / "troubleshooting.md"]
+             DOCS / "troubleshooting.md", DOCS / "ai-assurance.md", DOCS / "contributing.md", DOCS / "operations.md"]
     for path in files:
         findings = pii_scan.scan_for_likely_real_data(path.read_text(encoding="utf-8"))
         real = [f for f in findings if "ISO date" not in f["reason"]]

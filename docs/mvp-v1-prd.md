@@ -1,78 +1,141 @@
 # OpenCAM MVP v1 — product requirements document (reconstructed)
 
-This document reconstructs the product definition behind OpenCAM MVP v1 from the repository's own pull requests,
+## Product summary and status
+
+OpenCAM pairs two AI agents - an Underwriter that drafts a Credit Assessment Memorandum (CAM) and a Risk Reviewer
+that audits the draft - with deterministic code that computes every financial figure and policy outcome the
+agents work from. MVP v1 shipped in September 2026; the product is early-stage, validated so far with one
+corporate credit analyst.
+
+This document reconstructs the product definition behind MVP v1 from the repository's own pull requests,
 [design decisions](decisions.md), and the project's delivery history. It was written after MVP v1 shipped, from
-that evidence, and is not presented as a document that existed in this form before implementation began. Its
-purpose is to make the product reasoning behind MVP v1 - the problem, the users, the scope, the requirements and
-the acceptance criteria - explicit and traceable to the pull requests and decisions that actually produced it.
+that evidence, and is not presented as a document that existed in this form before implementation began. Where a
+claim below is a reconstruction of intent rather than a fact observed in the repository, it is labelled as such.
+The full pull-request chronology, test-count checkpoints and traceability table that support the claims in this
+document are in the [Evidence appendix](#evidence-appendix) rather than the sections below, so that this document
+reads as a product specification first and an engineering record second.
 
-## Problem and hypothesis
+## Problem and user context
 
-Credit analysts prepare Credit Assessment Memorandums (CAMs) against hard committee deadlines: manual financial
-spreading, then a narrative drafted under time pressure, with real reputational risk if a number is wrong. An LLM
-can draft that narrative faster, but unconstrained generation risks an unsupported claim or a miscalculated ratio
-reaching committee undetected. An audit of the early codebase confirmed this was not theoretical: a debt-free
-company's DSCR was being silently computed as `0` instead of undefined, which would have wrongly flagged a
-healthy borrower as a covenant breach ([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20)).
+Credit analysts prepare CAMs against hard committee deadlines: manual financial spreading, then a narrative
+drafted under time pressure, with real reputational risk if a number is wrong. An LLM can draft that narrative
+faster, but unconstrained generation risks an unsupported claim or a miscalculated ratio reaching committee
+undetected. An audit of the early codebase confirmed this was not theoretical: a debt-free company's DSCR was
+being silently computed as `0` instead of undefined, which would have wrongly flagged a healthy borrower as a
+covenant breach ([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20); detail in the
+[Evidence appendix](#evidence-appendix)).
 
-The product question MVP v1 had to answer was not "can AI draft a CAM faster," but:
+**The user.** For MVP v1, the corporate credit analyst is the only user role in scope. They supply the source
+material, run the workflow, and are accountable for the credit judgement the CAM ultimately supports. A separate
+administrative step - calibrating an institution's own CAM templates and credit-policy documents via
+`/calibrate` and `/calibrate-policy` - happens once before any deal is worked, and is not part of the per-deal
+workflow below; MVP v1 does not define a separate calibration-owner role.
+
+**The primary workflow for MVP v1 (reconstructed from the shipped commands and their order):**
+
+1. Gather borrower information and financial statements for the deal.
+2. Spread the financials: MVP v1 supported only `/spread` computing every ratio from raw line items.
+3. Prepare the qualitative research.
+4. Draft the CAM: the Underwriter drafts, the Risk Reviewer audits the result, and a code-enforced check then
+   verifies every figure the Underwriter declared in its structured output against the computed value - see
+   [Core workflow and product boundaries](#core-workflow-and-product-boundaries) for the exact order.
+5. Review, edit and export the final draft - an editable `.docx` CAM and an `.xlsx` spreading workbook.
+6. Decide whether the output is good enough to use, and what needs manual correction before it does.
+
+**Post-MVP extension.** An alternative to step 2 - recording an analyst's own pre-spread figures as given,
+rather than recomputing them from raw line items, for borrowers whose reporting convention doesn't fit the raw
+schema - shipped after MVP v1 (D4, [Evidence appendix](#evidence-appendix)). It is not part of the MVP v1
+workflow reconstructed above.
+
+**When source material is incomplete, conflicting, or not suitable for deterministic validation,** the product's
+answer is to mark the affected figure or covenant N/A or UNRESOLVABLE rather than guess at it, and leave the
+analyst to resolve it manually - see requirement R9 below.
+
+## Product objectives, hypothesis and principles
+
+**Reconstructed product objectives.** These are inferred from the shipped scope and the principles below, not a
+record of goals set down before implementation:
+
+- Reduce the time needed to produce a useful first CAM draft.
+- Prevent unsupported or incorrectly calculated financial figures from silently reaching the draft.
+- Support the analyst's decision with an inspectable record of inputs, calculations and review findings - the
+  persisted state covers these and the Checker's own verdict, not a record of the analyst's final credit
+  decision itself, which the framework does not currently capture.
+- Let the analyst review and edit the exported CAM without losing the ability to audit its numbers.
+
+**Reconstructed product hypothesis:**
 
 > If AI drafts and audits a CAM through two independent agents, with every financial figure and policy outcome
 > computed deterministically rather than by the model, can an analyst reach a useful first draft materially
 > faster without the model ever becoming the source of truth for a number?
 
-MVP v1 needed to prove five things: the workflow removes real preparation work; financial calculations stay
-outside the model; the audit step can genuinely challenge the draft, not just confirm it; policy and covenant
-rules can be evaluated deterministically; and an analyst will actually trust and use the result.
+Reconstructed from the shipped scope, MVP v1's implicit bar for success was five things: the workflow removes
+real preparation work; financial calculations stay outside the model; the audit step can genuinely challenge the
+draft, not just confirm it; policy and covenant rules can be evaluated deterministically; and an analyst will
+actually trust and use the result. [Success measures and validation status](#success-measures-and-validation-status)
+below states which of these have actual evidence behind them today, and which remain estimated or unmeasured.
 
-## Who it's for
-
-"Maker" and "Checker" name the two AI agents, not people - [D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)
-states this plainly: *"the Maker and the Checker are independent prompts."*
-
-- **Maker - the Underwriter agent.** Drafts the CAM narrative from structured financial data and research evidence.
-- **Checker - the Risk Reviewer agent.** Independently audits the Maker's draft, with no shared reasoning
-  context, and can only downgrade a verdict, never upgrade one.
-- **The human user - the corporate credit analyst.** The one person in the loop. Supplies the source material,
-  runs the workflow, and is accountable for the credit judgement the CAM ultimately supports - neither agent makes
-  or is permitted to make that decision.
-
-This separation is the point: a single agent auditing its own draft agrees with itself, so the product gives the
-analyst two independent AI opinions to work from, not one agent wearing two hats.
-
-## Product principles
-
-The principles below are the subset of [design decisions](decisions.md) that were in force by MVP v1's close
-([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20), merged 2026-09-13). Three further decisions in
-that document - D4, D8 and D9 - were made after that close, during subsequent hardening, and are described under
-[What changed after MVP](#what-changed-after-mvp) instead of here; D6, D7 and D10 through D14 are later still and
-are out of scope for this document.
+**Principles in force by MVP v1's close** ([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20),
+merged 2026-09-13), drawn from [design decisions](decisions.md). Three further decisions in that document - D4,
+D8 and D9 - were made after that close, during subsequent hardening, and are described in the
+[Evidence appendix](#evidence-appendix) instead of here; D6, D7 and D10 through D14 are later still and are out
+of scope for this document.
 
 - **The Maker and the Checker are independent prompts** ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
   They never import each other or share the Maker's reasoning. This was true from the start of MVP v1; the
-  ability to configure the two to run on different underlying models came later, and in two steps:
-  [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (merged 2026-09-14) introduced the
-  `checker_model` capability, but `config/settings.json` did not yet set one, so the Checker still fell back to
-  the Maker's own model in practice; [PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (merged
-  2026-09-17) actually configured a separate `checker_model`, completing the change and properly closing
-  [issue #31](https://github.com/ShamikM88/open-cam-framework/issues/31) (reopened after PR #43 had closed it
-  prematurely on the capability alone). Before PR #53, independence meant separate prompts, not yet separate
-  models. The Checker's value comes from auditing cold either way.
+  ability to configure the two to run on different underlying models came later and in two steps - see the
+  [Evidence appendix](#evidence-appendix) for the dates. Before that second step, independence meant separate
+  prompts, not yet separate models; the Checker's value comes from auditing cold either way.
 - **Anything that can be computed is computed by code, and enforced by code**
   ([D2](decisions.md#d2-anything-that-can-be-computed-is-computed-by-code-and-enforced-by-code)). Ratios and
-  covenant results come from `spreading_builder.py` and `policy_engine.py`, never from the model. A code-enforced
-  rejection reason overrides the Checker even if it approved the draft, never the reverse.
+  covenant results come from deterministic calculation code, never from the model. A code-enforced rejection
+  reason overrides the Checker even if it approved the draft, never the reverse.
 - **Every step checkpoints to a file; the conversation is never the record**
   ([D3](decisions.md#d3-every-step-checkpoints-to-a-file-the-conversation-is-never-the-record)). State lives on
   disk so a compacted or resumed session loses at most the step in progress.
 - **A ratio with a non-positive denominator is N/A, and its covenant is UNRESOLVABLE**
   ([D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable)). Never
-  PASS, never a false FAIL - the rule the debt-free DSCR case forced into existence, now codified for every ratio.
+  PASS, never a false FAIL - the rule the debt-free DSCR case forced into existence, now codified for every
+  ratio.
 
 Keeping confidential material out of version control was already a practice at MVP v1's close - a `.gitignore`
 entry for calibration inputs and deal outputs was added 2026-09-12, the same day as the project's first merged
-pull request - but it was not yet the CI-enforced guarantee D9 later codified; see
-[What changed after MVP](#what-changed-after-mvp).
+pull request - but it was not yet the CI-enforced guarantee D9 later codified; see the
+[Evidence appendix](#evidence-appendix).
+
+## Core workflow and product boundaries
+
+**Maker and Checker name the two AI agents, not people** - [D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)
+states this plainly: *"the Maker and the Checker are independent prompts."* The Maker is the Underwriter agent;
+the Checker is the Risk Reviewer agent. This separation is the point: a single agent auditing its own draft
+agrees with itself, so the product gives the analyst two independent AI opinions to work from rather than one
+agent wearing two hats. Neither agent is permitted to make the credit decision - that stays with the analyst.
+
+The pipeline below is the system-internal version of the user journey above. The layer boundaries are the
+product's own controls, not an implementation detail:
+
+1. The analyst supplies source material (borrower financials, research, prior CAMs where available).
+2. Deterministic computation runs first: ratios, subtotals, ground-truth figures and covenant/policy state are
+   all computed before either agent runs.
+3. The Maker drafts the narrative from that computed data, declaring every figure it used in a structured
+   `reported_figures` block in its output (R4).
+4. The Checker reviews the draft - given the same computed ground truth and policy state as the Maker - and
+   returns its own qualitative APPROVED/REJECTED verdict, on a separate model call with no shared reasoning
+   context with the Maker (R3).
+5. A code-enforced overlay (`_apply_deterministic_policy_checks()`) then re-checks the draft deterministically:
+   every figure declared in `reported_figures`, within 0.5% of its computed value; covenant, security, CP and
+   credit-policy compliance. It can only move the verdict from APPROVED to REJECTED, never the reverse - this is
+   the check R4 describes, and it runs *after* the Checker's own review, not before it. A REJECTED verdict from
+   either the Checker or this overlay sends the draft back to the Maker for revision.
+6. Once APPROVED, the analyst reviews the audited draft and makes the credit decision.
+
+Each transition in that sequence is a trust boundary. The Maker and the Checker both work from the same
+deterministically computed figures, never from each other's reasoning; the Checker's own qualitative verdict is
+itself subject to a code-enforced overlay that can downgrade it but never upgrade it; the analyst is the only
+party who decides.
+
+What is explicitly outside this boundary for MVP v1 - AML/sanctions/PEP screening, multi-currency support, full
+covenant step-down modelling - is listed in [MVP v1 scope](#mvp-v1-scope) below.
 
 ## MVP v1 scope
 
@@ -86,175 +149,206 @@ pull request - but it was not yet the CI-enforced guarantee D9 later codified; s
 | Must | Deterministic policy engine layered on LLM narrative | PRs #1-20 |
 | Must | Critical correctness and security fixes before wider use | [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) |
 | Should | Policy checks wired into the primary slash-command interface, not just the headless script | [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) |
-| Could | Forward-year projections, stress testing, Conditions Subsequent, source-citation hyperlinking | shipped post-MVP |
 | Won't | Multi-currency and FX - the desk is GBP-only | deliberately deferred |
 | Won't | Full covenant step-down and cure-period modelling - scoped down to Conditions Subsequent tracking | deliberately deferred |
 | Won't | AML, sanctions and PEP screening, ESG scoring | a separate AML team's system supplies this |
 
-A second hardening pass followed MVP v1's close - see [What changed after MVP](#what-changed-after-mvp) below.
+MVP v1 shipped with no "Could" items - everything not Must or Should was deferred outright (Won't, above).
+Forward-year projections, stress testing, Conditions Subsequent tracking and source-citation hyperlinking were
+not part of MVP v1's own scope call; they were delivered later, in the hardening pass described in the
+[Evidence appendix](#evidence-appendix).
 
-## Functional and non-functional requirements
+The Should row is a priority classification, not a claim that the capability shipped inside the Must-have
+foundation: [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) merged 2026-09-13, the same day as
+[PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) but about six hours later, as the immediate
+fast-follow to the Must-have foundation rather than part of it.
 
-**FR1 - Deterministic financial calculation.** Ratios and subtotals are computed by `spreading_builder.py` and
-`policy_engine.py`, never drafted by the model. Same inputs, same result, regardless of which model drafted the
-narrative.
+## Requirements and acceptance criteria
 
-**FR2 - Explicit treatment of undefined results.** A zero or negative denominator produces N/A, not a false
-zero; its covenant resolves to UNRESOLVABLE, never a silent PASS or FAIL.
+Each requirement below carries the acceptance condition that would show it is met - scenario, expected behaviour,
+and evidence where it exists.
 
-**FR3 - Independent review.** The Checker audits the Maker's draft without inheriting its reasoning context, and
-can only downgrade a verdict.
+**R1 - Deterministic financial calculation.** Ratios and subtotals are computed by code, never drafted by the
+model. *Acceptance:* given identical financial inputs, the calculation engine returns the same result regardless
+of which model drafted the surrounding narrative.
 
-**FR4 - Ground-truth verification.** Every figure the Maker reports in the narrative is checked against the
-deterministically computed financials, within a 0.5% tolerance, before the Checker reviews it.
+**R2 - Explicit treatment of undefined results.** A zero or negative denominator produces N/A, not a false zero;
+its covenant resolves to UNRESOLVABLE, never a silent PASS or FAIL. *Acceptance:* given a debt-free company with
+zero debt service, DSCR resolves to N/A and its covenant resolves to UNRESOLVABLE, never a false FAIL. Verified:
+[PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) fixed exactly this case and added regression
+coverage.
 
-**FR5 - Deterministic policy evaluation.** Covenant and compliance checks are evaluated PASS, FAIL or
-UNRESOLVABLE by `policy_engine.py` against raw financials, never by asking the model to judge compliance in
-prose.
+**R3 - Independent review.** The Checker audits the Maker's draft on a separate model call, without inheriting
+its reasoning context. *Acceptance:* given a Maker-drafted CAM, the Checker reviews it with no shared reasoning
+context with the Maker - and, since 2026-09-17, on a genuinely different underlying model (D1,
+[Evidence appendix](#evidence-appendix)). The issue #31 reopening is evidence for that specific dimension of
+independence (same model vs. different model); it does not by itself establish the Checker's error-detection
+rate, which remains unmeasured (see [Success measures](#success-measures-and-validation-status)).
 
-**FR6 - Persistent workflow state.** Each step checkpoints to `state.json`; nothing exists only in the
-conversation.
+The downgrade-only guarantee is a separate, code-enforced mechanism, not a property of the Checker's own
+judgement: `_apply_deterministic_policy_checks()` re-checks the draft deterministically *after* the Checker's own
+verdict and can only move a verdict from APPROVED to REJECTED, never the reverse - tested directly by
+`tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved`.
 
-**FR7 - Editable, auditable export.** A `.docx` CAM and an `.xlsx` spreading workbook, the latter built with real
-formulas so the numbers stay auditable rather than a drafted table.
+**R4 - Ground-truth verification.** Every figure the Maker declares in its structured `reported_figures` output
+(`scripts/policy_checks.py`) is checked against the deterministically computed value for that metric, within a
+0.5% tolerance. In the pipeline this check runs as part of the code-enforced overlay applied *after* the
+Checker's own review (R3's `_apply_deterministic_policy_checks()`), not before the Checker sees the draft - a
+mismatch forces REJECTED regardless of what the Checker itself concluded. This is narrower than "every number in
+the narrative": a figure that appears in the drafted prose but was never captured in the Maker's structured
+declaration is not guaranteed to be checked by this mechanism - the implementation does not currently detect
+undeclared numeric figures. Analyst-supplied figures are outside this check by definition - the framework has no
+independently computed value to check them against - and carry their own explicit caveat instead (D4,
+[Evidence appendix](#evidence-appendix)). *Acceptance:* for every metric the Maker declares in
+`reported_figures`, the declared value is within 0.5% of that metric's computed ground truth; a mismatch forces
+REJECTED via the code-enforced overlay regardless of the Checker's own verdict - tested by
+`tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_rejects_a_mismatched_reported_figure`.
+This acceptance condition covers declared figures only, not an exhaustive scan of the narrative text.
 
-**NFR1 - Correctness.** Financial and policy outputs are deterministic and regression-tested.
+**R5 - Deterministic policy evaluation.** Covenant and compliance checks are evaluated PASS, FAIL or UNRESOLVABLE
+against raw financials, never by asking the model to judge compliance in prose. *Acceptance:* given a defined
+covenant and valid inputs, the result comes from the deterministic policy engine, never from the model's own
+judgement of compliance.
 
-**NFR2 - Independence.** Maker and Checker share no reasoning context, and this is validated rather than merely
-stated - see the Issue #31 reopening under [What changed after MVP](#what-changed-after-mvp).
+**R6 - Persistent workflow state.** Each step checkpoints to disk; nothing exists only in the conversation.
+*Acceptance:* given a workflow interrupted mid-step (a compacted or resumed session), resuming it re-hydrates the
+last checkpointed state rather than restarting from scratch.
 
-**NFR3 - Confidentiality.** Anything derived from real deal material stays out of version control, via
-`.gitignore` from the project's earliest commits. The CI test that fails the build if such material is ever
-tracked anyway was added after MVP v1 - see [What changed after MVP](#what-changed-after-mvp).
+**R7 - Editable, auditable export.** A `.docx` CAM and an `.xlsx` spreading workbook, the latter built with real
+formulas so the numbers stay auditable rather than a drafted table. *Acceptance:* given a completed deal, the
+system produces a `.docx` CAM editable as a normal Word document and an `.xlsx` workbook whose ratio cells are
+live formulas, not hardcoded values.
 
-**NFR4 - Fail closed.** Where the system cannot establish a valid result, it exposes the uncertainty (N/A,
-UNRESOLVABLE) rather than guessing.
+**R8 - Confidentiality.** Anything derived from real deal material stays out of version control.
+*Acceptance:* given any file under one of the repository's protected paths, it is excluded from git by
+`.gitignore` from the project's earliest commits (2026-09-12); from 2026-10-03 a CI test (D9,
+[PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159)) fails the build if a protected path is
+tracked anyway. This confirms the listed protected paths stay untracked - it is not a claim that no real deal
+data has ever appeared anywhere in the repository's history. See the
+[Evidence appendix](#evidence-appendix) for why that date is after MVP v1's close.
 
-## Acceptance criteria
+**R9 - Fail closed on missing or invalid data.** Where the system cannot establish a valid result, it exposes the
+uncertainty rather than guessing. *Acceptance:* given a required input the analyst has not supplied, or a value
+that cannot be meaningfully computed, the affected figure or covenant is marked N/A or UNRESOLVABLE rather than
+guessed or silently omitted.
 
-**AC1 - Undefined DSCR.** Given a debt-free company with zero debt service, DSCR resolves to N/A, not `0`, and
-its covenant resolves to UNRESOLVABLE, never a false FAIL. Verified: [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20)
-fixed exactly this case and added regression coverage.
+## Success measures and validation status
 
-**AC2 - Deterministic calculation.** Given identical financial inputs, the calculation engine returns the same
-result regardless of which model drafted the surrounding narrative.
+What is actually known today, kept separate from what is estimated or not yet measured at all:
 
-**AC3 - Maker/Checker independence.** Given a Maker-drafted CAM, the Checker audits it without inheriting the
-Maker's reasoning context, and can downgrade but never upgrade the verdict. This was validated in practice, not
-just asserted in code: Issue #31 was marked resolved once the two agents *could* run on different models, then
-reopened after a later review found the setting had never actually been switched on in production, and was
-re-closed only once verified end to end.
+| Measure | Status | Detail |
+| :--- | :--- | :--- |
+| Time to first useful draft | Estimated | 15-30 minutes, down from roughly a business day, is the one analyst's working target. No documented timing method or baseline exists for this figure - treat it as early single-user feedback, not a measured result. |
+| Ground-truth match on declared figures | Design guarantee, not aggregated | The 0.5% tolerance (R4) is enforced on every run for figures the Maker declares in `reported_figures`; no measured match-rate across multiple deals has been collected, and the mechanism does not cover undeclared figures in the narrative. |
+| Checker catch rate on Maker errors | Not yet measured | The DSCR defect was caught by a codebase audit, not observed as a live Checker catch on a real draft. No evaluation measures how often the Checker actually flags an error the Maker introduced. |
+| Silent financial errors | Design target: zero; one scenario verified | Zero silent financial errors is the design target, not a measured outcome. The debt-free DSCR case is the one concrete regression scenario verified; the overall rate across real deals has not been measured. |
+| Analyst can use and edit output without material rework | Observed qualitatively | The one analyst continues using the workflow; no measured rework rate exists. |
+| Confidentiality | Measured, scoped | Zero tracked files under the repository's protected paths: `.gitignore`-enforced since 2026-09-12, CI-enforced since 2026-10-03 (the test implementing D9, [PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159)). This confirms the specific protected paths stay untracked; it is not an audit of the repository's complete history. |
+| Adoption | Measured | One analyst, ongoing, early-stage. |
 
-**AC4 - Ground-truth tolerance.** Every reported figure in the Maker's narrative is within 0.5% of the
-deterministically computed ground-truth financials before the Checker reviews it. A mismatch beyond that
-tolerance is a Checker-visible finding, not a silent pass.
+Regression-suite growth (test counts at specific checkpoints, and why no current figure is quoted here) is in the
+[Evidence appendix](#evidence-appendix).
 
-**AC5 - Policy determinism.** Given a defined covenant and valid inputs, the result comes from
-`policy_engine.py`, never from the model's own judgement of compliance.
+## Assumptions, risks and limitations
 
-## Architecture
+**Assumptions.** Borrower financial statements and supporting documents are available to the analyst in a form
+either `/spread` can compute from or the analyst can supply directly. Either a Claude Code session (slash
+commands) or an `ANTHROPIC_API_KEY` (headless scripts) is available to run the workflow. An institution's CAM
+templates and credit-policy documents have already been calibrated before a deal is worked. The analyst reviews
+every draft before it is used - the product is decision support, not autonomous approval.
 
-The layer boundaries below are the product's own controls, not an implementation detail:
+**Risks.**
 
-1. The analyst supplies source material (borrower financials, research, prior CAMs where available).
-2. Deterministic computation runs first: `spreading_builder.py` produces ratios and subtotals, `policy_engine.py`
-   evaluates covenants and policy rules against them.
-3. The Maker (Underwriter) drafts the narrative. It receives the figures step 2 already computed deterministically
-   as input, and never recalculates them itself.
-4. A ground-truth check compares every figure the Maker's draft *reports* in its narrative against those same
-   deterministically computed figures, to within 0.5% tolerance, before the Checker ever sees the draft.
-5. The Checker (Risk Reviewer) audits the draft cold, with no shared reasoning context with the Maker, and can
-   only downgrade its verdict.
-6. The analyst reviews the audited draft and makes the credit decision; neither agent is permitted to make it.
+- Incorrect extraction of figures from source documents - ground-truth checking and analyst review reduce this
+  risk but do not eliminate it.
+- Unsupported narrative claims in qualitative (non-financial) sections, which the deterministic ground-truth
+  check does not cover.
+- Policy misclassification on a covenant or condition the policy engine doesn't yet model.
+- Incomplete source evidence producing an UNRESOLVABLE result the analyst must resolve by hand.
+- Over-reliance on a plausible-looking draft despite Checker review, given no measured Checker catch rate exists
+  yet (see [Success measures](#success-measures-and-validation-status) above).
+- Confidential material exposure if the `.gitignore` or CI protections are bypassed, or a new confidential path
+  is added without updating them.
 
-Each transition in that sequence is a trust boundary. The Maker receives deterministically computed ground-truth
-figures as input; what it writes back is checked against those same figures before the Checker ever reviews the
-draft; the Checker only ever reviews narrative it can still downgrade; the analyst is the only party who decides.
+**Limitations.** MVP v1 does not establish enterprise-scale or multi-institution reliability, regulatory
+readiness, or reliability beyond a single analyst's use. It does not replace the analyst's credit judgement - the
+analyst makes the decision; neither agent is permitted to.
 
-## What changed after MVP
+## Retrospective learning and next validation gate
 
-[PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) (merged 2026-09-13) closed MVP v1 with a
-holistic audit of the unreviewed foundation (`state_manager.py`, `spreading_builder.py`): the debt-free DSCR
-defect, a near-identical bug dropping Provisions and Other Long-Term Liabilities from total liabilities, a
-path-traversal risk in `state_manager.py` and `deal_export.py`, and non-atomic `state.json` writes.
+What delivery revealed, condensed to its product consequence - the full chronology is in the
+[Evidence appendix](#evidence-appendix):
 
-That same audit, on the same day, opened a tracked backlog of 19 further issues (#21 through #39). Four pull
-requests closed the highest-priority tranche of that backlog over the following day, 2026-09-14:
-[PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41) (#27, #21, #34),
+- [D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable) exists
+  because the debt-free DSCR defect was found the hard way, in a codebase audit, not reasoned out in advance.
+- D1's model-independence rule shipped in two steps: a capability, then the configuration that actually activated
+  it. "The capability exists" and "the capability is active" turned out to be different claims worth testing
+  separately - a lesson this document tries to apply to its own acceptance criteria.
+- D4 exists because MVP v1's single rigid spreading schema didn't survive contact with a real borrower's
+  reporting convention.
+- D8 and D9 both arrived as the project moved past its first two weeks. Confidentiality was a practice from day
+  one, but it took until early October to become a CI-tested guarantee rather than a documented one.
+
+**Evidence needed before this moves beyond a single-analyst MVP:**
+
+1. A documented timing method and baseline for the 15-30 minute target, not one analyst's impression.
+2. A measured Checker catch rate - how often the Checker actually flags an error the Maker introduced, across
+   more than one analyst and more than one deal.
+3. Confirmation that the 0.5%-tolerance and UNRESOLVABLE design holds against the issues already tracked under
+   the repository's `gap-analysis` label, not only the ones closed so far.
+4. An explicit decision, outside this document, on regulatory and compliance readiness before any institution
+   beyond the first relies on it.
+
+## Evidence appendix
+
+**The closing audit and the backlog it opened.** [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20)
+(merged 2026-09-13) closed MVP v1 with a holistic audit of the unreviewed foundation: the debt-free DSCR defect, a
+near-identical bug dropping Provisions and Other Long-Term Liabilities from total liabilities, a path-traversal
+risk, and non-atomic state writes. That same audit, on the same day, opened a tracked backlog of 19 further
+issues (#21 through #39). Four pull requests closed the highest-priority tranche of that backlog over the
+following day, 2026-09-14: [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41) (#27, #21, #34),
 [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42) (#22, #23),
-[PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (#31 - reopened days later, see
-[Product principles](#product-principles) on D1; #32, #26), and
-[PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) (#36, #37) - ten of the nineteen, in order of
-severity rather than issue number. The remainder of that backlog, and every issue surfaced by a later audit pass,
-is tracked under the repository's [`gap-analysis` label](https://github.com/ShamikM88/open-cam-framework/labels/gap-analysis),
-which has grown past the original 19 as further passes have been run; it is not a count this document repeats,
-since it changes independently of this document and is one click away from the source.
+[PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (#31 - reopened days later, see below; #32,
+#26), and [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) (#36, #37) - ten of the nineteen, in
+order of severity rather than issue number. The remainder, and every issue surfaced by a later audit pass, is
+tracked under the repository's [`gap-analysis` label](https://github.com/ShamikM88/open-cam-framework/labels/gap-analysis),
+which has grown past the original 19 as further passes have run; it is not a count this document repeats, since
+it changes independently of this document and is one click away from the source.
 
-The product lesson is the same across both the closing audit and the backlog it opened: a defect that looks like
-an edge case in testing (a ratio with no meaningful value) is, in production, the difference between a healthy
-borrower and a flagged one. [D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable)
-exists because this was found the hard way, not reasoned out in advance.
+**D1's two-step model independence.** [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (merged
+2026-09-14) introduced the `checker_model` capability and closed issue #31 on it, but `config/settings.json` did
+not yet set one, so the Checker still fell back to the Maker's own model in practice.
+[PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (merged 2026-09-17) actually configured a
+separate `checker_model`, completing the change and properly re-closing issue #31 (reopened in the meantime once
+the gap was found).
 
-A few days later, [D4](decisions.md#d4-analyst-supplied-figures-are-recorded-as-given-and-disclosed-never-silently-reconciled) -
-recording an analyst's own pre-spread figures as given, rather than silently reconciling them against the
-framework's raw schema - traces to
-[issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55), opened 2026-09-16 and closed
-2026-09-17. MVP v1 itself only supported `/spread` computing every ratio from raw line items; the
-analyst-supplied alternative, and the explicit audit-guarantee caveat it carries, came after.
+**D4 - analyst-supplied figures.** Traces to
+[issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55), opened 2026-09-16 and closed 2026-09-17.
+MVP v1 itself only supported `/spread` computing every ratio from raw line items; the analyst-supplied
+alternative, and the explicit audit-guarantee caveat it carries, came after.
 
-Two further decisions in [design decisions](decisions.md) came later still, as the project moved into broader
-hardening. [D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person) -
+**D8 and D9 - later hardening.** [D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person) -
 persisting analyst-confirmed conventions as local memory - traces to
 [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86) and
 [issue #89](https://github.com/ShamikM88/open-cam-framework/issues/89), both opened 2026-09-25.
 [D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it) - the CI-enforced
 guard against confidential material being tracked - traces to
-[issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149), opened 2026-10-02. The underlying
-practice predates the guarantee: a `.gitignore` entry excluding calibration inputs and deal outputs was already
-in place from 2026-09-12. D9 is what turned that practice into a tested rule rather than a documented one.
+[issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149), opened 2026-10-02 and closed
+2026-10-03 when [PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159) merged, implementing the
+test. The guard is scoped to the paths named in `tests/test_confidential_paths.py`'s protected-path list.
 
-## Success measures
-
-Two test-count checkpoints are fixed, historical facts, each tied to an immutable merge:
+**Test-count checkpoints.** Two fixed, historical facts, each tied to an immutable merge:
 
 | Event | Tests passing | Source |
 | :--- | :--- | :--- |
-| MVP v1 closes ([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) merges, 2026-09-13) | 188 | PR #20's own test checklist |
+| MVP v1 closes (PR #20 merges, 2026-09-13) | 188 | PR #20's own test checklist |
 | `badges/test-count.json` introduced, CI-enforced ([PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118)) | 439 | the PR that added it |
 
 The count has grown continuously since; this document does not repeat a current figure, since doing so would
 make it wrong the next time someone reads it. [`badges/test-count.json`](../badges/test-count.json) on the
 default branch is the CI-enforced source, per [D14](decisions.md#d14-the-test-count-badge-is-checked-by-ci-and-never-corrected-by-it).
 
-Other measures, kept to what was actually validated rather than inflated into a claim of scale:
-
-- **Time to first useful draft.** 15-30 minutes, down from roughly a business day - a working target validated
-  with one analyst, not a measured production SLA.
-- **Silent financial errors.** Zero tolerated by design; the debt-free DSCR case is the concrete instance where
-  this was tested and held.
-- **Confidentiality.** No real deal data in source control since the project's earliest commits; the CI test
-  that fails the build over it
-  ([D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it)) followed as
-  part of later hardening, not at MVP v1.
-- **Adoption.** One analyst to date. Early-stage, not yet evidence of scale.
-
-## What MVP v1 did and didn't prove
-
-**It proved:** a governed AI workflow can draft a credit memo while keeping financial computation and policy
-decisions deterministic; two independent agents can meaningfully audit each other when they share no reasoning
-context; a real correctness defect (the DSCR case) can be caught by a codebase audit rather than by an analyst
-catching it downstream, which is the more expensive and higher-risk place to catch it; and a single analyst found
-the resulting workflow useful enough to keep using it.
-
-**It didn't prove:** enterprise-scale adoption, production-grade reliability under multiple analysts or
-institutions, regulatory readiness, universal financial-spreading coverage, or that this class of defect is now
-exhaustively closed - the backlog opened the same day PR #20 merged held several more, and the test-count badge
-exists precisely because prose claims about system state have drifted before.
-
-The next product question is not "what else can we automate" but what evidence would justify moving this from a
-validated single-analyst MVP to something a wider credit organisation could trust.
-
-## Traceability
+**Traceability.**
 
 | Claim in this document | Evidence |
 | :--- | :--- |
@@ -262,8 +356,10 @@ validated single-analyst MVP to something a wider credit organisation could trus
 | Fast-follow: policy checks in the primary interface | [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) |
 | The debt-free DSCR defect and its fix | [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) |
 | The 19-issue backlog opened at MVP close, and its first four closing pull requests | [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41), [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42), [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43), [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) |
-| Independent prompts, deterministic computation, checkpointed state and the UNRESOLVABLE rule - the MVP v1 principles above | [Design decisions](decisions.md), D1 through D3, D5 |
+| Independent prompts, deterministic computation, checkpointed state and the UNRESOLVABLE rule - the MVP v1 principles | [Design decisions](decisions.md), D1 through D3, D5 |
 | Independent Maker/Checker models - capability, then actual configuration, closing issue #31 | [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (capability), [PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (configured, closes #31) |
-| Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149) (D9) |
+| Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149)/[PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159) (D9) |
+| R4's `reported_figures` scoping | [`scripts/policy_checks.py`](https://github.com/ShamikM88/open-cam-framework/blob/main/scripts/policy_checks.py), `check_reported_figures()` |
+| R3/R4's actual sequencing (overlay runs after the Checker, not before) and downgrade-only guarantee | [`scripts/orchestrator.py`](https://github.com/ShamikM88/open-cam-framework/blob/main/scripts/orchestrator.py), `_apply_deterministic_policy_checks()`; `tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved` and `test_apply_deterministic_policy_checks_rejects_a_mismatched_reported_figure` |
 | Test-count checkpoints | PR #20's own checklist (188), [PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118) (439) |
 | 0.5% ground-truth tolerance, one-analyst validation, 15-30 minute target | the published OpenCAM case study (linked from the project README) |

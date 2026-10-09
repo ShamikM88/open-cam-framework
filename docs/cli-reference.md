@@ -13,6 +13,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
 | `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
@@ -169,6 +170,33 @@ always passes it. The slash commands `/spread` and `/project` run it; see [Workf
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Transcription check
+
+`scripts/transcription_check.py --transcription <json> [--json]` reads back figures that `/spread` transcribed from
+an image (a screenshot, a photo, a scanned page) and writes nothing: no deal is read or changed. It prints the figures
+grouped by period and statement, each as written beside the value that would be recorded; a cross-foot of every
+subtotal the source states against the sum of the transcribed lines that feed it; and a **digest** of exactly what
+it showed. `--json` prints the same as `{digest, report, text}`.
+
+`scripts/transcription_check.py --transcription <json> --commit --confirm <digest> --company ... --proposal ...
+[--source-note <text>]` records the transcription, but only if `--confirm` is the digest of these figures as they are
+now and no cross-foot discrepancy is unresolved; otherwise it exits `1` with one `error: refused: ...` line and writes
+nothing. On success it saves the image as the source of record (the manifest claim says the figures were transcribed
+from an image and carries the digest), records the figures, appends `spread` to `steps_completed`, and appends a record
+to `financials_transcriptions`. In `framework-computed` mode it recomputes exactly as `spreading_check.py` does; in
+`analyst-supplied` mode it records subtotals, ratios and any lines exactly as given and needs `--source-note`, the
+confirmed convention, to which it appends a sentence saying the figures were transcribed from an image (stored as
+`financials_source_note`, which the CAM caveat quotes). What it enforces and what it cannot is in
+[Figures read from an image](financial-model.md#figures-read-from-an-image) and
+[AI assurance](ai-assurance.md#what-the-code-guarantees).
+
+The staged file holds every figure as text exactly as it appears; a worked example is in
+[Workflows](workflows.md#figures-read-from-an-image).
+
+```bash
+python scripts/transcription_check.py --transcription "deals/Synthetic Co/Synthetic Fleet Loan_transcription.json"
 ```
 
 ## Policy check

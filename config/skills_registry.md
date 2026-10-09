@@ -12,7 +12,7 @@ Execute the following actions when triggered by their respective slash commands:
 
 3. `/spread`
    - Primary Inputs: 3–5 years of Profit & Loss and Balance Sheet data.
-   - Core Action: Extract and spread line items. Calculate key financial metrics: Tangible Net Worth (TNW), EBITDA, Debt Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, and Working Capital Days.
+   - Core Action: Extract and spread line items. Calculate key financial metrics: Tangible Net Worth (TNW), EBITDA, Debt Service Coverage Ratio (DSCR), EBIT/Interest, Gross Leverage, Net Debt / EBITDA, Gearing %, Current Ratio, FCF Conversion %, and Working Capital Days. Figures read from an image (a screenshot, a photo, a scanned page) in either mode are recorded only after an explicit read-back confirmation through `scripts/transcription_check.py` (issue #132).
 
 4. `/commercial`
    - Primary Inputs: Sector name, management bios, customer/supplier notes, business model description.

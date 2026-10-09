@@ -8,7 +8,7 @@ The suite checks the framework without a model, so it is organised by what a fai
 
 | What it protects | Test files | A failure here means |
 | :--- | :--- | :--- |
-| **The deterministic core**: figures, policy facts, state, sources, conventions, text I/O | `test_spreading_builder`, `test_spreading_check`, `test_policy_engine`, `test_policy_checks`, `test_policy_check`, `test_forward_covenants`, `test_nonpositive_denominators`, `test_state_manager`, `test_source_manifest`, `test_conventions`, `test_textio`, `test_stdio_encoding`, `test_properties` | A number, a verdict reason or a stored record is wrong |
+| **The deterministic core**: figures, policy facts, state, sources, conventions, text I/O | `test_spreading_builder`, `test_spreading_check`, `test_transcription_check`, `test_policy_engine`, `test_policy_checks`, `test_policy_check`, `test_forward_covenants`, `test_nonpositive_denominators`, `test_state_manager`, `test_source_manifest`, `test_conventions`, `test_textio`, `test_stdio_encoding`, `test_properties` | A number, a verdict reason or a stored record is wrong |
 | **State over time**: old and malformed `state.json` | `test_legacy_state` | A deal written earlier can no longer be read, or a bad shape is not handled |
 | **The pipeline with scripted models**: the revision loop, the code-enforced override, checkpointing, calibration | `test_orchestrator`, `test_calibrate` | The control flow around the model is wrong (the model itself is replaced by a scripted reply) |
 | **What a user receives**: the `.docx`, `.xlsx`, research brief, templates | `test_deal_export`, `test_docx_builder`, `test_research_export`, `test_template_resolver`, `test_golden_outputs` | A document changed content or layout |

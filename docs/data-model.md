@@ -47,7 +47,8 @@ shortened):
 | `steps_completed` | every step | The names of steps that have finished (`triage`, `spread`, ...); `/assemble` hard-gates on `spread` |
 | `triage`, `commercial` | `/triage`, `/commercial`, `/research` | The Go/No-Go verdict and rationale; the company and sector sections |
 | `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` (run by `/spread` and `/project`) | Per-period subtotals (each with its raw inputs under `raw`) and ratios; the raw inputs as supplied; `"framework-computed"` |
-| `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes |
+| `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
+| `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file, the unit, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `collateral`, `security_package` | `/collateral` | One entry per asset; one per charge |
 | `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries; `{"provider", "type", "amount"}` entries |

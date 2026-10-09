@@ -230,3 +230,7 @@ The state of `README.md` and `CLAUDE.md` at the start of D3 is `a79d065` (the me
 The only existing wording replaced, all of it text written in D1 or D2 rather than moved from the old files: the opening notes of `docs/testing.md`, `docs/security.md` and `docs/evaluation.md` (they said a later tranche would add explanation; it now has), and the dated paragraph under "Project status" in `docs/README.md`.
 
 The D1 verification script, re-run against the D3 corpus, reports the same two paragraphs as after D2 and no others: the repository-map block (the `system_instructions.md` line corrected in D2) and the configuration overview (the same correction). Nothing moved in D1 or D2 was changed by D3.
+
+## Later single-line additions
+
+After D3, one line was added to the `scripts/` part of the repository-map tree in `docs/architecture.md` for the new `transcription_check.py` (issue #132), and one bullet each to `CLAUDE.md`'s "Slash commands" facts and "Execution scripts" entries. No moved text was changed.

@@ -34,6 +34,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI_SCRIPTS = (
     "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "mutation_report", "orchestrator",
     "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
+    "transcription_check",
 )
 
 
@@ -263,6 +264,59 @@ def test_spreading_check_no_update_financials_source_leaves_the_flag_alone(cli):
 def test_spreading_check_on_a_missing_input_fails(cli):
     result = cli("spreading_check", "--company", "A", "--proposal", "P", "--financials", "nope.json")
     assert result.returncode != 0 and "nope.json" in result.stderr
+
+
+def _staged_transcription(cli, revenue="1,000"):
+    (cli.workdir / "shot.png").write_bytes(b"synthetic image bytes")
+    path = cli.workdir / "t.json"
+    path.write_text(json.dumps({
+        "mode": "framework-computed",
+        "source": {"file": "shot.png", "kind": "image", "description": "Synthetic Co accounts", "unit": "GBP thousands"},
+        "periods": {"FY-Current": {"lines": {"revenue": revenue, "cost_of_sales": "600"},
+                                   "subtotals": {"gross_profit": "400"}}}}), encoding="utf-8")
+    return path
+
+
+def test_transcription_check_reads_back_without_touching_a_deal_then_commits_the_confirmed_digest(cli):
+    staged = _staged_transcription(cli)
+    shown = cli("transcription_check", "--transcription", staged, "--json")
+    assert shown.returncode == 0, shown.stderr
+    digest = json.loads(shown.stdout)["digest"]
+    assert not (cli.workdir / "deals").exists(), "a read-back must not create or change a deal"
+    refused = cli("transcription_check", "--transcription", staged, "--commit", "--confirm", "0" * 16,
+                  "--company", "Acme", "--proposal", "Loan")
+    assert refused.returncode == 1 and refused.stderr.startswith("error: refused:") and refused.stdout == ""
+    assert "Traceback" not in refused.stderr and not (cli.workdir / "deals").exists()
+    done = cli("transcription_check", "--transcription", staged, "--commit", "--confirm", digest,
+               "--company", "Acme", "--proposal", "Loan")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout)["committed"] is True
+    (state_file,) = cli.workdir.glob("deals/Acme/Loan_*/state.json")
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["financials"]["FY-Current"]["gross_profit"] == 400 and state["steps_completed"] == ["spread"]
+    assert state["financials_transcriptions"][0]["confirmed_digest"] == digest
+
+
+def test_transcription_check_blocks_a_discrepancy_and_a_commit_without_its_arguments(cli):
+    staged = _staged_transcription(cli, revenue="1,100")
+    shown = cli("transcription_check", "--transcription", staged)
+    assert shown.returncode == 0 and "MISMATCH" in shown.stdout and "STATUS: BLOCKED" in shown.stdout
+    digest = json.loads(cli("transcription_check", "--transcription", staged, "--json").stdout)["digest"]
+    blocked = cli("transcription_check", "--transcription", staged, "--commit", "--confirm", digest,
+                  "--company", "Acme", "--proposal", "Loan")
+    assert blocked.returncode == 1 and "unresolved cross-foot discrepancies" in blocked.stderr
+    incomplete = cli("transcription_check", "--transcription", staged, "--commit")
+    assert incomplete.returncode == 2 and "--company" in incomplete.stderr
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_transcription_check_on_a_missing_or_unreadable_input_fails_with_one_error_line(cli):
+    result = cli("transcription_check", "--transcription", "nope.json")
+    assert result.returncode == 1 and result.stderr.startswith("error: cannot read nope.json")
+    bad = cli.workdir / "bad.json"
+    bad.write_text("{}", encoding="utf-8")
+    result = cli("transcription_check", "--transcription", bad)
+    assert result.returncode == 1 and "mode must be" in result.stderr and "Traceback" not in result.stderr
 
 
 def test_check_coverage_passes_a_compliant_report_and_fails_a_weak_one(cli):

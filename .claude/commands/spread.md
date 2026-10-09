@@ -47,7 +47,80 @@ than as its own line, common for asset-hire businesses), they may instead supply
 own already-computed figures and ratios directly -- see "Analyst-supplied pre-spread figures"
 below. Ask which applies before assuming which mode this is.
 
+### Figures read from an image (either mode)
+
+This applies whenever you read financial figures out of pixels: a screenshot, a photo, a scanned page, or a PDF page
+with no text layer that you have to read visually (issue #132). It does **not** apply to figures read from text
+(Excel, CSV, a PDF with a text layer, figures the analyst typed); those follow the two sections below unchanged.
+
+A misread digit, a dropped decimal, a flipped sign or a misaligned column would otherwise become the deal's ground
+truth: in the analyst-supplied mode nothing recomputes the figures at all, and in the default mode the ratios are
+recomputed from whatever lines you transcribed. So for image figures, **do not run `spreading_check.py`, do not edit
+`state.json` and do not append `"spread"` to `steps_completed` yourself**. `scripts/transcription_check.py` does
+all of that, only after the analyst has explicitly confirmed a read-back.
+
+1. **Stage the transcription.** Write `deals/<company>/<proposal>_transcription.json`, every figure as text exactly as
+   it appears in the image: thousands commas, decimals including trailing zeros, parentheses or a minus sign for a
+   negative. Never round, rescale, convert or "correct" a figure, and keep each period in its own column of the image:
+   ```json
+   {"mode": "framework-computed",
+    "source": {"file": "<path to the image>", "kind": "image", "description": "<what it is>", "unit": "GBP thousands"},
+    "periods": {"FY-Current": {"lines": {"revenue": "1,200.0", "cost_of_sales": "700.0"},
+                               "subtotals": {"gross_profit": "500.0"}, "ratios": {}}},
+    "acknowledged": []}
+   ```
+   `mode` is `framework-computed` or `analyst-supplied`, whichever you agreed with the analyst. `kind` is `image` or
+   `scanned-document`. `unit` is read from the image (ask if it does not say). `lines` use the raw field names listed
+   under "Default" below; `subtotals` are only the subtotals the source itself states, using the names listed under
+   "Analyst-supplied" below (in the default mode they are used to cross-foot and are never recorded; in the
+   analyst-supplied mode they are the figures recorded); `ratios` are analyst-supplied mode only. Leave out anything
+   the image does not show; never derive one.
+2. **Read it back.** Run the read-back and show its output to the analyst verbatim, without shortening or re-sorting
+   it; it reads and writes no deal:
+   ```
+   python scripts/transcription_check.py --transcription "deals/<company>/<proposal>_transcription.json"
+   ```
+   It groups the figures by period and statement, shows each as written beside the value that would be recorded, and
+   cross-foots every subtotal the source states against the sum of the transcribed lines that feed it (using the
+   framework's own formulas, within the rounding the written figures allow), plus the balance sheet identity. A check
+   shown as NOT ASSESSED was **not** made (a feeding line was not transcribed); say so plainly and never describe those
+   figures as verified. Ratios are never cross-footed.
+3. **Resolve every MISMATCH before asking for confirmation.** Show the discrepancy, ask the analyst to compare it with
+   the image, and fix the transcription only where the image shows it is wrong. Never change a figure to make a check
+   pass, and never amend a figure on your own. If the source's subtotal legitimately differs from the framework's
+   definition (for example an equity line the raw schema has no field for), record the analyst's reason in their own
+   words under `acknowledged` (`{"period": ..., "check": ..., "reason": ...}`); an acknowledgement appears in the
+   read-back and is part of what the analyst confirms. Then read back again.
+4. **Ask for explicit confirmation of exactly what was shown:** "Do these figures match the image exactly?" Only a
+   clear affirmative about these figures is confirmation. Silence, a question, a partial answer ("mostly",
+   "looks fine, continue"), moving on to the next step, or your own confidence in the transcription is never
+   confirmation. If the analyst corrects any value, edit the staged file, read back again, show the new read-back and
+   ask again; a confirmation never carries over to changed figures (the digest changes, and the commit refuses an
+   old one). If the analyst declines or cancels, stop: run nothing further, delete the staged file, and leave the
+   deal exactly as it was.
+5. **Commit, only after that explicit confirmation,** quoting the digest of the read-back the analyst confirmed:
+   ```
+   python scripts/transcription_check.py --transcription "deals/<company>/<proposal>_transcription.json" \
+       --commit --confirm <digest> --company "<company>" --proposal "<proposal>" [--source-note "<convention>"]
+   ```
+   It refuses, with nothing written, if the digest is stale or a discrepancy is unresolved; report its `error:` line
+   as printed and do not retry with another digest unless a new read-back was confirmed. On success it saves the
+   image as the source of record (do not also run `source_manifest.py` for it), then in the default mode recomputes
+   exactly as `spreading_check.py` does, and in the analyst-supplied mode records the subtotals as `financials`, the
+   ratios as `ratios` and any lines as `analyst_supplied_financials` exactly as given, sets `financials_source` to
+   `"analyst-supplied"` and requires `--source-note` (the confirmed convention description from "Analyst-supplied"
+   below), to which it appends a sentence saying the figures were transcribed from an image and stores the result as
+   `financials_source_note`, so the CAM's caveat (Guideline 9) carries it. In both modes it appends `"spread"` to `steps_completed` and a record of the
+   transcription to `financials_transcriptions`.
+6. Delete the staged file. In the analyst-supplied mode, still ask the scope question and persist the convention with
+   `conventions.py` below, using the plain convention note.
+
+The script cannot see the image: it enforces the order of events, the arithmetic and the refusal, and the analyst's
+comparison of the read-back with the image is what makes the figures trustworthy.
+
 ### Default: spread from raw P&L/Balance Sheet data
+
+For figures read from an image, follow "Figures read from an image" above instead of the steps below.
 
 Extract the raw line items for each period you have (`"FY-2"`, `"FY-1"`, `"FY-Current"` --
 whichever you were given), using these exact field names (omit any field the source data doesn't
@@ -77,6 +150,9 @@ temporary input file afterward -- its content is already preserved in `state.jso
 `multi_period_financials`.
 
 ### Alternative: analyst-supplied pre-spread figures
+
+For figures read from an image, follow "Figures read from an image" above for recording them; the rules below on
+recording exactly as given still apply.
 
 If the analyst supplies already-computed subtotals and ratios from their own template rather
 than raw line items, **record them exactly as given -- never recompute, adjust, or reconcile
@@ -108,10 +184,15 @@ python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" 
 ```
 This preserves the source of record for later audit (see issue #67) -- so the analyst can spot-
 check a figure or re-run a step's numbers by hand against the exact document that was spread,
-not just a description of it. Don't save incidental scratch/intermediate artifacts (e.g. an OCR
+not just a description of it. (For figures read from an image, `transcription_check.py --commit` saves the image
+itself; do not save it twice.) Don't save incidental scratch/intermediate artifacts (e.g. an OCR
 page render used only to extract a figure) -- only the source document itself.
 
 ## State: write
+
+For figures read from an image, `scripts/transcription_check.py --commit` (see "Figures read from an image") has
+already written the figures, the source record and the `spread` step once the analyst confirmed; do not repeat them
+below.
 
 **Default mode:** `scripts/spreading_check.py` (run above) already checkpointed `financials`,
 `ratios`, `multi_period_financials`, and `financials_source: "framework-computed"` straight to

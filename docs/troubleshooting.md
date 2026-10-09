@@ -94,6 +94,21 @@ The workbook's subtotals and ratios are Excel formulas over the raw input rows, 
 while `state.json` keeps the figures the framework computed. Compare against `state.json` (or re-run `/spread`), not
 against an edited copy.
 
+### Figures read from an image
+
+The checks behind `transcription_check.py` (see [Workflows](workflows.md#figures-read-from-an-image)). Each message is one `error:` line and exit status `1`, and nothing has been written.
+
+| Message starts with | Meaning | Fix |
+| :--- | :--- | :--- |
+| `error: refused: the confirmation does not match these figures` | `--confirm` is not the digest of the staged figures as they are now: the figures, unit, source or an acknowledgement changed since the read-back that was confirmed, or the digest was mistyped | Read back again, show the analyst the new read-back, and commit only the digest of the one they confirmed |
+| `error: refused: unresolved cross-foot discrepancies (FY-Current/gross_profit, ...)` | A subtotal the image states does not equal the sum of the transcribed lines that feed it, within rounding, and no acknowledgement covers it | Compare the discrepancy with the image and correct the staged file where it is wrong; if the source defines the subtotal differently, record the analyst's reason under `acknowledged` for that period and check, then read back again |
+| `error: FY-Current.lines.revenue: cannot read '1,5' as a figure` | The text is not a plain number: a comma decimal, a currency symbol, `n/a`, a dash or unbalanced brackets are refused rather than guessed | Write the number as it appears with commas for thousands and a point for decimals; ask the analyst what a dash or `n/a` means; put the currency in `source.unit` |
+| `error: ... unknown name(s) [...]` or `unknown key(s) [...]` | A misspelt field in the staged file | Use the raw field names listed in `/spread`, the subtotal and ratio names it lists, and the keys in the example |
+| `error: refused: analyst-supplied mode needs --source-note` | Analyst-supplied mode records the confirmed convention as `financials_source_note`, and the transcription disclosure is added to it | Pass the convention description the analyst confirmed |
+| `error: refused: the source file ... does not exist` | `source.file` does not point at the image | Correct the path; the image is saved from there |
+
+A cross-foot row that reads `NOT ASSESSED: not transcribed: stock, ...` is not a failure and not a pass: the check was not made because those lines were not written down. Transcribe them (an explicit `0` counts) if you want the check, or accept that those figures are not cross-footed. A `MISMATCH` on `balance_sheet_balances` with every other check matching usually means a balance sheet line the framework has no field for (for example other reserves) or a line that was not transcribed as zero.
+
 ## Review and rejection
 
 A `REJECTED` verdict has two possible sources: the **code-enforced check** (mandatory, quoted verbatim in the notes)

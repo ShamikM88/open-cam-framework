@@ -140,6 +140,52 @@ CAM must carry an explicit caveat that those figures were not independently reco
 its own schema. One limit: a stored ratio whose denominator is not recorded (an analyst-supplied DSCR, say) cannot be
 cross-checked, so the N/A rule can only be applied where the denominator is on file.
 
+## Figures read from an image
+
+Figures a session reads out of a screenshot, a photo or a scanned page go through `scripts/transcription_check.py`
+before they are recorded (issue #132; the procedure is in [Workflows](workflows.md#figures-read-from-an-image)). The
+arithmetic it applies is described here.
+
+**What is compared.** For every subtotal the source itself states (`gross_profit`, `operating_profit`, `ebitda`,
+`profit_before_tax`, `net_profit`, `fcf`, `current_assets`, `current_liabilities`, `total_assets`, `total_liabilities`,
+`total_equity`, `total_debt`, `tangible_net_worth`), the stated figure is compared with the same subtotal derived from
+the transcribed raw lines by `evaluate_financial_model()`, the framework's own formulas. Which lines feed a subtotal,
+and with which sign, is discovered from that function (a line's weight is the subtotal's value when that line alone
+is 1), so the mapping is not written down a second time and cannot drift from the formulas. A test confirms the
+weights reproduce the framework's subtotals exactly. In addition, when balance sheet lines are present, total assets
+less total liabilities less total equity must come to zero (the `balance_sheet_balances` check).
+
+**Rounding.** A presented statement is rounded, so its parts rarely add up exactly. The tolerance is the rounding the
+figures as written allow: half a unit of the last written digit of the stated subtotal plus half a unit of the last
+written digit of each line that feeds it, weighted by its sign. Lines shown to one decimal and a total shown to none:
+`100.4 + 200.4 = 300.8` against a stated `301`, with two zero lines written as `0`, tolerates `0.5 x (0.1 + 0.1 + 1 +
+1 + 1) = 1.6`. The same amounts written to two decimals tolerate only `0.025`. Digits count as written, which is why
+the transcription keeps trailing zeros.
+
+**When no check is made.** A check needs every feeding line to have been transcribed; an explicit `0` counts, an
+omitted line is unknown, not zero (the framework otherwise reads an omitted line as 0, which is the wrong default for
+a check). A check that cannot be made is reported as NOT ASSESSED with the missing lines, never as a pass. Ratios are
+never cross-footed: the rounding of their inputs cannot be bounded, so any tolerance would be invented. If the image
+states no subtotal and no balance sheet, the read-back says there is nothing to compare.
+
+**A discrepancy.** It is shown with the stated figure, the sum of the lines, the difference and the tolerance, and
+the commit is refused until it is resolved. Resolving means correcting the transcription where the image shows it is
+wrong, or recording the analyst's reason, in their words, as an acknowledgement for that period and check (a source
+can define a subtotal differently, for example an equity line the raw schema has no field for). An acknowledgement is
+part of what the analyst confirms. Nothing is ever amended on its own.
+
+**By mode.** In framework-computed mode the stated subtotals are used only for the cross-foot; every recorded
+subtotal and ratio is recomputed from the lines. In analyst-supplied mode the stated subtotals and ratios are recorded
+exactly as given (a trailing `x` or `%` on a ratio is dropped and the number kept as written), any raw lines go to
+`analyst_supplied_financials`, and the cross-foot still compares the stated subtotals with those lines when both are
+present.
+
+**Limits.** The check finds transcription slips that break a subtotal or the balance sheet. It cannot find an error
+in a figure no subtotal depends on, two offsetting errors, or a figure misread the same way in a line and in its
+total. It reads commas as thousands separators and a point as the decimal mark, refuses anything else (`1,5`), and
+cannot tell `1,234` in a European statement from one thousand two hundred thirty-four; the unit and the read-back
+exist for the analyst to catch exactly that.
+
 ## What the policy engine decides
 
 From the recorded structure alone (no model), `policy_state` holds:

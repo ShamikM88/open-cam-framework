@@ -144,16 +144,41 @@ cross-checked, so the N/A rule can only be applied where the denominator is on f
 
 Figures a session reads out of a screenshot, a photo or a scanned page go through `scripts/transcription_check.py`
 before they are recorded (issue #132; the procedure is in [Workflows](workflows.md#figures-read-from-an-image)). The
-arithmetic it applies is described here.
+rules it applies are described here.
+
+**Signs: what the source writes versus what the framework is given.** The framework reads raw lines with fixed
+semantics (`evaluate_financial_model()`): costs and cash outflows are entered as **positive** amounts and subtracted,
+liabilities are entered as positive amounts, and a negative cost is a credit or reversal. A source often presents them
+differently: costs or creditors in brackets, which is only presentation. So each figure is kept exactly as written
+and a separate value is recorded:
+
+- The staged file declares, per class of line, how the source writes an amount of that kind: `cost_sign` (cost of
+  sales, admin expenses, depreciation, amortisation, interest paid, exceptional costs, tax), `outflow_sign` (scheduled
+  principal, capex) and `liability_sign` (every liability line). `"positive"`: written as a positive number, so
+  recorded as written, and a negative is a credit or reversal. `"negative"`: written in brackets or with a minus sign,
+  so recorded with its sign reversed, and a positive is a credit or reversal. A declaration is required wherever a line
+  of its class is transcribed; it is never inferred, and if the image does not make it plain the analyst is asked.
+- Income, assets and equity lines are recorded as written. Subtotals and ratios are results with a sign of their own
+  (a loss is `(120)`) and are recorded as written.
+- The read-back shows both values, the interpretation of each line ("as written" or "sign reversed: ...") and each
+  convention in words, and the digest covers the declarations, so changing one is a new confirmation. It lists every
+  figure that will be recorded as negative so a genuine credit or deficit is seen, not assumed, and warns when every
+  line of a class contradicts its declaration.
+- The cross-foot uses the **recorded** values, so it checks what the framework will actually be given. If a mismatch
+  would disappear were a class read with the opposite sign, it is reported as a doubt about the declaration
+  (`matches if costs were read with the opposite sign`) and **cannot be acknowledged**: it blocks until the declaration
+  or the figures are corrected. For example, revenue `1,200`, cost of sales `(700)` and a stated gross profit of `500`
+  mismatch if costs are declared positive (`-700` is recorded, gross profit `1,900`) and match if they are declared
+  negative (`700`).
 
 **What is compared.** For every subtotal the source itself states (`gross_profit`, `operating_profit`, `ebitda`,
 `profit_before_tax`, `net_profit`, `fcf`, `current_assets`, `current_liabilities`, `total_assets`, `total_liabilities`,
 `total_equity`, `total_debt`, `tangible_net_worth`), the stated figure is compared with the same subtotal derived from
-the transcribed raw lines by `evaluate_financial_model()`, the framework's own formulas. Which lines feed a subtotal,
-and with which sign, is discovered from that function (a line's weight is the subtotal's value when that line alone
-is 1), so the mapping is not written down a second time and cannot drift from the formulas. A test confirms the
-weights reproduce the framework's subtotals exactly. In addition, when balance sheet lines are present, total assets
-less total liabilities less total equity must come to zero (the `balance_sheet_balances` check).
+the recorded raw lines by `evaluate_financial_model()`, the framework's own formulas. Which lines feed a subtotal, and
+with which sign, is discovered from that function (a line's weight is the subtotal's value when that line alone is
+1), so the mapping is not written down a second time and cannot drift from the formulas. A test confirms the weights
+reproduce the framework's subtotals exactly. In addition, when balance sheet lines are present, total assets less total
+liabilities less total equity must come to zero (the `balance_sheet_balances` check).
 
 **Rounding.** A presented statement is rounded, so its parts rarely add up exactly. The tolerance is the rounding the
 figures as written allow: half a unit of the last written digit of the stated subtotal plus half a unit of the last
@@ -169,22 +194,39 @@ never cross-footed: the rounding of their inputs cannot be bounded, so any toler
 states no subtotal and no balance sheet, the read-back says there is nothing to compare.
 
 **A discrepancy.** It is shown with the stated figure, the sum of the lines, the difference and the tolerance, and
-the commit is refused until it is resolved. Resolving means correcting the transcription where the image shows it is
-wrong, or recording the analyst's reason, in their words, as an acknowledgement for that period and check (a source
-can define a subtotal differently, for example an equity line the raw schema has no field for). An acknowledgement is
-part of what the analyst confirms. Nothing is ever amended on its own.
+the commit is refused until it is resolved. Resolving means correcting the transcription (or the sign declaration)
+where the image shows it is wrong, or, for a difference no sign reading explains, recording the analyst's reason in
+their words as an acknowledgement for that period and check (a source can define a subtotal differently, for example
+an equity line the raw schema has no field for). An acknowledgement is part of what the analyst confirms. Nothing is
+ever amended on its own.
 
 **By mode.** In framework-computed mode the stated subtotals are used only for the cross-foot; every recorded
 subtotal and ratio is recomputed from the lines. In analyst-supplied mode the stated subtotals and ratios are recorded
 exactly as given (a trailing `x` or `%` on a ratio is dropped and the number kept as written), any raw lines go to
 `analyst_supplied_financials`, and the cross-foot still compares the stated subtotals with those lines when both are
-present.
+present. Stated differences between an institution's subtotal and the framework's definition are exactly what an
+acknowledgement is for in either mode.
+
+**One basis per deal.** `financials_source` is a whole-deal flag, and a commit never changes it or mixes the two
+modes in one deal. Before the image is copied or anything is written, an existing `financials_source` that differs
+from the staged mode refuses the commit with one message. A state that records financial figures but no
+`financials_source` (an older or hand-edited file) has an unknown basis and is refused the same way; it is not assumed
+to be either mode. A deal with no figures yet, or one already in the same mode (a second screenshot for another
+period), is accepted.
+
+**The image.** The read-back shows the SHA-256 fingerprint of the image file and the digest covers it, so replacing
+the file after the read-back makes the confirmation stale. At commit the file is copied aside and the copy checked
+against the confirmed fingerprint before it becomes the saved source, and the saved copy is checked again; the state
+record keeps the fingerprint and never the image.
 
 **Limits.** The check finds transcription slips that break a subtotal or the balance sheet. It cannot find an error
-in a figure no subtotal depends on, two offsetting errors, or a figure misread the same way in a line and in its
-total. It reads commas as thousands separators and a point as the decimal mark, refuses anything else (`1,5`), and
-cannot tell `1,234` in a European statement from one thousand two hundred thirty-four; the unit and the read-back
-exist for the analyst to catch exactly that.
+in a figure no subtotal depends on, two offsetting errors, a figure misread the same way in a line and in its total,
+or a sign convention declared wrongly where the source states no subtotal to test it against (the notices and the
+analyst's reading of the read-back are then all that stand between the declaration and the record). A source that
+mixes conventions within one class of line cannot be expressed and has to be corrected with the analyst. It reads
+commas as thousands separators and a point as the decimal mark, refuses anything else (`1,5`), and cannot tell `1,234`
+in a European statement from one thousand two hundred thirty-four; the unit and the read-back exist for the analyst to
+catch exactly that.
 
 ## What the policy engine decides
 

@@ -1,15 +1,17 @@
 {
   "mode": "framework-computed",
   "source": {
-    "file": "statement.png",
+    "file": "docs/examples/synthetic_co/statement.png",
     "kind": "image",
     "description": "Synthetic Co FY2025 accounts, screenshot of the analyst's workbook",
-    "unit": "GBP thousands"
+    "unit": "GBP thousands",
+    "cost_sign": "negative",
+    "liability_sign": "positive"
   },
   "periods": {
     "FY-Current": {
       "lines": {
-        "revenue": "1,200.0", "cost_of_sales": "700.0", "admin_expenses": "150.0",
+        "revenue": "1,200.0", "cost_of_sales": "(700.0)", "admin_expenses": "(150.0)",
         "cash": "50", "trade_debtors": "200", "stock": "0", "other_current_assets": "0",
         "tangible_assets": "900", "intangible_assets": "0", "other_fixed_assets": "0",
         "trade_creditors": "150", "current_debt": "0", "overdraft": "0", "other_current_liabilities": "0",

@@ -33,7 +33,10 @@ These hold for any input the scripts accept, whatever the model wrote.
 figure could become the deal's ground truth. `transcription_check.py` makes the order of events and the arithmetic
 code: nothing is written for image figures until a read-back of those exact figures was produced and its digest quoted;
 a stale digest or an unresolved cross-foot discrepancy refuses the commit with nothing written; the image is saved as
-the source of record and the state records that the figures were transcribed from it
+the source of record and the state records that the figures were transcribed from it; every sign is read under a
+declared convention that is shown and confirmed, and a mismatch that a different sign reading would explain cannot be
+acknowledged away; the confirmation is bound to the image's bytes (a replaced screenshot is refused) and one deal
+never mixes the two `/spread` modes
 ([financial model](financial-model.md#figures-read-from-an-image)). What stays outside the code: that the analyst
 really said yes (the session passes the digest), that the transcription is true to the image, and that an image is
 routed through the script at all (instructions in `.claude/commands/spread.md`). The read-back and the analyst's

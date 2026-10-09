@@ -39,7 +39,8 @@ def staged_data(tmp_path, mode="framework-computed", periods=None, acknowledged=
     periods = periods if periods is not None else {"FY-Current": {"lines": dict(LINES), "subtotals": dict(SUBTOTALS)}}
     data = {"mode": mode,
             "source": {"file": str(image), "kind": "image", "description": "Synthetic Co accounts screenshot",
-                       "unit": "GBP thousands", **source},
+                       "unit": "GBP thousands", "cost_sign": "positive", "outflow_sign": "positive",
+                       "liability_sign": "positive", **source},
             "periods": periods}
     if acknowledged:
         data["acknowledged"] = acknowledged
@@ -150,6 +151,10 @@ def mutate(data, path, value):
     (lambda d: d["source"].pop("description"), "source.description"),
     (lambda d: d["source"].update(kind="pdf"), "source.kind"),
     (lambda d: d["source"].update(colour="x"), "unknown key"),
+    (lambda d: d["source"].pop("cost_sign"), "source.cost_sign is required because"),
+    (lambda d: d["source"].pop("liability_sign"), "source.liability_sign is required because"),
+    (lambda d: d["source"].update(cost_sign="maybe"), "must be one of"),
+    (lambda d: d["source"].update(liability_sign=None), "must be one of"),
     (lambda d: d.update(periods={}), "non-empty"),
     (lambda d: d.update(periods={"FY+1": {"lines": {"revenue": "1"}}}), "unknown period"),
     (lambda d: mutate(d, ["periods", "FY-Current", "lines", "reveneu"], "5"), "unknown name"),
@@ -194,8 +199,8 @@ def test_load_reports_a_missing_or_malformed_file_cleanly(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_the_digest_is_stable_and_changes_with_anything_the_analyst_was_shown(tmp_path):
-    base = tc.digest_of(staged(tmp_path))
-    assert base == tc.digest_of(staged(tmp_path)) and len(base) == tc.DIGEST_LENGTH
+    base = digest(staged_data(tmp_path))
+    assert base == digest(staged_data(tmp_path)) and len(base) == tc.DIGEST_LENGTH
     variants = []
     data = staged_data(tmp_path); data["periods"]["FY-Current"]["lines"]["revenue"] = "1,001"; variants.append(data)
     data = staged_data(tmp_path); data["periods"]["FY-Current"]["lines"]["revenue"] = "1,000.0"; variants.append(data)
@@ -205,7 +210,10 @@ def test_the_digest_is_stable_and_changes_with_anything_the_analyst_was_shown(tm
     data = staged_data(tmp_path); data["periods"]["FY-1"] = {"lines": {"revenue": "5"}}; variants.append(data)
     data = staged_data(tmp_path); data["acknowledged"] = [{"period": "FY-Current", "check": "ebitda", "reason": "r"}]; variants.append(data)
     data = staged_data(tmp_path); data["mode"] = "analyst-supplied"; variants.append(data)
-    digests = {tc.digest_of(tc.validate(v)) for v in variants}
+    data = staged_data(tmp_path); data["source"]["cost_sign"] = "negative"; variants.append(data)
+    data = staged_data(tmp_path); data["source"]["liability_sign"] = "negative"; variants.append(data)
+    data = staged_data(tmp_path); data["source"]["description"] = "Another description"; variants.append(data)
+    digests = {digest(v) for v in variants}
     assert base not in digests and len(digests) == len(variants)
 
 
@@ -277,7 +285,7 @@ def test_a_source_that_states_no_subtotal_and_no_balance_sheet_has_nothing_to_co
     assert rows == {} and report["ready"]
     text = tc.render_readback(staged(tmp_path, periods={"FY-Current": {"lines": {"revenue": "10"}}}),
                               {"periods": {"FY-Current": []}, "unresolved": [], "unused_acknowledgements": [],
-                               "ready": True}, "d")
+                               "refused_acknowledgements": [], "ready": True}, "d", "f" * 64)
     assert "nothing to compare. This is not a check that passed." in text
 
 
@@ -323,7 +331,8 @@ def test_the_readback_groups_by_period_and_statement_and_keeps_the_figures_as_wr
     shown = tc.readback(staged(tmp_path, periods=periods))
     text = shown["text"]
     assert text.index("## FY-1") < text.index("## FY-Current")
-    assert "| Revenue | 900.50 | 900.50 |" in text and "| Cost of Goods Sold | (500) | -500 |" in text
+    assert "| Revenue | 900.50 | 900.50 | as written |" in text
+    assert "| Cost of Goods Sold | (500) | -500 | as written |" in text      # declared positive: a credit, kept
     assert "Profit and loss" in text and "Balance sheet: assets" in text and "Subtotals stated by the source" in text
     assert "Unit: GBP thousands" in text and f"Digest: {shown['digest']}" in text
     assert "nothing has been recorded" in text and "STATUS: ready for the analyst's confirmation." in text
@@ -339,7 +348,7 @@ def test_the_readback_of_a_blocked_transcription_says_so_and_names_the_way_out(t
 def test_the_readback_says_how_ratios_are_treated_in_each_mode(tmp_path):
     assert "recomputed by the framework" in tc.readback(staged(tmp_path))["text"]
     text = tc.readback(tc.validate(analyst_data(tmp_path)))["text"]
-    assert "not cross-footed" in text and "| DSCR" not in text and "Dscr | 1.35x | 1.35" in text
+    assert "not cross-footed" in text and "| DSCR" not in text and "Dscr | 1.35x | 1.35 |" in text
 
 
 def test_reading_back_never_touches_a_deal(deal):
@@ -408,8 +417,10 @@ def test_a_discrepancy_resolved_by_a_reason_is_committed_and_the_reason_is_recor
 def test_a_missing_source_file_a_missing_note_and_a_misplaced_note_are_refused_before_any_write(deal):
     data = staged_data(deal)
     data["source"]["file"] = str(deal / "gone.png")
-    with pytest.raises(tc.TranscriptionError, match="does not exist"):
+    with pytest.raises(tc.TranscriptionError, match="cannot read the source file"):
         run_commit(data)
+    with pytest.raises(tc.TranscriptionError, match="cannot read the source file"):
+        tc.readback(tc.validate(data))
     with pytest.raises(tc.TranscriptionError, match="--source-note is only used"):
         run_commit(staged_data(deal), source_note="a note")
     with pytest.raises(tc.TranscriptionError, match="needs --source-note"):
@@ -511,7 +522,8 @@ def test_analyst_supplied_commit_discloses_the_transcription_in_the_source_note_
 
 def test_analyst_supplied_commit_merges_with_what_the_deal_already_records(deal):
     write_state("Synthetic Co", "Fleet Loan", financials={"FY-1": {"gross_profit": 350}, "FY-Current": {"net_profit": 99}},
-                ratios={"FY-1": {"dscr": 1.1}}, steps_completed=["triage"], inputs={"pd": "0.2%"})
+                ratios={"FY-1": {"dscr": 1.1}}, financials_source="analyst-supplied", steps_completed=["triage"],
+                inputs={"pd": "0.2%"})
     run_commit(analyst_data(deal), source_note="n")
     state = read_state("Synthetic Co", "Fleet Loan")
     assert state["financials"]["FY-1"] == {"gross_profit": 350}
@@ -572,7 +584,7 @@ def test_main_prints_the_readback_by_default_and_json_on_request(deal, capsys):
     assert "TRANSCRIPTION READ-BACK" in capsys.readouterr().out
     tc.main(["--transcription", str(path), "--json"])
     shown = json.loads(capsys.readouterr().out)
-    assert set(shown) == {"digest", "report", "text"} and shown["report"]["ready"] is True
+    assert set(shown) == {"digest", "source_sha256", "report", "text"} and shown["report"]["ready"] is True
     assert not deals_exist(deal)
 
 
@@ -625,7 +637,8 @@ def test_spread_command_routes_image_figures_through_the_read_back_and_requires_
         encoding="utf-8")
     flat = " ".join(text.split())
     for needle in ("transcription_check.py --transcription", "--commit", "--confirm", "financials_source_note",
-                   "Silence", "never confirmation", "explicit", "cancel", "read back again"):
+                   "Silence", "never confirmation", "explicit", "cancel", "read back again", "cost_sign",
+                   "ask the analyst, never guess", "cannot be acknowledged", "never mixes the two"):
         assert needle in flat, needle
     assert flat.index("transcription_check.py --transcription") < flat.index("--commit")
 
@@ -634,21 +647,330 @@ def test_spread_command_routes_image_figures_through_the_read_back_and_requires_
 # The documentation quotes the real read-back
 # ---------------------------------------------------------------------------
 
-def test_the_workflows_page_quotes_what_the_read_back_of_the_synthetic_example_really_prints(tmp_path):
+def test_the_workflows_page_quotes_what_the_read_back_of_the_synthetic_example_really_prints(monkeypatch):
     from pathlib import Path
     repo = Path(tc.__file__).resolve().parents[1]
+    monkeypatch.chdir(repo)          # the example names its image relative to the repository root
     example = json.loads((repo / "docs" / "examples" / "synthetic_co" / "transcription_input.json").read_text(
         encoding="utf-8"))
     page = (repo / "docs" / "workflows.md").read_text(encoding="utf-8")
     good = tc.readback(tc.validate(example))
     assert good["report"]["ready"] and "STATUS: ready for the analyst's confirmation." in good["text"]
     assert f"`Digest: {good['digest']}`" in page and f"--confirm {good['digest']}" in page
+    assert good["source_sha256"] in page, "the page shows the example image's fingerprint"
 
+    import copy
+    wrong_sign = copy.deepcopy(example)
+    wrong_sign["source"]["cost_sign"] = "positive"          # the wrong declaration the page warns about
+    sign_doubt = tc.readback(tc.validate(wrong_sign))
     example["periods"]["FY-Current"]["lines"]["trade_debtors"] = "260"      # the misread the page describes
     bad = tc.readback(tc.validate(example))
     assert not bad["report"]["ready"] and bad["digest"] != good["digest"]
+    assert not sign_doubt["report"]["ready"] and "cannot cover this" in sign_doubt["text"]
     quoted = [line.strip() for line in page.splitlines() if line.strip().startswith("| FY-Current |")]
-    assert len(quoted) == 4
-    for row in quoted:
+    assert len(quoted) == 5
+    for row in quoted[:4]:
         assert row in bad["text"], row
-    assert bad["digest"] not in page, "the page must not present the blocked read-back's digest as confirmable"
+    assert quoted[4] in sign_doubt["text"]
+    for blocked in (bad, sign_doubt):
+        assert blocked["digest"] not in page, "the page must not present a blocked read-back's digest as confirmable"
+    assert "| Cost of Goods Sold | (700.0) | 700.0 | sign reversed: costs are written as negatives in this source |"         in good["text"]
+
+
+# ---------------------------------------------------------------------------
+# Signs: the source's presentation versus the framework's input convention
+# ---------------------------------------------------------------------------
+
+def gross_profit_periods(cost="(700)"):
+    return {"FY-Current": {"lines": {"revenue": "1,200", "cost_of_sales": cost}, "subtotals": {"gross_profit": "500"}}}
+
+
+def test_sign_classes_match_the_frameworks_own_input_semantics():
+    """The class lists are the one thing written down by hand about signs, so tie them to the formulas."""
+    fields = [f for members in tc.SIGN_CLASSES.values() for f in members]
+    assert len(fields) == len(set(fields)) and set(fields) <= set(FIELD_LABELS)
+    for field in tc.SIGN_CLASSES["cost_sign"] + tc.SIGN_CLASSES["outflow_sign"]:
+        weights = [tc.COEFFICIENTS[name][field] for name in tc.SUBTOTAL_FIELDS if field in tc.COEFFICIENTS[name]]
+        if field in ("depreciation", "amortisation"):        # subtracted from operating profit, added back in EBITDA
+            assert tc.COEFFICIENTS["operating_profit"][field] < 0, field
+        elif weights:                                          # (scheduled_principal feeds no subtotal at all)
+            assert all(w < 0 for w in weights), field
+    for field in tc.SIGN_CLASSES["liability_sign"]:
+        assert tc.COEFFICIENTS["total_liabilities"][field] > 0, field
+    for field in ("revenue", "other_income", "interest_received"):          # not in a class: recorded as written
+        assert field not in tc.FIELD_SIGN_CLASS and any(
+            tc.COEFFICIENTS[name].get(field, 0) > 0 for name in tc.SUBTOTAL_FIELDS)
+
+
+def test_a_cost_in_brackets_read_as_a_positive_convention_is_a_sign_doubt_that_no_acknowledgement_can_cover(tmp_path):
+    """The review's example: revenue 1,200, cost of sales (700), stated gross profit 500."""
+    ack = [{"period": "FY-Current", "check": "gross_profit", "reason": "The source's gross profit is what it is"}]
+    data = staged_data(tmp_path, periods=gross_profit_periods(), cost_sign="positive", acknowledged=ack)
+    shown = tc.readback(tc.validate(data))
+    row = shown["report"]["periods"]["FY-Current"][0]
+    assert row["status"] == "mismatch" and Decimal(row["computed"]) == 1900
+    assert "costs were read with the opposite sign" in row["sign_suspect"]
+    assert shown["report"]["refused_acknowledgements"] == [["FY-Current", "gross_profit"]]
+    assert not shown["report"]["ready"]
+    assert "Acknowledgements REFUSED" in shown["text"] and "cannot cover this" in shown["text"]
+
+
+def test_the_refused_acknowledgement_cannot_be_committed_even_with_the_matching_digest(deal):
+    ack = [{"period": "FY-Current", "check": "gross_profit", "reason": "Trust me"}]
+    data = staged_data(deal, periods=gross_profit_periods(), cost_sign="positive", acknowledged=ack)
+    with pytest.raises(tc.TranscriptionError, match="unresolved cross-foot discrepancies.*gross_profit"):
+        run_commit(data)
+    assert not deals_exist(deal)
+
+
+def test_declaring_brackets_as_presentation_gives_the_framework_a_positive_cost_and_shows_both_values(deal):
+    data = staged_data(deal, periods=gross_profit_periods(), cost_sign="negative")
+    shown = tc.readback(tc.validate(data))
+    assert shown["report"]["ready"] and shown["report"]["periods"]["FY-Current"][0]["status"] == "match"
+    assert "| Cost of Goods Sold | (700) | 700 | sign reversed: costs are written as negatives in this source |" \
+        in shown["text"]
+    assert "Sign convention, costs: written as negative numbers" in shown["text"]
+    run_commit(data)
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert state["multi_period_financials"]["FY-Current"] == {"revenue": 1200, "cost_of_sales": 700}
+    assert state["financials"]["FY-Current"]["gross_profit"] == 500
+    record = state["financials_transcriptions"][0]
+    assert record["sign_conventions"] == {"cost_sign": "negative", "outflow_sign": "positive",
+                                          "liability_sign": "positive"}
+
+
+def test_a_genuine_credit_is_not_forced_positive_under_either_convention(deal):
+    # Costs written positive: (50) of admin expenses is a credit and stays -50.
+    lines = {"revenue": "1,000", "cost_of_sales": "600", "admin_expenses": "(50)", "depreciation": "0",
+             "amortisation": "0", "other_income": "0"}
+    periods = {"FY-Current": {"lines": lines, "subtotals": {"operating_profit": "450"}}}
+    positive = staged_data(deal, periods=periods, cost_sign="positive")
+    shown = tc.readback(tc.validate(positive))
+    assert shown["report"]["ready"] and "| Admin Expenses | (50) | -50 | as written |" in shown["text"]
+    assert "recorded as negative, so a credit, a reversal or a deficit: Admin Expenses (written (50), recorded -50)" \
+        in shown["text"]
+    run_commit(positive)
+    assert read_state("Synthetic Co", "Fleet Loan")["multi_period_financials"]["FY-Current"]["admin_expenses"] == -50
+
+    # Costs written negative: a plain 50 is the credit, and the brackets are the ordinary cost.
+    lines_negative = {**lines, "cost_of_sales": "(600)", "admin_expenses": "50"}
+    negative = staged_data(deal, periods={"FY-Current": {"lines": lines_negative,
+                                                          "subtotals": {"operating_profit": "450"}}},
+                           cost_sign="negative")
+    shown = tc.readback(tc.validate(negative))
+    assert shown["report"]["ready"] and "| Admin Expenses | 50 | -50 | sign reversed" in shown["text"]
+    assert "| Cost of Goods Sold | (600) | 600 | sign reversed" in shown["text"]
+
+
+def test_changing_the_interpretation_makes_the_earlier_confirmation_stale(deal):
+    brackets_as_presentation = staged_data(deal, periods=gross_profit_periods(), cost_sign="negative")
+    confirmed = digest(brackets_as_presentation)
+    other_reading = staged_data(deal, periods=gross_profit_periods(), cost_sign="positive")
+    assert digest(other_reading) != confirmed
+    with pytest.raises(tc.TranscriptionError, match="does not match"):
+        run_commit(other_reading, confirm=confirmed)
+    assert not deals_exist(deal)
+    run_commit(brackets_as_presentation, confirm=confirmed)
+
+
+def test_liabilities_in_brackets_and_cash_outflows_follow_their_own_declarations(tmp_path):
+    lines = {**LINES, "trade_creditors": "(100)", "long_term_debt": "(400)", "capex": "(30)"}
+    periods = {"FY-Current": {"lines": lines, "subtotals": dict(SUBTOTALS)}}
+    data = staged_data(tmp_path, periods=periods, liability_sign="negative", outflow_sign="negative")
+    staged_ = tc.validate(data)
+    recorded = staged_["periods"]["FY-Current"]["lines"]
+    assert recorded["trade_creditors"].value == 100 and recorded["long_term_debt"].value == 400
+    assert recorded["capex"].value == 30 and recorded["capex"].written_value == -30
+    assert tc.readback(staged_)["report"]["ready"]
+    wrong = staged_data(tmp_path, periods=periods, liability_sign="positive", outflow_sign="negative")
+    rows = {r["check"]: r for r in tc.readback(tc.validate(wrong))["report"]["periods"]["FY-Current"]}
+    assert rows["total_liabilities"]["status"] == "mismatch"
+    assert "liabilities were read with the opposite sign" in rows["total_liabilities"]["sign_suspect"]
+
+
+def test_a_declaration_nothing_uses_is_not_needed_and_a_missing_one_is_refused_only_where_used(tmp_path):
+    data = staged_data(tmp_path, periods={"FY-Current": {"lines": {"revenue": "10"}}})
+    for key in ("cost_sign", "outflow_sign", "liability_sign"):
+        data["source"].pop(key)
+    assert "cost_sign" not in tc.validate(data)["source"]                  # nothing needs a convention
+    data["periods"]["FY-Current"]["lines"]["capex"] = "(5)"
+    with pytest.raises(tc.TranscriptionError, match="source.outflow_sign is required.*never guessed"):
+        tc.validate(data)
+
+
+def test_subtotals_and_ratios_keep_their_own_sign_whatever_the_conventions(deal):
+    periods = {"FY-Current": {"subtotals": {"net_profit": "(120)", "gross_profit": "400"}, "ratios": {"dscr": "(0.5)x"},
+                              "lines": {"revenue": "1,000", "cost_of_sales": "(600)"}}}
+    data = staged_data(deal, mode="analyst-supplied", periods=periods, cost_sign="negative")
+    run_commit(data, source_note="Depreciation embedded in Cost of Goods Sold")
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert state["financials"]["FY-Current"] == {"net_profit": -120, "gross_profit": 400}
+    assert state["ratios"]["FY-Current"] == {"dscr": -0.5}
+    assert state["analyst_supplied_financials"]["FY-Current"] == {"revenue": 1000, "cost_of_sales": 600}
+
+
+def test_an_acknowledged_definition_difference_is_still_possible_when_no_sign_reading_explains_it(tmp_path):
+    periods = {"FY-Current": {"lines": {**LINES, "retained_profit": "350"}, "subtotals": {"total_equity": "500"}}}
+    ack = [{"period": "FY-Current", "check": "total_equity", "reason": "Other reserves of 50 have no framework line"}]
+    rows, report = results(tmp_path, periods=periods, acknowledged=ack)
+    assert rows["total_equity"]["status"] == "acknowledged" and "sign_suspect" not in rows["total_equity"]
+    assert report["refused_acknowledgements"] == []
+
+
+# ---------------------------------------------------------------------------
+# One deal, one basis
+# ---------------------------------------------------------------------------
+
+def state_file(root):
+    (path,) = root.glob("deals/Synthetic Co/Fleet Loan_*/state.json")
+    return path
+
+
+def nothing_new_saved(root):
+    return not list(root.glob("deals/Synthetic Co/Fleet Loan_*/sources"))
+
+
+@pytest.mark.parametrize("existing_mode, staged_mode, builder", [
+    ("analyst-supplied", "framework-computed", staged_data),
+    ("framework-computed", "analyst-supplied", analyst_data),
+])
+def test_a_transcription_in_the_other_mode_is_refused_before_anything_is_saved_or_written(deal, existing_mode,
+                                                                                         staged_mode, builder):
+    write_state("Synthetic Co", "Fleet Loan", financials={"FY-1": {"gross_profit": 350}},
+                financials_source=existing_mode, steps_completed=["triage"])
+    path = state_file(deal)
+    before = path.read_bytes()
+    with pytest.raises(tc.TranscriptionError, match=f"financials_source is '{existing_mode}'.*{staged_mode}"):
+        run_commit(builder(deal), source_note="a convention" if staged_mode == "analyst-supplied" else None)
+    assert path.read_bytes() == before and nothing_new_saved(deal)
+
+
+def test_the_refusal_is_one_clear_message_from_the_command_line(deal):
+    write_state("Synthetic Co", "Fleet Loan", financials={"FY-1": {"gross_profit": 350}},
+                financials_source="analyst-supplied")
+    data = staged_data(deal)
+    path = write_staged(deal, data)
+    with pytest.raises(SystemExit) as exit_info:
+        tc.main(["--transcription", str(path), "--commit", "--confirm", digest(data), "--company", "Synthetic Co",
+                 "--proposal", "Fleet Loan"])
+    message = str(exit_info.value)
+    assert message.startswith("error: refused: this deal's financials_source is 'analyst-supplied'")
+    assert "never mixes the two bases" in message and "\n" not in message
+
+
+@pytest.mark.parametrize("store", ["financials", "ratios", "multi_period_financials", "analyst_supplied_financials"])
+def test_figures_with_no_recorded_basis_are_not_assumed_to_be_either_mode(deal, store):
+    write_state("Synthetic Co", "Fleet Loan", **{store: {"FY-1": {"revenue": 1}}})
+    path = state_file(deal)
+    before = path.read_bytes()
+    for mode_data, note in ((staged_data(deal), None), (analyst_data(deal), "convention")):
+        with pytest.raises(tc.TranscriptionError, match="no financials_source, so their basis is unknown"):
+            run_commit(mode_data, source_note=note)
+    assert path.read_bytes() == before and nothing_new_saved(deal)
+
+
+def test_a_deal_with_no_figures_yet_and_a_repeat_in_the_same_mode_are_accepted(deal):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    run_commit(staged_data(deal, periods={"FY-1": {"lines": {"revenue": "900", "cost_of_sales": "500"}}}))
+    run_commit(staged_data(deal))
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert state["financials_source"] == "framework-computed" and len(state["financials_transcriptions"]) == 2
+
+
+def test_an_analyst_supplied_deal_accepts_a_second_analyst_supplied_transcription(deal):
+    run_commit(analyst_data(deal), source_note="Convention A")
+    second = analyst_data(deal)
+    second["periods"] = {"FY-1": second["periods"]["FY-Current"]}
+    run_commit(second, source_note="Convention A")
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert set(state["financials"]) == {"FY-1", "FY-Current"} and len(state["financials_transcriptions"]) == 2
+
+
+def test_mode_conflict_is_decided_by_the_recorded_basis_alone():
+    assert tc.mode_conflict({}, "analyst-supplied") is None
+    assert tc.mode_conflict({"financials_source": "framework-computed"}, "framework-computed") is None
+    assert "never mixes" in tc.mode_conflict({"financials_source": "framework-computed"}, "analyst-supplied")
+    assert "unknown" in tc.mode_conflict({"ratios": {"FY-1": {"dscr": 1}}}, "framework-computed")
+    assert tc.mode_conflict({"inputs": {}, "steps_completed": ["triage"]}, "framework-computed") is None
+
+
+# ---------------------------------------------------------------------------
+# The read-back and the saved source are the same image
+# ---------------------------------------------------------------------------
+
+def test_the_readback_shows_the_images_fingerprint_and_the_digest_covers_it(tmp_path):
+    import hashlib
+    data = staged_data(tmp_path)
+    shown = tc.readback(tc.validate(data))
+    image = tmp_path / "shot.png"
+    assert shown["source_sha256"] == hashlib.sha256(image.read_bytes()).hexdigest() == tc.file_sha256(image)
+    assert f"Source fingerprint (SHA-256): {shown['source_sha256']}" in shown["text"]
+    image.write_bytes(PNG + b" replaced")
+    assert tc.readback(tc.validate(data))["digest"] != shown["digest"]
+
+
+def test_replacing_the_image_after_the_readback_invalidates_the_confirmation_and_writes_nothing(deal):
+    data = staged_data(deal)
+    confirmed = digest(data)
+    (deal / "shot.png").write_bytes(PNG + b" a different screenshot")
+    with pytest.raises(tc.TranscriptionError, match="the image file itself makes an earlier confirmation stale"):
+        run_commit(data, confirm=confirmed)
+    assert not deals_exist(deal)
+    run_commit(data)                                    # a fresh read-back of the new image can be confirmed
+
+
+def test_a_missing_image_refuses_the_commit(deal):
+    data = staged_data(deal)
+    confirmed = digest(data)
+    (deal / "shot.png").unlink()
+    with pytest.raises(tc.TranscriptionError, match="cannot read the source file"):
+        run_commit(data, confirm=confirmed)
+    assert not deals_exist(deal)
+
+
+def test_the_saved_copy_is_the_confirmed_image_and_the_state_holds_its_fingerprint_not_its_bytes(deal):
+    result = run_commit(staged_data(deal))
+    state_bytes = state_file(deal).read_bytes()
+    (saved,) = deal.glob("deals/Synthetic Co/Fleet Loan_*/sources/*.png")
+    assert tc.file_sha256(saved) == result["source_sha256"]
+    record = read_state("Synthetic Co", "Fleet Loan")["financials_transcriptions"][0]
+    assert record["source_sha256"] == result["source_sha256"]
+    assert PNG not in state_bytes and b"synthetic" not in state_bytes
+    assert result["source_sha256"][:16] in read_manifest("Synthetic Co", "Fleet Loan")[0]["claim"]
+
+
+def test_an_image_that_changes_while_it_is_being_saved_is_not_saved(deal, monkeypatch):
+    data = staged_data(deal)
+    confirmed = digest(data)
+    real = tc.file_sha256
+    calls = []
+
+    def changing(path):
+        calls.append(path)
+        return real(path) if len(calls) == 1 else "0" * 64          # the staging copy no longer matches
+
+    monkeypatch.setattr(tc, "file_sha256", changing)
+    with pytest.raises(tc.TranscriptionError, match="changed while it was being read; nothing was saved"):
+        run_commit(data, confirm=confirmed)
+    assert not deals_exist(deal)
+
+
+def test_a_saved_copy_that_does_not_match_is_reported_and_no_figures_are_recorded(deal, monkeypatch):
+    import shutil
+    data = staged_data(deal)
+    confirmed = digest(data)
+    real_copy = shutil.copyfile
+    copies = []
+
+    def corrupting(source, destination, **kwargs):
+        copies.append(destination)
+        real_copy(source, destination, **kwargs)
+        if len(copies) == 2:                                          # the copy into sources/
+            with open(destination, "ab") as f:
+                f.write(b"corrupt")
+        return destination
+
+    monkeypatch.setattr(shutil, "copyfile", corrupting)
+    with pytest.raises(tc.TranscriptionError, match="saved copy .* does not match the fingerprint"):
+        run_commit(data, confirm=confirmed)
+    assert "financials" not in (read_state("Synthetic Co", "Fleet Loan") or {})

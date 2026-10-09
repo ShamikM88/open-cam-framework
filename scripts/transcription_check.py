@@ -7,20 +7,33 @@ the ratios are recomputed from whatever raw lines were transcribed. This script 
 transcription and `state.json`, for both /spread modes:
 
 1. A read-back (the default; it never touches a deal): the transcribed figures grouped by period and statement, each
-   shown as written beside the value that would be recorded, plus a cross-foot of the source's own subtotals against
-   the sums of its transcribed lines, and a digest of exactly what was shown.
+   shown as written beside the value that would be recorded and how the one was read as the other, plus a cross-foot
+   of the source's own subtotals against the sums of its transcribed lines, a fingerprint of the image and a digest of
+   exactly what was shown.
 2. A commit (`--commit --confirm <digest>`): refused, with nothing written, unless the digest matches the staged
-   figures as they are now (so any change after the read-back needs a new read-back) and no cross-foot discrepancy is
-   left unresolved. Only then does it save the source, record the figures and note in the state that they were
-   transcribed from an image.
+   figures and the image as they are now (so any change after the read-back, including replacing the image, needs a
+   new read-back), no cross-foot discrepancy is left unresolved, and the deal's existing basis is compatible. Only
+   then does it save the image (verified against the fingerprint), record the figures and note in the state that they
+   were transcribed from an image.
 
-What code enforces here: the ordering (no state write before a read-back of the same figures was produced and its
-digest quoted), that the figures parse strictly (no guessing), the cross-foot arithmetic and that a discrepancy blocks
-the commit until it is corrected or acknowledged with a stated reason. What code cannot enforce: that the analyst
-actually said yes (the session passes the digest), that the transcription is true to the image, and that an image
-input is routed through this script at all -- those are instructions in .claude/commands/spread.md.
+What code enforces here: the ordering (no state write before a read-back of the same figures and the same image was
+produced and its digest quoted), that the figures parse strictly (no guessing), that every sign is read under an
+explicit, confirmed convention, the cross-foot arithmetic, that a discrepancy blocks the commit until it is corrected
+or acknowledged with a stated reason (never one that a different sign reading would explain), and that one deal never
+mixes the two /spread modes. What code cannot enforce: that the analyst actually said yes (the session passes the
+digest), that the transcription is true to the image, and that an image input is routed through this script at all --
+those are instructions in .claude/commands/spread.md.
 
-The cross-foot compares a subtotal the source states with the same subtotal derived from the transcribed raw lines by
+Signs. The framework reads raw lines with fixed semantics (spreading_builder.evaluate_financial_model): costs and cash
+outflows are entered as positive amounts and subtracted, liabilities as positive amounts, a negative cost is a credit
+or reversal. A source often presents them differently (a cost in brackets, creditors in brackets). So the staged file
+declares, per class of line (`source.cost_sign`, `source.outflow_sign`, `source.liability_sign`), whether the source
+writes an amount of that kind as a "positive" or a "negative" number; the figure is kept exactly as written, and the
+value recorded is the written one ("positive") or its reverse ("negative"). Both are shown in the read-back and both
+the declaration and the figures are in the digest. Subtotals and ratios are results with a sign of their own and are
+recorded as written. The cross-foot uses the recorded values, so it checks what the framework will actually be given.
+
+The cross-foot compares a subtotal the source states with the same subtotal derived from the recorded raw lines by
 spreading_builder.evaluate_financial_model() (the framework's own formulas; which lines feed a subtotal, and with what
 sign, is discovered from that function rather than written down a second time). Presented statements are rounded, so
 the tolerance is the rounding the figures as written allow: half a unit of the last digit of the stated subtotal plus
@@ -32,14 +45,17 @@ No `anthropic` dependency, no OCR and no network, matching policy_check.py/sprea
 """
 import argparse
 import hashlib
+import itertools
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 from datetime import date
 from decimal import Decimal
 
-from source_manifest import save_source
+from source_manifest import save_source, sources_dir
 from spreading_builder import FIELD_LABELS, HISTORICAL_PERIOD_KEYS, evaluate_financial_model
 from spreading_check import compute
 from state_manager import StateError, read_state, write_state
@@ -58,6 +74,19 @@ RATIO_FIELDS = (
     "ebitda_interest_cover", "fcf_conversion_pct",
 )
 
+# The raw lines whose sign a source may present the opposite way to the framework's input convention (costs, cash
+# outflows and liabilities are entered as positive amounts). Income, assets and equity lines are recorded as written.
+SIGN_CLASSES = {
+    "cost_sign": ("cost_of_sales", "admin_expenses", "depreciation", "amortisation", "interest_paid",
+                  "exceptional_costs", "tax_paid"),
+    "outflow_sign": ("scheduled_principal", "capex"),
+    "liability_sign": ("trade_creditors", "other_current_liabilities", "overdraft", "current_debt", "long_term_debt",
+                       "loan_notes", "other_long_term_liabilities", "provisions"),
+}
+SIGN_LABELS = {"cost_sign": "costs", "outflow_sign": "cash outflows", "liability_sign": "liabilities"}
+SIGN_VALUES = ("positive", "negative")
+FIELD_SIGN_CLASS = {field: key for key, fields in SIGN_CLASSES.items() for field in fields}
+
 # How the read-back groups the raw lines (so a reader can compare it with the statement in the image).
 LINE_GROUPS = (
     ("Profit and loss", ("revenue", "cost_of_sales", "admin_expenses", "depreciation", "amortisation", "other_income",
@@ -73,8 +102,9 @@ LINE_GROUPS = (
 BALANCE_CHECK = "balance_sheet_balances"
 DIGEST_LENGTH = 16
 TOP_LEVEL_KEYS = {"mode", "source", "periods", "acknowledged"}
-SOURCE_KEYS = {"file", "kind", "description", "unit"}
+SOURCE_KEYS = {"file", "kind", "description", "unit", *SIGN_CLASSES}
 PERIOD_KEYS = {"lines", "subtotals", "ratios"}
+FINANCIAL_STORES = ("financials", "ratios", "multi_period_financials", "analyst_supplied_financials")
 
 
 class TranscriptionError(ValueError):
@@ -89,17 +119,24 @@ _FIGURE_RE = re.compile(r"(?P<open>\()?(?P<sign>-)?(?P<whole>\d{1,3}(?:,\d{3})+|
 
 
 class Figure:
-    """One figure exactly as written in the image, and the number it is read as."""
+    """One figure exactly as written in the image (`text`, read as the number `written_value`) and the number that
+    is recorded (`value`). The two differ only by a declared sign convention, and `note` then says so."""
 
-    def __init__(self, text, value, decimals):
+    def __init__(self, text, value, decimals, written_value=None, note=""):
         self.text = text
         self.value = value
         self.decimals = decimals
+        self.written_value = value if written_value is None else written_value
+        self.note = note
 
     @property
     def unit(self):
         """The size of the last written digit: what the figure was rounded to."""
         return Decimal(1).scaleb(-self.decimals)
+
+    def reversed(self, note=""):
+        """The same written figure recorded with the opposite sign (never a negative zero)."""
+        return Figure(self.text, -self.value if self.value else self.value, self.decimals, self.written_value, note)
 
     def number(self):
         """The value as it is recorded in state.json: an int when written without decimals, else a float."""
@@ -109,7 +146,8 @@ class Figure:
 def parse_figure(text, label, allow_suffix=False):
     """Read a figure as written. Accepts `1,234.5`, `-1234`, `(1,234)` (parentheses mean negative) and, when
     `allow_suffix`, a trailing `x` or `%` (a ratio, recorded as the number written). Anything else -- a currency
-    symbol, a comma decimal such as `1,5`, `n/a`, a dash -- is refused rather than guessed at."""
+    symbol, a comma decimal such as `1,5`, `n/a`, a dash -- is refused rather than guessed at. Whether a negative is a
+    cost shown in brackets or a genuine credit is a separate, declared question (see the module docstring)."""
     if not isinstance(text, str) or not text.strip():
         raise TranscriptionError(f"{label}: write the figure as text exactly as it appears (for example \"1,234.5\" "
                                  f"or \"(500)\"), found {text!r}")
@@ -128,6 +166,18 @@ def parse_figure(text, label, allow_suffix=False):
     if match["open"] or match["sign"]:
         value = -value
     return Figure(written, value, len(frac))
+
+
+def file_sha256(path):
+    """The SHA-256 of a file's bytes, read in chunks."""
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise TranscriptionError(f"cannot read the source file {path!r}: {exc.strerror or exc}") from exc
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -176,10 +226,36 @@ def _figures(mapping, allowed, label, allow_suffix=False):
     return {name: parse_figure(text, f"{label}.{name}", allow_suffix) for name, text in mapping.items()}
 
 
+def _apply_sign_conventions(source, periods):
+    """Check each class of line has a declared convention wherever it is used, then record the figures of a class
+    declared "negative" with their sign reversed. Returns the declarations."""
+    declared = {}
+    for key in SIGN_CLASSES:
+        if key in source:
+            if source[key] not in SIGN_VALUES:
+                raise TranscriptionError(f"source.{key} must be one of {list(SIGN_VALUES)}, found {source[key]!r}")
+            declared[key] = source[key]
+    for key, fields in SIGN_CLASSES.items():
+        used = sorted({field for entry in periods.values() for field in entry["lines"] if field in fields})
+        if used and key not in declared:
+            raise TranscriptionError(
+                f"source.{key} is required because {used} are transcribed. Say how the source writes "
+                f"{SIGN_LABELS[key]}: \"positive\" if an amount of that kind is written as a positive number (a credit "
+                "or reversal would then be negative), or \"negative\" if it is written in brackets or with a minus "
+                "sign (a credit or reversal would then be positive). The framework records them as positive "
+                "amounts. If the image does not make this plain, ask the analyst; it is never guessed.")
+        if declared.get(key) == "negative":
+            for entry in periods.values():
+                for field in [f for f in entry["lines"] if f in fields]:
+                    entry["lines"][field] = entry["lines"][field].reversed(
+                        f"sign reversed: {SIGN_LABELS[key]} are written as negatives in this source")
+    return declared
+
+
 def validate(data):
     """The staged JSON as a checked structure, or TranscriptionError. See the module docstring and spread.md for
-    the shape: {mode, source: {file, kind, description, unit}, periods: {period: {lines, subtotals, ratios}},
-    acknowledged: [{period, check, reason}]}."""
+    the shape: {mode, source: {file, kind, description, unit, cost_sign, outflow_sign, liability_sign}, periods:
+    {period: {lines, subtotals, ratios}}, acknowledged: [{period, check, reason}]}."""
     if not isinstance(data, dict):
         raise TranscriptionError("the staged transcription must be a JSON object")
     _reject_unknown(data, TOP_LEVEL_KEYS, "transcription")
@@ -229,6 +305,7 @@ def validate(data):
         elif not (entry["lines"] or entry["subtotals"] or entry["ratios"]):
             raise TranscriptionError(f"{period}: no figures given")
         periods[period] = entry
+    declared = _apply_sign_conventions(source, periods)
 
     acknowledged = data.get("acknowledged") or []
     if not isinstance(acknowledged, list):
@@ -254,7 +331,8 @@ def validate(data):
 
     return {
         "mode": mode,
-        "source": {key: source[key].strip() for key in ("file", "description", "unit")} | {"kind": source["kind"]},
+        "source": {key: source[key].strip() for key in ("file", "description", "unit")} | {"kind": source["kind"]}
+        | declared,
         "periods": periods,
         "acknowledged": acks,
     }
@@ -271,12 +349,14 @@ def load(path):
     return validate(data)
 
 
-def digest_of(staged):
-    """A short digest of exactly what the read-back shows: the mode, the source, every figure as written and every
-    acknowledgement. Change any of it and the digest changes, so a confirmation of the old read-back stops working."""
+def digest_of(staged, source_sha256):
+    """A short digest of exactly what the read-back shows: the mode, the source (including the declared sign
+    conventions and the fingerprint of the image's bytes), every figure as written and every acknowledgement. Change
+    any of it, or replace the image, and the digest changes, so a confirmation of the old read-back stops working."""
     canonical = {
         "mode": staged["mode"],
         "source": staged["source"],
+        "source_sha256": source_sha256,
         "periods": {
             period: {part: {name: figure.text for name, figure in sorted(figures.items())}
                      for part, figures in sorted(entry.items())}
@@ -294,7 +374,7 @@ def digest_of(staged):
 
 def _check(name, weights, lines, stated):
     """One comparison: `stated` (a Figure, or None for the balance-sheet identity, which should come to zero)
-    against the weighted sum of the transcribed lines that feed it."""
+    against the weighted sum of the recorded values of the transcribed lines that feed it."""
     missing = [field for field in weights if field not in lines]
     result = {"check": name, "status": "not_assessed", "stated": stated.text if stated else None, "missing": missing}
     if missing:
@@ -308,30 +388,81 @@ def _check(name, weights, lines, stated):
     return result
 
 
+def _sign_alternative(name, weights, lines, stated, classes):
+    """The classes of line that, read with the opposite sign, would make this check match -- or None. A mismatch that
+    a different sign reading explains is a doubt about the declaration, not a difference of definition."""
+    for size in range(1, len(classes) + 1):
+        for combination in itertools.combinations(classes, size):
+            flipped = {field: figure.reversed() if FIELD_SIGN_CLASS.get(field) in combination else figure
+                       for field, figure in lines.items()}
+            if _check(name, weights, flipped, stated)["status"] == "match":
+                return combination
+    return None
+
+
 def cross_foot(staged):
-    """{"periods": {period: [check results]}, "unresolved": [[period, check]], "unused_acknowledgements": [...],
-    "ready": bool}. A mismatch is "acknowledged" only when the staged file carries a reason for exactly that
-    period and check; it still shows in the read-back."""
-    results, unresolved, used = {}, [], set()
+    """{"periods": {period: [check results]}, "unresolved": [[period, check]], "refused_acknowledgements": [...],
+    "unused_acknowledgements": [...], "ready": bool}. A mismatch is "acknowledged" only when the staged file carries
+    a reason for exactly that period and check, and only if no different sign reading would make it match; it
+    still shows in the read-back."""
+    results, unresolved, used, refused = {}, [], set(), []
+    declared = [key for key in SIGN_CLASSES if key in staged["source"]]
     for period, entry in staged["periods"].items():
-        lines, rows = entry["lines"], []
+        lines, subtotals, rows, plans = entry["lines"], entry["subtotals"], [], {}
         for name in SUBTOTAL_FIELDS:
-            if name in entry["subtotals"]:
-                rows.append(_check(name, COEFFICIENTS[name], lines, entry["subtotals"][name]))
+            if name in subtotals:
+                plans[name] = (COEFFICIENTS[name], subtotals[name])
         if any(field in lines for field in BALANCE_COEFFICIENTS):
-            rows.append(_check(BALANCE_CHECK, BALANCE_COEFFICIENTS, lines, None))
-        for row in rows:
+            plans[BALANCE_CHECK] = (BALANCE_COEFFICIENTS, None)
+        present = [key for key in declared if any(field in lines for field in SIGN_CLASSES[key])]
+        for name, (weights, stated) in plans.items():
+            row = _check(name, weights, lines, stated)
             if row["status"] == "mismatch":
-                reason = staged["acknowledged"].get((period, row["check"]))
-                if reason:
+                alternative = _sign_alternative(name, weights, lines, stated, present)
+                reason = staged["acknowledged"].get((period, name))
+                if alternative:
+                    row["sign_suspect"] = "matches if " + " and ".join(SIGN_LABELS[k] for k in alternative) + \
+                        " were read with the opposite sign"
+                    if reason:
+                        refused.append([period, name])
+                    unresolved.append([period, name])
+                elif reason:
                     row["status"], row["reason"] = "acknowledged", reason
-                    used.add((period, row["check"]))
+                    used.add((period, name))
                 else:
-                    unresolved.append([period, row["check"]])
+                    unresolved.append([period, name])
+            rows.append(row)
         results[period] = rows
-    unused = sorted([period, check] for (period, check) in staged["acknowledged"] if (period, check) not in used)
-    return {"periods": results, "unresolved": unresolved, "unused_acknowledgements": unused,
-            "ready": not unresolved}
+    covered = used | {tuple(pair) for pair in refused}
+    unused = sorted([period, check] for (period, check) in staged["acknowledged"] if (period, check) not in covered)
+    return {"periods": results, "unresolved": unresolved, "refused_acknowledgements": refused,
+            "unused_acknowledgements": unused, "ready": not unresolved}
+
+
+def notices(staged):
+    """{period: [text]} things to look at that are not discrepancies: a declared sign convention that every line
+    contradicts, and every line that will be recorded as negative (a genuine credit, reversal or deficit?)."""
+    found = {}
+    for period, entry in staged["periods"].items():
+        items = []
+        for key, fields in SIGN_CLASSES.items():
+            if key not in staged["source"]:
+                continue
+            written = [entry["lines"][f].written_value for f in fields if f in entry["lines"]
+                       and entry["lines"][f].written_value != 0]
+            declared = staged["source"][key]
+            if written and ((declared == "positive" and all(v < 0 for v in written))
+                            or (declared == "negative" and all(v > 0 for v in written))):
+                items.append(f"all the {SIGN_LABELS[key]} are written as {'negative' if declared == 'positive' else 'positive'}"
+                             f" numbers, but {key} is declared {declared}: check the declaration against the image")
+        negatives = [f"{_label(f)} (written {fig.text}, recorded {fig.value})" for f, fig in entry["lines"].items()
+                     if fig.value < 0]
+        if negatives:
+            items.append("recorded as negative, so a credit, a reversal or a deficit: " + "; ".join(negatives)
+                         + ". Confirm each is genuinely so")
+        if items:
+            found[period] = items
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -342,36 +473,63 @@ def _label(name):
     return FIELD_LABELS.get(name) or name.replace("_", " ").capitalize()
 
 
-def _table(rows):
-    out = ["| Line item | As written | Recorded as |", "| :--- | :--- | ---: |"]
-    out += [f"| {label} | {written} | {recorded} |" for label, written, recorded in rows]
-    return out
+def _table(rows, interpretation=True):
+    if interpretation:
+        out = ["| Line item | As written | Recorded as | Interpretation |", "| :--- | :--- | ---: | :--- |"]
+        return out + [f"| {label} | {written} | {recorded} | {note} |" for label, written, recorded, note in rows]
+    out = ["| Figure | As written | Recorded as |", "| :--- | :--- | ---: |"]
+    return out + [f"| {label} | {written} | {recorded} |" for label, written, recorded, _ in rows]
 
 
-def render_readback(staged, report, digest):
+def _convention_lines(staged):
+    lines = []
+    for key, fields in SIGN_CLASSES.items():
+        if key not in staged["source"] or not any(f in entry["lines"] for entry in staged["periods"].values()
+                                                  for f in fields):
+            continue
+        label = SIGN_LABELS[key]
+        if staged["source"][key] == "positive":
+            lines.append(f"- Sign convention, {label}: written as positive numbers in the source, so recorded as "
+                         "written (a negative would be a credit or reversal).")
+        else:
+            lines.append(f"- Sign convention, {label}: written as negative numbers (brackets or a minus sign) in the "
+                         "source, so each is recorded with its sign reversed: (700) is recorded as 700, and a "
+                         "positive figure is recorded as a negative (a credit or reversal).")
+    return lines
+
+
+def render_readback(staged, report, digest, source_sha256):
     source = staged["source"]
     out = [
         "TRANSCRIPTION READ-BACK -- nothing has been recorded",
         "",
         f"- Source: {source['file']} ({source['kind']}): {source['description']}",
+        f"- Source fingerprint (SHA-256): {source_sha256}",
         f"- Unit: {source['unit']} (figures are recorded as written; nothing is scaled)",
         f"- Mode: {staged['mode']}",
+        *_convention_lines(staged),
+        "- Subtotals and ratios are results with a sign of their own and are recorded as written.",
         f"- Digest: {digest}",
         "",
-        "Confirm only if every figure below matches the source exactly: digits, decimals, signs and the unit.",
+        "Confirm only if every figure below matches the source exactly: digits, decimals, signs and the unit, and "
+        "if each sign convention above is how the source really writes those lines.",
     ]
     for period, entry in staged["periods"].items():
         out += ["", f"## {period}"]
         for group, fields in LINE_GROUPS:
-            rows = [(_label(f), entry["lines"][f].text, f"{entry['lines'][f].value}") for f in fields
-                    if f in entry["lines"]]
+            rows = [(_label(f), entry["lines"][f].text, f"{entry['lines'][f].value}",
+                     entry["lines"][f].note or "as written") for f in fields if f in entry["lines"]]
             if rows:
                 out += ["", group, ""] + _table(rows)
         for title, key, order in (("Subtotals stated by the source", "subtotals", SUBTOTAL_FIELDS),
                                   ("Ratios stated by the source", "ratios", RATIO_FIELDS)):
-            rows = [(_label(f), entry[key][f].text, f"{entry[key][f].value}") for f in order if f in entry[key]]
+            rows = [(_label(f), entry[key][f].text, f"{entry[key][f].value}", "") for f in order if f in entry[key]]
             if rows:
-                out += ["", title, ""] + _table(rows)
+                out += ["", title, ""] + _table(rows, interpretation=False)
+    attention = notices(staged)
+    if attention:
+        out += ["", "## Look at these before confirming", ""]
+        out += [f"- {period}: {item}" for period, items in attention.items() for item in items]
     out += ["", "## Cross-foot against the source's own subtotals", ""]
     rows = [(period, row) for period, period_rows in report["periods"].items() for row in period_rows]
     if rows:
@@ -384,27 +542,36 @@ def render_readback(staged, report, digest):
             else:
                 result = {"match": "match", "mismatch": "MISMATCH",
                           "acknowledged": f"ACKNOWLEDGED: {row.get('reason', '')}"}[row["status"]]
+                if row.get("sign_suspect"):
+                    result += f" ({row['sign_suspect']}: correct the sign declaration; an acknowledgement cannot " \
+                              "cover this)"
                 cells = [row["stated"] or "0 (balance sheet identity)", row["computed"], row["difference"],
                          row["tolerance"]]
             out.append(f"| {period} | {row['check']} | " + " | ".join(cells) + f" | {result} |")
     else:
         out.append("No source subtotal was given and no balance sheet lines were transcribed, so there is nothing "
                    "to compare. This is not a check that passed.")
-    out += ["", "Tolerance is the rounding the figures as written allow: half a unit of the last written digit of the "
-                "subtotal plus half a unit of the last written digit of each line that feeds it. A check is made only "
-                "when every feeding line was transcribed; an omitted line is unknown, not zero."]
+    out += ["", "\"Lines give\" uses the recorded values (after the sign conventions above), so the cross-foot checks "
+                "what the framework will actually be given. Tolerance is the rounding the figures as written allow: "
+                "half a unit of the last written digit of the subtotal plus half a unit of the last written digit of "
+                "each line that feeds it. A check is made only when every feeding line was transcribed; an omitted "
+                "line is unknown, not zero."]
     has_ratios = any(entry["ratios"] for entry in staged["periods"].values())
     out.append("Ratios are " + ("recorded exactly as given and are not cross-footed (the rounding of their inputs "
                                 "cannot be bounded)." if has_ratios else "recomputed by the framework from the lines."))
     if report["unused_acknowledgements"]:
         out.append("Acknowledgements that match no discrepancy (ignored, shown so none is hidden): "
                    + ", ".join(f"{p}/{c}" for p, c in report["unused_acknowledgements"]))
+    if report["refused_acknowledgements"]:
+        out.append("Acknowledgements REFUSED because a different sign reading would explain the mismatch: "
+                   + ", ".join(f"{p}/{c}" for p, c in report["refused_acknowledgements"]))
     out.append("")
     if report["ready"]:
         out.append("STATUS: ready for the analyst's confirmation.")
     else:
-        out.append("STATUS: BLOCKED. Resolve each MISMATCH: correct the transcription, or record the analyst's reason "
-                   "in `acknowledged`, then read back again. A commit is refused until then.")
+        out.append("STATUS: BLOCKED. Resolve each MISMATCH: correct the transcription or the sign declaration, or "
+                   "(only where no sign reading explains it) record the analyst's reason in `acknowledged`, then read "
+                   "back again. A commit is refused until then.")
     out += ["Show this read-back to the analyst unchanged. Only an explicit confirmation of these figures permits:",
             f"python scripts/transcription_check.py --transcription <file> --commit --confirm {digest} "
             "--company <company> --proposal <proposal>"]
@@ -413,8 +580,10 @@ def render_readback(staged, report, digest):
 
 def readback(staged):
     report = cross_foot(staged)
-    digest = digest_of(staged)
-    return {"digest": digest, "report": report, "text": render_readback(staged, report, digest)}
+    fingerprint = file_sha256(staged["source"]["file"])
+    digest = digest_of(staged, fingerprint)
+    return {"digest": digest, "source_sha256": fingerprint, "report": report,
+            "text": render_readback(staged, report, digest, fingerprint)}
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +604,25 @@ def disclosure_sentence(filename):
             "against it.")
 
 
+def mode_conflict(existing, mode):
+    """Why `mode` cannot be added to a deal with this state, or None. `financials_source` is a whole-deal flag: a
+    deal's figures are all framework-computed or all analyst-supplied, and this never converts one into the other.
+    A deal that records financial figures but no `financials_source` (an older or hand-edited state) has an unknown
+    basis, so it is treated as a conflict rather than assumed to be either mode; a deal with no figures yet has none."""
+    recorded = existing.get("financials_source")
+    if recorded in MODES:
+        if recorded != mode:
+            return (f"this deal's financials_source is {recorded!r} and this transcription is {mode!r}. One deal "
+                    "never mixes the two bases, and nothing here converts a deal from one to the other: record this "
+                    "under a different proposal, or ask the analyst whether to redo the deal's spreading in one mode")
+        return None
+    if any(existing.get(store) for store in FINANCIAL_STORES):
+        return ("this deal records financial figures but no financials_source, so their basis is unknown and a "
+                f"{mode!r} transcription cannot safely be added to them. Set financials_source by hand once the "
+                "basis is known, or use a different proposal")
+    return None
+
+
 def commit(staged, confirm, company, proposal, source_note=None):
     """Record a confirmed transcription. Every refusal raises TranscriptionError before anything is written."""
     shown = readback(staged)
@@ -442,16 +630,15 @@ def commit(staged, confirm, company, proposal, source_note=None):
         raise TranscriptionError(
             "refused: the confirmation does not match these figures. Read them back again, show the analyst the new "
             f"read-back (digest {shown['digest']}) and commit only the digest the analyst confirmed. Any change "
-            "to the figures, the unit, the source or an acknowledgement makes an earlier confirmation stale.")
+            "to the figures, the unit, a sign convention, the source description, an acknowledgement or the image "
+            "file itself makes an earlier confirmation stale.")
     if not shown["report"]["ready"]:
         blocked = ", ".join(f"{p}/{c}" for p, c in shown["report"]["unresolved"])
         raise TranscriptionError(
-            f"refused: unresolved cross-foot discrepancies ({blocked}). Correct the transcription, or record the "
-            "analyst's reason in `acknowledged`, read back again and have the new read-back confirmed.")
+            f"refused: unresolved cross-foot discrepancies ({blocked}). Correct the transcription or the sign "
+            "declaration, or (where no different sign reading explains it) record the analyst's reason in "
+            "`acknowledged`, read back again and have the new read-back confirmed.")
     source_path = staged["source"]["file"]
-    if not os.path.isfile(source_path):
-        raise TranscriptionError(f"refused: the source file {source_path!r} does not exist, so it cannot be saved "
-                                 "as the source of record")
     if staged["mode"] == "analyst-supplied" and not (source_note and source_note.strip()):
         raise TranscriptionError("refused: analyst-supplied mode needs --source-note, the confirmed description of "
                                  "the analyst's convention (spread.md asks for it); the disclosure of the image "
@@ -460,16 +647,35 @@ def commit(staged, confirm, company, proposal, source_note=None):
         raise TranscriptionError("refused: --source-note is only used in analyst-supplied mode")
 
     existing = read_state(company, proposal, keys=(
-        "financials", "ratios", "analyst_supplied_financials", "steps_completed")) or {}
+        "financials", "ratios", "analyst_supplied_financials", "multi_period_financials", "financials_source",
+        "steps_completed")) or {}
+    conflict = mode_conflict(existing, staged["mode"])
+    if conflict:
+        raise TranscriptionError(f"refused: {conflict}.")
     earlier = existing.get("financials_transcriptions")
     if earlier is not None and not isinstance(earlier, list):
         raise StateError('Cannot use state.json: "financials_transcriptions" must be a list ([...]); fix the file by '
                          "hand or restore it from a backup; the file was not modified.")
 
+    # Copy the image aside first and check the copy against the confirmed fingerprint, so the exact bytes that are
+    # saved as the source of record are the ones the analyst's confirmed read-back covered.
     source = staged["source"]
-    entry = save_source(company, proposal, step="spread", source_path=source_path,
-                        claim=f"{source['description']} (figures transcribed from {source['kind']}; "
-                              f"analyst-confirmed read-back {shown['digest']})")
+    with tempfile.TemporaryDirectory() as scratch:
+        staging_copy = os.path.join(scratch, os.path.basename(source_path))
+        shutil.copyfile(source_path, staging_copy)
+        if file_sha256(staging_copy) != shown["source_sha256"]:
+            raise TranscriptionError("refused: the source image changed while it was being read; nothing was saved. "
+                                     "Read back again.")
+        entry = save_source(company, proposal, step="spread", source_path=staging_copy,
+                            claim=f"{source['description']} (figures transcribed from {source['kind']}; "
+                                  f"analyst-confirmed read-back {shown['digest']}; "
+                                  f"sha256 {shown['source_sha256'][:16]})")
+    saved = os.path.join(sources_dir(company, proposal), entry["filename"])
+    if file_sha256(saved) != shown["source_sha256"]:
+        raise TranscriptionError(
+            f"refused: the saved copy {saved!r} does not match the fingerprint of the confirmed read-back; no figures "
+            "were recorded. Delete that file and its sources/manifest.json entry, then read back and commit again.")
+
     periods = list(staged["periods"])
     fields = {}
     if staged["mode"] == "framework-computed":
@@ -492,7 +698,9 @@ def commit(staged, confirm, company, proposal, source_note=None):
 
     rows = [(period, row) for period, period_rows in shown["report"]["periods"].items() for row in period_rows]
     record = {
-        "method": source["kind"], "mode": staged["mode"], "source_file": entry["filename"], "unit": source["unit"],
+        "method": source["kind"], "mode": staged["mode"], "source_file": entry["filename"],
+        "source_sha256": shown["source_sha256"], "unit": source["unit"],
+        "sign_conventions": {key: source[key] for key in SIGN_CLASSES if key in source},
         "periods": periods, "confirmed_digest": shown["digest"], "confirmed_on": date.today().isoformat(),
         "cross_foot": {
             "matched": [f"{period}/{row['check']}" for period, row in rows if row["status"] == "match"],
@@ -511,24 +719,27 @@ def commit(staged, confirm, company, proposal, source_note=None):
     record_fields["steps_completed"] = [*steps, "spread"] if "spread" not in steps else list(steps)
     write_state(company, proposal, **record_fields)
     return {"committed": True, "mode": staged["mode"], "periods": periods, "financials_source": financials_source,
-            "source_file": entry["filename"], "digest": shown["digest"], "cross_foot": record["cross_foot"],
-            "disclosure": disclosure_sentence(entry["filename"])}
+            "source_file": entry["filename"], "source_sha256": shown["source_sha256"], "digest": shown["digest"],
+            "cross_foot": record["cross_foot"], "disclosure": disclosure_sentence(entry["filename"])}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Safeguards for /spread figures transcribed from an image (issue #132). By default: read the "
-                    "staged transcription back (grouped by period, as written beside the recorded value), "
-                    "cross-foot it against the source's own subtotals and print a digest -- this never reads or "
-                    "writes a deal. With --commit and --confirm <digest> (the digest of the read-back the analyst "
-                    "confirmed): save the source and record the figures; refused, with nothing written, if the "
-                    "digest is stale or a cross-foot discrepancy is unresolved.")
+                    "staged transcription back (grouped by period, as written beside the recorded value and how one "
+                    "was read as the other), cross-foot it against the source's own subtotals and print the image's "
+                    "fingerprint and a digest -- this never reads or writes a deal. With --commit and --confirm "
+                    "<digest> (the digest of the read-back the analyst confirmed): save the image and record the "
+                    "figures; refused, with nothing written, if the digest is stale (including a changed image), a "
+                    "cross-foot discrepancy is unresolved, or the deal's existing basis is the other /spread mode.")
     parser.add_argument("--transcription", required=True,
-                         help="Path to the staged JSON: {mode, source: {file, kind, description, unit}, periods: "
-                              "{period: {lines, subtotals, ratios}}, acknowledged: [{period, check, reason}]}, every "
-                              "figure written as text exactly as it appears in the image")
+                         help="Path to the staged JSON: {mode, source: {file, kind, description, unit, cost_sign, "
+                              "outflow_sign, liability_sign}, periods: {period: {lines, subtotals, ratios}}, "
+                              "acknowledged: [{period, check, reason}]}, every figure written as text exactly as it "
+                              "appears in the image")
     parser.add_argument("--json", action="store_true",
-                         help="Print the read-back as JSON (digest, cross-foot results, text) instead of text")
+                         help="Print the read-back as JSON (digest, source fingerprint, cross-foot results, text) "
+                              "instead of text")
     parser.add_argument("--commit", action="store_true",
                          help="Record the transcription (needs --confirm, --company and --proposal)")
     parser.add_argument("--confirm", help="With --commit: the digest of the read-back the analyst confirmed")

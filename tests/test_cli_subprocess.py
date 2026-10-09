@@ -271,7 +271,8 @@ def _staged_transcription(cli, revenue="1,000"):
     path = cli.workdir / "t.json"
     path.write_text(json.dumps({
         "mode": "framework-computed",
-        "source": {"file": "shot.png", "kind": "image", "description": "Synthetic Co accounts", "unit": "GBP thousands"},
+        "source": {"file": "shot.png", "kind": "image", "description": "Synthetic Co accounts", "unit": "GBP thousands",
+                   "cost_sign": "positive"},
         "periods": {"FY-Current": {"lines": {"revenue": revenue, "cost_of_sales": "600"},
                                    "subtotals": {"gross_profit": "400"}}}}), encoding="utf-8")
     return path
@@ -308,6 +309,29 @@ def test_transcription_check_blocks_a_discrepancy_and_a_commit_without_its_argum
     incomplete = cli("transcription_check", "--transcription", staged, "--commit")
     assert incomplete.returncode == 2 and "--company" in incomplete.stderr
     assert not (cli.workdir / "deals").exists()
+
+
+def test_transcription_check_refuses_a_replaced_image_and_a_deal_in_the_other_mode_without_touching_anything(cli):
+    staged = _staged_transcription(cli)
+    digest = json.loads(cli("transcription_check", "--transcription", staged, "--json").stdout)["digest"]
+    (cli.workdir / "shot.png").write_bytes(b"a different screenshot")
+    stale = cli("transcription_check", "--transcription", staged, "--commit", "--confirm", digest,
+                "--company", "Acme", "--proposal", "Loan")
+    assert stale.returncode == 1 and "the image file itself" in stale.stderr and not (cli.workdir / "deals").exists()
+
+    digest = json.loads(cli("transcription_check", "--transcription", staged, "--json").stdout)["digest"]
+    state_dir = cli.workdir / "deals" / "Acme" / "Loan_2026-01-15"
+    state_dir.mkdir(parents=True)
+    state_file = state_dir / "state.json"
+    state_file.write_text(json.dumps({"company": "Acme", "proposal": "Loan", "date": "2026-01-15",
+                                      "financials_source": "analyst-supplied",
+                                      "financials": {"FY-1": {"gross_profit": 1}}}), encoding="utf-8")
+    before = state_file.read_bytes()
+    mixed = cli("transcription_check", "--transcription", staged, "--commit", "--confirm", digest,
+                "--company", "Acme", "--proposal", "Loan")
+    assert mixed.returncode == 1 and len(mixed.stderr.strip().splitlines()) == 1
+    assert "never mixes the two bases" in mixed.stderr and "Traceback" not in mixed.stderr
+    assert state_file.read_bytes() == before and not (state_dir / "sources").exists()
 
 
 def test_transcription_check_on_a_missing_or_unreadable_input_fails_with_one_error_line(cli):

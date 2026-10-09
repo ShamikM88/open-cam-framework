@@ -115,7 +115,8 @@ worked examples are in [Workflows](workflows.md).
   have explicitly confirmed a read-back. The session stages the transcription, `scripts/transcription_check.py`
   prints it grouped by period and statement with each figure as written, cross-foots the subtotals the image states
   against the lines that feed them and prints a digest; only `--commit --confirm <digest>` records it, and it
-  refuses a stale digest or an unresolved discrepancy. The image is saved as the source of record, the state
+  refuses a stale digest (the digest covers the figures, the sign conventions and the image's bytes), an
+  unresolved discrepancy, or a deal already in the other `/spread` mode. The image is saved as the source of record, the state
   gains a `financials_transcriptions` record, and in analyst-supplied mode the CAM caveat's
   `financials_source_note` says the figures were transcribed from an image. Walk-through:
   [Workflows](workflows.md#figures-read-from-an-image); rules: [financial model](financial-model.md#figures-read-from-an-image).

@@ -282,8 +282,9 @@ must not break:
 - `/spread` routes any figure it reads out of an image (a screenshot, a photo, a scanned page) through
   `scripts/transcription_check.py` in both modes (issue #132): nothing is written to `state.json`, and `spread` is
   not appended to `steps_completed`, until the analyst has explicitly confirmed a read-back; silence, an ambiguous
-  answer or the model's own confidence is never confirmation, and a correction needs a new read-back. Figures read
-  from text keep the ordinary path.
+  answer or the model's own confidence is never confirmation, and a correction needs a new read-back. Signs are
+  read under a declared, confirmed convention (never guessed), one deal never mixes the two modes, and the
+  confirmation is bound to the image's bytes. Figures read from text keep the ordinary path.
 - `/review` loads the Risk Reviewer role and returns `APPROVED` or `REJECTED`; a code-enforced reason makes
   `REJECTED` mandatory.
 - `/calibrate-policy` and `/research` have no headless equivalent.
@@ -414,7 +415,9 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   <digest>` records the figures only if the digest matches the staged figures as they are now and no cross-foot
   discrepancy is unresolved, and otherwise exits `1` with nothing written. Which lines feed a subtotal comes from
   `evaluate_financial_model()`, never a second mapping; ratios are never cross-footed; a check needs every feeding
-  line transcribed. It cannot see the image or know the analyst said yes; do not describe it as verifying figures.
+  line transcribed; a mismatch a different sign reading would explain cannot be acknowledged; a commit is refused for
+  a stale digest (including a changed image) and for a deal already in the other mode. It cannot see the image or
+  know the analyst said yes; do not describe it as verifying figures.
   Full behaviour: [CLI reference](docs/cli-reference.md#transcription-check).
 - **`scripts/conventions.py`** (no `anthropic` dependency) -- the persisted-convention stores; deliberately never
   wired into `orchestrator.py`. See "Persisted conventions" above and the [data model](docs/data-model.md).

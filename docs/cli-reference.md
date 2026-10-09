@@ -175,24 +175,29 @@ python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic
 ## Transcription check
 
 `scripts/transcription_check.py --transcription <json> [--json]` reads back figures that `/spread` transcribed from
-an image (a screenshot, a photo, a scanned page) and writes nothing: no deal is read or changed. It prints the figures
-grouped by period and statement, each as written beside the value that would be recorded; a cross-foot of every
-subtotal the source states against the sum of the transcribed lines that feed it; and a **digest** of exactly what
-it showed. `--json` prints the same as `{digest, report, text}`.
+an image (a screenshot, a photo, a scanned page) and writes nothing: no deal is read or changed. It prints the image's
+SHA-256 fingerprint; the sign conventions in words; the figures grouped by period and statement, each as written
+beside the value that would be recorded and how one was read as the other; every figure that will be recorded as
+negative; a cross-foot of every subtotal the source states against the sum of the recorded lines that feed it; and a
+**digest** of exactly what it showed (including the declarations and the image's bytes). `--json` prints the same as
+`{digest, source_sha256, report, text}`.
 
 `scripts/transcription_check.py --transcription <json> --commit --confirm <digest> --company ... --proposal ...
-[--source-note <text>]` records the transcription, but only if `--confirm` is the digest of these figures as they are
-now and no cross-foot discrepancy is unresolved; otherwise it exits `1` with one `error: refused: ...` line and writes
-nothing. On success it saves the image as the source of record (the manifest claim says the figures were transcribed
-from an image and carries the digest), records the figures, appends `spread` to `steps_completed`, and appends a record
-to `financials_transcriptions`. In `framework-computed` mode it recomputes exactly as `spreading_check.py` does; in
-`analyst-supplied` mode it records subtotals, ratios and any lines exactly as given and needs `--source-note`, the
-confirmed convention, to which it appends a sentence saying the figures were transcribed from an image (stored as
+[--source-note <text>]` records the transcription, but only if `--confirm` is the digest of these figures and this
+image as they are now, no cross-foot discrepancy is unresolved and the deal's existing `financials_source` is the
+same mode; otherwise it exits `1` with one `error: refused: ...` line and writes nothing (no source copied, no state
+changed). On success it saves the image as the source of record after checking it against the confirmed fingerprint
+(the manifest claim says the figures were transcribed from an image and carries the digest and a fingerprint prefix),
+records the figures, appends `spread` to `steps_completed`, and appends a record to `financials_transcriptions`
+(holding the fingerprint, never the image). In `framework-computed` mode it recomputes exactly as `spreading_check.py`
+does; in `analyst-supplied` mode it records subtotals, ratios and any lines exactly as given and needs `--source-note`,
+the confirmed convention, to which it appends a sentence saying the figures were transcribed from an image (stored as
 `financials_source_note`, which the CAM caveat quotes). What it enforces and what it cannot is in
 [Figures read from an image](financial-model.md#figures-read-from-an-image) and
 [AI assurance](ai-assurance.md#what-the-code-guarantees).
 
-The staged file holds every figure as text exactly as it appears; a worked example is in
+The staged file holds every figure as text exactly as it appears, plus the unit and how the source writes the signs
+of costs, cash outflows and liabilities; a worked example is in
 [Workflows](workflows.md#figures-read-from-an-image).
 
 ```bash

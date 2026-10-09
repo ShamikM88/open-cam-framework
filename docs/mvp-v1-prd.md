@@ -43,14 +43,18 @@ analyst two independent AI opinions to work from, not one agent wearing two hats
 ## Product principles
 
 The principles below are the subset of [design decisions](decisions.md) that were in force by MVP v1's close
-([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20), merged 2026-09-13). Two further decisions in
-that document, D8 and D9, were made weeks later during subsequent hardening and are described under
+([PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20), merged 2026-09-13). Three further decisions in
+that document - D4, D8 and D9 - were made after that close, during subsequent hardening, and are described under
 [What changed after MVP](#what-changed-after-mvp) instead of here; D6, D7 and D10 through D14 are later still and
 are out of scope for this document.
 
 - **The Maker and the Checker are independent prompts** ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
-  They never import each other or share the Maker's reasoning, and can optionally run on different underlying
-  models. The Checker's value comes from auditing cold.
+  They never import each other or share the Maker's reasoning. This was true from the start of MVP v1; the
+  ability to actually configure the two to run on different underlying models came later, closing
+  [issue #31](https://github.com/ShamikM88/open-cam-framework/issues/31) via
+  [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (merged 2026-09-14, the day after PR #20) -
+  before that, independence meant separate prompts, not yet separate models. The Checker's value comes from
+  auditing cold either way.
 - **Anything that can be computed is computed by code, and enforced by code**
   ([D2](decisions.md#d2-anything-that-can-be-computed-is-computed-by-code-and-enforced-by-code)). Ratios and
   covenant results come from `spreading_builder.py` and `policy_engine.py`, never from the model. A code-enforced
@@ -58,10 +62,6 @@ are out of scope for this document.
 - **Every step checkpoints to a file; the conversation is never the record**
   ([D3](decisions.md#d3-every-step-checkpoints-to-a-file-the-conversation-is-never-the-record)). State lives on
   disk so a compacted or resumed session loses at most the step in progress.
-- **Analyst-supplied figures are recorded as given and disclosed, never silently reconciled**
-  ([D4](decisions.md#d4-analyst-supplied-figures-are-recorded-as-given-and-disclosed-never-silently-reconciled)).
-  When an analyst's own spread can't be recomputed from the raw schema, the CAM carries an explicit caveat about
-  the reduced audit guarantee.
 - **A ratio with a non-positive denominator is N/A, and its covenant is UNRESOLVABLE**
   ([D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable)). Never
   PASS, never a false FAIL - the rule the debt-free DSCR case forced into existence, now codified for every ratio.
@@ -191,6 +191,13 @@ an edge case in testing (a ratio with no meaningful value) is, in production, th
 borrower and a flagged one. [D5](decisions.md#d5-a-ratio-with-a-non-positive-denominator-is-na-and-its-covenant-is-unresolvable)
 exists because this was found the hard way, not reasoned out in advance.
 
+A few days later, [D4](decisions.md#d4-analyst-supplied-figures-are-recorded-as-given-and-disclosed-never-silently-reconciled) -
+recording an analyst's own pre-spread figures as given, rather than silently reconciling them against the
+framework's raw schema - traces to
+[issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55), opened 2026-09-16 and closed
+2026-09-17. MVP v1 itself only supported `/spread` computing every ratio from raw line items; the
+analyst-supplied alternative, and the explicit audit-guarantee caveat it carries, came after.
+
 Two further decisions in [design decisions](decisions.md) came later still, as the project moved into broader
 hardening. [D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person) -
 persisting analyst-confirmed conventions as local memory - traces to
@@ -251,7 +258,8 @@ validated single-analyst MVP to something a wider credit organisation could trus
 | Fast-follow: policy checks in the primary interface | [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) |
 | The debt-free DSCR defect and its fix | [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) |
 | The 19-issue backlog opened at MVP close, and its first four closing pull requests | [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41), [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42), [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43), [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) |
-| Maker/Checker independence, deterministic computation and the MVP v1 principles above | [Design decisions](decisions.md), D1 through D5 |
-| Persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - both post-MVP | [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149) (D9) |
+| Independent prompts, deterministic computation, checkpointed state and the UNRESOLVABLE rule - the MVP v1 principles above | [Design decisions](decisions.md), D1 through D3, D5 |
+| Independent Maker/Checker models (closing issue #31) | [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) |
+| Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149) (D9) |
 | Test-count checkpoints | PR #20's own checklist (188), [PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118) (439) |
 | 0.5% ground-truth tolerance, one-analyst validation, 15-30 minute target | the published OpenCAM case study (linked from the project README) |

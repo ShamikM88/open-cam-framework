@@ -24,12 +24,14 @@ Claude Code follows when it works in this repository.
 | Maintain it: verify, diagnose CI, triage mutation survivors, handle advisories, check readiness | [Operations runbook](operations.md) |
 | Fix an error message or a surprising result | [Troubleshooting](troubleshooting.md) |
 | Know why something is the way it is | [Design decisions](decisions.md) |
+| See the product definition behind MVP v1 - problem, users, scope, requirements, acceptance criteria | [MVP v1 PRD](mvp-v1-prd.md) |
 
 ## Reading paths
 
 - **An analyst using the framework:** [Architecture](architecture.md) (the two ways to run it), [Workflows](workflows.md), [Command reference](commands.md), then [Troubleshooting](troubleshooting.md) when something surprises you. [Financial model](financial-model.md) explains every figure.
 - **Someone deciding whether to trust the output:** [Architecture](architecture.md#where-the-code-ends-and-the-model-begins), then [AI assurance](ai-assurance.md), then [Evaluation](evaluation.md) and the [project status](#project-status).
 - **A contributor:** [Contributing](contributing.md), [Testing and CI](testing.md), [Security](security.md) and [Design decisions](decisions.md).
+- **Tracing a product decision to its delivery evidence:** [MVP v1 PRD](mvp-v1-prd.md) for what was decided and why, then [Design decisions](decisions.md) for the principles behind it, then the pull requests each page cites.
 - **A maintainer:** [Operations runbook](operations.md), with [Testing and CI](testing.md) for what each check means and [Evaluation](evaluation.md) before running anything that spends money.
 
 ## What is in this folder
@@ -54,6 +56,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [operations.md](operations.md) | The maintainer runbook: full-suite verification, the badge, diagnosing CI, coverage and mutation reports, dependencies and advisories, documentation upkeep, live-evaluation boundaries, a readiness checklist |
 | [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
 | [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |
+| [mvp-v1-prd.md](mvp-v1-prd.md) | The product requirements behind MVP v1, reconstructed from its pull requests and decisions: problem, users, scope, requirements, acceptance criteria, what changed after MVP |
 | [move-ledger.md](move-ledger.md) | Migration record: where every block of the old README and `CLAUDE.md` went |
 
 Parts of these pages (marked at the point where they start) were moved from the README and `CLAUDE.md` rather than

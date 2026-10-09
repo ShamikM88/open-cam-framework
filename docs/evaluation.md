@@ -1,6 +1,6 @@
 # Evaluation harness
 
-> **Status.** This page was assembled in the documentation tranche of issue #117 from material that used to live in `README.md` and `CLAUDE.md`, moved with only the textual fixes recorded in the [move ledger](move-ledger.md). A later tranche adds worked examples and explanation around it. The source of truth for behaviour is the code and tests; see the [index](README.md).
+> The sections "In brief" and "How it works" were moved from the README and `CLAUDE.md` (unchanged apart from the fixes in the [move ledger](move-ledger.md)); the sections between them were written for readers. The source of truth for behaviour is the code and tests; see the [index](README.md).
 
 How the local live-model evaluation harness is built and what it can and cannot show. This page is evergreen: it does not record whether a live run has happened. Current status is tracked in issue #151 (and dated in the [index](README.md#project-status)). The dataset-local companion is [`evals/README.md`](../evals/README.md).
 
@@ -12,6 +12,48 @@ model follows the prompts (no invented figures, planted instructions not obeyed)
 your own API key, on synthetic data only, under a hard call cap, and writes only to the git-ignored
 `evals/results/`; nothing runs it automatically, and the tests only ever drive it with fake clients. It ships its dataset, deterministic oracles, a zero-model-call `--dry-run`, a capped `--live` runner and baseline export/compare. Read its README before trusting any
 result: most oracles check the *form* of the output, not its judgement.
+
+## What the harness can and cannot show
+
+The test suite proves the code around the model works; this harness is the only thing that measures the model. What a result means depends on three things you should read together: which **kind** of result it is, what the **oracle** actually checks, and which **surface** the case exercises.
+
+**Three kinds of result, kept apart.** A *deterministic oracle result* is decided by code and needs no trust in the model (a figure matches, a block parses, a canary token is absent). An *observed pass rate* is k passes out of N repeats for one model, one set of prompt hashes and one dataset version; it is an observation, never "proven safe". A *human-review observation* is a question for a person with no pass or fail. The harness reports them separately so a form check is not mistaken for a judgement.
+
+**What an oracle passing means.** Most oracles check form or self-declaration. A "no invented figures" case passing means the model emitted a well-formed block whose declared figures match the computed ones, including when it declared none; it does not mean the narrative was careful. Read the review pack for the judgement. A canary oracle reports that a planted token appeared in the output, not that it was obeyed, and cannot see obedience that leaves no token.
+
+**What the harness cannot show.**
+
+- It runs the headless pipeline's surfaces. The slash-command path (`/research`, `/commercial`, `/review` as a session runs them) cannot be driven by a script, so the harness cannot say whether a session follows its command text, which is where the code-enforced rejection is applied by the model rather than by Python ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
+- Its source-document case is a prompt-level approximation, so it does not establish injection resistance for fetched web content.
+- A small synthetic dataset cannot show how the model behaves on a real, messy deal.
+- A rate holds for the model and prompts that produced it. A different model, a prompt edit or a new dataset version is a new measurement.
+
+## Reading a result
+
+1. **Look at the denominator.** A run that errored, was refused or was cut off at the token limit stays in the count as a non-pass, so a high rate over few completed runs is weaker than it looks. Check the status counts, then the rate.
+2. **Look at the model and hashes.** A result is tied to the requested and served model, the prompt hashes and the dataset version. Compare two results only when those match, or when the difference *is* what you are testing.
+3. **Read the failures and the review pack before the headline.** A single failing case with its output tells you more than a category rate; a Checker that rejects a clean control for a reason you disagree with is information about the case as much as the model.
+4. **Treat small differences as noise.** Output is not deterministic and N is small. A change of one run in five is not a trend; repeat or widen the dataset before drawing a conclusion.
+5. **Never quote a rate without its context** (model, prompt hashes, dataset version, N), and never as a safety claim.
+
+## Baselines
+
+A baseline is a committed summary of a complete live run: pass rates per category and case, the requested and served model, the prompt hashes, the dataset version and hash, and no model text. It exists so that a later prompt or model change can be compared with something real (`--compare`), which is why prompt hardening (#150) waits for one ([AI assurance](ai-assurance.md#why-prompt-hardening-150-waits-for-a-baseline)).
+
+- A baseline is **valid only for the hashes it records.** Edit a prompt, change the model or change the dataset, and it describes something else; `--compare` says whether two runs are like-for-like and lists what differs, so a delta is not read across a changed prompt, model or dataset.
+- A **partial** run (aborted, errored, interrupted, truncated, or fewer runs than planned) is not exported as a baseline unless you pass `--allow-partial`, which marks it partial. A partial file is a diagnostic, not a reference.
+- A baseline is **adopted deliberately**: copied by hand into `evals/baselines/<file>.json` and committed in its own pull request, never by a script and never as a side effect of another change. The procedure and the gates are in the [operations runbook](operations.md#live-evaluation-execution-and-baseline-boundaries).
+- The record of what has been run, and of any attempt that failed (for example one rejected by the API for credit), belongs in issue #151 and the dated [project status](README.md#project-status), not on this page.
+
+## Cost and safety
+
+- The **call cap bounds calls, not tokens or money.** Before the key is read, the plan is printed and refused if it is over `--max-calls` (default 80, never above 250). The plan also shows the models, `max_tokens`, the output-token bound and the endpoint; read it before typing `yes`.
+- A live run uses **your own key**, held in your environment only. No GitHub secret, no key in a file, and no automated session or CI job ever runs it.
+- Each run is **isolated**: a fresh working directory containing only the agent prompts, `config/settings.json` and the shipped CAM templates, never `templates/local/` or a real deal. The data is synthetic, and the writer refuses any output path inside the repository that is not git-ignored.
+
+## How this fits the other layers
+
+The harness measures what [AI assurance](ai-assurance.md#what-the-prompts-expect-of-the-model) calls prompt expectations, which are not demonstrated until it has been run. It complements, and never replaces, the deterministic checks (which hold whatever the model writes) and the human review (which is the only thing that judges the narrative). Running it is a maintainer action with its own boundaries in the [runbook](operations.md#live-evaluation-execution-and-baseline-boundaries); the dataset layout and the oracles' own documentation are in [`evals/README.md`](../evals/README.md).
 
 ## How it works
 

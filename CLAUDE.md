@@ -17,7 +17,8 @@ Three layers, each with one job:
 - **`README.md`** -- the public landing page: what OpenCAM is, the two ways to run it, a quick start.
 - **`docs/`** -- the human-facing documentation corpus (index: [docs/README.md](docs/README.md)): architecture,
   design decisions ([docs/decisions.md](docs/decisions.md)), reference pages for the scripts, state, financial
-  model, outputs, configuration, workflows, commands, troubleshooting, testing, security and evaluation.
+  model, outputs, configuration, workflows, commands, troubleshooting, testing, security, AI assurance and
+  evaluation, and the contributing guide and maintainer runbook.
 - **`CLAUDE.md`** (this file) -- the rules and engineering contracts Claude Code follows when it changes this
   repository. It is not a user manual: put an explanation, example or reference in `docs/`, and a rule that a
   change must not break here.

@@ -56,7 +56,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [operations.md](operations.md) | The maintainer runbook: full-suite verification, the badge, diagnosing CI, coverage and mutation reports, dependencies and advisories, documentation upkeep, live-evaluation boundaries, a readiness checklist |
 | [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
 | [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |
-| [mvp-v1-prd.md](mvp-v1-prd.md) | The product requirements behind MVP v1, reconstructed from its pull requests and decisions: problem, users, scope, requirements, acceptance criteria, what changed after MVP |
+| [mvp-v1-prd.md](mvp-v1-prd.md) | The product requirements behind MVP v1, reconstructed from its pull requests and decisions: problem, objectives, scope, requirements and acceptance criteria, validation status, risks and limitations, with the pull-request chronology in its own evidence appendix |
 | [move-ledger.md](move-ledger.md) | Migration record: where every block of the old README and `CLAUDE.md` went |
 
 Parts of these pages (marked at the point where they start) were moved from the README and `CLAUDE.md` rather than

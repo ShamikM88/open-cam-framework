@@ -24,6 +24,7 @@ Claude Code follows when it works in this repository.
 | Maintain it: verify, diagnose CI, triage mutation survivors, handle advisories, check readiness | [Operations runbook](operations.md) |
 | Fix an error message or a surprising result | [Troubleshooting](troubleshooting.md) |
 | Know why something is the way it is | [Design decisions](decisions.md) |
+| See the product definition behind MVP v1 - problem, users, scope, requirements, acceptance criteria | [MVP v1 PRD](mvp-v1-prd.md) |
 
 ## Reading paths
 
@@ -54,6 +55,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [operations.md](operations.md) | The maintainer runbook: full-suite verification, the badge, diagnosing CI, coverage and mutation reports, dependencies and advisories, documentation upkeep, live-evaluation boundaries, a readiness checklist |
 | [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
 | [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |
+| [mvp-v1-prd.md](mvp-v1-prd.md) | The product requirements behind MVP v1, reconstructed from its pull requests and decisions: problem, users, scope, requirements, acceptance criteria, what changed after MVP |
 | [move-ledger.md](move-ledger.md) | Migration record: where every block of the old README and `CLAUDE.md` went |
 
 Parts of these pages (marked at the point where they start) were moved from the README and `CLAUDE.md` rather than

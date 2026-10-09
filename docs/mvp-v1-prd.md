@@ -86,12 +86,14 @@ pull request - but it was not yet the CI-enforced guarantee D9 later codified; s
 | Must | Deterministic policy engine layered on LLM narrative | PRs #1-20 |
 | Must | Critical correctness and security fixes before wider use | [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) |
 | Should | Policy checks wired into the primary slash-command interface, not just the headless script | [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) |
-| Could | Forward-year projections, stress testing, Conditions Subsequent, source-citation hyperlinking | shipped post-MVP |
 | Won't | Multi-currency and FX - the desk is GBP-only | deliberately deferred |
 | Won't | Full covenant step-down and cure-period modelling - scoped down to Conditions Subsequent tracking | deliberately deferred |
 | Won't | AML, sanctions and PEP screening, ESG scoring | a separate AML team's system supplies this |
 
-A second hardening pass followed MVP v1's close - see [What changed after MVP](#what-changed-after-mvp) below.
+MVP v1 shipped with no "Could" items - everything not Must or Should was deferred outright (Won't, above). Forward-year
+projections, stress testing, Conditions Subsequent tracking and source-citation hyperlinking were not part of MVP
+v1's own scope call; they were delivered later, in the hardening pass described in
+[What changed after MVP](#what-changed-after-mvp) below.
 
 ## Functional and non-functional requirements
 
@@ -105,8 +107,10 @@ zero; its covenant resolves to UNRESOLVABLE, never a silent PASS or FAIL.
 **FR3 - Independent review.** The Checker audits the Maker's draft without inheriting its reasoning context, and
 can only downgrade a verdict.
 
-**FR4 - Ground-truth verification.** Every figure the Maker reports in the narrative is checked against the
-deterministically computed financials, within a 0.5% tolerance, before the Checker reviews it.
+**FR4 - Ground-truth verification.** Every figure the Maker reports in the narrative that the framework itself
+computed is checked against that computed value, within a 0.5% tolerance, before the Checker reviews it.
+Analyst-supplied figures (D4) are outside this check by definition - the framework has no independently computed
+value to check them against - and carry their own explicit caveat instead.
 
 **FR5 - Deterministic policy evaluation.** Covenant and compliance checks are evaluated PASS, FAIL or
 UNRESOLVABLE by `policy_engine.py` against raw financials, never by asking the model to judge compliance in
@@ -145,9 +149,10 @@ just asserted in code: Issue #31 was marked resolved once the two agents *could*
 reopened after a later review found the setting had never actually been switched on in production, and was
 re-closed only once verified end to end.
 
-**AC4 - Ground-truth tolerance.** Every reported figure in the Maker's narrative is within 0.5% of the
-deterministically computed ground-truth financials before the Checker reviews it. A mismatch beyond that
-tolerance is a Checker-visible finding, not a silent pass.
+**AC4 - Ground-truth tolerance.** For every figure the framework itself computed, the value the Maker's
+narrative reports is within 0.5% of that computed ground truth before the Checker reviews it. A mismatch beyond
+that tolerance is a Checker-visible finding, not a silent pass. This does not apply to analyst-supplied figures,
+which the framework has no independent value to check against.
 
 **AC5 - Policy determinism.** Given a defined covenant and valid inputs, the result comes from
 `policy_engine.py`, never from the model's own judgement of compliance.
@@ -228,10 +233,13 @@ default branch is the CI-enforced source, per [D14](decisions.md#d14-the-test-co
 
 Other measures, kept to what was actually validated rather than inflated into a claim of scale:
 
-- **Time to first useful draft.** 15-30 minutes, down from roughly a business day - a working target validated
-  with one analyst, not a measured production SLA.
+- **Time to first useful draft.** 15-30 minutes, down from roughly a business day, is the one analyst's working
+  target. No documented before/after timing method or baseline measurement exists for this figure; treat it as
+  an early estimate from single-user feedback, not a measured result.
 - **Silent financial errors.** Zero tolerated by design; the debt-free DSCR case is the concrete instance where
-  this was tested and held.
+  this was tested and held. The 0.5% ground-truth tolerance (FR4, AC4) covers figures the framework can itself
+  compute and compare - it does not extend to analyst-supplied figures the system cannot independently recompute
+  (D4), which carry their own explicit audit caveat instead.
 - **Confidentiality.** No real deal data in source control since the project's earliest commits; the CI test
   that fails the build over it
   ([D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it)) followed as
@@ -241,10 +249,16 @@ Other measures, kept to what was actually validated rather than inflated into a 
 ## What MVP v1 did and didn't prove
 
 **It proved:** a governed AI workflow can draft a credit memo while keeping financial computation and policy
-decisions deterministic; two independent agents can meaningfully audit each other when they share no reasoning
-context; a real correctness defect (the DSCR case) can be caught by a codebase audit rather than by an analyst
-catching it downstream, which is the more expensive and higher-risk place to catch it; and a single analyst found
-the resulting workflow useful enough to keep using it.
+decisions deterministic; a real correctness defect (the DSCR case) can be caught by a codebase audit rather than
+by an analyst catching it downstream, which is the more expensive and higher-risk place to catch it; and a single
+analyst found the resulting workflow useful enough to keep using it.
+
+What it demonstrated about the Checker is narrower than it might look: the Maker/Checker separation was
+implemented and is regression-tested, and the DSCR defect was in fact caught before it could reach an analyst -
+but that catch came from a codebase audit, not from the Checker agent itself flagging a live deal. No evaluation
+to date measures how often the Checker agent, running on a real draft, actually catches an error the Maker
+introduced. That is a real gap between "the mechanism exists and is exercised" and "the mechanism has been shown
+to work."
 
 **It didn't prove:** enterprise-scale adoption, production-grade reliability under multiple analysts or
 institutions, regulatory readiness, universal financial-spreading coverage, or that this class of defect is now

@@ -50,11 +50,14 @@ are out of scope for this document.
 
 - **The Maker and the Checker are independent prompts** ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
   They never import each other or share the Maker's reasoning. This was true from the start of MVP v1; the
-  ability to actually configure the two to run on different underlying models came later, closing
-  [issue #31](https://github.com/ShamikM88/open-cam-framework/issues/31) via
-  [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (merged 2026-09-14, the day after PR #20) -
-  before that, independence meant separate prompts, not yet separate models. The Checker's value comes from
-  auditing cold either way.
+  ability to configure the two to run on different underlying models came later, and in two steps:
+  [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (merged 2026-09-14) introduced the
+  `checker_model` capability, but `config/settings.json` did not yet set one, so the Checker still fell back to
+  the Maker's own model in practice; [PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (merged
+  2026-09-17) actually configured a separate `checker_model`, completing the change and properly closing
+  [issue #31](https://github.com/ShamikM88/open-cam-framework/issues/31) (reopened after PR #43 had closed it
+  prematurely on the capability alone). Before PR #53, independence meant separate prompts, not yet separate
+  models. The Checker's value comes from auditing cold either way.
 - **Anything that can be computed is computed by code, and enforced by code**
   ([D2](decisions.md#d2-anything-that-can-be-computed-is-computed-by-code-and-enforced-by-code)). Ratios and
   covenant results come from `spreading_builder.py` and `policy_engine.py`, never from the model. A code-enforced
@@ -179,7 +182,8 @@ That same audit, on the same day, opened a tracked backlog of 19 further issues 
 requests closed the highest-priority tranche of that backlog over the following day, 2026-09-14:
 [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41) (#27, #21, #34),
 [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42) (#22, #23),
-[PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (#31, #32, #26), and
+[PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (#31 - reopened days later, see
+[Product principles](#product-principles) on D1; #32, #26), and
 [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) (#36, #37) - ten of the nineteen, in order of
 severity rather than issue number. The remainder of that backlog, and every issue surfaced by a later audit pass,
 is tracked under the repository's [`gap-analysis` label](https://github.com/ShamikM88/open-cam-framework/labels/gap-analysis),
@@ -259,7 +263,7 @@ validated single-analyst MVP to something a wider credit organisation could trus
 | The debt-free DSCR defect and its fix | [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) |
 | The 19-issue backlog opened at MVP close, and its first four closing pull requests | [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41), [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42), [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43), [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) |
 | Independent prompts, deterministic computation, checkpointed state and the UNRESOLVABLE rule - the MVP v1 principles above | [Design decisions](decisions.md), D1 through D3, D5 |
-| Independent Maker/Checker models (closing issue #31) | [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) |
+| Independent Maker/Checker models - capability, then actual configuration, closing issue #31 | [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (capability), [PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (configured, closes #31) |
 | Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149) (D9) |
 | Test-count checkpoints | PR #20's own checklist (188), [PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118) (439) |
 | 0.5% ground-truth tolerance, one-analyst validation, 15-30 minute target | the published OpenCAM case study (linked from the project README) |

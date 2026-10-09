@@ -36,8 +36,9 @@ workflow below; MVP v1 does not define a separate calibration-owner role.
 1. Gather borrower information and financial statements for the deal.
 2. Spread the financials: MVP v1 supported only `/spread` computing every ratio from raw line items.
 3. Prepare the qualitative research.
-4. Draft the CAM: the Underwriter drafts, every figure it declares in its structured output is checked against
-   the computed value, and the Risk Reviewer audits the result.
+4. Draft the CAM: the Underwriter drafts, the Risk Reviewer audits the result, and a code-enforced check then
+   verifies every figure the Underwriter declared in its structured output against the computed value - see
+   [Core workflow and product boundaries](#core-workflow-and-product-boundaries) for the exact order.
 5. Review, edit and export the final draft - an editable `.docx` CAM and an `.xlsx` spreading workbook.
 6. Decide whether the output is good enough to use, and what needs manual correction before it does.
 
@@ -114,19 +115,24 @@ The pipeline below is the system-internal version of the user journey above. The
 product's own controls, not an implementation detail:
 
 1. The analyst supplies source material (borrower financials, research, prior CAMs where available).
-2. Deterministic computation runs first, producing ratios, subtotals, and covenant/policy results.
-3. The Maker drafts the narrative. It receives those deterministically computed figures as input, and never
-   recalculates them itself.
-4. A ground-truth check compares every figure the Maker *declares in its structured output* against those same
-   deterministically computed figures, within a 0.5% tolerance, before the Checker ever sees the draft - see R4
-   below for what "declares" does and doesn't cover.
-5. The Checker audits the draft cold, with no shared reasoning context with the Maker, and can only downgrade
-   its verdict.
-6. The analyst reviews the audited draft and makes the credit decision.
+2. Deterministic computation runs first: ratios, subtotals, ground-truth figures and covenant/policy state are
+   all computed before either agent runs.
+3. The Maker drafts the narrative from that computed data, declaring every figure it used in a structured
+   `reported_figures` block in its output (R4).
+4. The Checker reviews the draft - given the same computed ground truth and policy state as the Maker - and
+   returns its own qualitative APPROVED/REJECTED verdict, on a separate model call with no shared reasoning
+   context with the Maker (R3).
+5. A code-enforced overlay (`_apply_deterministic_policy_checks()`) then re-checks the draft deterministically:
+   every figure declared in `reported_figures`, within 0.5% of its computed value; covenant, security, CP and
+   credit-policy compliance. It can only move the verdict from APPROVED to REJECTED, never the reverse - this is
+   the check R4 describes, and it runs *after* the Checker's own review, not before it. A REJECTED verdict from
+   either the Checker or this overlay sends the draft back to the Maker for revision.
+6. Once APPROVED, the analyst reviews the audited draft and makes the credit decision.
 
-Each transition in that sequence is a trust boundary. The Maker receives deterministically computed ground-truth
-figures as input; what it writes back is checked against those same figures before the Checker ever reviews the
-draft; the Checker only ever reviews narrative it can still downgrade; the analyst is the only party who decides.
+Each transition in that sequence is a trust boundary. The Maker and the Checker both work from the same
+deterministically computed figures, never from each other's reasoning; the Checker's own qualitative verdict is
+itself subject to a code-enforced overlay that can downgrade it but never upgrade it; the analyst is the only
+party who decides.
 
 What is explicitly outside this boundary for MVP v1 - AML/sanctions/PEP screening, multi-currency support, full
 covenant step-down modelling - is listed in [MVP v1 scope](#mvp-v1-scope) below.
@@ -172,23 +178,32 @@ zero debt service, DSCR resolves to N/A and its covenant resolves to UNRESOLVABL
 [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) fixed exactly this case and added regression
 coverage.
 
-**R3 - Independent review.** The Checker audits the Maker's draft without inheriting its reasoning context, and
-can only downgrade a verdict. *Acceptance:* given a Maker-drafted CAM, the Checker audits it without inheriting
-the Maker's reasoning context, and can downgrade but never upgrade the verdict. This was validated as a real
-production gap, not just asserted in code - see the issue #31 reopening in the
-[Evidence appendix](#evidence-appendix).
+**R3 - Independent review.** The Checker audits the Maker's draft on a separate model call, without inheriting
+its reasoning context. *Acceptance:* given a Maker-drafted CAM, the Checker reviews it with no shared reasoning
+context with the Maker - and, since 2026-09-17, on a genuinely different underlying model (D1,
+[Evidence appendix](#evidence-appendix)). The issue #31 reopening is evidence for that specific dimension of
+independence (same model vs. different model); it does not by itself establish the Checker's error-detection
+rate, which remains unmeasured (see [Success measures](#success-measures-and-validation-status)).
+
+The downgrade-only guarantee is a separate, code-enforced mechanism, not a property of the Checker's own
+judgement: `_apply_deterministic_policy_checks()` re-checks the draft deterministically *after* the Checker's own
+verdict and can only move a verdict from APPROVED to REJECTED, never the reverse - tested directly by
+`tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved`.
 
 **R4 - Ground-truth verification.** Every figure the Maker declares in its structured `reported_figures` output
 (`scripts/policy_checks.py`) is checked against the deterministically computed value for that metric, within a
-0.5% tolerance, before the Checker reviews it. This is narrower than "every number in the narrative": a figure
-that appears in the drafted prose but was never captured in the Maker's structured declaration is not guaranteed
-to be checked by this mechanism - the implementation does not currently detect undeclared numeric figures.
-Analyst-supplied figures are outside this check by definition - the framework has no independently computed
-value to check them against - and carry their own explicit caveat instead (D4, [Evidence appendix](#evidence-appendix)).
-*Acceptance:* for every metric the Maker declares in `reported_figures`, the declared value is within 0.5% of
-that metric's computed ground truth before the Checker reviews it; a mismatch beyond that tolerance is a
-Checker-visible finding, not a silent pass. This acceptance condition covers declared figures only, not an
-exhaustive scan of the narrative text.
+0.5% tolerance. In the pipeline this check runs as part of the code-enforced overlay applied *after* the
+Checker's own review (R3's `_apply_deterministic_policy_checks()`), not before the Checker sees the draft - a
+mismatch forces REJECTED regardless of what the Checker itself concluded. This is narrower than "every number in
+the narrative": a figure that appears in the drafted prose but was never captured in the Maker's structured
+declaration is not guaranteed to be checked by this mechanism - the implementation does not currently detect
+undeclared numeric figures. Analyst-supplied figures are outside this check by definition - the framework has no
+independently computed value to check them against - and carry their own explicit caveat instead (D4,
+[Evidence appendix](#evidence-appendix)). *Acceptance:* for every metric the Maker declares in
+`reported_figures`, the declared value is within 0.5% of that metric's computed ground truth; a mismatch forces
+REJECTED via the code-enforced overlay regardless of the Checker's own verdict - tested by
+`tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_rejects_a_mismatched_reported_figure`.
+This acceptance condition covers declared figures only, not an exhaustive scan of the narrative text.
 
 **R5 - Deterministic policy evaluation.** Covenant and compliance checks are evaluated PASS, FAIL or UNRESOLVABLE
 against raw financials, never by asking the model to judge compliance in prose. *Acceptance:* given a defined
@@ -345,5 +360,6 @@ default branch is the CI-enforced source, per [D14](decisions.md#d14-the-test-co
 | Independent Maker/Checker models - capability, then actual configuration, closing issue #31 | [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (capability), [PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (configured, closes #31) |
 | Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149)/[PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159) (D9) |
 | R4's `reported_figures` scoping | [`scripts/policy_checks.py`](https://github.com/ShamikM88/open-cam-framework/blob/main/scripts/policy_checks.py), `check_reported_figures()` |
+| R3/R4's actual sequencing (overlay runs after the Checker, not before) and downgrade-only guarantee | [`scripts/orchestrator.py`](https://github.com/ShamikM88/open-cam-framework/blob/main/scripts/orchestrator.py), `_apply_deterministic_policy_checks()`; `tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved` and `test_apply_deterministic_policy_checks_rejects_a_mismatched_reported_figure` |
 | Test-count checkpoints | PR #20's own checklist (188), [PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118) (439) |
 | 0.5% ground-truth tolerance, one-analyst validation, 15-30 minute target | the published OpenCAM case study (linked from the project README) |

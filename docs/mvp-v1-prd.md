@@ -31,16 +31,20 @@ administrative step - calibrating an institution's own CAM templates and credit-
 `/calibrate` and `/calibrate-policy` - happens once before any deal is worked, and is not part of the per-deal
 workflow below; MVP v1 does not define a separate calibration-owner role.
 
-**The primary workflow (reconstructed from the shipped commands and their order):**
+**The primary workflow for MVP v1 (reconstructed from the shipped commands and their order):**
 
 1. Gather borrower information and financial statements for the deal.
-2. Establish which figures the framework can independently compute from raw line items, and which the analyst
-   must supply directly because the borrower's own reporting convention doesn't fit the raw schema.
-3. Prepare the financial spread and conduct qualitative research.
-4. Draft the CAM: the Underwriter drafts, every framework-computed figure the draft reports is checked against
-   its computed value, and the Risk Reviewer audits the result.
+2. Spread the financials: MVP v1 supported only `/spread` computing every ratio from raw line items.
+3. Prepare the qualitative research.
+4. Draft the CAM: the Underwriter drafts, every figure it declares in its structured output is checked against
+   the computed value, and the Risk Reviewer audits the result.
 5. Review, edit and export the final draft - an editable `.docx` CAM and an `.xlsx` spreading workbook.
 6. Decide whether the output is good enough to use, and what needs manual correction before it does.
+
+**Post-MVP extension.** An alternative to step 2 - recording an analyst's own pre-spread figures as given,
+rather than recomputing them from raw line items, for borrowers whose reporting convention doesn't fit the raw
+schema - shipped after MVP v1 (D4, [Evidence appendix](#evidence-appendix)). It is not part of the MVP v1
+workflow reconstructed above.
 
 **When source material is incomplete, conflicting, or not suitable for deterministic validation,** the product's
 answer is to mark the affected figure or covenant N/A or UNRESOLVABLE rather than guess at it, and leave the
@@ -53,7 +57,9 @@ record of goals set down before implementation:
 
 - Reduce the time needed to produce a useful first CAM draft.
 - Prevent unsupported or incorrectly calculated financial figures from silently reaching the draft.
-- Preserve an inspectable record of inputs, calculations, review findings and the human decision.
+- Support the analyst's decision with an inspectable record of inputs, calculations and review findings - the
+  persisted state covers these and the Checker's own verdict, not a record of the analyst's final credit
+  decision itself, which the framework does not currently capture.
 - Let the analyst review and edit the exported CAM without losing the ability to audit its numbers.
 
 **Reconstructed product hypothesis:**
@@ -111,8 +117,9 @@ product's own controls, not an implementation detail:
 2. Deterministic computation runs first, producing ratios, subtotals, and covenant/policy results.
 3. The Maker drafts the narrative. It receives those deterministically computed figures as input, and never
    recalculates them itself.
-4. A ground-truth check compares every figure the Maker's draft *reports* in its narrative against those same
-   deterministically computed figures, within a 0.5% tolerance, before the Checker ever sees the draft.
+4. A ground-truth check compares every figure the Maker *declares in its structured output* against those same
+   deterministically computed figures, within a 0.5% tolerance, before the Checker ever sees the draft - see R4
+   below for what "declares" does and doesn't cover.
 5. The Checker audits the draft cold, with no shared reasoning context with the Maker, and can only downgrade
    its verdict.
 6. The analyst reviews the audited draft and makes the credit decision.
@@ -145,6 +152,11 @@ Forward-year projections, stress testing, Conditions Subsequent tracking and sou
 not part of MVP v1's own scope call; they were delivered later, in the hardening pass described in the
 [Evidence appendix](#evidence-appendix).
 
+The Should row is a priority classification, not a claim that the capability shipped inside the Must-have
+foundation: [PR #24](https://github.com/ShamikM88/open-cam-framework/pull/24) merged 2026-09-13, the same day as
+[PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) but about six hours later, as the immediate
+fast-follow to the Must-have foundation rather than part of it.
+
 ## Requirements and acceptance criteria
 
 Each requirement below carries the acceptance condition that would show it is met - scenario, expected behaviour,
@@ -166,13 +178,17 @@ the Maker's reasoning context, and can downgrade but never upgrade the verdict. 
 production gap, not just asserted in code - see the issue #31 reopening in the
 [Evidence appendix](#evidence-appendix).
 
-**R4 - Ground-truth verification.** Every figure the Maker reports in the narrative that the framework itself
-computed is checked against that computed value, within a 0.5% tolerance, before the Checker reviews it.
+**R4 - Ground-truth verification.** Every figure the Maker declares in its structured `reported_figures` output
+(`scripts/policy_checks.py`) is checked against the deterministically computed value for that metric, within a
+0.5% tolerance, before the Checker reviews it. This is narrower than "every number in the narrative": a figure
+that appears in the drafted prose but was never captured in the Maker's structured declaration is not guaranteed
+to be checked by this mechanism - the implementation does not currently detect undeclared numeric figures.
 Analyst-supplied figures are outside this check by definition - the framework has no independently computed
 value to check them against - and carry their own explicit caveat instead (D4, [Evidence appendix](#evidence-appendix)).
-*Acceptance:* for every figure the framework itself computed, the value the Maker's narrative reports is within
-0.5% of that computed ground truth before the Checker reviews it; a mismatch beyond that tolerance is a
-Checker-visible finding, not a silent pass.
+*Acceptance:* for every metric the Maker declares in `reported_figures`, the declared value is within 0.5% of
+that metric's computed ground truth before the Checker reviews it; a mismatch beyond that tolerance is a
+Checker-visible finding, not a silent pass. This acceptance condition covers declared figures only, not an
+exhaustive scan of the narrative text.
 
 **R5 - Deterministic policy evaluation.** Covenant and compliance checks are evaluated PASS, FAIL or UNRESOLVABLE
 against raw financials, never by asking the model to judge compliance in prose. *Acceptance:* given a defined
@@ -189,9 +205,12 @@ system produces a `.docx` CAM editable as a normal Word document and an `.xlsx` 
 live formulas, not hardcoded values.
 
 **R8 - Confidentiality.** Anything derived from real deal material stays out of version control.
-*Acceptance:* given any file derived from real deal material, it is excluded from git by `.gitignore` from the
-project's earliest commits (2026-09-12); from 2026-10-02 a CI test (D9) fails the build if such a file is tracked
-anyway - see the [Evidence appendix](#evidence-appendix) for why that date is after MVP v1's close.
+*Acceptance:* given any file under one of the repository's protected paths, it is excluded from git by
+`.gitignore` from the project's earliest commits (2026-09-12); from 2026-10-03 a CI test (D9,
+[PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159)) fails the build if a protected path is
+tracked anyway. This confirms the listed protected paths stay untracked - it is not a claim that no real deal
+data has ever appeared anywhere in the repository's history. See the
+[Evidence appendix](#evidence-appendix) for why that date is after MVP v1's close.
 
 **R9 - Fail closed on missing or invalid data.** Where the system cannot establish a valid result, it exposes the
 uncertainty rather than guessing. *Acceptance:* given a required input the analyst has not supplied, or a value
@@ -205,11 +224,11 @@ What is actually known today, kept separate from what is estimated or not yet me
 | Measure | Status | Detail |
 | :--- | :--- | :--- |
 | Time to first useful draft | Estimated | 15-30 minutes, down from roughly a business day, is the one analyst's working target. No documented timing method or baseline exists for this figure - treat it as early single-user feedback, not a measured result. |
-| Ground-truth match on framework-computed figures | Design guarantee, not aggregated | The 0.5% tolerance (R4) is enforced on every run; no measured match-rate across multiple deals has been collected. |
+| Ground-truth match on declared figures | Design guarantee, not aggregated | The 0.5% tolerance (R4) is enforced on every run for figures the Maker declares in `reported_figures`; no measured match-rate across multiple deals has been collected, and the mechanism does not cover undeclared figures in the narrative. |
 | Checker catch rate on Maker errors | Not yet measured | The DSCR defect was caught by a codebase audit, not observed as a live Checker catch on a real draft. No evaluation measures how often the Checker actually flags an error the Maker introduced. |
-| Silent financial errors | Zero, by design | The debt-free DSCR case is the concrete instance that was tested and held. |
+| Silent financial errors | Design target: zero; one scenario verified | Zero silent financial errors is the design target, not a measured outcome. The debt-free DSCR case is the one concrete regression scenario verified; the overall rate across real deals has not been measured. |
 | Analyst can use and edit output without material rework | Observed qualitatively | The one analyst continues using the workflow; no measured rework rate exists. |
-| Confidentiality | Measured | Zero real deal data in source control: `.gitignore`-enforced since 2026-09-12, CI-enforced since 2026-10-02 (D9). |
+| Confidentiality | Measured, scoped | Zero tracked files under the repository's protected paths: `.gitignore`-enforced since 2026-09-12, CI-enforced since 2026-10-03 (the test implementing D9, [PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159)). This confirms the specific protected paths stay untracked; it is not an audit of the repository's complete history. |
 | Adoption | Measured | One analyst, ongoing, early-stage. |
 
 Regression-suite growth (test counts at specific checkpoints, and why no current figure is quoted here) is in the
@@ -299,7 +318,9 @@ persisting analyst-confirmed conventions as local memory - traces to
 [issue #89](https://github.com/ShamikM88/open-cam-framework/issues/89), both opened 2026-09-25.
 [D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it) - the CI-enforced
 guard against confidential material being tracked - traces to
-[issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149), opened 2026-10-02.
+[issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149), opened 2026-10-02 and closed
+2026-10-03 when [PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159) merged, implementing the
+test. The guard is scoped to the paths named in `tests/test_confidential_paths.py`'s protected-path list.
 
 **Test-count checkpoints.** Two fixed, historical facts, each tied to an immutable merge:
 
@@ -322,6 +343,7 @@ default branch is the CI-enforced source, per [D14](decisions.md#d14-the-test-co
 | The 19-issue backlog opened at MVP close, and its first four closing pull requests | [PR #41](https://github.com/ShamikM88/open-cam-framework/pull/41), [PR #42](https://github.com/ShamikM88/open-cam-framework/pull/42), [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43), [PR #45](https://github.com/ShamikM88/open-cam-framework/pull/45) |
 | Independent prompts, deterministic computation, checkpointed state and the UNRESOLVABLE rule - the MVP v1 principles | [Design decisions](decisions.md), D1 through D3, D5 |
 | Independent Maker/Checker models - capability, then actual configuration, closing issue #31 | [PR #43](https://github.com/ShamikM88/open-cam-framework/pull/43) (capability), [PR #53](https://github.com/ShamikM88/open-cam-framework/pull/53) (configured, closes #31) |
-| Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149) (D9) |
+| Analyst-supplied figures (D4), persisted conventions (D8) and the CI-enforced confidentiality guard (D9) - all post-MVP | [issue #55](https://github.com/ShamikM88/open-cam-framework/issues/55) (D4), [issue #86](https://github.com/ShamikM88/open-cam-framework/issues/86)/[#89](https://github.com/ShamikM88/open-cam-framework/issues/89) (D8), [issue #149](https://github.com/ShamikM88/open-cam-framework/issues/149)/[PR #159](https://github.com/ShamikM88/open-cam-framework/pull/159) (D9) |
+| R4's `reported_figures` scoping | [`scripts/policy_checks.py`](https://github.com/ShamikM88/open-cam-framework/blob/main/scripts/policy_checks.py), `check_reported_figures()` |
 | Test-count checkpoints | PR #20's own checklist (188), [PR #118](https://github.com/ShamikM88/open-cam-framework/pull/118) (439) |
 | 0.5% ground-truth tolerance, one-analyst validation, 15-30 minute target | the published OpenCAM case study (linked from the project README) |

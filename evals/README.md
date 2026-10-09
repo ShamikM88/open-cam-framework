@@ -1,8 +1,10 @@
 # Local live-model evaluation harness
 
-Tracked in issue #151. **Status: the dataset, oracles and dry run (PR 1) and the live runner with
-baseline export/compare (PR 2) are built. No live evaluation has been run yet** -- the first run, and
-the first baseline, are deliberate steps taken only after this code has been reviewed.
+Tracked in issue #151. **The dataset, oracles and dry run (PR 1) and the live runner with
+baseline export/compare (PR 2) are built.** A live run and a baseline are deliberate, manual steps taken
+only after this code has been reviewed. The current evaluation status is under "Project status" in
+[docs/README.md](../docs/README.md#project-status) and in issue #151; this page describes how the harness
+works and does not record it.
 
 The test suite proves the *code* around the model works. It cannot show whether the *model* follows
 the prompts: refuses to invent a missing figure, flags contradictions, labels analyst-supplied

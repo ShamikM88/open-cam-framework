@@ -418,8 +418,8 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   explicit `python scripts/run_evals.py`, never imported by `orchestrator.py`, `conftest.py` or CI; a hard call
   ceiling is checked **before the API key is read**; synthetic data only; results only under git-ignored
   `evals/results/`; a baseline is committed only by a deliberate manual step. The tests exercise it with fake
-  clients: zero model calls, no key. As of 2026-10-04 no live evaluation has been run (issue #151). See
-  [evaluation](docs/evaluation.md).
+  clients: zero model calls, no key. The current evaluation status is under "Project status" in
+  [docs/README.md](docs/README.md#project-status) and in issue #151. See [evaluation](docs/evaluation.md).
 
 Both `calibrate.py` and `orchestrator.py` require `ANTHROPIC_API_KEY` in the environment and the
 model configured in `config/settings.json`.

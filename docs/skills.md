@@ -72,8 +72,9 @@ repairs a citation, a URL, a filename or a date. The script it runs, `source_man
 prints `true` only when `triage` or `commercial` declares a non-blank citation under `sources` and the manifest has no
 entries at all. It does not match citations to entries, check that a file exists, or look at citations kept elsewhere, and
 `false` does not mean every citation is backed. The skill does that reading itself, checks that the manifest is a JSON list
-of objects before using it, and reports an unreadable one as a tool error ([#207](https://github.com/ShamikM88/open-cam-framework/issues/207)
-tracks hardening the script itself).
+of objects before using it, and reports an unreadable one as a tool error. The script itself now fails cleanly on an unreadable, non-JSON or
+wrong-shaped manifest (one `error:` line, exit status 1, [#207](https://github.com/ShamikM88/open-cam-framework/issues/207)); the
+skill keeps its own check as defence in depth.
 
 ### `financial-analysis`
 

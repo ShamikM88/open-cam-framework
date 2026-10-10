@@ -298,3 +298,93 @@ def test_missing_saved_sources_degrades_safely_on_a_malformed_section():
     a wrong-typed field elsewhere in this framework."""
     state = {"triage": ["not", "a", "dict"], "commercial": "also not a dict"}
     assert missing_saved_sources(state, manifest=[]) is False
+
+
+# ---------------------------------------------------------------------------
+# A manifest that cannot be used is a controlled error, never a traceback or a false "nothing saved" (#207)
+# ---------------------------------------------------------------------------
+
+from source_manifest import ManifestError
+from state_manager import StateError
+
+UNUSABLE_MANIFESTS = [
+    pytest.param(b"{ not json", "not valid JSON", id="invalid-json"),
+    pytest.param(b"", "not valid JSON", id="empty-file"),
+    pytest.param(b"\xff\xfe[]", "not valid UTF-8 text", id="not-utf8"),
+    pytest.param(b"{}", "not a list of entries", id="empty-object"),
+    pytest.param(b"null", "not a list of entries", id="null"),
+    pytest.param(b'{"a": 1}', "not a list of entries", id="object"),
+    pytest.param(b'"text"', "not a list of entries", id="string"),
+    pytest.param(b"123", "not a list of entries", id="number"),
+    pytest.param(b"[1]", "entry 1 is not an object", id="list-of-numbers"),
+    pytest.param(b'[{"filename": "a.txt"}, "x"]', "entry 2 is not an object", id="list-with-a-string"),
+    pytest.param(b"[[]]", "entry 1 is not an object", id="nested-list"),
+]
+
+
+def _deal_with_manifest(tmp_path, content):
+    base = str(tmp_path)
+    directory = sources_dir("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(directory)
+    path = os.path.join(directory, "manifest.json")
+    with open(path, "wb") as f:
+        f.write(content)
+    return base, directory, path
+
+
+@pytest.mark.parametrize("content, why", UNUSABLE_MANIFESTS)
+def test_read_manifest_refuses_an_unusable_manifest_and_leaves_it_untouched(tmp_path, content, why):
+    base, _, path = _deal_with_manifest(tmp_path, content)
+    with pytest.raises(ManifestError) as raised:
+        read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    message = str(raised.value)
+    assert why in message and "manifest.json" in message and "the file was not modified" in message
+    assert len(message.splitlines()) == 1
+    assert isinstance(raised.value, StateError) and isinstance(raised.value, ValueError), "callers that caught either still do"
+    with open(path, "rb") as f:
+        assert f.read() == content
+
+
+def test_read_manifest_wraps_a_file_that_cannot_be_read(tmp_path):
+    base = str(tmp_path)
+    directory = sources_dir("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(os.path.join(directory, "manifest.json"))          # a folder where the file should be
+    with pytest.raises(ManifestError, match="cannot be read") as raised:
+        read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    assert isinstance(raised.value.__cause__, OSError)
+
+
+@pytest.mark.parametrize("content, expected", [
+    (b"[]", []),
+    (b'[{"filename": "a.txt", "step": "triage"}]', [{"filename": "a.txt", "step": "triage"}]),
+    (b'[{"filename": "a.txt"}, {"filename": "b.txt", "url": null}]',
+     [{"filename": "a.txt"}, {"filename": "b.txt", "url": None}]),
+])
+def test_a_valid_manifest_reads_exactly_as_before(tmp_path, content, expected):
+    base, _, _ = _deal_with_manifest(tmp_path, content)
+    assert read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base) == expected
+
+
+def test_no_manifest_at_all_is_still_an_empty_record_not_an_error(tmp_path):
+    assert read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path)) == []
+
+
+@pytest.mark.parametrize("content, why", UNUSABLE_MANIFESTS)
+def test_save_source_refuses_an_unusable_manifest_before_it_copies_anything(tmp_path, content, why):
+    base, directory, path = _deal_with_manifest(tmp_path, content)
+    source_path = _local_file(tmp_path, name="filing.txt", content=b"the filing")
+    with pytest.raises(ManifestError, match=why):
+        save_source("Acme Corp", "Fleet Loan", step="triage", claim="Legal identity", source_path=source_path,
+                    date_str="2026-01-15", base_dir=base)
+    assert sorted(os.listdir(directory)) == ["manifest.json"], "no copied image or document, no temporary or lock file"
+    with open(path, "rb") as f:
+        assert f.read() == content
+
+
+def test_save_source_still_appends_to_a_valid_manifest(tmp_path):
+    base, directory, path = _deal_with_manifest(tmp_path, b'[{"filename": "old.txt"}]')
+    source_path = _local_file(tmp_path, name="filing.txt", content=b"the filing")
+    entry = save_source("Acme Corp", "Fleet Loan", step="triage", claim="Legal identity", source_path=source_path,
+                        date_str="2026-01-15", base_dir=base)
+    assert read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base) == [{"filename": "old.txt"}, entry]
+    assert sorted(os.listdir(directory)) == ["filing.txt", "manifest.json"]

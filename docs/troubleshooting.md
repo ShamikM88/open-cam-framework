@@ -180,6 +180,13 @@ change. Stop the loop and resolve the structure with the analyst.
 
 ## Sources and exports
 
+### `error: Cannot use .../sources/manifest.json: ...`
+
+`source_manifest.py` (either mode) found a `sources/manifest.json` it cannot use: invalid JSON, not UTF-8 text, a value that
+is not a list, or an entry that is not an object. Nothing was changed, and nothing was read as "no sources saved". Fix the
+file by hand or restore it from a backup (it is a list of objects with `filename`, `url`, `step`, `claim` and
+`fetched_date`). A company or proposal containing a character that is not valid in a folder name is refused the same way.
+
 ### The step stops about saved sources
 
 `source_manifest.py --check-sources` printed `{"missing_saved_sources": true}`: the step declared citations but saved

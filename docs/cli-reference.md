@@ -269,7 +269,10 @@ python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposa
 [--filename <name>]` copies an already-downloaded document into the deal's `sources/` folder and appends an entry
 (`filename`, `url`, `step`, `claim`, `fetched_date`) to `sources/manifest.json`; it never fetches anything. With
 `--check-sources` instead it prints `{"missing_saved_sources": true|false}`: true when the deal declared citations but
-saved no material. It exits `0` whatever the result.
+saved no material. It exits `0` whatever the result. A `sources/manifest.json` that cannot be used (unreadable, not UTF-8,
+not JSON, not a list, or a list with an entry that is not an object), and a company or proposal that is not a safe folder
+name, are not results: each is one `error:` line, exit status `1`, no traceback and no JSON on stdout, and the file is never
+modified. Saving checks the manifest before it copies anything, so a refusal leaves no copied document behind.
 
 ```bash
 python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \

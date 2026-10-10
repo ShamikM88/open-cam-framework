@@ -267,3 +267,22 @@ def test_the_schema_version_the_data_model_page_shows_is_the_one_the_code_writes
     shown = set(re.findall(r'"schema_version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"', read("docs/data-model.md")))
     assert shown == {SCHEMA_VERSION}, (
         f"docs/data-model.md shows schema_version {sorted(shown)}; scripts/state_manager.py writes {SCHEMA_VERSION}")
+
+
+# ---------------------------------------------------------------------------
+# Checker independence by interface (issue #204): the interactive claim is about the command files
+# ---------------------------------------------------------------------------
+
+def test_the_pages_say_interactive_review_shares_the_drafts_conversation_for_as_long_as_it_does():
+    """`/review` runs in the conversation that holds the draft unless a command isolates it (a forked context or a
+    subagent). Nothing does today, so the pages that distinguish the interfaces must say so. If #204 is resolved by
+    isolating `/review`, the first assertions fail: update those pages in the same change."""
+    from test_skill_inventory import frontmatter
+    commands = REPO / ".claude" / "commands"
+    review = frontmatter((commands / "review.md").read_text(encoding="utf-8"))
+    assert "context" not in review and "agent" not in review, "/review is isolated now: revise the interface statements"
+    for name in ("assemble", "research", "review"):
+        text = (commands / f"{name}.md").read_text(encoding="utf-8")
+        assert not re.search(r"\bsubagent\b|\bAgent tool\b|\bTask tool\b", text), f"{name}.md starts a subagent"
+    for page in ("docs/ai-assurance.md", "docs/mvp-v1-prd.md"):
+        assert "same conversation" in " ".join(read(page).split()), page

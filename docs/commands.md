@@ -19,8 +19,9 @@ worked examples are in [Workflows](workflows.md).
   with `scripts/source_manifest.py`, so a claim can be checked against the exact material later. Scratch artefacts are
   not saved.
 - **Roles.** `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project` and `/assemble` act as the
-  Underwriter (`agents/underwriter_agent.md`); `/review` acts as the independent Risk Reviewer
-  (`agents/risk_reviewer_agent.md`).
+  Underwriter (`agents/underwriter_agent.md`); `/review` acts as the Risk Reviewer
+  (`agents/risk_reviewer_agent.md`) as a separate role prompt in the same conversation as the draft; see
+  [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters) for what that does and does not guarantee.
 - **Cost and authentication.** All of them run on your Claude Code login, with no `ANTHROPIC_API_KEY`. The
   deterministic scripts they call run locally with no network. Whatever the session reads or you type is sent to the
   model that serves your Claude Code session, and `/triage`, `/research` and `/commercial` may also fetch public web

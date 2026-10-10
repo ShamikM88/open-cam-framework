@@ -35,7 +35,9 @@ so in its Related line) when a later decision supersedes it.
   `checker_model`). `/research` gets a scoped-down Checker pass too (grounding and narrative checks, not the
   credit-policy and risk-mitigant ones, since no lending decision exists yet).
 - **Why.** The Checker's value is auditing the Maker's output cold.
-- **Consequences.** The prompts must not be merged or cross-referenced. Prompt text is recorded by content hash
+- **Consequences.** The prompts must not be merged or cross-referenced. Independence is per interface: headless, the
+  Checker is a separate call; in a slash-command session `/review` is a separate role prompt in the draft's own
+  conversation ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)). Prompt text is recorded by content hash
   in a deal's `model_provenance`, and an evaluation baseline records it too, so editing a prompt is a deliberate
   act that makes earlier comparisons stale.
 - **Related.** #31 (separate Checker model), #87 (`/research` review).

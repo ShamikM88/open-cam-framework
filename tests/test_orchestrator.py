@@ -1800,3 +1800,26 @@ def test_a_changed_assumption_is_still_allowed_with_a_fresh_recomputation_or_wit
     state = read_state("Acme Corp", "Fleet Loan")
     assert state["forecast_source"] is None and state["stress_assumptions"] == {"revenue_haircut_pct": 30}
     assert state["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 70, "recomputed from the fresh figures"
+
+
+# ---------------------------------------------------------------------------
+# Checker independence by interface (issue #204): the headless claim is about this code
+# ---------------------------------------------------------------------------
+
+def test_the_headless_checker_call_is_a_fresh_single_message_with_no_maker_prompt_or_earlier_reply(project_root):
+    """The documentation (docs/ai-assurance.md, docs/mvp-v1-prd.md R3) says the headless Checker audits on a separate
+    model call that does not inherit the Maker's reasoning context. This is that claim in code: every Checker call is one
+    new user message of the Checker prompt, the grounding context and the draft, across a revision loop, and the Maker's
+    calls carry no Checker prompt. (The Checker does see the draft it audits; that is the point.)"""
+    client = MockClient([_compliant_draft(), _rejected_json("FIRST AUDIT NOTES"),
+                         _compliant_draft(body="# Revised draft"), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    maker_first, checker_first, maker_revision, checker_second = client.calls
+    for call in (checker_first, checker_second):
+        (message,) = call["messages"]
+        assert message["role"] == "user" and message["content"].startswith("CHECKER PROMPT")
+        assert "MAKER PROMPT" not in message["content"] and "Draft to review:" in message["content"]
+    assert "FIRST AUDIT NOTES" not in checker_second["messages"][0]["content"], "no earlier audit carries over"
+    assert "# Revised draft" in checker_second["messages"][0]["content"]
+    for call in (maker_first, maker_revision):
+        assert len(call["messages"]) == 1 and "CHECKER PROMPT" not in call["messages"][0]["content"]

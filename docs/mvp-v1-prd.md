@@ -85,7 +85,10 @@ of scope for this document.
   They never import each other or share the Maker's reasoning. This was true from the start of MVP v1; the
   ability to configure the two to run on different underlying models came later and in two steps - see the
   [Evidence appendix](#evidence-appendix) for the dates. Before that second step, independence meant separate
-  prompts, not yet separate models; the Checker's value comes from auditing cold either way.
+  prompts, not yet separate models; the Checker's value comes from auditing cold either way. What independence means
+  also depends on the interface: in the headless pipeline the Checker is a separate model call, while an interactive
+  `/review` runs in the same conversation as the draft, with a separate role prompt but not an isolated context (see
+  R3).
 - **Anything that can be computed is computed by code, and enforced by code**
   ([D2](decisions.md#d2-anything-that-can-be-computed-is-computed-by-code-and-enforced-by-code)). Ratios and
   covenant results come from deterministic calculation code, never from the model. A code-enforced rejection
@@ -108,8 +111,8 @@ pull request - but it was not yet the CI-enforced guarantee D9 later codified; s
 **Maker and Checker name the two AI agents, not people** - [D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)
 states this plainly: *"the Maker and the Checker are independent prompts."* The Maker is the Underwriter agent;
 the Checker is the Risk Reviewer agent. This separation is the point: a single agent auditing its own draft
-agrees with itself, so the product gives the analyst two independent AI opinions to work from rather than one
-agent wearing two hats. Neither agent is permitted to make the credit decision - that stays with the analyst.
+agrees with itself, so the product gives the analyst two AI opinions, from separate prompts, to work from rather than one
+agent wearing two hats (separate model calls on the headless path; see R3 for the interactive one). Neither agent is permitted to make the credit decision - that stays with the analyst.
 
 The pipeline below is the system-internal version of the user journey above. The layer boundaries are the
 product's own controls, not an implementation detail:
@@ -120,8 +123,9 @@ product's own controls, not an implementation detail:
 3. The Maker drafts the narrative from that computed data, declaring every figure it used in a structured
    `reported_figures` block in its output (R4).
 4. The Checker reviews the draft - given the same computed ground truth and policy state as the Maker - and
-   returns its own qualitative APPROVED/REJECTED verdict, on a separate model call with no shared reasoning
-   context with the Maker (R3).
+   returns its own qualitative APPROVED/REJECTED verdict. This is the headless pipeline: a separate model call with no
+   shared reasoning context with the Maker. In an interactive session `/review` plays this part in the same
+   conversation as the draft (R3).
 5. A code-enforced overlay (`_apply_deterministic_policy_checks()`) then re-checks the draft deterministically:
    every figure declared in `reported_figures`, within 0.5% of its computed value; covenant, security, CP and
    credit-policy compliance. It can only move the verdict from APPROVED to REJECTED, never the reverse - this is
@@ -178,10 +182,22 @@ zero debt service, DSCR resolves to N/A and its covenant resolves to UNRESOLVABL
 [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) fixed exactly this case and added regression
 coverage.
 
-**R3 - Independent review.** The Checker audits the Maker's draft on a separate model call, without inheriting
-its reasoning context. *Acceptance:* given a Maker-drafted CAM, the Checker reviews it with no shared reasoning
-context with the Maker - and, since 2026-09-17, on a genuinely different underlying model (D1,
-[Evidence appendix](#evidence-appendix)). The issue #31 reopening is evidence for that specific dimension of
+**R3 - Independent review.** The two interfaces differ, and so does what is guaranteed.
+
+*Headless pipeline (`orchestrator.py`).* The Checker audits the Maker's draft on a separate model call, without
+inheriting its reasoning context: each Checker call is one new message of the Checker prompt, the grounding context
+and the draft (`tests/test_orchestrator.py` pins this across a revision loop). *Acceptance:* given a Maker-drafted CAM,
+the Checker reviews it with no shared reasoning context with the Maker - and, since 2026-09-17, with the shipped
+settings, on a genuinely different underlying model (D1, [Evidence appendix](#evidence-appendix)).
+
+*Interactive `/review`.* The Checker is a separate role prompt run in the same conversation as the draft: `/assemble`
+and `/research` run `/review` inline, and it reviews the most recent draft in that conversation. Conversation-level
+independence is therefore not guaranteed: the Maker's reasoning and anything else said earlier in the session is
+visible to it, and it runs on the session's one model. What it keeps is its own role prompt and the code-enforced
+checks it is told to apply. Whether to isolate it is tracked in
+[#204](https://github.com/ShamikM88/open-cam-framework/issues/204).
+
+*Evidence on the model dimension.* The issue #31 reopening is evidence for that specific dimension of
 independence (same model vs. different model); it does not by itself establish the Checker's error-detection
 rate, which remains unmeasured (see [Success measures](#success-measures-and-validation-status)).
 

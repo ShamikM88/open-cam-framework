@@ -1,5 +1,45 @@
 # OpenCAM Skill & Command Registry
 
+The one inventory of everything a Claude Code session can run by name in this repository: the slash commands (the
+workflow steps) and the skills (analyst and maintainer aids). The design behind it -- what a skill is allowed to be,
+how it is invoked, why none of them can reach the Maker or the Checker -- is [docs/skill-design.md](../docs/skill-design.md);
+`tests/test_skill_inventory.py` keeps this table equal to the files.
+
+## Inventory
+
+| Name | Kind | Audience | Status | Invocation | Role in the pipeline | Headless |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `/calibrate` | command | analyst | implemented | user | Setup | yes |
+| `/calibrate-policy` | command | analyst | implemented | user | Setup | no |
+| `/triage` | command | analyst | implemented | user | Maker | yes |
+| `/research` | command | analyst | implemented | user | Maker | no |
+| `/spread` | command | analyst | implemented | user | Maker | yes |
+| `/commercial` | command | analyst | implemented | user | Maker | yes |
+| `/collateral` | command | analyst | implemented | user | Maker | yes |
+| `/project` | command | analyst | implemented | user | Maker | yes |
+| `/assemble` | command | analyst | implemented | user | Maker | yes |
+| `/review` | command | analyst | implemented | user+model | Checker | yes |
+| `information-gaps` | skill | analyst | planned: phase 2 | user | None (aid) | no |
+| `evidence-discipline` | skill | analyst | planned: phase 2 | user | None (aid) | no |
+| `financial-analysis` | skill | analyst | planned: phase 2 | user | None (aid) | no |
+| `cam-change-verification` | skill | maintainer | planned: phase 3 | user | None (aid) | no |
+| `docs-maintenance` | skill | maintainer | planned: phase 3 | user | None (aid) | no |
+
+- **Invocation** is what the file's frontmatter says. `user`: `disable-model-invocation: true`, so it runs only when a
+  person types it. `user+model`: no restriction; `/review` has to be this, because `/assemble` and `/research` run it
+  in their loops. `model`: `user-invocable: false`. No skill is `user+model` or `model`; that needs a design change
+  first.
+- **Role in the pipeline** says whose input a file is. A command acts as the Maker (`agents/underwriter_agent.md`), the
+  Checker (`agents/risk_reviewer_agent.md`) or sets the framework up. A skill is an aid: it is never any of these.
+- **Headless**: `yes` means the headless scripts produce the same deal outputs (some modes of a `yes` command need a
+  person and exist only interactively; see [architecture](../docs/architecture.md#two-ways-to-run-it)). A skill is `no`
+  by design: it leaves no record in a deal, so nothing the headless pipeline cannot reproduce can depend on it.
+- **Status**: a skill is `planned: phase N` until the pull request that adds its `SKILL.md` under
+  `.claude/skills/<name>/` flips it to `implemented: phase N`. A name is unique across both kinds: in Claude Code a skill
+  wins over a command of the same name, so a clash would silently disable the command.
+
+## Commands
+
 Execute the following actions when triggered by their respective slash commands:
 
 1. `/triage`

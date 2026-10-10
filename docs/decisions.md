@@ -25,6 +25,7 @@ so in its Related line) when a later decision supersedes it.
 - [D12. The live-model evaluation harness is local, explicit and capped](#d12-the-live-model-evaluation-harness-is-local-explicit-and-capped)
 - [D13. Mutation testing and coverage are diagnostics and floors, not a scoring game](#d13-mutation-testing-and-coverage-are-diagnostics-and-floors-not-a-scoring-game)
 - [D14. The test-count badge is checked by CI and never corrected by it](#d14-the-test-count-badge-is-checked-by-ci-and-never-corrected-by-it)
+- [D15. Skills are interactive aids and never input to the Maker or the Checker](#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -205,3 +206,21 @@ so in its Related line) when a later decision supersedes it.
   `check_test_count.py --write` in the same pull request, and pull requests that touch it merge one at a time.
 - **Why.** A bot committing a correction would contradict the rule of no direct commits to `main`.
 - **Related.** #101, #116, #147.
+
+## D15. Skills are interactive aids and never input to the Maker or the Checker
+
+- **Context.** A Claude Code skill changes what the model is told once it is loaded, by a person or by the model. A
+  deal records which prompts drafted and audited it only on the headless path, and the headless scripts cannot load a
+  skill.
+- **Choice.** Every skill is an aid: typed by a person, leaving no record in a deal, with no headless equivalent, and
+  named by no agent prompt or command. `config/skills_registry.md` is the one inventory of commands and skills. A skill
+  that would change the Maker's or the Checker's input is not permitted without its own design, provenance and
+  evaluation.
+- **Why.** Provenance and an evaluation baseline cover the agent prompts. A skill that changed the input outside them
+  would make a deal unreproducible and a comparison meaningless. A skill that shares a command's name replaces the
+  command silently, because Claude Code prefers the skill.
+- **Consequences.** Names are unique across commands and skills. A skill points to the rule and runs the script and is
+  never the only copy of either. In a session an aid's output stays visible to later steps, so this is not an
+  isolation guarantee, and `/review` running in the draft's conversation is its own question. See
+  [Skill design](skill-design.md).
+- **Related.** #196 (the initiative), #203 (`annual-review` needs new primitives), #204 (the context `/review` runs in).

@@ -141,3 +141,4 @@ A quick way to use the page: take a sentence someone says about the system and f
 | "...would catch a weak risk mitigant" | The Checker prompt | Prompt expectation, **not measured** |
 | "...keeps borrower data out of git" | `test_confidential_paths.py` and the ignore rules | Test-enforced for the listed locations; process rule for issue and PR text |
 | "...records which model wrote this deal" | `model_provenance` for headless runs | True for headless runs only; slash-command runs record none |
+| "...cannot be steered by a Claude Code skill" | No agent prompt or command names a skill and the headless scripts never read `.claude/` (`test_skill_inventory`); the design is [Skill design](skill-design.md) | Structural for the prompts and the headless path. In a session a skill's output stays visible to later steps, so not an isolation guarantee (#204) |

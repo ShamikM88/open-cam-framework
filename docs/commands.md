@@ -1,7 +1,7 @@
 # Slash command reference
 
 Each Claude Code slash command in [`.claude/commands/`](../.claude/commands/) performs one step of the workflow
-(the numbered list is in [`config/skills_registry.md`](../config/skills_registry.md)). This page is the human-readable
+(the inventory is in [`config/skills_registry.md`](../config/skills_registry.md)). This page is the human-readable
 reference; **the command files are authoritative** for exactly what Claude is told to do. Walkthroughs with
 worked examples are in [Workflows](workflows.md).
 
@@ -27,10 +27,14 @@ worked examples are in [Workflows](workflows.md).
   pages. See [Architecture](architecture.md#two-ways-to-run-it).
 - **Security.** Real borrower material belongs only in git-ignored locations (`inputs/`, `deals/`). Never type an API
   key, password or other credential into a command or the conversation. See [Security](security.md).
-- **Invocation.** Every command except `/assemble` and `/review` is marked `disable-model-invocation`, so it runs only
-  when you type it; `/review` can also be run by `/assemble` and `/research` as part of their loops. `/research`,
+- **Invocation.** Every command except `/review` is marked `disable-model-invocation`, so it runs only
+  when you type it; `/review` can also be run by `/assemble` and `/research` as part of their loops (the registry's
+  Invocation column lists each command, and a test keeps it equal to the files). `/research`,
   `/assemble` and `/review` list the script commands they may run in their `allowed-tools`; the others run scripts
   through Bash steps under your own Claude Code permission settings.
+- **Skills are not commands.** Analyst and maintainer aids are typed by a person, leave no record in a deal and are
+  never part of the Maker's or the Checker's input; none exists yet. A skill never shares a command's name. See
+  [Skill design](skill-design.md).
 
 ## Setup commands
 

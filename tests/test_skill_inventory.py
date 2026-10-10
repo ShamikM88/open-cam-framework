@@ -212,7 +212,8 @@ def test_the_parsers_read_what_the_registry_actually_uses():
 
 # The instructions a session or a model is given: the Maker's and the Checker's prompts, the commands that run in
 # their sessions, and CLAUDE.md, which every session loads (a recommendation there reaches all of them).
-PIPELINE_TEXT = (*sorted((REPO / "agents").glob("*.md")), *sorted((REPO / ".claude" / "commands").glob("*.md")),
+PIPELINE_TEXT = (*sorted((REPO / "agents").glob("*.md")), *sorted((REPO / ".claude" / "agents").glob("*.md")),
+                 *sorted((REPO / ".claude" / "commands").glob("*.md")),
                  REPO / "CLAUDE.md")
 # The scripts that call a model themselves (the headless pipeline and its evaluation harness).
 HEADLESS_ENTRY_POINTS = ("orchestrator", "calibrate", "run_evals",

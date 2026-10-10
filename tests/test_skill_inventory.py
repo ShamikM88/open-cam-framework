@@ -11,11 +11,13 @@ exists yet, so most of what is checked here is the relationship, not a skill's c
   implemented skill's frontmatter says what its row says;
 - every skill is an aid (`Role in the pipeline` is `None (aid)`, `Headless` is `no`); making one the Maker's or the
   Checker's input is a deliberate change to this file, not a side effect;
-- no agent prompt or command names or loads a skill, and the headless entry points never read `.claude/`;
+- no agent prompt, command or the always-loaded `CLAUDE.md` names, points at or allows a skill, and no production
+  script (so no helper a headless entry point imports) builds a path into `.claude/`;
 - the design page's first-tranche table is the inventory's skill rows.
 
 Each check is a function over text, and each is also run on deliberately wrong input so it is shown to fail.
 """
+import ast
 import re
 from pathlib import Path
 
@@ -203,30 +205,50 @@ def test_the_parsers_read_what_the_registry_actually_uses():
 # A skill is never input to the Maker, the Checker or the headless pipeline
 # ---------------------------------------------------------------------------
 
-# The files that make up the Maker's and the Checker's instructions, and the commands that run in their sessions.
-PIPELINE_TEXT = (*sorted((REPO / "agents").glob("*.md")), *sorted((REPO / ".claude" / "commands").glob("*.md")))
+# The instructions a session or a model is given: the Maker's and the Checker's prompts, the commands that run in
+# their sessions, and CLAUDE.md, which every session loads (a recommendation there reaches all of them).
+PIPELINE_TEXT = (*sorted((REPO / "agents").glob("*.md")), *sorted((REPO / ".claude" / "commands").glob("*.md")),
+                 REPO / "CLAUDE.md")
 # The scripts that call a model themselves (the headless pipeline and its evaluation harness).
-HEADLESS_ENTRY_POINTS = ("orchestrator.py", "calibrate.py", "run_evals.py",
-                         "eval_baseline.py", "eval_budget.py", "eval_cases.py", "eval_oracles.py",
-                         "eval_report.py", "eval_runner.py")
+HEADLESS_ENTRY_POINTS = ("orchestrator", "calibrate", "run_evals",
+                         "eval_baseline", "eval_budget", "eval_cases", "eval_oracles", "eval_report", "eval_runner")
+# The documented placeholder form of a skill's path (`.claude/skills/<name>/SKILL.md`) names no skill.
+PLACEHOLDER_SKILL_PATH = re.compile(r"\.claude/skills/<[^>/\s]+>/SKILL\.md")
 
 
 def skill_names(text):
     return [r["name"] for r in inventory_rows(text) if r["kind"] == "skill"]
 
 
+def body_of(text):
+    """The text after the frontmatter (all of it when there is none)."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    if lines and lines[0].strip() == "---":
+        for i, line in enumerate(lines[1:], start=1):
+            if line.strip() == "---":
+                return "\n".join(lines[i + 1:])
+    return text
+
+
 def wiring_problems(files, names):
-    """Where a prompt or command names a skill, points at the skills folder, or lets the model call one."""
+    """Where an instruction file names a real skill, points at a skills path, or lets a session run one by its
+    frontmatter or by telling it to use the Skill tool. It is about actual names, paths and invocation wiring: the
+    word "skill" in ordinary prose, and the documented `.claude/skills/<name>/SKILL.md` placeholder, are fine."""
     problems = []
     for path, text in files:
+        concrete = PLACEHOLDER_SKILL_PATH.sub("", text)
         for name in names:
-            if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text):
+            if re.search(rf"(?<![\w-]){re.escape(name)}(?![\w-])", concrete):
                 problems.append(f"{path} names the skill {name}")
-        if re.search(r"\.claude/skills|SKILL\.md", text):
+        if re.search(r"\.claude/skills|SKILL\.md", concrete):
             problems.append(f"{path} points at the skills folder")
-        allowed = frontmatter(text).get("allowed-tools", "")
-        if re.search(r"(?<![\w(])Skill\b", allowed):
+        fields = frontmatter(text)
+        if re.search(r"(?<![\w(])Skill\b", fields.get("allowed-tools", "")):
             problems.append(f"{path} lets the session run a skill (allowed-tools)")
+        if "skills" in fields:
+            problems.append(f"{path} preloads skills (frontmatter skills)")
+        if re.search(r"\bSkill tool\b|(?<![\w-])Skill\(", body_of(concrete)):
+            problems.append(f"{path} tells the session to use the Skill tool")
     return problems
 
 
@@ -234,7 +256,7 @@ def test_no_agent_prompt_or_command_names_loads_or_allows_a_skill():
     names = skill_names(read(REGISTRY))
     assert names, "no skills in the inventory: the test would check nothing"
     files = [(p.relative_to(REPO).as_posix(), p.read_text(encoding="utf-8")) for p in PIPELINE_TEXT]
-    assert len(files) >= 12
+    assert len(files) >= 13 and "CLAUDE.md" in [path for path, _ in files], "the always-loaded instructions are checked"
     assert wiring_problems(files, names) == []
 
 
@@ -252,12 +274,121 @@ def test_the_wiring_check_reports_a_prompt_that_reaches_a_skill():
                            ["information-gaps"]) == []   # a longer name is not the skill's name
 
 
-def test_the_headless_entry_points_never_read_the_claude_folder():
-    """They call the model through the SDK with prompts they build, so a skill cannot reach them; keep it that way."""
-    assert all((REPO / "scripts" / name).is_file() for name in HEADLESS_ENTRY_POINTS)
-    reading = [name for name in HEADLESS_ENTRY_POINTS
-               if ".claude" in (REPO / "scripts" / name).read_text(encoding="utf-8")]
-    assert reading == []
+def test_the_wiring_check_covers_claude_md_and_every_way_a_session_could_be_pointed_at_a_skill():
+    names = ["information-gaps", "financial-analysis"]
+    directing = [
+        ("CLAUDE.md", "Before drafting the Financial Analysis section, run information-gaps."),
+        ("CLAUDE.md", "Use /financial-analysis to interpret the ratios."),
+        ("CLAUDE.md", "Skills live in `.claude/skills/information-gaps/SKILL.md`; read it first."),
+        ("CLAUDE.md", "Load everything under .claude/skills before you start."),
+        ("CLAUDE.md", "Open SKILL.md for the procedure."),
+        ("CLAUDE.md", "Call the Skill tool with the name of the skill that fits."),
+        ("CLAUDE.md", "Invoke Skill(information-gaps) when information is missing."),
+        ("agents/x.md", "---\nskills: [anything]\n---\nYou are an underwriter."),
+        (".claude/commands/y.md", "---\nallowed-tools: Skill(anything) Bash(python scripts/a.py *)\n---\nbody"),
+    ]
+    for path, text in directing:
+        assert wiring_problems([(path, text)], names), text
+    assert wiring_problems([directing[0]], names) == ["CLAUDE.md names the skill information-gaps"]
+    assert wiring_problems([directing[2]], names) == ["CLAUDE.md names the skill information-gaps",
+                                                      "CLAUDE.md points at the skills folder"]
+    assert wiring_problems([directing[-2]], names) == ["agents/x.md preloads skills (frontmatter skills)"]
+    assert wiring_problems([directing[-1]], names) == [".claude/commands/y.md lets the session run a skill (allowed-tools)"]
+
+
+def test_the_wiring_check_leaves_ordinary_talk_about_skills_alone():
+    names = ["information-gaps", "financial-analysis"]
+    benign = [
+        ("CLAUDE.md", "- **Skills are aids, never input to the Maker or the Checker.** A skill adds a procedure and "
+                      "points to a rule; the rule stays here. A skillful analyst reads the Financial Analysis section."),
+        ("CLAUDE.md", "| `.claude/commands/` | The slash commands; a skill, once any exists, is "
+                      "`.claude/skills/<name>/SKILL.md` | `config/skills_registry.md` |"),
+        ("CLAUDE.md", "See [skill design](docs/skill-design.md) and config/skills_registry.md."),
+        ("agents/x.md", "---\ndescription: An agent with skills in credit analysis\n---\nUse your judgement and skill."),
+        (".claude/commands/y.md", "---\nallowed-tools: Bash(python scripts/a.py *)\n---\nA skilled reviewer."),
+    ]
+    assert wiring_problems(benign, names) == []
+
+
+def local_modules():
+    """{module name: source} for every production script; the headless entry points import their helpers from here."""
+    return {p.stem: p.read_text(encoding="utf-8") for p in sorted((REPO / "scripts").glob("*.py"))}
+
+
+def local_import_closure(sources, entries):
+    """The modules in `sources` that `entries` import, directly or through each other (function-level imports
+    included): the helpers a headless entry point can reach."""
+    seen, todo = set(), list(entries)
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in sources:
+            continue
+        seen.add(name)
+        for node in ast.walk(ast.parse(sources[name])):
+            if isinstance(node, ast.Import):
+                todo.extend(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                todo.append(node.module.split(".")[0])
+    return seen
+
+
+def claude_path_constants(source):
+    """(line, text) of each string constant in code that is a path into `.claude/` or the folder name itself: it
+    contains `.claude` and no whitespace (an f-string's literal pieces count). Docstrings and comments are not code,
+    and a sentence that merely mentions `.claude/commands/...` (it has spaces) is prose, not a path."""
+    tree = ast.parse(source)
+    docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                  if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                  and node.body and isinstance(node.body[0], ast.Expr)
+                  and isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str)}
+    return [(node.lineno, node.value) for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+            and ".claude" in node.value and not any(ch.isspace() for ch in node.value)]
+
+
+def claude_folder_problems(sources, entries=None):
+    """{module: constants} for the modules that build a `.claude` path: all of `sources`, or only the closure of
+    `entries`."""
+    scope = local_import_closure(sources, entries) if entries is not None else set(sources)
+    return {name: found for name in sorted(scope) if (found := claude_path_constants(sources[name]))}
+
+
+def test_no_production_script_and_so_no_helper_of_a_headless_entry_point_builds_a_path_into_the_claude_folder():
+    """The headless pipeline calls the model through the SDK with prompts it builds itself, so a skill cannot reach
+    it; this keeps a helper from changing that. Every production script is scanned, so a new helper is covered the
+    day it is added, whether or not an entry point imports it yet, and the entry points' import closure is shown to
+    lie inside what is scanned. The limits: it sees string constants written in code (a path spelled `".claude"`,
+    `os.path.join(".claude", ...)`, an f-string piece), not one assembled from fragments at run time, a module outside
+    `scripts/`, or `exec`/`eval`; and it does not read text a script merely prints."""
+    sources = local_modules()
+    assert set(HEADLESS_ENTRY_POINTS) <= set(sources)
+    closure = local_import_closure(sources, HEADLESS_ENTRY_POINTS)
+    assert {"state_manager", "spreading_builder", "policy_engine", "textio"} <= closure, "the closure walk reads real code"
+    assert closure <= set(sources)
+    assert claude_folder_problems(sources) == {}
+    assert claude_folder_problems(sources, HEADLESS_ENTRY_POINTS) == {}
+
+
+def test_the_claude_folder_check_catches_a_helper_an_entry_point_imports_and_ignores_prose():
+    sources = {
+        "orchestrator": "import helper\nfrom calibrate import x\n",
+        "calibrate": "def x():\n    from late import y\n",
+        "late": "import pathlib\nSKILLS = pathlib.Path('.claude') / 'skills'\n",
+        "helper": "import os\nroot = os.path.join('.claude', 'skills')\n",
+        "fstring": "def f(base):\n    return f'{base}/.claude/skills/x/SKILL.md'\n",
+        "unrelated": "import os\nPATH = '../.claude/skills'\n",
+        "docs_only": ('"""Reads .claude/skills/x.md per the module docstring."""\n'
+                      '# a comment about .claude/skills\n'
+                      'def f():\n    """See .claude/commands/spread.md."""\n'
+                      '    return "see .claude/commands/spread.md for the step"\n'),
+    }
+    reached = claude_folder_problems(sources, ["orchestrator"])
+    assert set(reached) == {"helper", "late"}, "a direct and a function-level import are both followed"
+    assert reached["helper"] == [(2, ".claude")] and reached["late"][0][1] == ".claude"
+    everything = claude_folder_problems(sources)
+    assert set(everything) == {"helper", "late", "fstring", "unrelated"}, "scanning all catches an unimported helper"
+    assert "docs_only" not in everything, "docstrings, comments and sentences are not paths"
+    assert claude_path_constants("x = 'a .claude b'\ny = '.claude'\n") == [(2, ".claude")]
 
 
 # ---------------------------------------------------------------------------

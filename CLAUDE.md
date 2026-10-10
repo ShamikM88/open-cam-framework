@@ -90,8 +90,9 @@ sharing its reasoning, so avoid merging them or having one import the other's co
   inserting an item mid-list re-points every later reference. `tests/test_prompt_consistency.py` resolves each
   one against the real numbered list, so renumber deliberately and update `EXPECTED_SUBJECTS` in the same change.
 - **Skills are aids, never input to the Maker or the Checker.** `config/skills_registry.md` is the one inventory of
-  commands and skills and [docs/skill-design.md](docs/skill-design.md) is the design. No `agents/*.md` prompt and no command
-  names, loads or allows a skill; `orchestrator.py`, `calibrate.py` and `run_evals.py` never read `.claude/`; a skill never
+  commands and skills and [docs/skill-design.md](docs/skill-design.md) is the design. No `agents/*.md` prompt, no command and
+  no line of this file names, loads or allows a skill; no script in `scripts/` (so no helper the headless `orchestrator.py`,
+  `calibrate.py` or `run_evals.py` imports) builds a path into `.claude/`; a skill never
   writes a deal's `state.json`, `steps_completed`, `review_trail` or any other record; and a skill never shares a command's
   name (Claude Code prefers the skill, so a clash silently disables the command). A skill adds a procedure and points to a
   rule; the rule stays here and in its test. `tests/test_skill_inventory.py` checks what can be checked from the files.

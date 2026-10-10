@@ -88,7 +88,7 @@ exists for persisted conventions: the headless pipeline can *inherit* what an an
 it ([architecture](architecture.md#two-ways-to-run-it)). A future skill that needs to keep something does so through an
 existing script the headless side can read, or it does not keep it.
 
-**Held by.** `Headless` is `no` for every skill row, and the headless entry points are tested not to read `.claude/`.
+**Held by.** `Headless` is `no` for every skill row, and no production script (so no helper a headless entry point imports) is allowed to build a path into `.claude/`.
 Each skill's own tests (Phase 2 and 3) check that it can run only read-only scripts.
 
 ### 3. Maker-Checker independence
@@ -302,7 +302,8 @@ examples only; the registry row flips to implemented in the same change; and the
 | A name is used once; a skill never shares a command's name | the same |
 | A skill on disk is implemented in the inventory, and a planned one has no folder; an implemented skill's frontmatter equals its row | the same |
 | A skill row is an aid (`None (aid)`, headless `no`) | the same |
-| No agent prompt or command names, points at or allows a skill; the headless entry points never read `.claude/` | the same |
+| No agent prompt, command or `CLAUDE.md` names a skill, points at a skills path (the documented `<name>` placeholder is fine) or lets a session run one (`allowed-tools`, a `skills` frontmatter key, the Skill tool) | the same |
+| No production script builds a path into `.claude/`, so a helper a headless entry point imports cannot start reading it unnoticed (string constants in code are checked; a path assembled from fragments, or code outside `scripts/`, is not) | the same |
 | This page's tranche table is the inventory's skill rows | the same |
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 

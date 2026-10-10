@@ -13,6 +13,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
 | `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
@@ -169,6 +170,42 @@ always passes it. The slash commands `/spread` and `/project` run it; see [Workf
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Transcription check
+
+`scripts/transcription_check.py --transcription <json> [--json]` reads back figures that `/spread` transcribed from
+an image (a screenshot, a photo, a scanned page) and writes nothing: no deal is read or changed. It prints the image's
+SHA-256 fingerprint; the sign conventions in words; the figures grouped by period and statement, each as written
+beside the value that would be recorded and how one was read as the other; every figure that will be recorded as
+negative; a cross-foot of every subtotal the source states against the sum of the recorded lines that feed it; and a
+**digest** of exactly what it showed (including the declarations and the image's bytes). `--json` prints the same as
+`{digest, source_sha256, report, text}`.
+
+`scripts/transcription_check.py --transcription <json> --commit --confirm <digest> --company ... --proposal ...
+[--source-note <text>]` records the transcription, but only if `--confirm` is the digest of these figures and this
+image as they are now, no cross-foot discrepancy is unresolved, the deal's existing `financials_source` is the
+same mode and the deal's state can be written by this checkout (readable, correctly shaped, not a newer schema
+version, a readable `sources/manifest.json`, and in `framework-computed` mode a computation that succeeds against what
+is stored); otherwise it exits `1` with one `error: refused: ...` line and writes nothing (no source copied, no state
+changed). On success it saves the image as the source of record after checking it against the confirmed fingerprint
+(the manifest claim says the figures were transcribed from an image and carries the digest and a fingerprint prefix),
+then, in **one** state update, records the figures, appends `spread` to `steps_completed` and appends a record to
+`financials_transcriptions` (holding the fingerprint, never the image). The image is saved before that update and
+the two cannot be committed atomically: if the update fails, the verified image and its manifest entry remain with
+no figures recorded. In `framework-computed` mode it recomputes exactly as `spreading_check.py`
+does; in `analyst-supplied` mode it records subtotals, ratios and any lines exactly as given and needs `--source-note`,
+the confirmed convention, to which it appends a sentence saying the figures were transcribed from an image (stored as
+`financials_source_note`, which the CAM caveat quotes). What it enforces and what it cannot is in
+[Figures read from an image](financial-model.md#figures-read-from-an-image) and
+[AI assurance](ai-assurance.md#what-the-code-guarantees).
+
+The staged file holds every figure as text exactly as it appears, plus the unit and how the source writes the signs
+of costs, cash outflows and liabilities; a worked example is in
+[Workflows](workflows.md#figures-read-from-an-image).
+
+```bash
+python scripts/transcription_check.py --transcription "deals/Synthetic Co/Synthetic Fleet Loan_transcription.json"
 ```
 
 ## Policy check

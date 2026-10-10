@@ -29,6 +29,21 @@ These hold for any input the scripts accept, whatever the model wrote.
 
 **State and records.** Every step checkpoints to `state.json`; a state written by a newer framework is never overwritten or downgraded; malformed state fails with one clear error line rather than a traceback or a silent default ([D7](decisions.md#d7-a-state-file-is-never-downgraded-and-malformed-state-fails-clearly)); each export validates state before it creates a folder. A headless run records the models and a content hash of each agent prompt in `model_provenance`.
 
+**Figures read from an image.** A screenshot or scanned page is read by the session, not parsed by code, so a misread
+figure could become the deal's ground truth. `transcription_check.py` makes the order of events and the arithmetic
+code: nothing is written for image figures until a read-back of those exact figures was produced and its digest quoted;
+a stale digest or an unresolved cross-foot discrepancy refuses the commit with nothing written; the image is saved as
+the source of record and the state records that the figures were transcribed from it; every sign is read under a
+declared convention that is shown and confirmed, and a mismatch that a different sign reading would explain cannot be
+acknowledged away; the confirmation is bound to the image's bytes (a replaced screenshot is refused) and one deal
+never mixes the two `/spread` modes; every predictable state or schema problem is detected before the image is
+saved, so a refusal leaves the deal untouched, and the figures, the transcription record and the completed step are
+written in one state update (the saved image precedes it and is not part of that update)
+([financial model](financial-model.md#figures-read-from-an-image)). What stays outside the code: that the analyst
+really said yes (the session passes the digest), that the transcription is true to the image, and that an image is
+routed through the script at all (instructions in `.claude/commands/spread.md`). The read-back and the analyst's
+comparison with the image are the safeguard; the cross-foot only finds slips that break a subtotal or the balance sheet.
+
 **Confidentiality.** A test fails CI if any protected location is tracked, loses its ignore rule or gains an unclassified one ([D9](decisions.md#d9-anything-derived-from-real-material-is-git-ignored-and-a-test-enforces-it)).
 
 ### Where the enforcement runs matters

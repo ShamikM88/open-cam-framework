@@ -28,6 +28,69 @@ from state_manager import StateError, read_state, write_state
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
 
 
+def plan_fields(existing_state, multi_period_financials=None, stress_assumptions=None,
+                update_financials_source=True):
+    """The fields compute() would write for this input against `existing_state`, without reading or writing
+    anything: the merge with what the deal already has, the formula evaluation and the downside case. compute()
+    is exactly this plus the read and the write; a caller that must know the computation will succeed before it
+    does anything irreversible (for example saving a source file first) calls this first. Raises
+    ValueError when there is nothing to compute, and whatever the formulas raise for a malformed value.
+    Does not modify `existing_state`."""
+    existing_multi_period = existing_state.get("multi_period_financials") or {}
+
+    merged_multi_period = dict(existing_multi_period)
+    touched_periods = {}
+    if multi_period_financials:
+        for period, raw in multi_period_financials.items():
+            merged_period = dict(existing_multi_period.get(period) or {})
+            merged_period.update(raw or {})
+            merged_multi_period[period] = merged_period
+            touched_periods[period] = merged_period
+
+    if not merged_multi_period:
+        raise ValueError(
+            "Nothing to compute: no --financials given, and this deal has no "
+            "multi_period_financials already on file."
+        )
+
+    fields = {}
+    if touched_periods:
+        # Computed from the merged (not fresh-only) per-period raw dicts --
+        # see the docstring above -- so a partial correction's subtotals/
+        # ratios are derived from the period's complete recorded figures,
+        # not just whichever fields this particular call happened to supply.
+        model_data = evaluate_financial_model(touched_periods)
+
+        merged_financials = dict(existing_state.get("financials") or {})
+        merged_financials.update(model_data["financials"])
+        merged_ratios = dict(existing_state.get("ratios") or {})
+        merged_ratios.update(model_data["ratios"])
+
+        fields["financials"] = merged_financials
+        fields["ratios"] = merged_ratios
+        fields["multi_period_financials"] = merged_multi_period
+        if update_financials_source:
+            fields["financials_source"] = "framework-computed"
+
+    existing_stress_assumptions = existing_state.get("stress_assumptions") or {}
+    merged_stress_assumptions = dict(existing_stress_assumptions)
+    if stress_assumptions:
+        merged_stress_assumptions.update(stress_assumptions)
+    stress_assumptions = merged_stress_assumptions
+    if stress_assumptions:
+        downside_case = evaluate_downside_case(merged_multi_period, stress_assumptions)
+        if downside_case.get("financials") or downside_case.get("ratios"):
+            fields["downside_case"] = downside_case
+            fields["stress_assumptions"] = stress_assumptions
+
+    if not fields:
+        raise ValueError(
+            "Nothing to compute: --financials produced no new periods and no "
+            "stress assumptions (existing or given) produced a downside case."
+        )
+    return fields
+
+
 def compute(company, proposal, multi_period_financials=None, stress_assumptions=None,
             update_financials_source=True):
     """Recompute financials/ratios (and, when a downside case is derivable,
@@ -86,59 +149,8 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     state_manager.write_state()).
     """
     existing_state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
-    existing_multi_period = existing_state.get("multi_period_financials") or {}
-
-    merged_multi_period = dict(existing_multi_period)
-    touched_periods = {}
-    if multi_period_financials:
-        for period, raw in multi_period_financials.items():
-            merged_period = dict(existing_multi_period.get(period) or {})
-            merged_period.update(raw or {})
-            merged_multi_period[period] = merged_period
-            touched_periods[period] = merged_period
-
-    if not merged_multi_period:
-        raise ValueError(
-            "Nothing to compute: no --financials given, and this deal has no "
-            "multi_period_financials already on file."
-        )
-
-    fields = {}
-    if touched_periods:
-        # Computed from the merged (not fresh-only) per-period raw dicts --
-        # see the docstring above -- so a partial correction's subtotals/
-        # ratios are derived from the period's complete recorded figures,
-        # not just whichever fields this particular call happened to supply.
-        model_data = evaluate_financial_model(touched_periods)
-
-        merged_financials = dict(existing_state.get("financials") or {})
-        merged_financials.update(model_data["financials"])
-        merged_ratios = dict(existing_state.get("ratios") or {})
-        merged_ratios.update(model_data["ratios"])
-
-        fields["financials"] = merged_financials
-        fields["ratios"] = merged_ratios
-        fields["multi_period_financials"] = merged_multi_period
-        if update_financials_source:
-            fields["financials_source"] = "framework-computed"
-
-    existing_stress_assumptions = existing_state.get("stress_assumptions") or {}
-    merged_stress_assumptions = dict(existing_stress_assumptions)
-    if stress_assumptions:
-        merged_stress_assumptions.update(stress_assumptions)
-    stress_assumptions = merged_stress_assumptions
-    if stress_assumptions:
-        downside_case = evaluate_downside_case(merged_multi_period, stress_assumptions)
-        if downside_case.get("financials") or downside_case.get("ratios"):
-            fields["downside_case"] = downside_case
-            fields["stress_assumptions"] = stress_assumptions
-
-    if not fields:
-        raise ValueError(
-            "Nothing to compute: --financials produced no new periods and no "
-            "stress assumptions (existing or given) produced a downside case."
-        )
-
+    fields = plan_fields(existing_state, multi_period_financials, stress_assumptions,
+                         update_financials_source)
     return write_state(company, proposal, **fields)
 
 

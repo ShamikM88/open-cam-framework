@@ -177,6 +177,71 @@ on file with `conventions.py --company ... --read` (or `--enterprise --read`; an
 `{"found": false, "convention": null}`), tells you what it found, and still requires an explicit answer before
 applying it.
 
+### Figures read from an image
+
+An analyst's spreading often arrives as a screenshot of their template, a photo or a scanned page. The session reads
+the image itself, and a misread digit, a dropped decimal or a flipped sign would otherwise become the deal's ground
+truth: in analyst-supplied mode nothing recomputes the figures, and in the default mode the ratios are recomputed from
+whatever was transcribed. So `/spread` does not write anything for image figures until you have confirmed a read-back:
+
+1. **(model)** The session transcribes the figures into a staged file, each exactly as it appears, with the unit it
+   reads from the image and **how the source writes its signs**: whether a cost, a cash outflow or a liability is
+   shown as a positive number or in brackets. The framework enters costs and liabilities as positive amounts (it
+   subtracts a cost), so a statement that shows a cost as `(700)` has to be read deliberately, never guessed. The
+   synthetic one is `docs/examples/synthetic_co/transcription_input.json` (its "screenshot" is the tiny placeholder
+   image `statement.png` beside it); its costs are in brackets, so it declares `"cost_sign": "negative"`.
+2. **(local)** `python scripts/transcription_check.py --transcription "deals/Synthetic Co/Synthetic Fleet Loan_transcription.json"`
+   reads it back. It writes nothing. It shows the image's SHA-256 fingerprint and the sign conventions, then every
+   figure **as written beside what will be recorded and why**: `(700.0)` is recorded as `700.0` ("sign reversed: costs
+   are written as negatives in this source"), `1,200.0` as `1200.0` ("as written"). Suppose the session also misread a
+   receivables figure as `260` instead of `200`. The cross-foot, which compares each subtotal the image states with
+   the sum of the recorded values of the lines that feed it, shows it:
+
+   ```text
+   | Period | Check | Source states | Lines give | Difference | Tolerance | Result |
+   | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
+   | FY-Current | gross_profit | 500.0 | 500.0 | 0.0 | 0.15 | match |
+   | FY-Current | current_assets | 250 | 310 | -60 | 2.5 | MISMATCH |
+   | FY-Current | total_assets | 1,150 | 1210 | -60 | 4.0 | MISMATCH |
+   | FY-Current | balance_sheet_balances | 0 (balance sheet identity) | 60 | -60 | 8.5 | MISMATCH |
+   ```
+
+   and ends `STATUS: BLOCKED`. A commit is refused while a MISMATCH is unresolved.
+3. You compare the discrepancy with the image. The receivables figure really is `200`; the session corrects the
+   staged file and reads it back again. Every check now matches, the digest has changed (it covers the figures, the
+   unit, the sign conventions, the source description, any acknowledgement and the image's bytes), and the output
+   ends `STATUS: ready for the analyst's confirmation.` with `Digest: 54af01233cd518c3` and the fingerprint
+   `0a5f4a132143926b9c62a85d53d859c2bf7f854c09c632f093d1bcf47cc68e0f`.
+4. You confirm, explicitly, that these figures match the image and that the sign conventions are how it writes
+   them. A question, "looks fine, carry on" or silence is not confirmation, and neither is the session's own
+   confidence. A correction (of a figure, of a sign declaration) sends it back to step 3; cancelling leaves the deal
+   exactly as it was.
+5. **(local)** `python scripts/transcription_check.py --transcription "..." --commit --confirm 54af01233cd518c3 --company "Synthetic Co" --proposal "Synthetic Fleet Loan"`
+   first checks the deal can take it (one deal never mixes the two `/spread` modes), then saves the image as the
+   source of record, verified against the fingerprint you confirmed (its manifest entry says the figures were
+   transcribed from an image), records the figures (recomputed exactly as `spreading_check.py` does, or, in
+   analyst-supplied mode, as given with the disclosure added to `financials_source_note`) and adds a
+   `financials_transcriptions` record that holds the fingerprint, never the image. Quoting the earlier digest of the
+   misread version, or any digest after the image file was replaced, would have been refused.
+
+**Why the sign declaration matters.** If the same screenshot were declared `"cost_sign": "positive"`, `(700.0)` would
+be recorded as `-700.0`, a credit, and gross profit would come to `1900.0` against the `500.0` the image states. The
+cross-foot sees that and says why, and no acknowledgement can be used to wave it through, because reading the costs
+the other way makes it match:
+
+```text
+| FY-Current | gross_profit | 500.0 | 1900.0 | -1400.0 | 0.15 | MISMATCH (matches if costs were read with the opposite sign: correct the sign declaration; an acknowledgement cannot cover this) |
+```
+
+A genuine credit is not forced positive: under `"cost_sign": "positive"` an expense written `(50)` is recorded as `-50`,
+and under `"negative"` an expense written `50` is. Every figure recorded as negative is listed in the read-back under
+"Look at these before confirming".
+
+A subtotal whose feeding lines were not all transcribed is shown as NOT ASSESSED: that check was not made, and the
+figures are not described as verified. Ratios are never cross-footed. The rules and their limits are in the
+[financial model](financial-model.md#figures-read-from-an-image); what code enforces and what rests on you is in
+[AI assurance](ai-assurance.md#what-the-code-guarantees).
+
 ## Collateral, projections and covenants
 
 `/collateral` records each asset and each charge over it as flat lists in `state.json`; `/project` records forward

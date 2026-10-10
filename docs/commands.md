@@ -111,8 +111,18 @@ worked examples are in [Workflows](workflows.md).
   applies it reads any persisted convention (`conventions.py --enterprise --read`, `--company ... --read`), tells you
   what is on file, and requires an explicit answer; it asks whether a newly confirmed convention is borrower-specific
   or enterprise-wide and persists it only then.
+- **Figures read from an image** (a screenshot, a photo, a scanned page), in either mode: nothing is written until you
+  have explicitly confirmed a read-back. The session stages the transcription, `scripts/transcription_check.py`
+  prints it grouped by period and statement with each figure as written, cross-foots the subtotals the image states
+  against the lines that feed them and prints a digest; only `--commit --confirm <digest>` records it, and it
+  refuses a stale digest (the digest covers the figures, the sign conventions and the image's bytes), an
+  unresolved discrepancy, or a deal already in the other `/spread` mode. The image is saved as the source of record, the state
+  gains a `financials_transcriptions` record, and in analyst-supplied mode the CAM caveat's
+  `financials_source_note` says the figures were transcribed from an image. Walk-through:
+  [Workflows](workflows.md#figures-read-from-an-image); rules: [financial model](financial-model.md#figures-read-from-an-image).
 - **Can go wrong:** a field name the framework does not know is ignored, not guessed (use the names above); a
-  non-positive denominator makes a ratio N/A (not an error: see the [financial model](financial-model.md)).
+  non-positive denominator makes a ratio N/A (not an error: see the [financial model](financial-model.md)); a
+  refused image commit ([Troubleshooting](troubleshooting.md#figures-read-from-an-image)).
 
 ### /commercial
 

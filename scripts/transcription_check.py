@@ -693,8 +693,54 @@ def preflight(staged, company, proposal):
     return existing, earlier
 
 
+UNKNOWN = object()      # something that could not be inspected: what it holds, or whether it changed, is not known
+
+
+def _why(exc):
+    """`TypeName: message` on one line, so an error line stays one line."""
+    return f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+
+
+def _read_bytes(path):
+    """A file's bytes, None if there is no such file, or UNKNOWN if it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return UNKNOWN
+
+
+def _sources_snapshot(company, proposal):
+    """(the names in this deal's sources/ folder, the manifest's bytes), or UNKNOWN if the folder cannot be inspected.
+    Taken before and after a step that can fail so that a message states what it left, not what it hopes it left."""
+    try:
+        directory = sources_dir(company, proposal)
+        names = set(os.listdir(directory)) if os.path.isdir(directory) else set()
+    except (OSError, ValueError):
+        return UNKNOWN
+    return names, _read_bytes(os.path.join(directory, "manifest.json"))
+
+
+def _left_in_sources(before, after):
+    """What a failed save left in sources/, from two snapshots; says so when that cannot be established."""
+    if before is UNKNOWN or after is UNKNOWN or UNKNOWN in (before[1], after[1]):
+        return ("what was left in sources/ could not be inspected, so a copy of the image or a change to "
+                "sources/manifest.json may exist")
+    new = sorted(after[0] - before[0])
+    files = f"new file(s) in sources/: {new}" if new else "no new file in sources/"
+    changed = "sources/manifest.json is unchanged" if after[1] == before[1] else "sources/manifest.json changed"
+    return f"{files}; {changed}"
+
+
 def commit(staged, confirm, company, proposal, source_note=None):
-    """Record a confirmed transcription. Every refusal raises TranscriptionError before anything is written."""
+    """Record a confirmed transcription. Every refusal raises TranscriptionError before anything is written.
+
+    An ordinary I/O or manifest failure after that point is also a TranscriptionError (never a traceback), and its
+    message says only what is known about what exists: the image copy and the manifest entry are inspected rather
+    than assumed, and state.json is compared before and after a failed update. Nothing is deleted and nothing is
+    retried automatically: a source of record is never removed by this code, and a retry would save the image again."""
     shown = readback(staged)
     if not isinstance(confirm, str) or confirm.strip() != shown["digest"]:
         raise TranscriptionError(
@@ -716,26 +762,57 @@ def commit(staged, confirm, company, proposal, source_note=None):
     if staged["mode"] == "framework-computed" and source_note:
         raise TranscriptionError("refused: --source-note is only used in analyst-supplied mode")
 
-    existing, earlier = preflight(staged, company, proposal)
+    try:
+        existing, earlier = preflight(staged, company, proposal)
+    except OSError as exc:
+        raise TranscriptionError(f"refused: the deal's state could not be read ({_why(exc)}); nothing was saved and "
+                                 "no figures were recorded.") from exc
 
     # Copy the image aside first and check the copy against the confirmed fingerprint, so the exact bytes that are
     # saved as the source of record are the ones the analyst's confirmed read-back covered.
     source = staged["source"]
-    with tempfile.TemporaryDirectory() as scratch:
+    sources_before = _sources_snapshot(company, proposal)
+    try:
+        # A failure to clean the scratch folder up must not fail a commit whose image is already saved.
+        scratch_folder = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+    except OSError as exc:
+        raise TranscriptionError(f"refused: a scratch folder for verifying the image could not be created "
+                                 f"({_why(exc)}); nothing was saved and no figures were recorded.") from exc
+    with scratch_folder as scratch:
         staging_copy = os.path.join(scratch, os.path.basename(source_path))
-        shutil.copyfile(source_path, staging_copy)
+        try:
+            shutil.copyfile(source_path, staging_copy)
+        except OSError as exc:
+            raise TranscriptionError(f"refused: the source image could not be copied for verification "
+                                     f"({_why(exc)}); nothing was saved and no figures were recorded.") from exc
         if file_sha256(staging_copy) != shown["source_sha256"]:
             raise TranscriptionError("refused: the source image changed while it was being read; nothing was saved. "
                                      "Read back again.")
-        entry = save_source(company, proposal, step="spread", source_path=staging_copy,
-                            claim=f"{source['description']} (figures transcribed from {source['kind']}; "
-                                  f"analyst-confirmed read-back {shown['digest']}; "
-                                  f"sha256 {shown['source_sha256'][:16]})")
+        try:
+            entry = save_source(company, proposal, step="spread", source_path=staging_copy,
+                                claim=f"{source['description']} (figures transcribed from {source['kind']}; "
+                                      f"analyst-confirmed read-back {shown['digest']}; "
+                                      f"sha256 {shown['source_sha256'][:16]})")
+        except (OSError, ValueError) as exc:           # a lock timeout is an OSError; an unreadable manifest a ValueError
+            left = _left_in_sources(sources_before, _sources_snapshot(company, proposal))
+            raise TranscriptionError(
+                f"the image could not be saved ({_why(exc)}). Afterwards: {left}. No figures were recorded and "
+                "state.json was not modified by this run. Before retrying, inspect sources/ and "
+                "sources/manifest.json: nothing was removed automatically, and a file there with no manifest entry "
+                "can be removed by hand.") from exc
     saved = os.path.join(sources_dir(company, proposal), entry["filename"])
-    if file_sha256(saved) != shown["source_sha256"]:
+    try:
+        saved_fingerprint = file_sha256(saved)
+    except TranscriptionError as exc:
+        raise TranscriptionError(
+            f"the image {entry['filename']!r} was saved and its sources/manifest.json entry exists, but the saved copy "
+            f"could not be read back to verify it ({exc}); no figures were recorded and state.json was not modified "
+            "by this run. Inspect it, and do not retry blindly: a retry would save the image again.") from exc
+    if saved_fingerprint != shown["source_sha256"]:
         raise TranscriptionError(
             f"refused: the saved copy {saved!r} does not match the fingerprint of the confirmed read-back; no figures "
-            "were recorded. Delete that file and its sources/manifest.json entry, then read back and commit again.")
+            "were recorded and state.json was not modified by this run. Delete that file and its sources/manifest.json "
+            "entry, then read back and commit again.")
 
     # The image is saved and verified. Look at the deal once more, immediately before the one state write, so the
     # fields are planned from the state as it is now rather than as it was before the copy; if it can no longer take
@@ -746,6 +823,11 @@ def commit(staged, confirm, company, proposal, source_note=None):
         raise TranscriptionError(
             f"refused: the deal's state changed after the preflight and can no longer take this transcription ({exc}). "
             f"The verified image ({entry['filename']}) and its sources/manifest.json entry were saved; no figures "
+            "were recorded.") from exc
+    except OSError as exc:
+        raise TranscriptionError(
+            f"refused: the deal's state could not be checked again after the image was saved ({_why(exc)}). The "
+            f"verified image ({entry['filename']}) and its sources/manifest.json entry were saved; no figures "
             "were recorded.") from exc
 
     periods = list(staged["periods"])
@@ -785,14 +867,23 @@ def commit(staged, confirm, company, proposal, source_note=None):
     steps = existing.get("steps_completed") or []
     fields["steps_completed"] = [*steps, "spread"] if "spread" not in steps else list(steps)
     fields["financials_transcriptions"] = [*(earlier or []), record]
+    state_before = _read_bytes(state_path(company, proposal))
     try:
         write_state(company, proposal, **fields)
     except (OSError, StateError) as exc:
+        # write_state() replaces the file atomically, but an error can still come after the replacement (releasing the
+        # lock), so the file is compared with what it was rather than assumed unchanged.
+        state_after = _read_bytes(state_path(company, proposal))
+        if state_before is UNKNOWN or state_after is UNKNOWN:
+            state_note = "whether state.json changed could not be checked"
+        elif state_after == state_before:
+            state_note = "state.json was checked after the failure and is unchanged"
+        else:
+            state_note = "state.json changed during the failed update and may already hold this transcription"
         raise TranscriptionError(
-            f"the state update failed ({type(exc).__name__}: {exc}). The verified image {entry['filename']!r} was "
-            "saved and its sources/manifest.json entry remains; it is not removed automatically. The update is written "
-            "atomically, so state.json is normally unchanged, but inspect it before doing anything else and do not "
-            "retry blindly: a retry would save the image again.") from exc
+            f"the state update failed ({_why(exc)}). {state_note}. The verified image {entry['filename']!r} was saved "
+            "and its sources/manifest.json entry remains; it is not removed automatically. Inspect state.json and "
+            "sources/ before doing anything else and do not retry blindly: a retry would save the image again.") from exc
     return {"committed": True, "mode": staged["mode"], "periods": periods, "financials_source": financials_source,
             "source_file": entry["filename"], "source_sha256": shown["source_sha256"], "digest": shown["digest"],
             "cross_foot": record["cross_foot"], "disclosure": disclosure_sentence(entry["filename"])}

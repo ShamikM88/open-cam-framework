@@ -9,6 +9,7 @@ style) at the bottom of this file. All data is synthetic.
 """
 import hashlib
 import json
+import os
 from decimal import Decimal
 
 import pytest
@@ -1196,7 +1197,7 @@ def test_a_failed_final_write_leaves_an_existing_state_byte_identical_and_report
     message = str(raised.value)
     assert "the state update failed (OSError: injected disk failure)" in message
     assert repr(entry["filename"]) in message and "sources/manifest.json entry remains" in message
-    assert "not removed automatically" in message and "inspect it before doing anything else" in message
+    assert "not removed automatically" in message and "before doing anything else" in message
     assert "do not retry blindly" in message and len(message.splitlines()) == 1
     assert isinstance(raised.value.__cause__, OSError)
 
@@ -1264,3 +1265,275 @@ def test_the_figures_are_planned_from_the_deal_as_it_is_just_before_the_write(de
     state = read_state("Synthetic Co", "Fleet Loan")
     assert set(state["financials"]) == {"FY-1", "FY-Current"} and set(state["multi_period_financials"]) == {
         "FY-1", "FY-Current"}
+
+
+# ---------------------------------------------------------------------------
+# I/O failures around the commit (the image copy, save_source(), the read-back, the final write) are controlled,
+# and each message says only what is known about what already exists
+# ---------------------------------------------------------------------------
+
+def inspect_deal(root):
+    """What exists under deals/ now, as {relative path: bytes}."""
+    return deal_files(root) if (root / "deals").exists() else {}
+
+
+def commit_failing(data, **kwargs):
+    with pytest.raises(tc.TranscriptionError) as raised:
+        run_commit(data, **kwargs)
+    message = str(raised.value)
+    assert len(message.splitlines()) == 1, "one line, so the CLI can print it as one error line"
+    return raised.value, message
+
+
+def test_a_failure_copying_the_image_for_verification_refuses_with_nothing_saved(deal, monkeypatch):
+    import shutil
+    failure = OSError(13, "injected: cannot read the image")
+
+    def refuse(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(shutil, "copyfile", refuse)
+    error, message = commit_failing(staged_data(deal))
+    assert error.__cause__ is failure
+    assert "could not be copied for verification" in message and "nothing was saved" in message
+    assert "no figures were recorded" in message
+    assert inspect_deal(deal) == {}, "no deals/ folder at all"
+
+
+def test_a_failure_creating_the_scratch_folder_refuses_with_nothing_saved(deal, monkeypatch):
+    failure = OSError(28, "injected: no space left on device")
+
+    def refuse(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(tc.tempfile, "TemporaryDirectory", refuse)
+    error, message = commit_failing(staged_data(deal))
+    assert error.__cause__ is failure and "scratch folder" in message and "nothing was saved" in message
+    assert inspect_deal(deal) == {}
+
+
+def at_save_source(monkeypatch, behaviour, root):
+    """Patch the point inside tc.save_source() that `behaviour` names; returns the injected exception."""
+    import source_manifest
+    failure = OSError(5, "injected I/O failure")
+
+    def refuse(*args, **kwargs):
+        raise failure
+
+    if behaviour == "before_anything":
+        monkeypatch.setattr(tc, "save_source", refuse)
+    elif behaviour == "lock_timeout":
+        failure = TimeoutError("injected lock timeout")
+        monkeypatch.setattr(source_manifest._FileLock, "__enter__", refuse)
+    elif behaviour == "before_manifest_replace":           # the image is copied, the manifest is not yet replaced
+        monkeypatch.setattr(source_manifest.os, "replace", refuse)
+    elif behaviour == "unreadable_manifest":                # another session left a manifest that cannot be read
+        real = tc.save_source
+
+        def corrupt_then_save(*args, **kwargs):
+            path = state_file_dir(root) / "sources" / "manifest.json"
+            path.parent.mkdir(exist_ok=True)
+            path.write_text("{ not json", encoding="utf-8")
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(tc, "save_source", corrupt_then_save)
+        failure = ValueError("an unreadable manifest")
+    return failure
+
+
+def state_file_dir(root):
+    return state_file(root).parent
+
+
+@pytest.mark.parametrize("behaviour, new_files, manifest", [
+    ("before_anything", "no new file in sources/", "sources/manifest.json is unchanged"),
+    ("lock_timeout", "no new file in sources/", "sources/manifest.json is unchanged"),
+    ("before_manifest_replace", "new file(s) in sources/:", "sources/manifest.json is unchanged"),
+    ("unreadable_manifest", "new file(s) in sources/:", "sources/manifest.json changed"),
+])
+def test_a_failure_in_save_source_reports_what_it_left_and_records_no_figures(deal, monkeypatch, behaviour, new_files,
+                                                                              manifest):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    state_before = state_file(deal).read_bytes()
+    failure = at_save_source(monkeypatch, behaviour, deal)
+    error, message = commit_failing(staged_data(deal))
+    assert "the image could not be saved" in message
+    assert new_files in message and manifest in message, message
+    assert "no figures were recorded" in message.lower() and "state.json was not modified" in message
+    assert "inspect sources/" in message and "removed automatically" in message
+    if behaviour != "unreadable_manifest":
+        assert error.__cause__ is failure
+    assert state_file(deal).read_bytes() == state_before
+    if behaviour in ("before_manifest_replace", "unreadable_manifest"):
+        left = sorted(p.name for p in (state_file_dir(deal) / "sources").iterdir())
+        assert any(name.endswith(".png") for name in left), "the copied image is left behind"
+        assert behaviour == "unreadable_manifest" or any(name.endswith(".tmp") for name in left)
+        assert all(name in message for name in left), "the message names every file that was left"
+
+
+def test_the_command_line_shows_one_error_line_for_a_save_failure_and_a_copy_failure(deal, monkeypatch):
+    import shutil
+    data = staged_data(deal)
+    path = write_staged(deal, data)
+    argv = ["--transcription", str(path), "--commit", "--confirm", digest(data), "--company", "Synthetic Co",
+            "--proposal", "Fleet Loan"]
+
+    def refuse(*args, **kwargs):
+        raise OSError(5, "injected I/O failure")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(shutil, "copyfile", refuse)
+        with pytest.raises(SystemExit) as copy_exit:
+            tc.main(argv)
+    with monkeypatch.context() as patched:
+        patched.setattr(tc, "save_source", refuse)
+        with pytest.raises(SystemExit) as save_exit:
+            tc.main(argv)
+    for exit_info in (copy_exit, save_exit):
+        message = str(exit_info.value)
+        assert message.startswith("error: ") and len(message.splitlines()) == 1
+
+
+def test_a_saved_copy_that_cannot_be_read_back_is_reported_with_the_image_and_entry_that_exist(deal, monkeypatch):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    state_before = state_file(deal).read_bytes()
+    real = tc.file_sha256
+
+    def unreadable_in_sources(path):
+        if f"{os.sep}sources{os.sep}" in str(path):
+            raise tc.TranscriptionError(f"cannot read the source file {str(path)!r}: injected")
+        return real(path)
+
+    monkeypatch.setattr(tc, "file_sha256", unreadable_in_sources)
+    error, message = commit_failing(staged_data(deal))
+    assert "was saved" in message and "entry exists" in message and "could not be read back" in message
+    assert "no figures were recorded" in message and "state.json was not modified" in message
+    assert "do not retry blindly" in message
+    (entry,) = read_manifest("Synthetic Co", "Fleet Loan")
+    assert (state_file_dir(deal) / "sources" / entry["filename"]).is_file()
+    assert state_file(deal).read_bytes() == state_before
+
+
+def test_a_saved_copy_that_does_not_match_also_says_the_state_was_not_modified(deal, monkeypatch):
+    import shutil
+    real_copy, copies = shutil.copyfile, []
+
+    def corrupting(source, destination, **kwargs):
+        copies.append(destination)
+        real_copy(source, destination, **kwargs)
+        if len(copies) == 2:
+            with open(destination, "ab") as f:
+                f.write(b"corrupt")
+        return destination
+
+    monkeypatch.setattr(shutil, "copyfile", corrupting)
+    _, message = commit_failing(staged_data(deal))
+    assert "does not match the fingerprint" in message and "no figures were recorded" in message
+    assert "state.json was not modified" in message
+    assert not list(deal.glob("deals/*/*/state.json")), "no state was written"
+
+
+def test_a_second_preflight_that_cannot_read_the_state_does_not_claim_the_state_changed(deal, monkeypatch):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"})
+    real, calls = tc.preflight, []
+
+    def second_fails(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise OSError(13, "injected: state.json is not readable")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tc, "preflight", second_fails)
+    error, message = commit_failing(staged_data(deal))
+    assert "could not be checked again after the image was saved" in message and "changed" not in message.split("(")[0]
+    assert "were saved; no figures were recorded" in message and isinstance(error.__cause__, OSError)
+
+
+def test_a_first_preflight_that_cannot_read_the_state_refuses_before_anything_is_saved(deal, monkeypatch):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"})
+    before = deal_files(deal)
+
+    def unreadable(*args, **kwargs):
+        raise OSError(13, "injected: state.json is not readable")
+
+    monkeypatch.setattr(tc, "read_state", unreadable)
+    error, message = commit_failing(staged_data(deal))
+    assert "state could not be read" in message and "nothing was saved" in message
+    assert deal_files(deal) == before
+
+
+def fail_state_lock_release(monkeypatch):
+    """The state file is replaced atomically and then its lock file cannot be removed: an OSError arrives after the
+    new state is already on disk."""
+    original = state_manager._FileLock.__exit__
+    failure = PermissionError(13, "injected: cannot remove the lock file")
+
+    def exit_then_fail(self, *exc_info):
+        original(self, *exc_info)
+        if self._lock_path.endswith("state.json.lock"):
+            raise failure
+
+    monkeypatch.setattr(state_manager._FileLock, "__exit__", exit_then_fail)
+    return failure
+
+
+def test_a_state_update_that_failed_before_the_replacement_says_state_json_is_unchanged(deal, state_writes):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    state_writes.calls.clear()
+    state_writes.behaviour.update(fail_on=1, error=OSError("injected disk failure"))
+    _, message = commit_failing(staged_data(deal))
+    assert "state.json was checked after the failure and is unchanged" in message
+    assert "sources/manifest.json entry remains" in message and "do not retry blindly" in message
+
+
+def test_a_state_update_that_may_have_completed_does_not_claim_the_state_is_unchanged(deal, monkeypatch):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    with monkeypatch.context() as patched:
+        failure = fail_state_lock_release(patched)
+        error, message = commit_failing(staged_data(deal))
+    assert error.__cause__ is failure and "unchanged" not in message
+    assert "state.json changed during the failed update and may already hold this transcription" in message
+    assert "sources/manifest.json entry remains" in message and "do not retry blindly" in message
+    state = json.loads(state_file(deal).read_text(encoding="utf-8"))
+    assert len(state["financials_transcriptions"]) == 1, "the update had in fact completed"
+
+
+def test_a_state_update_failure_on_a_deal_with_no_state_yet_is_checked_the_same_way(deal, state_writes):
+    state_writes.behaviour.update(fail_on=1, error=OSError("injected disk failure"))
+    _, message = commit_failing(staged_data(deal))
+    assert "state.json was checked after the failure and is unchanged" in message
+
+
+def test_when_what_a_failed_save_left_cannot_be_inspected_the_message_says_so_instead_of_guessing(deal, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise OSError(5, "injected I/O failure")
+
+    monkeypatch.setattr(tc, "save_source", refuse)
+    monkeypatch.setattr(tc, "_sources_snapshot", lambda *args: tc.UNKNOWN)
+    _, message = commit_failing(staged_data(deal))
+    assert "could not be inspected" in message and "may exist" in message
+    assert "no new file" not in message and "is unchanged" not in message
+
+
+def test_when_state_json_cannot_be_compared_after_a_failed_update_the_message_says_so(deal, state_writes, monkeypatch):
+    state_writes.behaviour.update(fail_on=1, error=OSError("injected disk failure"))
+    monkeypatch.setattr(tc, "_read_bytes", lambda path: tc.UNKNOWN)
+    _, message = commit_failing(staged_data(deal))
+    assert "whether state.json changed could not be checked" in message and "unchanged" not in message
+
+
+def test_a_scratch_folder_that_cannot_be_cleaned_up_does_not_fail_a_commit_whose_image_is_saved(deal, monkeypatch):
+    """The folder only holds the verification copy; the flag below is what stops a cleanup error (a file still open on
+    Windows, say) from raising after the image and the manifest entry have been written."""
+    import tempfile
+    seen = []
+
+    class Recording(tempfile.TemporaryDirectory):
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(tc.tempfile, "TemporaryDirectory", Recording)
+    run_commit(staged_data(deal))
+    assert seen == [{"ignore_cleanup_errors": True}]
+    assert read_state("Synthetic Co", "Fleet Loan")["steps_completed"] == ["spread"]

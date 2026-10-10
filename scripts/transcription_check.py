@@ -785,7 +785,14 @@ def commit(staged, confirm, company, proposal, source_note=None):
     steps = existing.get("steps_completed") or []
     fields["steps_completed"] = [*steps, "spread"] if "spread" not in steps else list(steps)
     fields["financials_transcriptions"] = [*(earlier or []), record]
-    write_state(company, proposal, **fields)
+    try:
+        write_state(company, proposal, **fields)
+    except (OSError, StateError) as exc:
+        raise TranscriptionError(
+            f"the state update failed ({type(exc).__name__}: {exc}). The verified image {entry['filename']!r} was "
+            "saved and its sources/manifest.json entry remains; it is not removed automatically. The update is written "
+            "atomically, so state.json is normally unchanged, but inspect it before doing anything else and do not "
+            "retry blindly: a retry would save the image again.") from exc
     return {"committed": True, "mode": staged["mode"], "periods": periods, "financials_source": financials_source,
             "source_file": entry["filename"], "source_sha256": shown["source_sha256"], "digest": shown["digest"],
             "cross_foot": record["cross_foot"], "disclosure": disclosure_sentence(entry["filename"])}

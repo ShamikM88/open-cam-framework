@@ -7,6 +7,7 @@ were transcribed from an image. That the analyst actually said yes, and that an 
 script at all, are instructions in .claude/commands/spread.md and are only pinned as text (test_prompt_consistency
 style) at the bottom of this file. All data is synthetic.
 """
+import hashlib
 import json
 from decimal import Decimal
 
@@ -1118,12 +1119,12 @@ def state_writes(monkeypatch):
     given. `fail_on` makes the nth call raise instead of writing."""
     calls = []
     real = state_manager._merge_and_write
-    behaviour = {"fail_on": None}
+    behaviour = {"fail_on": None, "error": OSError("injected disk failure")}
 
     def spy(path, company, proposal, date_str, base_dir, fields):
         calls.append(dict(fields))
         if behaviour["fail_on"] == len(calls):
-            raise OSError("injected disk failure")
+            raise behaviour["error"]
         return real(path, company, proposal, date_str, base_dir, fields)
 
     monkeypatch.setattr(state_manager, "_merge_and_write", spy)
@@ -1159,11 +1160,19 @@ def test_the_framework_computed_update_includes_the_downside_fields_when_they_ar
     assert set(state["multi_period_financials"]) == {"FY+1", "FY-Current"} and state["downside_case"]["financials"]
 
 
+FAILURES = [OSError("injected disk failure"), TimeoutError("injected lock timeout"),
+            SchemaVersionError("Refusing to write state.json: injected schema problem; nothing was changed.")]
+
+
+@pytest.mark.parametrize("failure", FAILURES, ids=["OSError", "TimeoutError", "StateError"])
 @pytest.mark.parametrize("builder, note", [(staged_data, None), (analyst_data, "convention")])
-def test_a_failure_at_the_one_state_write_records_no_figures_at_all(deal, state_writes, builder, note):
-    state_writes.behaviour["fail_on"] = 1
-    with pytest.raises(OSError, match="injected disk failure"):
+def test_a_failure_at_the_one_state_write_records_no_figures_at_all_and_is_reported_cleanly(deal, state_writes,
+                                                                                           builder, note, failure):
+    state_writes.behaviour.update(fail_on=1, error=failure)
+    with pytest.raises(tc.TranscriptionError, match="the state update failed") as raised:
         run_commit(builder(deal), source_note=note)
+    assert raised.value.__cause__ is failure, "the original exception is kept as the cause"
+    assert str(failure) in str(raised.value)
     assert len(state_writes.calls) == 1, "there was no earlier state write for the figures alone"
     assert not list(deal.glob("deals/*/*/state.json")), "no state.json: no figures, no record, no step"
 
@@ -1174,13 +1183,34 @@ def test_a_failed_final_write_leaves_an_existing_state_byte_identical_and_report
     path = state_file(deal)
     before = path.read_bytes()
     state_writes.calls.clear()
-    state_writes.behaviour["fail_on"] = 1
-    with pytest.raises(OSError):
+    state_writes.behaviour.update(fail_on=1, error=OSError("injected disk failure"))
+    with pytest.raises(tc.TranscriptionError) as raised:
         run_commit(staged_data(deal))
     assert path.read_bytes() == before
-    # The documented limitation: the verified image and its manifest entry were saved before the state update.
-    assert len(read_manifest("Synthetic Co", "Fleet Loan")) == 1
-    assert len(list(path.parent.glob("sources/*.png"))) == 1
+
+    # The documented limitation: the verified image and its manifest entry were saved before the state update ...
+    (entry,) = read_manifest("Synthetic Co", "Fleet Loan")
+    (saved,) = path.parent.glob("sources/*.png")
+    assert saved.name == entry["filename"] and tc.file_sha256(saved) == hashlib.sha256(PNG).hexdigest()
+    # ... and the message says exactly that, names the file, and tells the operator what to do next.
+    message = str(raised.value)
+    assert "the state update failed (OSError: injected disk failure)" in message
+    assert repr(entry["filename"]) in message and "sources/manifest.json entry remains" in message
+    assert "not removed automatically" in message and "inspect it before doing anything else" in message
+    assert "do not retry blindly" in message and len(message.splitlines()) == 1
+    assert isinstance(raised.value.__cause__, OSError)
+
+
+def test_the_command_line_shows_one_error_line_for_a_failed_final_write(deal, state_writes):
+    data = staged_data(deal)
+    path = write_staged(deal, data)
+    state_writes.behaviour.update(fail_on=1, error=TimeoutError("injected lock timeout"))
+    with pytest.raises(SystemExit) as exit_info:
+        tc.main(["--transcription", str(path), "--commit", "--confirm", digest(data), "--company", "Synthetic Co",
+                 "--proposal", "Fleet Loan"])
+    message = str(exit_info.value)
+    assert message.startswith("error: the state update failed (TimeoutError: injected lock timeout)")
+    assert "sources/manifest.json entry remains" in message and len(message.splitlines()) == 1
 
 
 # ---------------------------------------------------------------------------

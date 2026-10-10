@@ -12,7 +12,7 @@ jobs:
   benchmark:
     # Execute automatically only for this issue's benchmark PR; manual dispatch remains available later.
     if: github.event_name == 'workflow_dispatch' || github.head_ref == 'perf/212-ci-timing-baseline'
-    name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}-repeat-${{ matrix.repeat }}-repeat-${{ matrix.repeat }}
+    name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}-repeat-${{ matrix.repeat }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:

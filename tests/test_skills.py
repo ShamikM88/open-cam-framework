@@ -457,7 +457,7 @@ def posix_sh():
 
 
 needs_sh = pytest.mark.skipif(posix_sh() is None, reason="no POSIX sh available")
-REFUSED_CHARACTERS = '\\ / : * ? " < > | $'
+REFUSED_CHARACTERS = '\\ / : * ? " < > | $ [ ] { }'
 REFUSAL = f"contains any of `{REFUSED_CHARACTERS}`"
 
 
@@ -467,10 +467,10 @@ def refused(name):
             or any(ch in REFUSED_CHARACTERS.replace(" ", "") or ch == "`" or ord(ch) < 32 for ch in name))
 
 
-ACCEPTED_NAMES = ["Synthetic Co", "O'Brien & Sons (UK), Ltd", "A;B", "x # y", "a && b", "%PATH% ~ {a,b}",
-                  "Synthetic [Holdings] #2", "a  b", "Yahoo! Ltd", "Société Générale 株式会社"]
+ACCEPTED_NAMES = ["Synthetic Co", "O'Brien & Sons (UK), Ltd", "A;B", "x # y", "a && b", "%PATH% ~ (a,b)",
+                  "Synthetic (Holdings) #2", "a  b", "Yahoo! Ltd", "Société Générale 株式会社"]
 REFUSED_NAMES = ['x"; touch pwned; "', "$(touch pwned)", "`touch pwned`", "a\\b", "a/b", "a|b", "a:b", "a*b", "a?b",
-                 "a<b", "a>b", "a\nb", "a\x00b", "--help", "-x", "..", ".", "", "   ", '"', "$HOME"]
+                 "a<b", "a>b", "a[b]", "a{b,c}", "Synthetic [Holdings] #2", "Synthetic {Co}", "[", "}", "a\nb", "a\x00b", "--help", "-x", "..", ".", "", "   ", '"', "$HOME"]
 
 
 def test_the_refusal_rule_refuses_every_payload_and_none_of_the_ordinary_names():
@@ -621,3 +621,91 @@ def test_the_user_page_describes_the_tested_read_only_procedure_and_not_a_sandbo
     assert "not an operating-system sandbox" in page and "pre-approves" in page and "not an allowlist" in page
     assert "unlisted" in page and "permission settings" in page
     assert "has no write or edit tool" not in page and "cannot write" not in page
+
+
+# --- 7. the lookup is a glob: its metacharacters are refused, and a capped result is not "the latest" ----------------
+
+GLOB_METACHARACTERS = "*?[]{}\\"
+GLOB_CAP = 100
+
+
+def expand_braces(pattern):
+    """`a{b,c}d` -> [`abd`, `acd`] (one level and nested, as standard glob syntax has it)."""
+    match = re.search(r"\{([^{}]*)\}", pattern)
+    if not match:
+        return [pattern]
+    return [alt for option in match[1].split(",")
+            for alt in expand_braces(pattern[:match.start()] + option + pattern[match.end():])]
+
+
+def glob_matches(pattern, name):
+    """Whether a standard glob pattern (`*`, `?`, `[...]`, `{a,b}`) matches a single path component."""
+    import fnmatch
+    return any(fnmatch.fnmatchcase(name, alt) for alt in expand_braces(pattern))
+
+
+@pytest.mark.parametrize("character", list(GLOB_METACHARACTERS))
+def test_every_glob_metacharacter_is_refused_in_a_company_and_in_a_proposal(character):
+    assert refused(f"Synthetic{character}Co"), "the company is part of the Glob pattern"
+    assert refused(f"Fleet{character}Loan"), "so is the proposal"
+
+
+@pytest.mark.parametrize("deal_name, lookalike", [
+    ("Synthetic [Holdings]", "Synthetic H"),            # [Holdings] is a character class, one letter of "Holdings"
+    ("Synthetic [A-Z]", "Synthetic Q"),
+    ("Synthetic {North,South}", "Synthetic North"),     # braces are alternatives
+    ("Synthetic {Co}", "Synthetic Co"),
+])
+def test_an_unescaped_glob_of_such_a_name_finds_another_directory_so_the_names_are_refused(deal_name, lookalike):
+    assert refused(deal_name)
+    assert glob_matches(deal_name, lookalike), "the pattern built from the name matches a different company"
+    assert not glob_matches(deal_name, deal_name), "and does not match the company that was meant"
+
+
+@pytest.mark.parametrize("deal_name", ACCEPTED_NAMES)
+def test_an_unescaped_glob_of_an_accepted_name_matches_exactly_that_name(deal_name):
+    assert glob_matches(deal_name, deal_name)
+    assert not glob_matches(deal_name, deal_name + "x") and not glob_matches(deal_name, "x" + deal_name)
+
+
+def test_the_model_of_a_glob_treats_literal_text_literally():
+    assert glob_matches("Synthetic Co", "Synthetic Co") and not glob_matches("Synthetic Co", "Synthetic Cx")
+    assert expand_braces("a{b,c}d") == ["abd", "acd"] and expand_braces("plain") == ["plain"]
+
+
+def lookup_result(results, proposal):
+    """The rule the skills state for a Glob result: the tool lists at most 100 files, newest-modified first, which is
+    not the latest by date. A list that reaches the cap may be truncated, so the latest dated folder is not
+    established; otherwise the latest `<proposal>_YYYY-MM-DD` folder by date text."""
+    if len(results) >= GLOB_CAP:
+        return "incomplete", None
+    return "found", documented_folder([r.split("/")[-2] for r in results], proposal)
+
+
+def test_a_result_that_reaches_the_cap_is_never_reported_as_the_latest():
+    proposal = "Fleet"
+    others = [f"deals/Synthetic Co/Other_2026-01-{day:02d}/state.json" for day in range(1, 29)]
+    full = [f"deals/Synthetic Co/{proposal}_2026-{month:02d}-{day:02d}/state.json"
+            for month in range(1, 4) for day in range(1, 29)] + others
+    full = full[:GLOB_CAP]
+    assert len(full) == GLOB_CAP and any("2026-03-28" in r for r in full), "the newest date is in the list"
+    assert lookup_result(full, proposal) == ("incomplete", None)
+    assert lookup_result(full[:GLOB_CAP - 1], proposal)[0] == "found"
+
+
+def test_the_latest_is_chosen_by_date_text_not_by_the_order_the_tool_returns_files_in():
+    newest_modified_first = ["deals/Synthetic Co/Fleet_2025-12-31/state.json",       # edited most recently
+                             "deals/Synthetic Co/Fleet_2026-02-01/state.json",
+                             "deals/Synthetic Co/Fleet_2026-01-05/state.json"]
+    assert lookup_result(newest_modified_first, "Fleet") == ("found", "Fleet_2026-02-01")
+    assert lookup_result([], "Fleet") == ("found", None)
+
+
+@pytest.mark.parametrize("name", ["evidence-discipline", "financial-analysis", "information-gaps"])
+def test_each_skill_narrows_its_glob_to_the_proposal_and_does_not_trust_a_capped_result(name):
+    text = " ".join(body_of(skill_text(name)).split())
+    assert "deals/<company>/<proposal>_*/state.json" in text, "the pattern names the proposal, so fewer files match"
+    assert "at most 100 files" in text and "newest-modified first" in text and "not the same as latest by date" in text
+    assert "reaches 100 files" in text and "could not be established" in text
+    assert "glob characters" in text, "the refusal says why brackets and braces are refused"
+    assert "deals/<company>/*/state.json" not in text, "the broad pattern is gone"

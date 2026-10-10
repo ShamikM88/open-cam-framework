@@ -36,9 +36,11 @@ exactly what the model is told.
 
 - **Start from a deal that has a record.** Each first checks the company and proposal (it refuses one that is empty,
   starts with `-`, or contains a character that cannot be put safely inside a quoted command or a folder name, such as a
-  double quote, `$`, a backtick, a slash or a colon), then reads the latest folder named exactly
-  `<proposal>_YYYY-MM-DD` and says which folder it read; that is the same folder `state_manager` and the other scripts
-  use. With no record it says so and stops.
+  double quote, `$`, a backtick, a slash or a colon, or a glob character, `* ? [ ] { }`, because the folder lookup is a
+  glob), then reads the latest folder named exactly `<proposal>_YYYY-MM-DD` and says which folder it read; that is the
+  same folder `state_manager` and the other scripts use. The lookup lists at most 100 files, newest-modified first; if it
+  reaches 100 it says the latest folder could not be established and stops, rather than claim one. With no record it says
+  so and stops.
 - **A failing check is reported as a tool error, not as a finding about the deal.** A non-zero exit, a traceback or output
   that is not the expected JSON says nothing about the record.
 - **Run them before drafting, or in another session, when the independence of the audit matters.** The skill's
@@ -88,7 +90,10 @@ script.
 These are Claude Code features, so they follow its behaviour: a skill in `.claude/skills/<name>/SKILL.md`, a `context:
 fork` subagent, `disable-model-invocation`, and `allowed-tools` as a pre-approval of the read-only scripts (it is not an
 allowlist; `disallowed-tools` removes the write tools, and everything else stays under your permission settings). The `background: false` setting makes the result come back in
-the same turn and needs a recent Claude Code; an older version ignores it and returns the result when it is ready.
+the same turn and needs a recent Claude Code; an older version ignores it and returns the result when it is ready. On
+macOS, Linux and WSL the `Glob` tool is absent from Claude Code's default tool set (it searches with `find` through
+`Bash`, which these skills do not pre-approve), so there you may be asked to approve the folder lookup, or enable `Glob`
+for the session as Claude Code's documentation describes.
 
 ## Changing or adding a skill
 

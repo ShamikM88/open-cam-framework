@@ -1,17 +1,25 @@
-"""The contract of each shipped skill (issue #196, Phase 2): what an analyst aid may be and do.
+"""The contract of each shipped skill (issue #196, Phase 2).
 
 `test_skill_inventory.py` keeps the inventory equal to the files and keeps every prompt, command and script from
 reaching a skill. This file tests the skills themselves, the three analyst report skills in `.claude/skills/`:
 
-- each is typed by a person (never started by the model), forked, has no write tool, may carry no hook or model
-  override, and pre-approves only the read-only script calls it needs;
+- each is typed by a person (never started by the model), forked, may carry no hook or model override, has the write
+  tools removed, and pre-approves only the read-only script calls it needs. `allowed-tools` pre-approves; it is not an
+  allowlist, so the other tools stay under the user's permission settings. These tests prove what the files say and what
+  the commands they show do; they do not prove an operating-system sandbox;
 - the commands in its body use only those scripts and flags, each one is pre-approved by its own `allowed-tools`, and
   the real commands, run against a synthetic deal, leave everything under `deals/` byte-for-byte unchanged (and create
   nothing when there is no deal);
+- the dated folder a skill is told to read is the one `state_manager` and the scripts use, a company or proposal is put
+  in a quoted command only if it passes the stated refusal rule, and a `null` ratio is explained by basis;
 - every repository path it cites exists, every flag it passes is real, and its links resolve;
-- its files carry no real name, figure or contact detail, and its frontmatter is safe YAML.
+- its files carry no real name, figure or contact detail, and its frontmatter stays inside a small YAML subset that a
+  strict parser written for it reads. That parser is not a general YAML validator.
 
-What no test can show is that a model follows the prose well. A skill's text is a prompt expectation, like a command's.
+What no test can show is that a model follows the prose. A few tests pin a sentence of a skill's text (the refusal rule,
+the dated-folder rule, the basis-aware `null` wording, the tool-error rule) so it cannot be deleted by accident; a
+passing pin shows the instruction is present, never that it is obeyed. A skill's text is a prompt expectation, like a
+command's.
 """
 import json
 import re
@@ -22,11 +30,13 @@ from pathlib import Path
 
 import pytest
 from pii_scan import scan_for_likely_real_data
+from policy_check import compute as policy_compute
+from spreading_builder import evaluate_financial_model
 from state_manager import write_state
 from test_cli_subprocess import has_main_block
 from test_command_flags import extract_invocations
 from test_docs_contracts import cited_paths, missing_paths
-from test_skill_inventory import REGISTRY, frontmatter, inventory_rows, invocation_of, read
+from test_skill_inventory import REGISTRY, body_of, frontmatter, inventory_rows, invocation_of, read
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "scripts"
@@ -272,3 +282,326 @@ def test_skill_files_and_their_pages_carry_no_real_name_figure_or_contact(path):
 def test_the_confidentiality_check_flags_a_real_looking_example():
     assert confidentiality_problems('Run with --company "Acme Holdings Ltd" and write to jo@bank.example') != []
     assert confidentiality_problems('--company "Synthetic Co" --proposal "<Proposal name>" and --company "<Name>"') == []
+
+
+# ---------------------------------------------------------------------------
+# Review of Phase 2 (PR #206): what a skill may say about a `null` ratio, the manifest check's scope, which dated folder
+# is read, what reaches a shell, and what the frontmatter test does and does not prove
+# ---------------------------------------------------------------------------
+
+COMPANY, PROPOSAL = "Synthetic Co", "Synthetic Fleet Loan"
+
+
+@pytest.fixture
+def workdir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def run_script(name, *args, cwd):
+    return subprocess.run([sys.executable, str(SCRIPTS / f"{name}.py"), *args], cwd=cwd, capture_output=True,
+                          text=True, encoding="utf-8", timeout=60)
+
+
+# --- 1. a `null` ratio means different things on the two bases ---------------------------------------------------
+
+def covenant_reason(**state):
+    write_state(COMPANY, PROPOSAL, covenants=[{"metric": state.pop("metric"), "type": "minimum", "threshold": 1.0}],
+                **state)
+    (result,) = policy_compute(COMPANY, PROPOSAL)["policy_state"]["covenant_results"]
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
+    return result["reason"]
+
+
+def test_a_framework_computed_null_ratio_names_the_recorded_denominator(workdir):
+    model = evaluate_financial_model({"FY-Current": {"revenue": 100, "cost_of_sales": 60}})   # no interest paid
+    assert model["ratios"]["FY-Current"]["ebit_interest_cover"] is None
+    reason = covenant_reason(metric="ebit_interest_cover", financials_source="framework-computed",
+                             financials=model["financials"], ratios=model["ratios"])
+    assert "interest paid is zero" in reason
+
+
+def test_an_analyst_supplied_null_ratio_gets_no_denominator_the_record_does_not_show(workdir):
+    """Recorded as given: with no raw lines the script cannot know why the analyst reported N/A, and says only that
+    there is no value. A skill must not supply a reason the record does not hold."""
+    reason = covenant_reason(metric="dscr", financials_source="analyst-supplied",
+                             financials={"FY-Current": {"ebitda": 250}}, ratios={"FY-Current": {"dscr": None}})
+    assert "no computed value" in reason
+    assert not any(word in reason for word in ("zero", "negative", "denominator"))
+
+
+def test_an_analyst_supplied_null_ratio_names_a_denominator_only_when_a_recorded_subtotal_shows_it(workdir):
+    reason = covenant_reason(metric="gross_leverage", financials_source="analyst-supplied",
+                             financials={"FY-Current": {"ebitda": -40}}, ratios={"FY-Current": {"gross_leverage": None}})
+    assert "EBITDA is negative" in reason
+
+
+def null_passages(text):
+    """The blocks of a skill's body (split at blank lines and list items) that mention a ratio recorded as `null`."""
+    blocks = re.split(r"\n\s*\n|\n\s*(?:[-*]|\d+\.)\s+", body_of(text))
+    return [block for block in blocks if "`null`" in block]
+
+
+@pytest.mark.parametrize("name", ["financial-analysis", "information-gaps"])
+def test_the_skills_explain_a_null_ratio_by_basis_and_not_by_an_assumed_denominator(name):
+    passages = null_passages(skill_text(name))
+    assert passages, "the skill says what a null ratio is"
+    for passage in passages:
+        assert "framework-computed" in passage and "analyst-supplied" in passage, passage
+    assert null_passages("- A ratio recorded as `null` is N/A (a zero or negative denominator).") != []
+    assert not all("analyst-supplied" in p for p in null_passages("- A ratio recorded as `null` is N/A."))
+
+
+# --- 2. what --check-sources guarantees ----------------------------------------------------------------------
+
+@pytest.mark.parametrize("state, manifest, declared_but_nothing_saved", [
+    ({"triage": {"sources": ["https://example.invalid/registry"]}}, [], True),
+    ({"commercial": {"sources": ["Synthetic filing"]}}, [], True),
+    ({"triage": {"sources": ["  "]}}, [], False),                                  # a blank citation declares nothing
+    ({"triage": {"sources": ["x"]}}, [{"filename": "a.txt", "claim": "something unrelated"}], False),
+    ({"triage": {"sources": ["x", "y"]}}, [{"filename": "gone.txt", "claim": "x"}], False),   # no file check
+    ({"research": {"sources": ["x"]}}, [], False),                                  # other keys are not read
+    ({"sources": ["x"]}, [], False),
+    ({"inputs": {"sources": ["x"]}}, [], False),
+], ids=["triage", "commercial", "blank", "one-unrelated-entry", "file-not-checked", "research-key", "top-level", "inputs"])
+def test_check_sources_is_a_deal_level_floor_over_triage_and_commercial_citations(state, manifest,
+                                                                                 declared_but_nothing_saved):
+    """The whole guarantee the skills may rely on: `true` only when `triage` or `commercial` declares a citation and
+    the manifest has no entries at all. `false` does not mean every citation is backed."""
+    from source_manifest import missing_saved_sources
+    assert missing_saved_sources(state, manifest) is declared_but_nothing_saved
+
+
+def deal_with_manifest(workdir, content):
+    write_state(COMPANY, PROPOSAL, triage={"sources": ["https://example.invalid/registry"]})
+    (state_dir,) = (workdir / "deals" / COMPANY).glob(f"{PROPOSAL}_*")
+    (state_dir / "sources").mkdir()
+    (state_dir / "sources" / "manifest.json").write_text(content, encoding="utf-8")
+
+
+@pytest.mark.parametrize("content", ["{ not json", "{}", "null", '{"a": 1}', '"text"'])
+@pytest.mark.xfail(strict=True, reason="#207: a malformed manifest is a traceback or a false 'nothing saved'")
+def test_check_sources_reports_an_unusable_manifest_as_one_error_line(workdir, content):
+    deal_with_manifest(workdir, content)
+    result = run_script("source_manifest", "--check-sources", "--company", COMPANY, "--proposal", PROPOSAL, cwd=workdir)
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("error: ") and len(result.stderr.splitlines()) == 1
+
+
+@pytest.mark.parametrize("name", ["evidence-discipline", "information-gaps"])
+def test_the_skills_treat_a_tool_error_or_unusable_manifest_as_a_tool_error_not_a_finding(name):
+    text = " ".join(skill_text(name).split())
+    assert "tool error" in text and "traceback" in text, "a script failure is reported as such"
+    assert "manifest.json" in text and "list of objects" in text, "the manifest is checked before it is trusted"
+
+
+# --- 3. one dated folder ---------------------------------------------------------------------------------------
+
+def documented_folder(names, proposal):
+    """The rule the skills state: only folders named exactly `<proposal>_YYYY-MM-DD`, and the latest of them by
+    comparing the date text."""
+    dates = [n[len(proposal) + 1:] for n in names if n.startswith(proposal + "_")
+             and re.fullmatch(r"\d{4}-\d{2}-\d{2}", n[len(proposal) + 1:])]
+    return f"{proposal}_{max(dates)}" if dates else None
+
+
+def test_the_folder_the_rule_selects_is_the_one_state_manager_and_its_scripts_use(workdir):
+    from state_manager import state_path
+    for proposal, date_str, steps in [
+        (PROPOSAL, "2025-12-31", ["triage"]), (PROPOSAL, "2026-01-05", ["triage", "spread"]),
+        (PROPOSAL, "2026-02-01", ["spread", "collateral"]),                       # the latest
+        (PROPOSAL, "2026-9-1", ["project"]), (PROPOSAL, "2026-02-01.bak", ["project"]), (PROPOSAL, "latest", ["project"]),
+        (PROPOSAL + "_B", "2026-09-09", ["project"]), ("Synthetic Fleet", "2027-01-01", ["project"]),
+    ]:
+        write_state(COMPANY, proposal, date_str=date_str, steps_completed=steps)
+    names = [p.name for p in (workdir / "deals" / COMPANY).iterdir()]
+    assert len(names) == 8
+    chosen = documented_folder(names, PROPOSAL)
+    assert chosen == f"{PROPOSAL}_2026-02-01"
+    assert Path(state_path(COMPANY, PROPOSAL)).parent.name == chosen
+    state = json.loads((workdir / "deals" / COMPANY / chosen / "state.json").read_text(encoding="utf-8"))
+    assert state["date"] == "2026-02-01" and state["date"] == chosen.rsplit("_", 1)[1], "the file's own date agrees"
+    result = run_script("state_manager", "--check-steps", "--company", COMPANY, "--proposal", PROPOSAL,
+                        "--required", "spread,collateral", cwd=workdir)
+    assert json.loads(result.stdout) == {"missing_steps": [], "ok": True}, "the script read the same file"
+
+
+def test_the_rule_ignores_a_folder_that_is_not_exactly_the_proposal_and_an_iso_date():
+    names = ["P_2026-01-01", "P_2026-02-01", "P_2026-3-1", "P_B_2027-01-01", "P_2027-01-01.bak", "Q_2030-01-01", "P_x"]
+    assert documented_folder(names, "P") == "P_2026-02-01"
+    assert documented_folder(["P_latest"], "P") is None
+
+
+@pytest.mark.parametrize("name", [n for n in ["evidence-discipline", "financial-analysis", "information-gaps"]])
+def test_each_skill_states_the_dated_folder_rule_and_reports_the_folder_it_read(name):
+    text = " ".join(skill_text(name).split())
+    assert "YYYY-MM-DD" in text and "exactly" in text and "latest" in text
+    assert "name the folder" in text, "the report says which dated folder was read"
+
+
+# --- 4. what reaches a shell -----------------------------------------------------------------------------------
+
+REFUSED_CHARACTERS = '\\ / : * ? " < > | $'
+REFUSAL = f"contains any of `{REFUSED_CHARACTERS}`"
+
+
+def refused(name):
+    """The rule the skills state for a company or proposal before it is put inside double quotes in a command."""
+    return (not name.strip() or name in (".", "..") or name.startswith("-")
+            or any(ch in REFUSED_CHARACTERS.replace(" ", "") or ch == "`" or ord(ch) < 32 for ch in name))
+
+
+ACCEPTED_NAMES = ["Synthetic Co", "O'Brien & Sons (UK), Ltd", "A;B", "x # y", "a && b", "%PATH% ~ {a,b}",
+                  "Synthetic [Holdings] #2", "a  b", "Yahoo! Ltd", "Société Générale 株式会社"]
+REFUSED_NAMES = ['x"; touch pwned; "', "$(touch pwned)", "`touch pwned`", "a\\b", "a/b", "a|b", "a:b", "a*b", "a?b",
+                 "a<b", "a>b", "a\nb", "a\x00b", "--help", "-x", "..", ".", "", "   ", '"', "$HOME"]
+
+
+def test_the_refusal_rule_refuses_every_payload_and_none_of_the_ordinary_names():
+    assert [n for n in REFUSED_NAMES if not refused(n)] == []
+    assert [n for n in ACCEPTED_NAMES if refused(n)] == []
+
+
+@pytest.mark.parametrize("name", ["evidence-discipline", "financial-analysis", "information-gaps"])
+def test_each_skill_states_the_refusal_rule_before_it_runs_anything(name):
+    body = body_of(skill_text(name))
+    text = " ".join(body.split())
+    assert REFUSAL in text and "backtick" in text and "starts with `-`" in text
+    lines = body.splitlines()
+    first_command = next(i for i, line in enumerate(lines) if line.strip().startswith("python scripts/"))
+    refusal_line = next(i for i, line in enumerate(lines) if "contains any of" in line or "Refuse (say why" in line)
+    assert refusal_line < first_command, "the check comes before the first command that is run"
+
+
+@pytest.mark.parametrize("deal_name", ACCEPTED_NAMES)
+def test_a_name_the_rule_accepts_reaches_the_scripts_as_one_literal_argument(deal_name, workdir):
+    write_state(deal_name, deal_name, steps_completed=["spread"])
+    result = run_script("state_manager", "--check-steps", "--company", deal_name, "--proposal", deal_name,
+                        "--required", "spread", cwd=workdir)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"missing_steps": [], "ok": True}, "found the deal of exactly that name"
+    assert [p.name for p in (workdir / "deals").iterdir()] == [deal_name], "and invented no other folder"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX sh")
+@pytest.mark.parametrize("deal_name", ACCEPTED_NAMES)
+def test_a_name_the_rule_accepts_is_one_literal_word_inside_double_quotes_in_a_real_shell(deal_name, workdir):
+    command = f'printf "%s" "{deal_name}"'
+    done = subprocess.run(["sh", "-c", command], cwd=workdir, capture_output=True, text=True, encoding="utf-8")
+    assert done.stdout == deal_name and done.returncode == 0
+    assert list(workdir.iterdir()) == [], "nothing else was run or created"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX sh")
+@pytest.mark.parametrize("payload", ["$(touch pwned)", "`touch pwned`", 'x"; touch pwned; "'])
+def test_the_payloads_the_rule_refuses_would_have_run_a_command_so_the_refusal_is_needed(payload, workdir):
+    subprocess.run(["sh", "-c", f'printf "%s" "{payload}"'], cwd=workdir, capture_output=True, text=True)
+    assert (workdir / "pwned").exists(), "a harmless command ran: the check really can detect injection"
+
+
+# --- 5. the frontmatter test and what it proves -----------------------------------------------------------------
+
+def strict_frontmatter(text):
+    """(fields, problems) for the YAML subset these files use, parsed strictly: `key: value` lines whose values are
+    plain or quoted scalars (true/false for booleans), or `key:` followed by `  - item` lines, between `---` lines, one
+    key once, spaces only. Anything else is a problem. This is NOT a general YAML parser: it proves the files stay
+    inside a small, well-understood subset (the shapes Claude Code's documentation shows), not that every YAML
+    construct would be read as intended."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    problems, fields = [], {}
+    if not lines or lines[0] != "---":
+        return {}, ["the file does not start with a '---' line"]
+    try:
+        end = lines.index("---", 1)
+    except ValueError:
+        return {}, ["the frontmatter is not closed with a '---' line"]
+    last = None
+    for number, line in enumerate(lines[1:end], start=2):
+        where = f"line {number}"
+        if "\t" in line:
+            problems.append(f"{where}: a tab")
+            continue
+        item = re.fullmatch(r"  - (\S.*)", line)
+        if item:
+            if last is None or not isinstance(fields[last], list):
+                problems.append(f"{where}: a list item that does not follow a bare 'key:' line")
+                continue
+            value = scalar(item[1], where, problems)
+            fields[last].append(value)
+            continue
+        entry = re.fullmatch(r"([a-z][a-z-]*):(?: (.*))?", line)
+        if not entry:
+            problems.append(f"{where}: not 'key: value', 'key:' or '  - item'")
+            continue
+        key, raw = entry[1], entry[2]
+        if key in fields:
+            problems.append(f"{where}: {key} appears twice")
+        if raw is None or raw == "":
+            fields[key] = []
+        else:
+            fields[key] = scalar(raw, where, problems)
+        last = key
+    # a list that stayed empty is a key with no value at all
+    return {k: (v if v != [] else "") for k, v in fields.items()}, problems
+
+
+def scalar(raw, where, problems):
+    if raw[0] in "'\"":
+        if len(raw) < 2 or raw[-1] != raw[0]:
+            problems.append(f"{where}: an unclosed quote")
+        return raw[1:-1]
+    if raw[0] in "[]{}&*!|>%@`#" or raw.startswith(("- ", "? ", ": ")):
+        problems.append(f"{where}: a plain value cannot start with {raw[0]!r} (flow, anchor, tag, block or indicator)")
+    if ": " in raw or " #" in raw or raw.endswith(":"):
+        problems.append(f"{where}: a plain value cannot contain ': ' or ' #' or end with ':'")
+    if raw in ("yes", "no", "on", "off", "True", "False", "TRUE", "FALSE", "null", "~"):
+        problems.append(f"{where}: {raw!r} is a YAML boolean or null spelling; use true or false")
+    return raw
+
+
+@pytest.mark.parametrize("name", report_skills())
+def test_the_shipped_frontmatter_parses_strictly_and_agrees_with_the_tests_other_reading(name):
+    fields, problems = strict_frontmatter(skill_text(name))
+    assert problems == []
+    assert fields["disable-model-invocation"] == "true" and fields["context"] == "fork"
+    assert fields["background"] == "false"
+    assert fields["name"] == name and set(fields) == set(frontmatter(skill_text(name)))
+
+
+@pytest.mark.parametrize("bad, expected", [
+    ("---\nname: x\n\tdescription: y\n---\n", "a tab"),
+    ("---\nname: x\nname: y\n---\n", "appears twice"),
+    ("---\nname: x\nallowed-tools: [Read, Grep]\n---\n", "cannot start with '['"),
+    ("---\nname: x\ndescription: |\n---\n", "cannot start with '|'"),
+    ("---\nname: x\ndescription: &a y\n---\n", "cannot start with '&'"),
+    ("---\nname: x\ndescription: *a\n---\n", "cannot start with '*'"),
+    ("---\nname: x\ndescription: a: b\n---\n", "cannot contain ': '"),
+    ("---\nname: x\ndescription: a # b\n---\n", "cannot contain ': '"),
+    ("---\nname: x\ndescription: \"unclosed\n---\n", "an unclosed quote"),
+    ("---\nname: x\ncontext: fork\n  - Read\n---\n", "does not follow a bare"),
+    ("---\nname: x\ndisable-model-invocation: yes\n---\n", "use true or false"),
+    ("---\nname: x\nallowed-tools:\n  - {a: b}\n---\n", "cannot start with '{'"),
+    ("---\nname: x\n Name: y\n---\n", "not 'key: value'"),
+    ("name: x\n", "does not start"),
+    ("---\nname: x\n", "not closed"),
+])
+def test_the_strict_parser_rejects_what_the_looser_checks_would_let_through(bad, expected):
+    _, problems = strict_frontmatter(bad)
+    assert any(expected in p for p in problems), (bad, problems)
+
+
+def test_the_strict_parser_accepts_the_shapes_the_documentation_shows():
+    ok = ('---\nname: x\ndescription: "Quoted: with a colon"\nargument-hint: --company "<Name>" [more]\n'
+          'allowed-tools:\n  - Read\n  - Bash(python scripts/policy_check.py *)\ncontext: fork\n---\nbody\n')
+    fields, problems = strict_frontmatter(ok)
+    assert problems == [] and fields["allowed-tools"] == ["Read", "Bash(python scripts/policy_check.py *)"]
+    assert fields["description"] == "Quoted: with a colon"
+
+
+# --- 6. read-only means what was tested, not a sandbox ----------------------------------------------------------
+
+def test_the_user_page_describes_the_tested_read_only_procedure_and_not_a_sandbox():
+    page = " ".join((REPO / "docs" / "skills.md").read_text(encoding="utf-8").split())
+    assert "not an operating-system sandbox" in page and "pre-approves" in page and "not an allowlist" in page
+    assert "unlisted" in page and "permission settings" in page
+    assert "has no write or edit tool" not in page and "cannot write" not in page

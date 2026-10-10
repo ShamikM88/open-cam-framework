@@ -349,7 +349,8 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
     # full-suite runs on both operating systems; it must never add work to every PR.
     benchmark = (WORKFLOW.parent / "ci-parallelism-benchmark.yml").read_text(encoding="utf-8")
     triggers = benchmark.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"workflow_dispatch"}
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"pull_request", "workflow_dispatch"}
+    assert "github.head_ref == 'perf/212-ci-timing-baseline'" in benchmark
     assert benchmark.count("workers: 1") == 2
     assert benchmark.count("workers: 2") == 2
     assert benchmark.count("workers: 4") == 2

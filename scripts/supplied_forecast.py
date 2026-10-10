@@ -52,7 +52,7 @@ from spreading_builder import (
     evaluate_financial_model,
 )
 from spreading_builder import FIELD_LABELS as RAW_FIELD_LABELS
-from state_manager import StateError, read_state, write_state
+from state_manager import StateError, read_state, state_path, write_state
 
 RAW_FIELDS = tuple(RAW_FIELD_LABELS)
 STRESS_KEYS = ("revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps")
@@ -112,6 +112,9 @@ RATIO_DEPENDS = {
 }
 # Any covenant can be set on a ratio the analyst supplies, so a derived downside needs every line those ratios read.
 REQUIRED_LINES = tuple(sorted({line for ratio in SUPPLIED_RATIOS for line in RATIO_DEPENDS[ratio]}))
+
+
+UNKNOWN = object()        # the state file could not be read back, so whether it changed is not known
 
 
 class ForecastError(ValueError):
@@ -418,11 +421,31 @@ def record(company, proposal, supplied, stress_in, note):
         raise StateError('Cannot use state.json: "forecast_source" must be "analyst-supplied" when present; fix the '
                          "file by hand or restore it from a backup; the file was not modified.")
     fields = plan(existing, supplied, stress_in, note)
+    before = _state_bytes(company, proposal)
     try:
         write_state(company, proposal, **fields)
-    except OSError as exc:          # includes the lock timeout; write_state() replaces the file atomically
-        raise StateError(f"could not write the deal's state: {' '.join(str(exc).split())}; nothing was recorded") from exc
+    except OSError as exc:          # includes the lock timeout
+        # write_state() replaces the file atomically, but an error can still come after the replacement (releasing the
+        # lock), so "nothing was recorded" is said only when the file is shown to be what it was.
+        reason = " ".join(str(exc).split())
+        after = _state_bytes(company, proposal)
+        if before is not UNKNOWN and after is not UNKNOWN and after == before:
+            raise StateError(f"could not write the deal's state: {reason}; state.json is unchanged and nothing was "
+                             "recorded") from exc
+        raise StateError(f"the state update did not complete cleanly: {reason}. state.json may already hold this "
+                         "forecast: inspect it before retrying") from exc
     return fields
+
+
+def _state_bytes(company, proposal):
+    """The deal's state.json as bytes (None if there is none yet), or UNKNOWN if it cannot be read."""
+    try:
+        with open(state_path(company, proposal), "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        return UNKNOWN
 
 
 def _load(path, what):

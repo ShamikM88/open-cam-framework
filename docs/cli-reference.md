@@ -187,7 +187,10 @@ writes `financials`, `ratios`, the optional `analyst_supplied_financials`, `fore
 note and the downside treatment in **one** state update, printing a summary of which forward years are analyst-supplied
 and which downside years are framework-derived or unavailable. Any refusal is one `error:` line, exit status `1`, and
 nothing is written. A state that cannot be read or written (a lock that cannot be taken, a full disk) and a malformed
-shock already stored in `stress_assumptions` are also one `error:` line with nothing recorded. `--note` is required; it
+shock already stored in `stress_assumptions` are also one `error:` line. When the file is shown to be as it was, it says
+so and that nothing was recorded; when a failure came after the file may have been replaced (for example the lock file
+could not be removed), or the file cannot be read back, it says the update did not complete cleanly and to inspect
+`state.json` before retrying. `--note` is required; it
 is added to `financials_source_note`. It never uses the framework's formulas to produce a recorded value; the formulas
 are used only to test whether the stress shocks may be applied, which needs every line the covenant ratios read. The
 rules are in [the financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).

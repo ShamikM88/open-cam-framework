@@ -838,3 +838,164 @@ def test_a_stored_shock_that_is_null_or_an_unrelated_key_is_tolerated_as_the_cal
     set_state_field(deal, "stress_assumptions", {"revenue_haircut_pct": None, "comment": "from an older run"})
     record(forecast={"FY+2": FORECAST["FY+2"]})
     assert state()["stress_assumptions"]["comment"] == "from an older run"
+
+
+# ---------------------------------------------------------------------------
+# Final correctness pass (issue #124): the workbook shows what the state omits only as blanks
+# ---------------------------------------------------------------------------
+
+COMPLETE_LINES = {**LINES, "exceptional_costs": 0, "intangible_assets": 0, "other_fixed_assets": 0,
+                  "other_long_term_liabilities": 0, "provisions": 0}
+# Computed workbook rows that read a line LINES does not supply (their inputs are incomplete in that downside).
+UNSUPPORTED_ROWS = ("Profit Before Tax", "Net Profit", "Total Fixed Assets", "Total Assets",
+                    "Total Long Term Liabilities", "Total Liabilities", "Tangible Net Worth (TNW)",
+                    "TNW + Loan Notes / Preference Shares")
+SUPPORTED_ROWS = ("Gross Profit", "Gross Profit Margin %", "Operating Profit", "EBITDA", "FCF", "FCF Conversion %",
+                  "Total Current Assets", "Total Current Liabilities", "Total Equity", "DSCR", "EBIT/Interest",
+                  "EBITDA/Interest", "Gearing % (Interest-Bearing Debt / Equity)", "Current Ratio", "Gross Leverage",
+                  "Net Debt / EBITDA", "Trade Debtor Days", "Working Capital Cycle (days)")
+DOWNSIDE_FY1 = 7        # the "FY+1 (Downside)" column
+
+
+def test_the_workbook_leaves_a_derived_downside_row_blank_when_a_line_it_reads_was_not_supplied(deal):
+    record(forecast={"FY+1": reconciled_year(lines=LINES)}, stress=STRESS)
+    sheet = export(deal)
+    assert [c.value for c in sheet[1]][DOWNSIDE_FY1] == "FY+1 (Downside)"
+    for label in SUPPORTED_ROWS:
+        assert str(row_of(sheet, label)[DOWNSIDE_FY1].value).startswith("="), f"{label} keeps its formula"
+    for label in UNSUPPORTED_ROWS:
+        assert row_of(sheet, label)[DOWNSIDE_FY1].value is None, f"{label} must be blank, not a formula or a zero"
+    figures = state()["downside_case"]["financials"]["FY+1"]
+    assert not UNSUPPORTED_OUTPUTS & set(figures), "the state omits the same figures"
+    assert {"ebitda", "gross_profit", "operating_profit", "fcf", "current_assets", "total_equity"} <= set(figures)
+    assert row_of(sheet, "Revenue")[DOWNSIDE_FY1].value == 900, "the shocked raw lines are still written"
+    assert row_of(sheet, "EBITDA")[DOWNSIDE_FY1].value.startswith("=")
+
+
+def test_the_workbook_shows_those_rows_once_every_line_they_read_is_supplied(deal):
+    record(forecast={"FY+1": reconciled_year(lines=COMPLETE_LINES)}, stress=STRESS)
+    sheet = export(deal)
+    for label in (*SUPPORTED_ROWS, *UNSUPPORTED_ROWS):
+        assert str(row_of(sheet, label)[DOWNSIDE_FY1].value).startswith("="), label
+    assert UNSUPPORTED_OUTPUTS <= set(state()["downside_case"]["financials"]["FY+1"])
+
+
+def test_a_single_missing_line_blanks_exactly_the_rows_that_read_it(deal):
+    record(forecast={"FY+1": reconciled_year(lines=COMPLETE_LINES)}, stress=STRESS)
+    path = state_file(deal)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    del data["analyst_supplied_financials"]["FY+1"]["intangible_assets"]      # as if it had never been supplied
+    path.write_text(json.dumps(data), encoding="utf-8")
+    sheet = export(deal)
+    blank = {row[0].value for row in sheet.iter_rows(min_row=2) if row[0].value and row[DOWNSIDE_FY1].value is None}
+    assert {"Total Fixed Assets", "Total Assets", "Tangible Net Worth (TNW)",
+            "TNW + Loan Notes / Preference Shares"} <= blank
+    assert str(row_of(sheet, "Total Liabilities")[DOWNSIDE_FY1].value).startswith("="), "it reads no intangible assets"
+
+
+def test_the_workbooks_formula_chain_and_the_recorders_dependency_tables_agree():
+    """The workbook decides which rows to blank from its own formulas; the recorder decides which figures to omit from
+    a table pinned to the evaluator. For every figure that has a workbook row they must give the same answer."""
+    from spreading_builder import supported_rows
+    labels = {key: label for key, label in SUPPLIED_ROW_LABELS.items()}
+    tables = {**sf.SUBTOTAL_DEPENDS, **sf.RATIO_DEPENDS}
+    complete = set(sf.RAW_FIELDS)
+    for omitted in (None, *sf.RAW_FIELDS):
+        supplied = complete - {omitted}
+        rows = supported_rows(supplied)
+        for key, label in labels.items():
+            assert (label in rows) == (set(tables[key]) <= supplied), (omitted, key)
+
+
+def test_supported_rows_follows_references_through_other_computed_rows():
+    from spreading_builder import supported_rows
+    assert "EBITDA" in supported_rows(set(sf.RAW_FIELDS))
+    nothing = supported_rows(set())
+    assert "EBITDA" not in nothing and "Total Assets" not in nothing
+    only_revenue_and_cost = supported_rows({"revenue", "cost_of_sales"})
+    assert "Gross Profit" in only_revenue_and_cost and "Gross Profit Margin %" in only_revenue_and_cost
+    assert "Operating Profit" not in only_revenue_and_cost, "it also reads admin expenses, depreciation and so on"
+
+
+def test_a_framework_computed_deals_workbook_keeps_every_downside_formula(deal):
+    """Only an analyst-supplied forecast has this rule; every other deal's downside column is as it always was."""
+    spreading_check.compute(COMPANY, PROPOSAL, {"FY-Current": {"revenue": 100, "cost_of_sales": 60},
+                                                "FY+1": {"revenue": 110, "cost_of_sales": 60}},
+                            stress_assumptions={"revenue_haircut_pct": 10})
+    sheet = export(deal)
+    for label in ("EBITDA", "Profit Before Tax", "Total Assets", "Tangible Net Worth (TNW)"):
+        assert str(row_of(sheet, label)[DOWNSIDE_FY1].value).startswith("="), label
+
+
+# ---------------------------------------------------------------------------
+# Final correctness pass: the error says only what is known about the commit
+# ---------------------------------------------------------------------------
+
+def fail_on_lock_release(monkeypatch):
+    """The state file is replaced atomically, and then the lock file cannot be removed: an OSError reaches record()
+    after the state has changed."""
+    import state_manager
+    failure = PermissionError(13, "cannot remove the lock file")
+    original = state_manager._FileLock.__exit__
+
+    def exit_then_fail(self, *exc_info):
+        original(self, *exc_info)
+        raise failure
+
+    monkeypatch.setattr(state_manager._FileLock, "__exit__", exit_then_fail)
+    return failure
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_an_error_on_lock_release_after_the_replacement_is_not_reported_as_nothing_recorded(deal, monkeypatch, existing):
+    if existing:
+        record(forecast={"FY+1": FORECAST["FY+1"]})
+    with monkeypatch.context() as patched:
+        failure = fail_on_lock_release(patched)
+        with pytest.raises(StateError) as raised:
+            record(forecast={"FY+2": FORECAST["FY+2"]})
+    message = str(raised.value)
+    assert raised.value.__cause__ is failure and len(message.splitlines()) == 1
+    assert "nothing was recorded" not in message and "unchanged" not in message
+    assert "did not complete cleanly" in message and "inspect" in message and "state.json" in message
+    assert state()["ratios"]["FY+2"] == {"dscr": 1.5, "gross_leverage": None}, "the intended result is in the file"
+    assert state()["forecast_source"] == "analyst-supplied"
+
+
+def test_main_reports_the_uncertain_commit_in_one_line_without_claiming_the_state_is_unchanged(deal, monkeypatch):
+    forecast_file = deal / "forecast.json"
+    forecast_file.write_text(json.dumps({"forecast": FORECAST}), encoding="utf-8")
+    fail_on_lock_release(monkeypatch)
+    with pytest.raises(SystemExit) as exit_info:
+        sf.main(["--company", COMPANY, "--proposal", PROPOSAL, "--forecast", str(forecast_file), "--note", NOTE])
+    message = exit_info.value.code
+    assert isinstance(message, str) and message.startswith("error: ") and "\n" not in message
+    assert "did not complete cleanly" in message and "inspect" in message and "nothing was recorded" not in message
+
+
+def test_a_failure_known_to_precede_the_replacement_still_says_nothing_was_recorded(deal, monkeypatch):
+    record()
+    before = deals_bytes(deal)
+
+    def refuse(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    with monkeypatch.context() as patched:
+        patched.setattr("state_manager.os.replace", refuse)
+        with pytest.raises(StateError) as raised:
+            record(forecast={"FY+3": {"ratios": {"dscr": 1.6}}})
+    assert "state.json is unchanged and nothing was recorded" in str(raised.value)
+    assert deals_bytes(deal) == before
+
+
+def test_when_the_state_cannot_be_read_back_the_commit_is_treated_as_uncertain(deal, monkeypatch):
+    record()
+
+    def refuse(*args, **kwargs):
+        raise TimeoutError("Could not acquire lock")
+
+    monkeypatch.setattr(sf, "write_state", refuse)
+    monkeypatch.setattr(sf, "_state_bytes", lambda *a: sf.UNKNOWN)
+    with pytest.raises(StateError) as raised:
+        record(forecast={"FY+3": {"ratios": {"dscr": 1.6}}})
+    assert "did not complete cleanly" in str(raised.value) and "nothing was recorded" not in str(raised.value)

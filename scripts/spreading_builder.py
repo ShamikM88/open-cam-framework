@@ -698,8 +698,28 @@ def _column_headers(supplied_values, supplied_downside_values, blank_downside_pe
     return headers
 
 
+def supported_rows(supplied_fields, sections=None):
+    """The computed rows whose every raw input was supplied: the labels of the rows whose formula chain, followed
+    through other computed rows, reads only raw lines in `supplied_fields`. The workbook's own formulas are the
+    authority on what a row reads, so there is no second copy of them. A formula over a blank raw cell reads it as
+    zero, which is not a figure anyone supplied; this is how a caller knows to leave such a row blank."""
+    label_to_field = _build_label_to_field(FIELD_LABELS)
+    formulas = {label: template for _title, rows in (sections or SECTIONS) for label, template in rows if template}
+    memo = {}
+
+    def supported(label):
+        if label not in memo:
+            memo[label] = False         # a reference cycle (validate_row_formulas() rejects them) never counts
+            memo[label] = all(supported(ref) if ref in formulas else label_to_field.get(ref) in supplied_fields
+                              for ref in _referenced_labels(formulas[label]))
+        return memo[label]
+
+    return {label for label in formulas if supported(label)}
+
+
 def _write_financial_spreading(wb, row_of, financial_data=None, downside_financial_data=None,
-                               supplied_values=None, supplied_downside_values=None, blank_downside_periods=None):
+                               supplied_values=None, supplied_downside_values=None, blank_downside_periods=None,
+                               derived_downside_fields=None):
     ws = wb.active
     ws.title = "Financial Spreading"
     ws.append(_column_headers(supplied_values, supplied_downside_values, blank_downside_periods))
@@ -707,6 +727,7 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
         cell.font = Font(bold=True)
 
     label_to_field = _build_label_to_field(FIELD_LABELS)
+    derived_rows = {period: supported_rows(fields) for period, fields in (derived_downside_fields or {}).items()}
 
     for section_title, rows in SECTIONS:
         ws.append([section_title] + [None] * len(PERIOD_COLS))
@@ -717,7 +738,7 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
                 if formula_template:
                     row_values.append(_formula_or_supplied(
                         label, formula_template, row_of, col, supplied_values, supplied_downside_values,
-                        blank_downside_periods))
+                        blank_downside_periods, derived_rows))
                 else:
                     value = None
                     field = label_to_field.get(label)
@@ -738,15 +759,18 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
 
 
 def _formula_or_supplied(label, formula_template, row_of, col, supplied_values, supplied_downside_values,
-                         blank_downside_periods):
+                         blank_downside_periods, derived_downside_rows=None):
     """A computed row's cell: the Excel formula, except in a column whose figures were supplied by the analyst (the
     value they gave for this row, or blank if they gave none -- never a formula, which would recompute it from raw
-    cells and show a figure nobody supplied) or whose downside is unavailable (blank)."""
+    cells and show a figure nobody supplied), whose downside is unavailable (blank), or whose downside the framework
+    derived from analyst-supplied lines (blank for a row that reads a line nobody supplied)."""
     if col in DOWNSIDE_COL_TO_PERIOD_KEY:
         period = DOWNSIDE_COL_TO_PERIOD_KEY[col]
         if period in (supplied_downside_values or {}):
             return supplied_downside_values[period].get(label)
         if period in (blank_downside_periods or ()):
+            return None
+        if period in (derived_downside_rows or {}) and label not in derived_downside_rows[period]:
             return None
     elif COL_TO_PERIOD_KEY[col] in (supplied_values or {}):
         return supplied_values[COL_TO_PERIOD_KEY[col]].get(label)
@@ -797,7 +821,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
 
 def export_to_xlsx(company, output_path, financial_data=None, collateral_data=None,
                     downside_financial_data=None, supplied_values=None, supplied_downside_values=None,
-                    blank_downside_periods=None):
+                    blank_downside_periods=None, derived_downside_fields=None):
     """Build the financial spreading + collateral workbook.
 
     `financial_data` is the same multi-period raw-figure shape consumed by
@@ -818,8 +842,11 @@ def export_to_xlsx(company, output_path, financial_data=None, collateral_data=No
     `supplied_values` / `supplied_downside_values` ({period: {row label: value}}) are the forward-year base-case and
     downside figures an analyst supplied (issue #124): in those columns the computed rows hold the supplied values
     (blank where none was given) instead of formulas, and the column header says so. `blank_downside_periods` are
-    forward years whose downside is unavailable: their downside columns are left blank and labelled. All three
-    default to None, which leaves the workbook exactly as it was.
+    forward years whose downside is unavailable: their downside columns are left blank and labelled.
+    `derived_downside_fields` ({period: the raw lines the analyst supplied for it}) marks a downside column the
+    framework derived from such lines: a computed row that reads a line outside that set is left blank, not
+    calculated from an empty cell (see supported_rows()). All four default to None, which leaves the workbook exactly
+    as it was.
     """
     row_of, _ = _row_layout(SECTIONS)
     validate_row_formulas()
@@ -827,6 +854,7 @@ def export_to_xlsx(company, output_path, financial_data=None, collateral_data=No
     _write_financial_spreading(wb, row_of, financial_data=financial_data,
                                 downside_financial_data=downside_financial_data, supplied_values=supplied_values,
                                 supplied_downside_values=supplied_downside_values,
-                                blank_downside_periods=blank_downside_periods)
+                                blank_downside_periods=blank_downside_periods,
+                                derived_downside_fields=derived_downside_fields)
     _write_collateral_sheet(wb, collateral_data=collateral_data)
     wb.save(output_path)

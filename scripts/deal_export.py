@@ -93,12 +93,14 @@ def _supplied_row_values(*period_dicts):
 
 
 def _analyst_forecast_columns(state):
-    """(supplied base-case values, supplied downside values, forward years whose downside is unavailable) for a deal
-    whose forecast was supplied by the analyst (`forecast_source`, issue #124), else (None, None, None) -- which leaves
-    the workbook exactly as it is for every other deal. Those columns must show what was supplied, never a figure the
-    workbook formulas would compute from raw cells that were not the basis of the supplied numbers."""
+    """(supplied base-case values, supplied downside values, forward years whose downside is unavailable, the raw
+    lines behind each framework-derived downside year) for a deal whose forecast was supplied by the analyst
+    (`forecast_source`, issue #124), else (None, None, None, None) -- which leaves the workbook exactly as it is for
+    every other deal. Those columns must show what was supplied, never a figure the workbook formulas would compute
+    from raw cells that were not the basis of the supplied numbers, and a derived downside row is shown only if every
+    line it reads was supplied."""
     if state.get("forecast_source") != "analyst-supplied":
-        return None, None, None
+        return None, None, None, None
     financials, ratios = state.get("financials"), state.get("ratios")
     supplied = {}
     for period in FORWARD_PERIOD_KEYS:
@@ -116,7 +118,15 @@ def _analyst_forecast_columns(state):
         for period, how in basis.items() if how == "analyst-supplied" and period in FORWARD_PERIOD_KEYS
     }
     unavailable = downside.get("unavailable") if isinstance(downside.get("unavailable"), dict) else {}
-    return supplied, supplied_downside, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}
+    lines = state.get("analyst_supplied_financials")
+    lines = lines if isinstance(lines, dict) else {}
+    derived = {
+        period: {name for name, value in (lines.get(period) if isinstance(lines.get(period), dict) else {}).items()
+                 if isinstance(value, (int, float)) and not isinstance(value, bool)}
+        for period, how in basis.items()
+        if how != "analyst-supplied" and period in FORWARD_PERIOD_KEYS and period not in unavailable
+    }
+    return supplied, supplied_downside, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
 
 
 def _collateral_data_from_state(state):
@@ -167,7 +177,8 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     financial_data = _financial_data_from_state(state)
     downside_financial_data = _downside_financial_data_from_state(state)
     collateral_data = _collateral_data_from_state(state)
-    supplied_values, supplied_downside_values, blank_downside_periods = _analyst_forecast_columns(state)
+    supplied_values, supplied_downside_values, blank_downside_periods, derived_downside_fields = \
+        _analyst_forecast_columns(state)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -191,7 +202,8 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
                     collateral_data=collateral_data,
                     downside_financial_data=downside_financial_data or None,
                     supplied_values=supplied_values, supplied_downside_values=supplied_downside_values,
-                    blank_downside_periods=blank_downside_periods or None)
+                    blank_downside_periods=blank_downside_periods or None,
+                    derived_downside_fields=derived_downside_fields or None)
 
     return output_dir
 

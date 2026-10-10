@@ -656,3 +656,81 @@ def test_supplied_forecast_turns_a_malformed_stored_shock_into_one_error_line_an
     assert "stress_assumptions" in result.stderr and "revenue_haircut_pct" in result.stderr
     assert "Traceback" not in result.stderr
     assert {p: p.read_bytes() for p in cli.workdir.glob("deals/**/*") if p.is_file()} == before
+
+
+# ---------------------------------------------------------------------------
+# source_manifest.py: an unusable manifest or an unsafe name is one error line, never a traceback (#207)
+# ---------------------------------------------------------------------------
+
+UNUSABLE_MANIFEST_BYTES = [b"{ not json", b"", b"\xff\xfe[]", b"{}", b"null", b'{"a": 1}', b'"text"', b"123", b"[1]",
+                           b'[{"filename": "a.txt"}, "x"]']
+UNSAFE_NAMES = ["a/b", "a\\b", "..", ".", "a:b", "a*b", "a?b", 'a"b', "a<b", "a>b", "a|b"]
+
+
+def _deal_with_manifest(cli, content):
+    state_file = _write_state(cli.workdir, {"triage": {"sources": ["https://example.invalid/registry"]}})
+    sources = state_file.parent / "sources"
+    sources.mkdir()
+    (sources / "manifest.json").write_bytes(content)
+    return sources
+
+
+def _tree(root):
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted((root / "deals").rglob("*")) if p.is_file()}
+
+
+@pytest.mark.parametrize("content", UNUSABLE_MANIFEST_BYTES)
+def test_source_manifest_check_sources_reports_an_unusable_manifest_as_one_error_line(cli, content):
+    _deal_with_manifest(cli, content)
+    before = _tree(cli.workdir)
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "manifest.json", "the file was not modified")
+    assert _tree(cli.workdir) == before
+
+
+@pytest.mark.parametrize("content", UNUSABLE_MANIFEST_BYTES)
+def test_source_manifest_save_reports_an_unusable_manifest_and_copies_nothing(cli, content):
+    sources = _deal_with_manifest(cli, content)
+    source = cli.workdir / "filing.txt"
+    source.write_text("the filing", encoding="utf-8")
+    before = _tree(cli.workdir)
+    result = cli("source_manifest", "--company", "Acme", "--proposal", "Loan", "--step", "triage", "--claim",
+                 "legal identity", "--file", source)
+    _assert_a_clean_state_error(result, "manifest.json", "the file was not modified")
+    assert sorted(p.name for p in sources.iterdir()) == ["manifest.json"], "no copy of the document was left behind"
+    assert _tree(cli.workdir) == before
+
+
+@pytest.mark.parametrize("name", UNSAFE_NAMES)
+def test_source_manifest_reports_an_unsafe_company_or_proposal_as_one_error_line(cli, name):
+    source = cli.workdir / "filing.txt"
+    source.write_text("the filing", encoding="utf-8")
+    for company, proposal in ((name, "Loan"), ("Acme", name)):
+        check = cli("source_manifest", "--check-sources", "--company", company, "--proposal", proposal)
+        _assert_a_clean_state_error(check, "isn't safe to use as a filesystem path component")
+        save = cli("source_manifest", "--company", company, "--proposal", proposal, "--step", "triage", "--claim", "x",
+                   "--file", source)
+        _assert_a_clean_state_error(save, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists(), "nothing was created for an unsafe name"
+
+
+def test_source_manifest_save_reports_a_missing_file_as_one_error_line(cli):
+    result = cli("source_manifest", "--company", "Acme", "--proposal", "Loan", "--step", "triage", "--claim", "x",
+                 "--file", cli.workdir / "no-such-file.txt")
+    _assert_a_clean_state_error(result, "needs an existing file")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_source_manifest_check_sources_behaves_exactly_as_before_for_valid_manifests(cli):
+    _write_state(cli.workdir, {"triage": {"sources": ["https://example.invalid/registry"]}})
+    absent = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert absent.returncode == 0 and json.loads(absent.stdout) == {"missing_saved_sources": True}
+    sources = next(cli.workdir.glob("deals/Acme/Loan_*")) / "sources"
+    sources.mkdir()
+    (sources / "manifest.json").write_text("[]", encoding="utf-8")
+    empty = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert empty.returncode == 0 and json.loads(empty.stdout) == {"missing_saved_sources": True}
+    (sources / "manifest.json").write_text('[{"filename": "a.txt", "claim": "x"}]', encoding="utf-8")
+    saved = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert saved.returncode == 0 and json.loads(saved.stdout) == {"missing_saved_sources": False}
+    assert saved.stderr == ""

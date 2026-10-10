@@ -32,10 +32,55 @@ from datetime import date
 from state_manager import (
     DEALS_DIR,
     LOCK_TIMEOUT_SECONDS,
+    StateError,
     _FileLock,
     resolve_date_str,
     sanitize_path_component,
 )
+
+
+class ManifestError(StateError):
+    """sources/manifest.json exists but cannot be used as a list of entries. Nothing was changed. It is a StateError
+    (so every state-reading CLI prints it as one `error:` line) and so also a ValueError (so a caller that already
+    caught that for a malformed manifest still does)."""
+
+
+def _kind(value):
+    """What a parsed JSON value that is not a list is, in words (a list never reaches here)."""
+    if value is None:
+        return "null"
+    for kind, name in ((bool, "a boolean"), (dict, "an object"), (str, "a string")):
+        if isinstance(value, kind):
+            return name
+    return "a number"
+
+
+def _load_manifest(manifest_path):
+    """The entries in a manifest file ([] when there is none), or a ManifestError naming the file and what is wrong:
+    unreadable, not UTF-8, not JSON, not a list, or a list with an entry that is not an object. A manifest that cannot
+    be used must never read as "nothing saved" (an empty or wrong-typed file would), and is never rewritten."""
+    if not os.path.exists(manifest_path):
+        return []
+
+    def refuse(why):
+        return ManifestError(f"Cannot use {manifest_path}: {why}; fix the file by hand or restore it from a backup; "
+                             "the file was not modified.")
+
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+    except UnicodeDecodeError as exc:
+        raise refuse("it is not valid UTF-8 text") from exc
+    except json.JSONDecodeError as exc:
+        raise refuse(f"it is not valid JSON ({exc})") from exc
+    except OSError as exc:
+        raise refuse(f"it cannot be read ({exc.strerror or exc})") from exc
+    if not isinstance(manifest, list):
+        raise refuse(f"it is not a list of entries (it holds {_kind(manifest)})")
+    for number, entry in enumerate(manifest, start=1):
+        if not isinstance(entry, dict):
+            raise refuse(f"it is not a list of entries: entry {number} is not an object")
+    return manifest
 
 
 def _deals_root(base_dir):
@@ -142,6 +187,7 @@ def save_source(company, proposal, *, step, claim, source_path, url=None, filena
     # overwrite the first's document.
     manifest_path = os.path.join(directory, "manifest.json")
     with _FileLock(manifest_path, timeout=LOCK_TIMEOUT_SECONDS):
+        manifest = _load_manifest(manifest_path)       # before anything is copied: an unusable one copies nothing
         resolved_filename = _unique_dest_path(directory, _derive_filename(url, source_path, filename))
         dest_path = os.path.join(directory, resolved_filename)
         shutil.copyfile(source_path, dest_path)
@@ -154,10 +200,6 @@ def save_source(company, proposal, *, step, claim, source_path, url=None, filena
             "fetched_date": fetched_date or date.today().isoformat(),
         }
 
-        manifest = []
-        if os.path.exists(manifest_path):
-            with open(manifest_path, encoding="utf-8") as f:
-                manifest = json.load(f)
         manifest.append(entry)
         tmp_path = manifest_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -171,14 +213,12 @@ def read_manifest(company, proposal, date_str=None, base_dir=None):
     """The list of manifest entries recorded so far for this deal (in the
     order they were saved), or [] if no sources/ folder or manifest exists
     yet -- a deal that hasn't had any source material saved is not an
-    error, just an empty record."""
+    error, just an empty record. A manifest that exists but cannot be used (unreadable, not UTF-8, not JSON, not a
+    list of objects) raises ManifestError instead: it is never read as an empty record."""
     manifest_path = os.path.join(
         sources_dir(company, proposal, date_str=date_str, base_dir=base_dir), "manifest.json"
     )
-    if not os.path.exists(manifest_path):
-        return []
-    with open(manifest_path, encoding="utf-8") as f:
-        return json.load(f)
+    return _load_manifest(manifest_path)
 
 
 def missing_saved_sources(state, manifest):
@@ -236,7 +276,8 @@ if __name__ == "__main__":
     parser.add_argument("--check-sources", action="store_true",
                          help="Check mode instead of saving: prints "
                               '{"missing_saved_sources": true/false} and exits 0 whatever the result (a '
-                              "state.json it cannot read is an error instead: one 'error:' line, exit 1) -- the "
+                              "state.json or sources/manifest.json it cannot use is an error instead: one "
+                              "'error:' line, exit 1; so is a company or proposal that is not a safe folder name) -- the "
                               "caller (a slash command's own prose) decides whether to warn the "
                               "user. See missing_saved_sources()'s docstring for what this does "
                               "and deliberately does not check.")
@@ -247,19 +288,28 @@ if __name__ == "__main__":
     parser.add_argument("--filename", help="Override the destination filename (default: derived from --file/--url)")
     args = parser.parse_args()
 
+    try:                                    # an unsafe name is an error line, not a traceback, in both modes
+        sanitize_path_component(args.company, "company")
+        sanitize_path_component(args.proposal, "proposal")
+    except ValueError as exc:
+        sys.exit(f"error: {' '.join(str(exc).split())}")
+
     if args.check_sources:
-        from state_manager import StateError, read_state
+        from state_manager import read_state
         try:
             state = read_state(args.company, args.proposal) or {}
+            manifest = read_manifest(args.company, args.proposal)       # a ManifestError is a StateError
         except StateError as exc:
-            sys.exit(f"error: {exc}")
-        manifest = read_manifest(args.company, args.proposal)
+            sys.exit(f"error: {' '.join(str(exc).split())}")
         print(json.dumps({"missing_saved_sources": missing_saved_sources(state, manifest)}, indent=2))
     else:
         missing = [name for name in ("step", "claim", "source_path") if not getattr(args, name)]
         if missing:
             parser.error(f"the following arguments are required unless --check-sources is given: "
                          f"{', '.join('--file' if m == 'source_path' else f'--{m}' for m in missing)}")
-        entry = save_source(args.company, args.proposal, step=args.step, claim=args.claim,
-                             source_path=args.source_path, url=args.url, filename=args.filename)
+        try:
+            entry = save_source(args.company, args.proposal, step=args.step, claim=args.claim,
+                                 source_path=args.source_path, url=args.url, filename=args.filename)
+        except ValueError as exc:           # its own input checks (no such file, an unsafe filename) and ManifestError
+            sys.exit(f"error: {' '.join(str(exc).split())}")
         print(json.dumps(entry, indent=2))

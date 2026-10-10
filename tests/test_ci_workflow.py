@@ -345,6 +345,19 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
                 (path.name, job_id)
             assert "timeout-minutes:" in body, (path.name, job_id)
 
+    # Issue #212's benchmark must be manual-only and compare serial, 2-worker and 4-worker
+    # full-suite runs on both operating systems; it must never add work to every PR.
+    benchmark = (WORKFLOW.parent / "ci-parallelism-benchmark.yml").read_text(encoding="utf-8")
+    triggers = benchmark.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"workflow_dispatch"}
+    assert benchmark.count("workers: 1") == 2
+    assert benchmark.count("workers: 2") == 2
+    assert benchmark.count("workers: 4") == 2
+    assert "pytest tests/ -n 2 --dist=loadfile --durations=30" in benchmark
+    assert "pytest tests/ -n 4 --dist=loadfile --durations=30" in benchmark
+    assert "python scripts/check_test_count.py pytest_output.txt" in benchmark
+    assert "python scripts/check_coverage.py coverage.json" in benchmark
+
 
 def test_the_mutation_workflow_is_weekly_and_manual_only_never_on_a_pull_request_or_push():
     text = MUTATION_WORKFLOW.read_text(encoding="utf-8")

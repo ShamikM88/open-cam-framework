@@ -353,7 +353,7 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
     assert "github.head_ref == 'perf/212-ci-timing-baseline'" in benchmark
     assert "os: [ubuntu-latest, windows-latest]" in benchmark
     assert "workers: [1, 2, 4]" in benchmark
-    assert "repeat: [2, 3]" in benchmark
+    assert "repeat: [4]" in benchmark
     assert "max-parallel: 6" in benchmark
     assert "pytest tests/ -n 2 --dist=loadfile --durations=30" in benchmark
     assert "pytest tests/ -n 4 --dist=loadfile --durations=30" in benchmark

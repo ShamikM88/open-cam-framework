@@ -33,6 +33,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Python
@@ -76,6 +77,10 @@ jobs:
       - name: Enforce coverage floors
         if: runner.os == 'Linux'
         run: python scripts/check_coverage.py coverage.json
+
+      - name: Enforce changed-line coverage
+        if: runner.os == 'Linux'
+        run: diff-cover coverage.xml --config-file pyproject.toml
 
       - name: Upload Linux benchmark records
         if: always() && runner.os == 'Linux'

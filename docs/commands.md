@@ -87,7 +87,7 @@ worked examples are in [Workflows](workflows.md).
 - **Use when:** you need a screen and company research now, or ever, without a full CAM.
 - **Inputs:** everything `/triage` and `/commercial` ask for.
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
-  template side effects), after an independent review (`/review --research-brief`) loops to `APPROVED`.
+  template side effects), after a review by the Risk Reviewer role (`/review --research-brief`, run in the same conversation as the brief) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as

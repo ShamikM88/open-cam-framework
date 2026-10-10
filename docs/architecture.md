@@ -8,7 +8,7 @@ checked. For the commands and scripts themselves, see the reference pages linked
 ## The idea in one paragraph
 
 A **Maker** (the Underwriter agent) drafts a Credit Assessment Memorandum (CAM) from source documents and
-user-supplied risk inputs; an independent **Checker** (the Risk Reviewer agent) audits the draft and returns
+user-supplied risk inputs; a separately prompted **Checker** (the Risk Reviewer agent) audits the draft and returns
 `APPROVED` or `REJECTED` with revision notes. Everything that can be computed deterministically (ratios,
 covenant results, required conditions, security gaps) is computed by code, handed to both agents as ground
 truth, and enforced by code on the draft, so the agents narrate and judge rather than calculate. Every step

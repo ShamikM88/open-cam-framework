@@ -41,7 +41,7 @@ What the design does about that, and what it does not:
 
 - The deterministic checks verify figures, conditions and coverage. They **cannot** tell that a narrative or a rating was manipulated, so a clever source can change the prose without tripping a rule.
 - The Underwriter must cite a source for every qualitative claim, and the source document of record is saved beside the deal (`sources/manifest.json`), so a reviewer can read what a claim rested on rather than trust the citation.
-- The Risk Reviewer is a separate prompt on a separate call, so a planted instruction has to get past two passes rather than one (a design intent, not a measured property).
+- The Risk Reviewer is a separate prompt: in the headless pipeline a separate model call, so a planted instruction has to get past two passes rather than one. In an interactive session `/review` runs in the draft's conversation, so an instruction that reached the Maker is visible to the Reviewer as well, and the second pass is a second role prompt, not a second context. Either way this is a design intent, not a measured property.
 - The three commands that run Bash through a pre-approved call (`/assemble`, `/review`, `/research`) pre-approve only the named scripts in `allowed-tools`; nothing broader is pre-approved by the command files.
 - A person reads the memo and the Reviewer's notes. This is the control that does not depend on the model.
 

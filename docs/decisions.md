@@ -31,10 +31,12 @@ so in its Related line) when a later decision supersedes it.
 
 - **Context.** A model reviewing its own reasoning tends to share its blind spots.
 - **Choice.** Two role prompts (`agents/underwriter_agent.md`, `agents/risk_reviewer_agent.md`) that never import
-  each other or share the Maker's reasoning, optionally run on different models (`maker_model`,
-  `checker_model`). `/research` gets a scoped-down Checker pass too (grounding and narrative checks, not the
+  each other. They run as separate roles: in the headless pipeline the Checker is a separate call that does not receive
+  the Maker's reasoning and can run on a different model (`maker_model`, `checker_model`); in an interactive session
+  `/review` plays the Checker in the draft's own conversation. `/research` gets a scoped-down Checker pass too (grounding and narrative checks, not the
   credit-policy and risk-mitigant ones, since no lending decision exists yet).
-- **Why.** The Checker's value is auditing the Maker's output cold.
+- **Why.** The Checker's value is auditing the Maker's output from its own prompt and, where the interface allows it
+  (the headless pipeline), from a context that does not hold the Maker's reasoning.
 - **Consequences.** The prompts must not be merged or cross-referenced. Independence is per interface: headless, the
   Checker is a separate call; in a slash-command session `/review` is a separate role prompt in the draft's own
   conversation ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)). Prompt text is recorded by content hash

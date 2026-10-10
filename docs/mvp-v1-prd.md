@@ -65,7 +65,7 @@ record of goals set down before implementation:
 
 **Reconstructed product hypothesis:**
 
-> If AI drafts and audits a CAM through two independent agents, with every financial figure and policy outcome
+> If AI drafts and audits a CAM through two separately prompted agents, with every financial figure and policy outcome
 > computed deterministically rather than by the model, can an analyst reach a useful first draft materially
 > faster without the model ever becoming the source of truth for a number?
 
@@ -82,10 +82,10 @@ D8 and D9 - were made after that close, during subsequent hardening, and are des
 of scope for this document.
 
 - **The Maker and the Checker are independent prompts** ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
-  They never import each other or share the Maker's reasoning. This was true from the start of MVP v1; the
+  They never import each other's prompt, and in the headless pipeline the Checker never sees the Maker's reasoning. This was true from the start of MVP v1; the
   ability to configure the two to run on different underlying models came later and in two steps - see the
   [Evidence appendix](#evidence-appendix) for the dates. Before that second step, independence meant separate
-  prompts, not yet separate models; the Checker's value comes from auditing cold either way. What independence means
+  prompts, not yet separate models; the Checker's value comes from a separate prompt auditing the draft either way. What independence means
   also depends on the interface: in the headless pipeline the Checker is a separate model call, while an interactive
   `/review` runs in the same conversation as the draft, with a separate role prompt but not an isolated context (see
   R3).
@@ -134,7 +134,8 @@ product's own controls, not an implementation detail:
 6. Once APPROVED, the analyst reviews the audited draft and makes the credit decision.
 
 Each transition in that sequence is a trust boundary. The Maker and the Checker both work from the same
-deterministically computed figures, never from each other's reasoning; the Checker's own qualitative verdict is
+deterministically computed figures rather than from each other's figures: the headless Checker's call never carries the
+Maker's reasoning, while an interactive `/review` runs in the draft's conversation (R3); the Checker's own qualitative verdict is
 itself subject to a code-enforced overlay that can downgrade it but never upgrade it; the analyst is the only
 party who decides.
 
@@ -182,7 +183,7 @@ zero debt service, DSCR resolves to N/A and its covenant resolves to UNRESOLVABL
 [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) fixed exactly this case and added regression
 coverage.
 
-**R3 - Independent review.** The two interfaces differ, and so does what is guaranteed.
+**R3 - Independent review.** The headless pipeline and the interactive `/review` differ, and so does what is guaranteed.
 
 *Headless pipeline (`orchestrator.py`).* The Checker audits the Maker's draft on a separate model call, without
 inheriting its reasoning context: each Checker call is one new message of the Checker prompt, the grounding context

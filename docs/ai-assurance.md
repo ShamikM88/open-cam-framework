@@ -102,7 +102,7 @@ The two agent prompts are the specification of the model's job. Read as expectat
 - **The Underwriter** drafts from the supplied facts; uses the computed figures rather than its own; never invents a figure; cites a source for every qualitative claim; discloses an analyst-supplied basis; declares what it covered in the trailing structured block (conditions, risk categories, figures, sources).
 - **The Risk Reviewer** audits with its own role prompt (independently of the Maker's reasoning on the headless path; in the same conversation as the draft in a slash-command session, see below), challenges ungrounded assertions and weak mitigants, applies a calibrated credit policy (a violation is a mandatory rejection finding), and returns `APPROVED` or `REJECTED` in a fixed JSON shape.
 
-The code can verify only the *declared form* of the Underwriter's behaviour (the block exists, parses, lists what the structure requires and agrees with the computed numbers). Whether the prose behind the declarations is honest is the model's job and, ultimately, a person's. This is why the Checker is a separate prompt on a separate call ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)): it is a second, independent attempt at the part the code cannot do, not a duplicate of the part it can.
+The code can verify only the *declared form* of the Underwriter's behaviour (the block exists, parses, lists what the structure requires and agrees with the computed numbers). Whether the prose behind the declarations is honest is the model's job and, ultimately, a person's. This is why the Checker is a separate prompt ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)), and in the headless pipeline a separate call: it is a second attempt at the part the code cannot do, not a duplicate of the part it can. In an interactive session it is the same kind of second attempt from a different role prompt, but run in the draft's own conversation, so the Maker's reasoning is visible to it (see [where the enforcement runs matters](#where-the-enforcement-runs-matters)).
 
 ## What live evaluation has not shown
 
@@ -132,7 +132,7 @@ Nothing in this framework approves credit. These remain human decisions:
 | Which sources are the documents of record, and whether a claim really follows from them | The code checks that sources were declared and saved, not that they say what the memo says |
 | Confirming a spreading convention, a policy interpretation or a deal learning for reuse | Persisted conventions are local memory that applies to later deals; the framework asks and never infers consent ([D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person)) |
 | The content of the credit policy and style guide, and any exception to it | Calibration summarises documents; a person owns what it says |
-| Reading the narrative and the Reviewer's notes, not only the verdict | Form checks and an independent model cannot catch every ungrounded or misleading sentence |
+| Reading the narrative and the Reviewer's notes, not only the verdict | Form checks and a second model pass (the Checker) cannot catch every ungrounded or misleading sentence |
 | For maintainers: editing a prompt, promoting a baseline, changing a floor or a rule, merging | Each changes what earlier evidence means ([contributing](contributing.md), [operations](operations.md)) |
 
 ## Reading a claim against its evidence

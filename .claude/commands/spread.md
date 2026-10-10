@@ -119,8 +119,10 @@ all of that, only after the analyst has explicitly confirmed a read-back.
        --commit --confirm <digest> --company "<company>" --proposal "<proposal>" [--source-note "<convention>"]
    ```
    It refuses, with nothing written, if the digest is stale, a discrepancy is unresolved, the image is missing or
-   changed, or the deal's existing `financials_source` is the other mode (one deal never mixes the two, and nothing
-   here converts it; tell the analyst and stop); report its `error:` line as printed and do not retry with another
+   changed, the deal's existing `financials_source` is the other mode (one deal never mixes the two, and nothing
+   here converts it; tell the analyst and stop), or the deal's state cannot be written by this checkout (a newer
+   schema version, a malformed key such as `stress_assumptions`, an unreadable `sources/manifest.json`; all
+   checked before the image is saved); report its `error:` line as printed and do not retry with another
    digest unless a new read-back was confirmed. On success it saves the image as the source of record, verified against
    the confirmed fingerprint (do not also run `source_manifest.py` for it), then in the default mode recomputes exactly
    as `spreading_check.py` does, and in the analyst-supplied mode records the subtotals as `financials`, the ratios as

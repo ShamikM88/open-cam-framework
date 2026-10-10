@@ -16,7 +16,7 @@ import transcription_check as tc
 from source_manifest import read_manifest
 from spreading_builder import FIELD_LABELS, evaluate_financial_model
 from spreading_check import compute
-from state_manager import StateError, read_state, write_state
+from state_manager import SCHEMA_VERSION, SchemaVersionError, StateError, read_state, write_state
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"synthetic"
 
@@ -974,3 +974,134 @@ def test_a_saved_copy_that_does_not_match_is_reported_and_no_figures_are_recorde
     with pytest.raises(tc.TranscriptionError, match="saved copy .* does not match the fingerprint"):
         run_commit(data, confirm=confirmed)
     assert "financials" not in (read_state("Synthetic Co", "Fleet Loan") or {})
+
+
+# ---------------------------------------------------------------------------
+# Predictable state failures are caught before the image is saved
+# ---------------------------------------------------------------------------
+
+def deal_files(root):
+    """Every file under deals/ with its bytes: equal before and after means nothing was written, copied or recorded."""
+    return {path.relative_to(root).as_posix(): path.read_bytes() for path in (root / "deals").rglob("*")
+            if path.is_file()}
+
+
+def set_state_key(root, key, value):
+    path = state_file(root)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state[key] = value
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+@pytest.mark.parametrize("mode, builder", [("framework-computed", staged_data), ("analyst-supplied", analyst_data)])
+def test_a_newer_schema_refuses_the_commit_before_the_image_is_saved_in_both_modes(deal, mode, builder):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    set_state_key(deal, "schema_version", "9.0.0")
+    data = builder(deal)
+    confirmed = digest(data)
+    before = deal_files(deal)
+    assert read_state("Synthetic Co", "Fleet Loan")["schema_version"] == "9.0.0"        # readable, but not writable
+    with pytest.raises(SchemaVersionError, match="newer framework .*schema_version 9.0.0.*nothing was changed"):
+        run_commit(data, confirm=confirmed, source_note="convention" if mode == "analyst-supplied" else None)
+    assert deal_files(deal) == before and nothing_new_saved(deal)
+
+
+@pytest.mark.parametrize("recorded", ["v1", "1.2", None, 7])
+def test_a_schema_version_that_cannot_be_compared_also_refuses_before_anything_is_saved(deal, recorded):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    set_state_key(deal, "schema_version", recorded)
+    before = deal_files(deal)
+    with pytest.raises(SchemaVersionError, match="Refusing to write"):
+        run_commit(staged_data(deal))
+    assert deal_files(deal) == before and nothing_new_saved(deal)
+
+
+def test_the_refusal_to_write_a_newer_schema_is_still_state_managers_and_still_one_error_line(deal):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    set_state_key(deal, "schema_version", "9.0.0")
+    data = staged_data(deal)
+    path = write_staged(deal, data)
+    before = deal_files(deal)
+    with pytest.raises(SystemExit) as exit_info:
+        tc.main(["--transcription", str(path), "--commit", "--confirm", digest(data), "--company", "Synthetic Co",
+                 "--proposal", "Fleet Loan"])
+    message = str(exit_info.value)
+    assert message.startswith("error: Refusing to write") and "would downgrade it" in message
+    assert len(message.splitlines()) == 1 and deal_files(deal) == before
+
+
+def test_a_current_or_older_schema_is_still_accepted(deal):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    set_state_key(deal, "schema_version", "0.0.0")
+    run_commit(staged_data(deal))
+    assert read_state("Synthetic Co", "Fleet Loan")["schema_version"] == SCHEMA_VERSION
+
+
+def test_a_malformed_stress_assumptions_value_of_the_wrong_shape_is_refused_before_the_image_is_saved(deal):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    set_state_key(deal, "stress_assumptions", ["revenue_haircut_pct", 5])
+    before = deal_files(deal)
+    with pytest.raises(StateError, match="stress_assumptions"):
+        run_commit(staged_data(deal))
+    assert deal_files(deal) == before and nothing_new_saved(deal)
+
+
+def test_stress_assumptions_the_computation_cannot_apply_are_refused_before_the_image_is_saved(deal):
+    # A forward year is on file (as after /project), so the stored stress shock is applied to it on every spread.
+    write_state("Synthetic Co", "Fleet Loan", financials_source="framework-computed",
+                multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}},
+                stress_assumptions={"revenue_haircut_pct": "five percent"})
+    before = deal_files(deal)
+    with pytest.raises(tc.TranscriptionError,
+                       match=r"cannot be computed against this deal's stored state \(TypeError.*stress_assumptions"):
+        run_commit(staged_data(deal))
+    assert deal_files(deal) == before and nothing_new_saved(deal)
+
+
+def test_a_stored_stress_assumption_that_can_be_applied_does_not_block_a_commit(deal):
+    write_state("Synthetic Co", "Fleet Loan", financials_source="framework-computed",
+                multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}},
+                stress_assumptions={"revenue_haircut_pct": 5})
+    run_commit(staged_data(deal))
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert state["downside_case"]["financials"] and state["financials_source"] == "framework-computed"
+
+
+def test_stress_assumptions_are_not_read_by_the_analyst_supplied_path_so_they_do_not_block_it(deal):
+    write_state("Synthetic Co", "Fleet Loan", stress_assumptions=["not", "an", "object"])
+    run_commit(analyst_data(deal), source_note="convention")
+    assert read_state("Synthetic Co", "Fleet Loan")["financials_source"] == "analyst-supplied"
+
+
+@pytest.mark.parametrize("content", ["{not json", "{}", '"text"', "\x00\x00"])
+def test_an_unreadable_or_non_list_source_manifest_is_refused_before_the_image_is_copied(deal, content):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    sources = state_file(deal).parent / "sources"
+    sources.mkdir()
+    (sources / "manifest.json").write_text(content, encoding="utf-8")
+    before = deal_files(deal)
+    with pytest.raises(tc.TranscriptionError, match="sources/manifest.json .*nothing was saved"):
+        run_commit(staged_data(deal))
+    assert deal_files(deal) == before and list(sources.iterdir()) == [sources / "manifest.json"]
+
+
+def test_every_other_predictable_refusal_leaves_the_whole_deal_byte_identical(deal):
+    write_state("Synthetic Co", "Fleet Loan", financials_source="analyst-supplied",
+                financials={"FY-1": {"gross_profit": 1}}, financials_transcriptions="oops")
+    before = deal_files(deal)
+    with pytest.raises(StateError, match="financials_transcriptions"):
+        run_commit(analyst_data(deal), source_note="convention")
+    assert deal_files(deal) == before
+    write_state("Synthetic Co", "Fleet Loan", financials_transcriptions=[])
+    with pytest.raises(tc.TranscriptionError, match="never mixes the two bases"):
+        run_commit(staged_data(deal))
+    assert nothing_new_saved(deal)
+
+
+def test_the_preflight_returns_what_commit_needs_and_changes_nothing(deal):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, financials_transcriptions=[{"periods": ["FY-1"]}])
+    before = deal_files(deal)
+    existing, earlier = tc.preflight(tc.validate(staged_data(deal)), "Synthetic Co", "Fleet Loan")
+    assert existing["inputs"] == {"pd": "0.2%"} and earlier == [{"periods": ["FY-1"]}]
+    assert deal_files(deal) == before
+    assert tc.preflight(tc.validate(staged_data(deal)), "Brand New Co", "Loan") == ({}, None)

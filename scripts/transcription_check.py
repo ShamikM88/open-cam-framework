@@ -55,10 +55,18 @@ import tempfile
 from datetime import date
 from decimal import Decimal
 
-from source_manifest import save_source, sources_dir
+from source_manifest import read_manifest, save_source, sources_dir
 from spreading_builder import FIELD_LABELS, HISTORICAL_PERIOD_KEYS, evaluate_financial_model
-from spreading_check import compute
-from state_manager import StateError, read_state, write_state
+from spreading_check import STATE_KEYS_READ as SPREADING_KEYS_READ
+from spreading_check import compute, plan_fields
+from state_manager import (
+    LEGACY_SCHEMA_VERSION,
+    StateError,
+    _check_schema_version_is_writable,
+    read_state,
+    state_path,
+    write_state,
+)
 
 MODES = ("framework-computed", "analyst-supplied")
 SOURCE_KINDS = ("image", "scanned-document")
@@ -105,6 +113,12 @@ TOP_LEVEL_KEYS = {"mode", "source", "periods", "acknowledged"}
 SOURCE_KEYS = {"file", "kind", "description", "unit", *SIGN_CLASSES}
 PERIOD_KEYS = {"lines", "subtotals", "ratios"}
 FINANCIAL_STORES = ("financials", "ratios", "multi_period_financials", "analyst_supplied_financials")
+# The state keys each commit path reads and rewrites; validated (by state_manager) before anything is saved.
+STATE_KEYS_BY_MODE = {
+    "framework-computed": (*SPREADING_KEYS_READ, "financials_source", "steps_completed"),
+    "analyst-supplied": ("financials", "ratios", "analyst_supplied_financials", "financials_source",
+                         "steps_completed"),
+}
 
 
 class TranscriptionError(ValueError):
@@ -623,6 +637,61 @@ def mode_conflict(existing, mode):
     return None
 
 
+def recorded_lines(staged):
+    """{period: {line: number}} exactly as the framework-computed path hands them to spreading_check."""
+    return {period: {name: figure.number() for name, figure in entry["lines"].items()}
+            for period, entry in staged["periods"].items()}
+
+
+def preflight(staged, company, proposal):
+    """Everything about the deal that can be known before the image is saved, so that a predictable refusal leaves
+    no source file, manifest entry or state change behind. Returns (the deal's existing state, its earlier
+    transcription records). Raises TranscriptionError or StateError, having written nothing, when:
+
+    - the state cannot be read, or a key this path reads and rewrites has the wrong shape (state_manager's own
+      validation, for the keys this mode touches, including spreading_check's);
+    - the state is recorded as a newer schema than this checkout supports (or one that cannot be compared), which
+      write_state() would refuse -- the same state_manager check is applied here, not a second comparator;
+    - the deal's financials_source is the other /spread mode, or unknown while figures are on file;
+    - financials_transcriptions is not a list;
+    - sources/manifest.json exists but is not a readable list, which would fail after the image was copied;
+    - in framework-computed mode, the computation itself (spreading_check's own merge, formulas and downside case,
+      run without writing) fails against what the deal already holds, for example a stress assumption that cannot be
+      applied.
+
+    What it cannot know is a failure that only happens at write time: a full disk, a lock that times out, or another
+    session changing the state in between."""
+    state = read_state(company, proposal, keys=STATE_KEYS_BY_MODE[staged["mode"]])
+    if state is not None:
+        _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION),
+                                          state_path(company, proposal))
+    existing = state or {}
+    conflict = mode_conflict(existing, staged["mode"])
+    if conflict:
+        raise TranscriptionError(f"refused: {conflict}.")
+    earlier = existing.get("financials_transcriptions")
+    if earlier is not None and not isinstance(earlier, list):
+        raise StateError('Cannot use state.json: "financials_transcriptions" must be a list ([...]); fix the file by '
+                         "hand or restore it from a backup; the file was not modified.")
+    try:
+        manifest = read_manifest(company, proposal)
+    except (OSError, ValueError) as exc:        # json.JSONDecodeError and UnicodeDecodeError are ValueErrors
+        raise TranscriptionError(f"refused: this deal's sources/manifest.json cannot be read ({exc}); nothing was "
+                                 "saved. Fix or restore it by hand.") from exc
+    if not isinstance(manifest, list):
+        raise TranscriptionError("refused: this deal's sources/manifest.json is not a list of entries; nothing was "
+                                 "saved. Fix or restore it by hand.")
+    if staged["mode"] == "framework-computed":
+        try:
+            plan_fields(existing, recorded_lines(staged))
+        except Exception as exc:       # whatever the formulas raise for a malformed stored value
+            raise TranscriptionError(
+                f"refused: the figures cannot be computed against this deal's stored state "
+                f"({type(exc).__name__}: {exc}); nothing was saved. Fix the stored value (for example "
+                "stress_assumptions) by hand.") from exc
+    return existing, earlier
+
+
 def commit(staged, confirm, company, proposal, source_note=None):
     """Record a confirmed transcription. Every refusal raises TranscriptionError before anything is written."""
     shown = readback(staged)
@@ -646,16 +715,7 @@ def commit(staged, confirm, company, proposal, source_note=None):
     if staged["mode"] == "framework-computed" and source_note:
         raise TranscriptionError("refused: --source-note is only used in analyst-supplied mode")
 
-    existing = read_state(company, proposal, keys=(
-        "financials", "ratios", "analyst_supplied_financials", "multi_period_financials", "financials_source",
-        "steps_completed")) or {}
-    conflict = mode_conflict(existing, staged["mode"])
-    if conflict:
-        raise TranscriptionError(f"refused: {conflict}.")
-    earlier = existing.get("financials_transcriptions")
-    if earlier is not None and not isinstance(earlier, list):
-        raise StateError('Cannot use state.json: "financials_transcriptions" must be a list ([...]); fix the file by '
-                         "hand or restore it from a backup; the file was not modified.")
+    existing, earlier = preflight(staged, company, proposal)
 
     # Copy the image aside first and check the copy against the confirmed fingerprint, so the exact bytes that are
     # saved as the source of record are the ones the analyst's confirmed read-back covered.
@@ -679,8 +739,7 @@ def commit(staged, confirm, company, proposal, source_note=None):
     periods = list(staged["periods"])
     fields = {}
     if staged["mode"] == "framework-computed":
-        compute(company, proposal, {period: {name: figure.number() for name, figure in entry_["lines"].items()}
-                                    for period, entry_ in staged["periods"].items()})
+        compute(company, proposal, recorded_lines(staged))
         financials_source = "framework-computed"
     else:
         by_part = {part: {period: {name: figure.number() for name, figure in staged["periods"][period][part].items()}

@@ -184,8 +184,10 @@ negative; a cross-foot of every subtotal the source states against the sum of th
 
 `scripts/transcription_check.py --transcription <json> --commit --confirm <digest> --company ... --proposal ...
 [--source-note <text>]` records the transcription, but only if `--confirm` is the digest of these figures and this
-image as they are now, no cross-foot discrepancy is unresolved and the deal's existing `financials_source` is the
-same mode; otherwise it exits `1` with one `error: refused: ...` line and writes nothing (no source copied, no state
+image as they are now, no cross-foot discrepancy is unresolved, the deal's existing `financials_source` is the
+same mode and the deal's state can be written by this checkout (readable, correctly shaped, not a newer schema
+version, a readable `sources/manifest.json`, and in `framework-computed` mode a computation that succeeds against what
+is stored); otherwise it exits `1` with one `error: refused: ...` line and writes nothing (no source copied, no state
 changed). On success it saves the image as the source of record after checking it against the confirmed fingerprint
 (the manifest claim says the figures were transcribed from an image and carries the digest and a fingerprint prefix),
 records the figures, appends `spread` to `steps_completed`, and appends a record to `financials_transcriptions`

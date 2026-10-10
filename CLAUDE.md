@@ -416,7 +416,9 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   discrepancy is unresolved, and otherwise exits `1` with nothing written. Which lines feed a subtotal comes from
   `evaluate_financial_model()`, never a second mapping; ratios are never cross-footed; a check needs every feeding
   line transcribed; a mismatch a different sign reading would explain cannot be acknowledged; a commit is refused for
-  a stale digest (including a changed image) and for a deal already in the other mode. It cannot see the image or
+  a stale digest (including a changed image), a deal already in the other mode, and any predictable state problem
+  (newer schema, malformed key, unreadable manifest, a computation that cannot succeed), all before the image is
+  saved. It cannot see the image or
   know the analyst said yes; do not describe it as verifying figures.
   Full behaviour: [CLI reference](docs/cli-reference.md#transcription-check).
 - **`scripts/conventions.py`** (no `anthropic` dependency) -- the persisted-convention stores; deliberately never

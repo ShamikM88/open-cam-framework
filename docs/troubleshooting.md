@@ -96,7 +96,7 @@ against an edited copy.
 
 ### Figures read from an image
 
-The checks behind `transcription_check.py` (see [Workflows](workflows.md#figures-read-from-an-image)). Each message is one `error:` line and exit status `1`, and nothing has been written.
+The checks behind `transcription_check.py` (see [Workflows](workflows.md#figures-read-from-an-image)). Each failure is reported as one `error:` line with exit status `1`. Most are refused before anything is saved, and their rows say nothing was saved or changed. The exceptions are failures after the verified image is saved: a failed state update, a deal that changed after the image was saved, or a saved copy that fails its fingerprint check. In those cases the image and its `sources/manifest.json` entry can remain with no figures recorded, and the message says so. See the rows `the state update failed` and `the saved copy ... does not match the fingerprint` below for what remains and what to do.
 
 | Message starts with | Meaning | Fix |
 | :--- | :--- | :--- |

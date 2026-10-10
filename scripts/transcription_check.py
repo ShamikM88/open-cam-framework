@@ -13,8 +13,9 @@ transcription and `state.json`, for both /spread modes:
 2. A commit (`--commit --confirm <digest>`): refused, with nothing written, unless the digest matches the staged
    figures and the image as they are now (so any change after the read-back, including replacing the image, needs a
    new read-back), no cross-foot discrepancy is left unresolved, and the deal's existing basis is compatible. Only
-   then does it save the image (verified against the fingerprint), record the figures and note in the state that they
-   were transcribed from an image.
+   then does it save the image (verified against the fingerprint), look at the deal once more and, in one state
+   update, record the figures, the transcription record and the completed step (the image precedes that update; the
+   two are not atomic).
 
 What code enforces here: the ordering (no state write before a read-back of the same figures and the same image was
 produced and its digest quoted), that the figures parse strictly (no guessing), that every sign is read under an
@@ -58,7 +59,7 @@ from decimal import Decimal
 from source_manifest import read_manifest, save_source, sources_dir
 from spreading_builder import FIELD_LABELS, HISTORICAL_PERIOD_KEYS, evaluate_financial_model
 from spreading_check import STATE_KEYS_READ as SPREADING_KEYS_READ
-from spreading_check import compute, plan_fields
+from spreading_check import plan_fields
 from state_manager import (
     LEGACY_SCHEMA_VERSION,
     StateError,
@@ -736,12 +737,23 @@ def commit(staged, confirm, company, proposal, source_note=None):
             f"refused: the saved copy {saved!r} does not match the fingerprint of the confirmed read-back; no figures "
             "were recorded. Delete that file and its sources/manifest.json entry, then read back and commit again.")
 
+    # The image is saved and verified. Look at the deal once more, immediately before the one state write, so the
+    # fields are planned from the state as it is now rather than as it was before the copy; if it can no longer take
+    # this transcription, say so (the verified image and its manifest entry stay, with no figures recorded).
+    try:
+        existing, earlier = preflight(staged, company, proposal)
+    except (TranscriptionError, StateError) as exc:
+        raise TranscriptionError(
+            f"refused: the deal's state changed after the preflight and can no longer take this transcription ({exc}). "
+            f"The verified image ({entry['filename']}) and its sources/manifest.json entry were saved; no figures "
+            "were recorded.") from exc
+
     periods = list(staged["periods"])
-    fields = {}
     if staged["mode"] == "framework-computed":
-        compute(company, proposal, recorded_lines(staged))
+        fields = plan_fields(existing, recorded_lines(staged))        # spreading_check's own calculation, not written
         financials_source = "framework-computed"
     else:
+        fields = {}
         by_part = {part: {period: {name: figure.number() for name, figure in staged["periods"][period][part].items()}
                           for period in periods if staged["periods"][period][part]}
                    for part in ("subtotals", "ratios", "lines")}
@@ -769,14 +781,11 @@ def commit(staged, confirm, company, proposal, source_note=None):
             "ratios_cross_footed": False,
         },
     }
-    record_fields = {"financials_transcriptions": [*(earlier or []), record]}
-    if staged["mode"] == "framework-computed":      # compute() has already written the figures; add the record
-        steps = (read_state(company, proposal, keys=("steps_completed",)) or {}).get("steps_completed") or []
-    else:
-        steps = existing.get("steps_completed") or []
-        record_fields.update(fields)
-    record_fields["steps_completed"] = [*steps, "spread"] if "spread" not in steps else list(steps)
-    write_state(company, proposal, **record_fields)
+    # One state update carries the figures, the provenance record and the completed step together, in either mode.
+    steps = existing.get("steps_completed") or []
+    fields["steps_completed"] = [*steps, "spread"] if "spread" not in steps else list(steps)
+    fields["financials_transcriptions"] = [*(earlier or []), record]
+    write_state(company, proposal, **fields)
     return {"committed": True, "mode": staged["mode"], "periods": periods, "financials_source": financials_source,
             "source_file": entry["filename"], "source_sha256": shown["source_sha256"], "digest": shown["digest"],
             "cross_foot": record["cross_foot"], "disclosure": disclosure_sentence(entry["filename"])}

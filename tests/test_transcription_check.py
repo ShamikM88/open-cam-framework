@@ -12,6 +12,7 @@ from decimal import Decimal
 
 import pytest
 
+import state_manager
 import transcription_check as tc
 from source_manifest import read_manifest
 from spreading_builder import FIELD_LABELS, evaluate_financial_model
@@ -1105,3 +1106,131 @@ def test_the_preflight_returns_what_commit_needs_and_changes_nothing(deal):
     assert existing["inputs"] == {"pd": "0.2%"} and earlier == [{"periods": ["FY-1"]}]
     assert deal_files(deal) == before
     assert tc.preflight(tc.validate(staged_data(deal)), "Brand New Co", "Loan") == ({}, None)
+
+
+# ---------------------------------------------------------------------------
+# One state update carries the figures, the provenance record and the step together
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def state_writes(monkeypatch):
+    """Every call that would write state.json (state_manager's lowest-level writer), recorded by the fields it was
+    given. `fail_on` makes the nth call raise instead of writing."""
+    calls = []
+    real = state_manager._merge_and_write
+    behaviour = {"fail_on": None}
+
+    def spy(path, company, proposal, date_str, base_dir, fields):
+        calls.append(dict(fields))
+        if behaviour["fail_on"] == len(calls):
+            raise OSError("injected disk failure")
+        return real(path, company, proposal, date_str, base_dir, fields)
+
+    monkeypatch.setattr(state_manager, "_merge_and_write", spy)
+    spy.calls, spy.behaviour = calls, behaviour
+    return spy
+
+
+@pytest.mark.parametrize("builder, note, expected", [
+    (staged_data, None, {"financials", "ratios", "multi_period_financials", "financials_source",
+                         "steps_completed", "financials_transcriptions"}),
+    (analyst_data, "convention", {"financials", "ratios", "analyst_supplied_financials", "financials_source",
+                                  "financials_source_note", "steps_completed", "financials_transcriptions"}),
+])
+def test_a_successful_commit_makes_exactly_one_state_update_carrying_everything(deal, state_writes, builder, note,
+                                                                               expected):
+    run_commit(builder(deal), source_note=note)
+    assert len(state_writes.calls) == 1
+    assert expected <= set(state_writes.calls[0])
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert state["steps_completed"] == ["spread"] and len(state["financials_transcriptions"]) == 1
+    assert state["financials"] and state["financials_source"] == builder(deal)["mode"]
+
+
+def test_the_framework_computed_update_includes_the_downside_fields_when_they_are_derivable(deal, state_writes):
+    write_state("Synthetic Co", "Fleet Loan", financials_source="framework-computed",
+                multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}},
+                stress_assumptions={"revenue_haircut_pct": 5})
+    state_writes.calls.clear()
+    run_commit(staged_data(deal))
+    assert len(state_writes.calls) == 1
+    assert {"downside_case", "stress_assumptions", "multi_period_financials"} <= set(state_writes.calls[0])
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert set(state["multi_period_financials"]) == {"FY+1", "FY-Current"} and state["downside_case"]["financials"]
+
+
+@pytest.mark.parametrize("builder, note", [(staged_data, None), (analyst_data, "convention")])
+def test_a_failure_at_the_one_state_write_records_no_figures_at_all(deal, state_writes, builder, note):
+    state_writes.behaviour["fail_on"] = 1
+    with pytest.raises(OSError, match="injected disk failure"):
+        run_commit(builder(deal), source_note=note)
+    assert len(state_writes.calls) == 1, "there was no earlier state write for the figures alone"
+    assert not list(deal.glob("deals/*/*/state.json")), "no state.json: no figures, no record, no step"
+
+
+def test_a_failed_final_write_leaves_an_existing_state_byte_identical_and_reports_the_source_that_remains(deal,
+                                                                                                         state_writes):
+    write_state("Synthetic Co", "Fleet Loan", inputs={"pd": "0.2%"}, steps_completed=["triage"])
+    path = state_file(deal)
+    before = path.read_bytes()
+    state_writes.calls.clear()
+    state_writes.behaviour["fail_on"] = 1
+    with pytest.raises(OSError):
+        run_commit(staged_data(deal))
+    assert path.read_bytes() == before
+    # The documented limitation: the verified image and its manifest entry were saved before the state update.
+    assert len(read_manifest("Synthetic Co", "Fleet Loan")) == 1
+    assert len(list(path.parent.glob("sources/*.png"))) == 1
+
+
+# ---------------------------------------------------------------------------
+# The deal is looked at again, after the image is saved, before the one write
+# ---------------------------------------------------------------------------
+
+def after_the_source_is_saved(monkeypatch, action):
+    """Run `action()` right after tc.save_source() returns, standing in for another session changing the deal."""
+    real = tc.save_source
+
+    def wrapper(*args, **kwargs):
+        entry = real(*args, **kwargs)
+        action()
+        return entry
+
+    monkeypatch.setattr(tc, "save_source", wrapper)
+
+
+def test_a_deal_that_changes_basis_after_the_preflight_is_refused_at_the_final_check(deal, monkeypatch, state_writes):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    after_the_source_is_saved(monkeypatch, lambda: write_state("Synthetic Co", "Fleet Loan",
+                                                               financials={"FY-1": {"gross_profit": 1}},
+                                                               financials_source="analyst-supplied"))
+    state_writes.calls.clear()
+    with pytest.raises(tc.TranscriptionError, match="state changed after the preflight.*never mixes the two bases"
+                                                    ".*were saved; no figures were recorded"):
+        run_commit(staged_data(deal))
+    assert len(state_writes.calls) == 1, "only the other session's write; this commit wrote nothing"
+    assert "financials_transcriptions" not in read_state("Synthetic Co", "Fleet Loan")
+
+
+def test_a_deal_that_becomes_unwritable_after_the_preflight_is_refused_at_the_final_check(deal, monkeypatch):
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    after_the_source_is_saved(monkeypatch, lambda: set_state_key(deal, "schema_version", "9.0.0"))
+    with pytest.raises(tc.TranscriptionError, match="state changed after the preflight.*newer framework"):
+        run_commit(staged_data(deal))
+    assert "financials" not in json.loads(state_file(deal).read_text(encoding="utf-8"))
+
+
+def test_the_figures_are_planned_from_the_deal_as_it_is_just_before_the_write(deal, monkeypatch):
+    """Another session records an earlier period in the same mode between the preflight and the write: it is kept,
+    not overwritten by figures planned from a stale read."""
+    write_state("Synthetic Co", "Fleet Loan", financials_source="framework-computed")
+    after_the_source_is_saved(monkeypatch, lambda: compute_other_period())
+    from spreading_check import compute as ordinary_compute
+
+    def compute_other_period():
+        ordinary_compute("Synthetic Co", "Fleet Loan", {"FY-1": {"revenue": 900, "cost_of_sales": 500}})
+
+    run_commit(staged_data(deal))
+    state = read_state("Synthetic Co", "Fleet Loan")
+    assert set(state["financials"]) == {"FY-1", "FY-Current"} and set(state["multi_period_financials"]) == {
+        "FY-1", "FY-Current"}

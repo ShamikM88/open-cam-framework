@@ -190,8 +190,10 @@ version, a readable `sources/manifest.json`, and in `framework-computed` mode a 
 is stored); otherwise it exits `1` with one `error: refused: ...` line and writes nothing (no source copied, no state
 changed). On success it saves the image as the source of record after checking it against the confirmed fingerprint
 (the manifest claim says the figures were transcribed from an image and carries the digest and a fingerprint prefix),
-records the figures, appends `spread` to `steps_completed`, and appends a record to `financials_transcriptions`
-(holding the fingerprint, never the image). In `framework-computed` mode it recomputes exactly as `spreading_check.py`
+then, in **one** state update, records the figures, appends `spread` to `steps_completed` and appends a record to
+`financials_transcriptions` (holding the fingerprint, never the image). The image is saved before that update and
+the two cannot be committed atomically: if the update fails, the verified image and its manifest entry remain with
+no figures recorded. In `framework-computed` mode it recomputes exactly as `spreading_check.py`
 does; in `analyst-supplied` mode it records subtotals, ratios and any lines exactly as given and needs `--source-note`,
 the confirmed convention, to which it appends a sentence saying the figures were transcribed from an image (stored as
 `financials_source_note`, which the CAM caveat quotes). What it enforces and what it cannot is in

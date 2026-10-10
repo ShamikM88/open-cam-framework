@@ -37,7 +37,8 @@ the source of record and the state records that the figures were transcribed fro
 declared convention that is shown and confirmed, and a mismatch that a different sign reading would explain cannot be
 acknowledged away; the confirmation is bound to the image's bytes (a replaced screenshot is refused) and one deal
 never mixes the two `/spread` modes; every predictable state or schema problem is detected before the image is
-saved, so a refusal leaves the deal untouched
+saved, so a refusal leaves the deal untouched, and the figures, the transcription record and the completed step are
+written in one state update (the saved image precedes it and is not part of that update)
 ([financial model](financial-model.md#figures-read-from-an-image)). What stays outside the code: that the analyst
 really said yes (the session passes the digest), that the transcription is true to the image, and that an image is
 routed through the script at all (instructions in `.claude/commands/spread.md`). The read-back and the analyst's

@@ -82,7 +82,7 @@ jobs:
         if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}
+          name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}-repeat-${{ matrix.repeat }}
           path: |
             pytest_output.txt
             coverage.xml
@@ -115,7 +115,7 @@ jobs:
         if: always() && runner.os == 'Windows'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}
+          name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}-repeat-${{ matrix.repeat }}
           path: pytest_output.txt
           if-no-files-found: warn
           retention-days: 30

@@ -55,7 +55,7 @@ def registry_commands(text):
 
 def repository_map_commands(text):
     """The commands named on the repository-map line that describes the registry."""
-    line = next((ln for ln in text.splitlines() if "skills_registry.md" in ln and "Slash-command registry" in ln), "")
+    line = next((ln for ln in text.splitlines() if "skills_registry.md" in ln and "Command and skill registry" in ln), "")
     return set(re.findall(r"(?<![\w/])/([a-z][a-z-]*)\b", line.partition("registry:")[2]))
 
 
@@ -91,7 +91,7 @@ def test_the_command_parsers_read_what_the_documents_actually_use():
     assert commands_page_headings("## Deal steps\n\n### /triage\n\n### /calibrate-policy\n\ntext /not-a-heading\n") \
         == {"triage", "calibrate-policy"}
     assert registry_commands("1. `/triage`\n   - x\n2. `/research` (alt)\n- `/loose`\n") == {"triage", "research"}
-    arch = "│   ├── skills_registry.md       Slash-command registry: /calibrate /calibrate-policy /review\n"
+    arch = "│   ├── skills_registry.md       Command and skill registry: /calibrate /calibrate-policy /review\n"
     assert repository_map_commands(arch) == {"calibrate", "calibrate-policy", "review"}
 
 

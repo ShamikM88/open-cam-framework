@@ -22,7 +22,7 @@ material and never committed (see [Security](security.md)).
 | `config/deal_learnings.md`, `deals/<Company>/_learnings.md` *git-ignored* | `/assemble`, `/research`, on explicit confirmation | the Underwriter | Advisory end-of-deal takeaways, enterprise-wide or per borrower |
 | `config/spreading_conventions.json`, `deals/<Company>/_conventions.json` *git-ignored* | `/spread` via `conventions.py` | `/spread` | A confirmed spreading convention; always re-confirmed, never silently applied |
 | `inputs/calibration_samples/`, `inputs/credit_policy/` *git-ignored* | you | the calibration commands | The documents calibration reads |
-| `config/skills_registry.md` (tracked) | the project | people (and the slash-command text points at it) | The numbered list of commands; the files in `.claude/commands/` are what runs |
+| `config/skills_registry.md` (tracked) | the project | people (and the slash-command text points at it) | The inventory of commands and skills; the files in `.claude/commands/` (and a skill's `SKILL.md`) are what runs |
 | `config/system_instructions.md` (tracked) | the project | **nothing today** | A short statement of the framework's principles, kept as reference text. No script or command loads it; agent behaviour is set by `agents/*.md` |
 
 ### Environment variables

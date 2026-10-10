@@ -40,8 +40,8 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | Path | What it is | Detail |
 | :--- | :--- | :--- |
 | `agents/` | The two agent prompts: Underwriter (Maker) and Risk Reviewer (Checker) | [architecture](docs/architecture.md) |
-| `.claude/commands/` | The slash commands (the interactive interface) | `config/skills_registry.md` |
-| `config/` | `settings.json`, `system_instructions.md` (reference text that nothing loads), the slash-command registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
+| `.claude/commands/` | The slash commands (the interactive interface); a skill, once any exists, is `.claude/skills/<name>/SKILL.md` | `config/skills_registry.md` (the one inventory), [skill design](docs/skill-design.md) |
+| `config/` | `settings.json`, `system_instructions.md` (reference text that nothing loads), the command and skill registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
 | `scripts/` | The deterministic core (state, spreading, policy engine and checks, export, source manifest, conventions, text I/O), the headless entry points (`calibrate.py`, `orchestrator.py`) and the test-tooling scripts (`check_*`, `mutation_report.py`, `run_evals.py` and its `eval_*` modules) | [cli reference](docs/cli-reference.md), [data model](docs/data-model.md), [financial model](docs/financial-model.md) |
 | `templates/` | Shipped generic CAM templates (`cam/`), the reference workbook layout (`spreading/`), git-ignored local overrides (`local/`) | [outputs](docs/outputs.md) |
 | `tests/` | The pytest suite, golden snapshots (`snapshots/`), synthetic state fixtures (`fixtures/`) | [testing](docs/testing.md) |
@@ -89,6 +89,13 @@ sharing its reasoning, so avoid merging them or having one import the other's co
 - **Numbered references are guarded.** `Guideline N` and `Audit Checklist item N` are plain numbers in prose;
   inserting an item mid-list re-points every later reference. `tests/test_prompt_consistency.py` resolves each
   one against the real numbered list, so renumber deliberately and update `EXPECTED_SUBJECTS` in the same change.
+- **Skills are aids, never input to the Maker or the Checker.** `config/skills_registry.md` is the one inventory of
+  commands and skills and [docs/skill-design.md](docs/skill-design.md) is the design. No `agents/*.md` prompt, no command and
+  no line of this file names, loads or allows a skill; no script in `scripts/` (so no helper the headless `orchestrator.py`,
+  `calibrate.py` or `run_evals.py` imports) builds a path into `.claude/`; a skill never
+  writes a deal's `state.json`, `steps_completed`, `review_trail` or any other record; and a skill never shares a command's
+  name (Claude Code prefers the skill, so a clash silently disables the command). A skill adds a procedure and points to a
+  rule; the rule stays here and in its test. `tests/test_skill_inventory.py` checks what can be checked from the files.
 - **Command files use plain prose to include another file** ("Read `agents/underwriter_agent.md` and act
   according to that role"); see the gotcha below about `@path` syntax.
 

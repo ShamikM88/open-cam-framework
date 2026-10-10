@@ -134,6 +134,9 @@ Before asking for review, check the change against this list. Each item is a pla
 - **Numbered references are guarded.** Inserting a Guideline or Audit Checklist item mid-list re-points every later reference; `tests/test_prompt_consistency.py` resolves each one, so renumber deliberately and update `EXPECTED_SUBJECTS` in the same change.
 - **Documentation does not depend on the prompts' layout,** and the prompts currently reference neither `README.md` nor `CLAUDE.md`; keep it that way, so moving documentation never forces a prompt edit.
 - **Command files are not prompts but behave like them.** A `.claude/commands/*.md` edit changes what a session does; treat it with the same care, and keep the plain-prose way of including a file ("Read `agents/underwriter_agent.md`"); there is no `@path` inclusion.
+- **A skill is not a prompt change and must not become one.** Skills follow [Skill design](skill-design.md): no agent
+  prompt or command names or loads one, a skill never writes a deal's records, it never shares a command's name, and its
+  `allowed-tools` is reviewed like a workflow change, because a checked-in skill can grant itself tool access.
 - **A known inconsistency is tracked, not patched in passing.** For example, the Risk Reviewer prompt's statement about `/review` (#197) is corrected only through this process.
 
 ## Pull request sequencing and the test-count badge

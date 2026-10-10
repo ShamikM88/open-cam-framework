@@ -351,9 +351,10 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
     triggers = benchmark.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"pull_request", "workflow_dispatch"}
     assert "github.head_ref == 'perf/212-ci-timing-baseline'" in benchmark
-    assert benchmark.count("workers: 1") == 2
-    assert benchmark.count("workers: 2") == 2
-    assert benchmark.count("workers: 4") == 2
+    assert "os: [ubuntu-latest, windows-latest]" in benchmark
+    assert "workers: [1, 2, 4]" in benchmark
+    assert "repeat: [2, 3]" in benchmark
+    assert "max-parallel: 6" in benchmark
     assert "pytest tests/ -n 2 --dist=loadfile --durations=30" in benchmark
     assert "pytest tests/ -n 4 --dist=loadfile --durations=30" in benchmark
     assert "python scripts/check_test_count.py pytest_output.txt" in benchmark

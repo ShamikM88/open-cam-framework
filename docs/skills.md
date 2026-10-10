@@ -43,10 +43,11 @@ exactly what the model is told.
   so and stops.
 - **A failing check is reported as a tool error, not as a finding about the deal.** A non-zero exit, a traceback or output
   that is not the expected JSON says nothing about the record.
-- **Run them before drafting, or in another session, when the independence of the audit matters.** The skill's
-  instructions stay out of your conversation because it is forked, but what it returns is visible to the later steps of
-  that session, `/review` included, exactly as anything you type is. That narrows the exposure; it is not isolation
-  ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204) tracks the wider question).
+- **What a skill returns stays in your conversation, and the Reviewer does not see it.** The skill's instructions stay
+  out of your conversation because it is forked, but what it returns is visible to the later steps of that session,
+  `/assemble` included, exactly as anything you type is. `/review` starts a fresh Risk Reviewer sub-agent that reads the
+  saved draft and the deal's files and not your conversation, and a skill writes no file, so a skill's output is not part
+  of the Reviewer's input ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204); the limits are in [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
 - **They are shaped by the record.** A gap list is only as good as what has been recorded; an evidence audit can show that a
   document was saved, never that it supports a claim (it says so on every such row); the analysis does not explain causes
   the record does not show.

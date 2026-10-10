@@ -38,7 +38,28 @@ so in its Related line) when a later decision supersedes it.
 - **Consequences.** The prompts must not be merged or cross-referenced. Prompt text is recorded by content hash
   in a deal's `model_provenance`, and an evaluation baseline records it too, so editing a prompt is a deliberate
   act that makes earlier comparisons stale.
-- **Related.** #31 (separate Checker model), #87 (`/research` review).
+- **Decision update: the interactive Checker is isolated (#204).** As first built, only the headless pipeline met the
+  choice above in full: `orchestrator.py` makes the Checker call as a separate message that carries no Maker prompt or
+  reasoning, while an interactive `/review` ran in the draft's own conversation, so it was a separate role prompt and
+  not a separate context. The maintainer chose to remove that difference: every interactive `/review` delegates the
+  qualitative audit to a fresh `risk-reviewer` sub-agent (`.claude/agents/risk-reviewer.md`), a normal custom sub-agent
+  (never a fork, which inherits the conversation) with read-only tools (Read, Glob, Grep), no memory and no way to start
+  another agent. The principle is to **isolate the Reviewer's reasoning, not its access to evidence**:
+  - It reads the exact draft saved on disk (there is no "most recent draft in this conversation" fallback), the deal's
+    `state.json`, the source manifest and the saved source documents, and the policy files, by path.
+  - It is not given the draft text, the Maker's reasoning, a summary of the conversation or any analyst remark. It audits
+    from the evidence first and reads the deal's earlier `review_trail` only afterwards, to see whether earlier findings
+    were fixed; an earlier verdict is history, not evidence.
+  - A new Reviewer is started for every review, including every re-review of a revised draft; none is resumed.
+  - `/review` stays the orchestrator and owns what must not depend on the Reviewer: the deterministic checks (the
+    Reviewer receives their output), the rule that a code-enforced reason makes the result `REJECTED`, failing closed
+    when no valid verdict comes back, and the append-only `review_trail`. The Reviewer writes nothing.
+  - Not changed: the analyst makes the credit decision; the headless pipeline; the deterministic checks.
+  What this does not give: a different underlying model (the sub-agent inherits the session's model, so model
+  independence is still the headless `checker_model`), statistically independent judgement, any defence against an
+  instruction planted in a source document, or a runtime proof that a given invocation followed its instructions.
+  Details and limits: [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters).
+- **Related.** #31 (separate Checker model), #87 (`/research` review), #204 (interactive isolation).
 
 ## D2. Anything that can be computed is computed by code and enforced by code
 
@@ -220,7 +241,7 @@ so in its Related line) when a later decision supersedes it.
   would make a deal unreproducible and a comparison meaningless. A skill that shares a command's name replaces the
   command silently, because Claude Code prefers the skill.
 - **Consequences.** Names are unique across commands and skills. A skill points to the rule and runs the script and is
-  never the only copy of either. In a session an aid's output stays visible to later steps, so this is not an
-  isolation guarantee, and `/review` running in the draft's conversation is its own question. See
+  never the only copy of either. In a session an aid's output stays visible to the Maker's later steps; the
+  interactive Reviewer is a fresh sub-agent that reads files, not the conversation (D1's update). See
   [Skill design](skill-design.md).
-- **Related.** #196 (the initiative), #203 (`annual-review` needs new primitives), #204 (the context `/review` runs in).
+- **Related.** #196 (the initiative), #203 (`annual-review` needs new primitives), #204 (the interactive Checker's context, settled in D1's update).

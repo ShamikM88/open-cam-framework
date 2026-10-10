@@ -23,8 +23,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         workers: [1, 2, 4]
-        # First sample completed in run #221; collect two more for stability.
-        repeat: [2, 3]
+        # PR #211 merged while the first benchmark was running, changing the suite from 2,328 to 2,423 tests.
+        # Repeats 2 and 3 use the post-merge baseline; run repeat 4 to complete three comparable samples.
+        repeat: [4]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

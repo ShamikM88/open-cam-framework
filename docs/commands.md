@@ -33,8 +33,8 @@ worked examples are in [Workflows](workflows.md).
   `/assemble` and `/review` list the script commands they may run in their `allowed-tools`; the others run scripts
   through Bash steps under your own Claude Code permission settings.
 - **Skills are not commands.** Analyst and maintainer aids are typed by a person, leave no record in a deal and are
-  never part of the Maker's or the Checker's input; none exists yet. A skill never shares a command's name. See
-  [Skill design](skill-design.md).
+  never part of the Maker's or the Checker's input. A skill never shares a command's name. See [Skills](skills.md)
+  and [Skill design](skill-design.md).
 
 ## Setup commands
 

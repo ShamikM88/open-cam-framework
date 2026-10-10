@@ -2,7 +2,8 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on and implements none of them. **No skill exists yet.** The inventory of commands and skills is
+build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); the maintainer
+procedures of Phase 3 are not. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -284,8 +285,8 @@ contextual, and a model-invocable description would sit in every session's conte
 
 1. **Design (this change).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
    `tests/test_skill_inventory.py`. No skill.
-2. **Analyst aids:** `information-gaps`, `evidence-discipline`, `financial-analysis`, with a user-facing skill
-   reference page and the skills' own tests.
+2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
+   [Skills](skills.md) page and `tests/test_skills.py`.
 3. **Maintainer procedures:** `cam-change-verification`, `docs-maintenance`.
 4. **From evidence:** the best of the deferred list, one pull request each.
 
@@ -307,5 +308,8 @@ examples only; the registry row flips to implemented in the same change; and the
 | This page's tranche table is the inventory's skill rows | the same |
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 
-Not tested, because nothing exists to test: a skill's behaviour. Each skill's pull request adds tests of the scripts
-it runs and of its own frontmatter, as the other command-line surfaces have.
+Each skill's own contract is tested in `tests/test_skills.py`: its frontmatter (typed by a person, forked, no write tool,
+only read-only scripts pre-approved), that the scripts it runs leave a deal byte-for-byte unchanged, that every path it
+cites exists and every flag it passes is real, and that the files carry no real name or figure. What a model does with the
+instructions is not tested here, and no test can say a skill's prose is a good procedure; it is a prompt expectation, like
+a command's (see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).

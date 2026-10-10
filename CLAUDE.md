@@ -40,7 +40,7 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | Path | What it is | Detail |
 | :--- | :--- | :--- |
 | `agents/` | The two agent prompts: Underwriter (Maker) and Risk Reviewer (Checker) | [architecture](docs/architecture.md) |
-| `.claude/commands/` | The slash commands (the interactive interface); a skill, once any exists, is `.claude/skills/<name>/SKILL.md` | `config/skills_registry.md` (the one inventory), [skill design](docs/skill-design.md) |
+| `.claude/commands/` | The slash commands (the interactive interface); a skill is `.claude/skills/<name>/SKILL.md` | `config/skills_registry.md` (the one inventory), [skill design](docs/skill-design.md) |
 | `config/` | `settings.json`, `system_instructions.md` (reference text that nothing loads), the command and skill registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
 | `scripts/` | The deterministic core (state, spreading, policy engine and checks, export, source manifest, conventions, text I/O), the headless entry points (`calibrate.py`, `orchestrator.py`) and the test-tooling scripts (`check_*`, `mutation_report.py`, `run_evals.py` and its `eval_*` modules) | [cli reference](docs/cli-reference.md), [data model](docs/data-model.md), [financial model](docs/financial-model.md) |
 | `templates/` | Shipped generic CAM templates (`cam/`), the reference workbook layout (`spreading/`), git-ignored local overrides (`local/`) | [outputs](docs/outputs.md) |

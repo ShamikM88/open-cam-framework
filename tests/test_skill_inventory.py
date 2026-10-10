@@ -63,13 +63,18 @@ def frontmatter(text):
     lines = text.replace("\r\n", "\n").split("\n")
     if not lines or lines[0].strip() != "---":
         return {}
-    fields = {}
+    fields, last = {}, None
     for line in lines[1:]:
         if line.strip() == "---":
             break
+        item = re.match(r"\s+-\s+(.*\S)\s*$", line)
+        if item and last is not None:                  # an item of a YAML list value, joined by spaces
+            fields[last] = f"{fields[last]} {item[1].strip(chr(34) + chr(39))}".strip()
+            continue
         key, sep, value = line.partition(":")
         if sep and key and not key.startswith((" ", "\t")):
-            fields[key.strip()] = value.strip().strip("\"'")
+            last = key.strip()
+            fields[last] = value.strip().strip("\"'")
     return fields
 
 

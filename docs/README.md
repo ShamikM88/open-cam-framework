@@ -78,6 +78,7 @@ and the page is a bug.
 | Slash-command behaviour | `.claude/commands/*.md` (the inventory in `config/skills_registry.md`) | `README.md`, `CLAUDE.md` |
 | Which commands and skills exist, how each is invoked, and what a skill may be | `config/skills_registry.md`, and `.claude/skills/<name>/SKILL.md` for each skill | [Skill design](skill-design.md) |
 | Agent behaviour | `agents/underwriter_agent.md`, `agents/risk_reviewer_agent.md` | [Architecture](architecture.md) |
+| The interactive Checker (its tools and how it is started) | `.claude/agents/risk-reviewer.md` and `.claude/commands/review.md` | [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters) |
 | Financial semantics | The implementation (`scripts/spreading_builder.py`, `scripts/policy_engine.py`, `scripts/policy_checks.py`) and its tests | [Financial model](financial-model.md) |
 | State schema and versioning | `scripts/state_manager.py` and its tests | [Data model](data-model.md) |
 | CI jobs and their rules | `.github/workflows/*.yml` and `tests/test_ci_workflow.py` | [Testing and CI](testing.md) |

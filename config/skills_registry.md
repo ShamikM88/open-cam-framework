@@ -71,8 +71,8 @@ Execute the following actions when triggered by their respective slash commands:
    - Core Action: Synthesize all data into the target Markdown CAM template (Header Tables, Facility T&Cs, Spreading Table, Risk/Mitigant Matrix, and Final Recommendation), invoking `/review` before export.
 
 8. `/review`
-   - Primary Inputs: A drafted CAM (from `/assemble`, or pasted directly).
-   - Core Action: Runs the Risk Reviewer ("Checker") agent — re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, and returns a verdict of `APPROVED` or `REJECTED` with revision notes. This is the Maker-Checker loop's audit step made runnable; `/assemble` calls it automatically, but it can also be run standalone against any draft.
+   - Primary Inputs: A saved CAM draft (from `/assemble`, or a file named with `--draft`), or a saved `/research` brief (`--research-brief`). The draft is a file on disk, never the conversation.
+   - Core Action: Runs the deterministic checks, then delegates the audit to a fresh, read-only `risk-reviewer` sub-agent (`.claude/agents/risk-reviewer.md`) that acts as the Risk Reviewer ("Checker") agent — re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, and returns a verdict of `APPROVED` or `REJECTED` with revision notes. This is the Maker-Checker loop's audit step made runnable; `/assemble` calls it automatically, but it can also be run standalone against any saved draft.
 
 9. `/calibrate`
    - Primary Inputs: Sample CAM PDFs in `inputs/calibration_samples/`.

@@ -357,6 +357,7 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
     assert "pytest tests/ -n 4 --dist=loadfile --durations=30" in benchmark
     assert "python scripts/check_test_count.py pytest_output.txt" in benchmark
     assert "python scripts/check_coverage.py coverage.json" in benchmark
+    assert "diff-cover coverage.xml --config-file pyproject.toml" in benchmark
 
 
 def test_the_mutation_workflow_is_weekly_and_manual_only_never_on_a_pull_request_or_push():

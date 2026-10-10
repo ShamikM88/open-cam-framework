@@ -1672,3 +1672,55 @@ def test_build_grounding_context_no_longer_uses_markdown_fences_for_analyst_writ
         enterprise_learnings="An enterprise-wide learning.",
     )
     assert "```" not in context
+
+
+# ---------------------------------------------------------------------------
+# An analyst-supplied forecast (issue #124) is not recomputed or erased by the headless run
+# ---------------------------------------------------------------------------
+
+ANALYST_DOWNSIDE = {"financials": {"FY+1": {"ebitda": 240}}, "ratios": {"FY+1": {"dscr": 1.1}},
+                    "basis": {"FY+1": "analyst-supplied"}, "unavailable": {"FY+2": "no scenario supplied"},
+                    "description": "Revenue down 10%"}
+
+
+def _analyst_forecast_state(**extra):
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+                financials={"FY-Current": {"ebitda": 250}, "FY+1": {"ebitda": 300}},
+                ratios={"FY-Current": {"dscr": 1.5}, "FY+1": {"dscr": 1.4}},
+                multi_period_financials={"FY-Current": {"revenue": 900}}, stress_assumptions={"revenue_haircut_pct": 10},
+                downside_case=ANALYST_DOWNSIDE, steps_completed=["spread", "project"], **extra)
+
+
+def test_run_pipeline_keeps_an_analyst_supplied_downside_instead_of_recomputing_it_from_history(project_root):
+    _analyst_forecast_state(forecast_source="analyst-supplied")
+    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["downside_case"] == ANALYST_DOWNSIDE
+    assert state["forecast_source"] == "analyst-supplied" and state["financials_source"] == "analyst-supplied"
+    assert state["financials"]["FY+1"] == {"ebitda": 300}, "the supplied forward year is not recomputed"
+
+
+def test_without_the_analyst_flag_the_same_state_gets_the_ordinary_recomputation(project_root):
+    """The guard is what protects it: the ordinary path (every existing deal) is unchanged."""
+    _analyst_forecast_state()
+    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    assert read_state("Acme Corp", "Fleet Loan")["downside_case"] == {"financials": {}, "ratios": {}}
+
+
+def test_a_fresh_recomputation_replaces_the_forward_years_and_clears_the_analyst_forecast_flag(project_root):
+    _analyst_forecast_state(forecast_source="analyst-supplied")
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY-Current": {"revenue": 100, "cost_of_sales": 60}}, client=client)
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["forecast_source"] is None and state["financials_source"] == "framework-computed"
+    assert set(state["financials"]) == {"FY-Current"}
+
+
+def test_a_deal_that_never_had_the_flag_does_not_gain_one_from_a_run(project_root):
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY-Current": {"revenue": 100, "cost_of_sales": 60}}, client=client)
+    assert "forecast_source" not in read_state("Acme Corp", "Fleet Loan")

@@ -29,6 +29,8 @@ These hold for any input the scripts accept, whatever the model wrote.
 
 **State and records.** Every step checkpoints to `state.json`; a state written by a newer framework is never overwritten or downgraded; malformed state fails with one clear error line rather than a traceback or a silent default ([D7](decisions.md#d7-a-state-file-is-never-downgraded-and-malformed-state-fails-clearly)); each export validates state before it creates a folder. A headless run records the models and a content hash of each agent prompt in `model_provenance`.
 
+**An analyst-supplied forecast.** `/project`'s analyst-supplied mode records forward-year figures as given and never recomputes them (`supplied_forecast.py`; a test makes the framework's formulas fail if they are called to produce a recorded value). The framework's stress shocks reach such a year only if its raw lines reproduce the figures the analyst supplied; otherwise the downside is the analyst's own scenario or is recorded as unavailable, and the policy engine reports a covenant that passes in that year's base case as UNRESOLVABLE under stress, which the draft check will not let a draft ignore. Whether the analyst's forecast is *right* is theirs ([financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside)).
+
 **Figures read from an image.** A screenshot or scanned page is read by the session, not parsed by code, so a misread
 figure could become the deal's ground truth. `transcription_check.py` makes the order of events and the arithmetic
 code: nothing is written for image figures until a read-back of those exact figures was produced and its digest quoted;

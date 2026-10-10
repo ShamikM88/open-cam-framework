@@ -34,7 +34,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 CLI_SCRIPTS = (
     "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "mutation_report", "orchestrator",
     "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
-    "transcription_check",
+    "supplied_forecast", "transcription_check",
 )
 
 
@@ -341,6 +341,48 @@ def test_transcription_check_on_a_missing_or_unreadable_input_fails_with_one_err
     bad.write_text("{}", encoding="utf-8")
     result = cli("transcription_check", "--transcription", bad)
     assert result.returncode == 1 and "mode must be" in result.stderr and "Traceback" not in result.stderr
+
+
+def _forecast_file(cli, data=None):
+    path = cli.workdir / "forecast.json"
+    path.write_text(json.dumps(data or {"forecast": {"FY+1": {"subtotals": {"ebitda": 300},
+                                                              "ratios": {"dscr": 1.4}}}}), encoding="utf-8")
+    return path
+
+
+def test_supplied_forecast_records_the_figures_as_given_and_prints_a_summary(cli):
+    stress = cli.workdir / "stress.json"
+    stress.write_text(json.dumps({"revenue_haircut_pct": 10}), encoding="utf-8")
+    result = cli("supplied_forecast", "--company", "Acme", "--proposal", "Loan", "--forecast", _forecast_file(cli),
+                 "--stress-assumptions", stress, "--note", "Management budget convention")
+    assert result.returncode == 0, result.stderr
+    summary = json.loads(result.stdout)
+    assert summary["forecast_source"] == "analyst-supplied" and summary["forecast_years"] == ["FY+1"]
+    assert "FY+1" in summary["downside"]["unavailable"], "stress was asked for but there are no raw lines"
+    (state_file,) = cli.workdir.glob("deals/Acme/Loan_*/state.json")
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["financials"]["FY+1"] == {"ebitda": 300} and state["ratios"]["FY+1"] == {"dscr": 1.4}
+    assert "multi_period_financials" not in state
+
+
+def test_supplied_forecast_refuses_bad_input_and_an_incompatible_deal_with_one_error_line(cli):
+    missing_note = cli("supplied_forecast", "--company", "A", "--proposal", "P", "--forecast", _forecast_file(cli))
+    assert missing_note.returncode == 2 and "--note" in missing_note.stderr
+    bad = _forecast_file(cli, {"forecast": {"FY+1": {"subtotals": {"ebitda": "300"}}}})
+    result = cli("supplied_forecast", "--company", "A", "--proposal", "P", "--forecast", bad, "--note", "n")
+    assert result.returncode == 1 and result.stderr.startswith("error: forecast.FY+1.subtotals.ebitda")
+    assert "Traceback" not in result.stderr and not (cli.workdir / "deals").exists()
+    gone = cli("supplied_forecast", "--company", "A", "--proposal", "P", "--forecast", "nope.json", "--note", "n")
+    assert gone.returncode == 1 and "cannot read forecast file" in gone.stderr
+    framework = cli.workdir / "fin.json"
+    framework.write_text(json.dumps({"FY-Current": {"revenue": 1}}), encoding="utf-8")
+    assert cli("spreading_check", "--company", "A", "--proposal", "P", "--financials", framework).returncode == 0
+    (state_file,) = cli.workdir.glob("deals/A/P_*/state.json")
+    before = state_file.read_bytes()
+    mixed = cli("supplied_forecast", "--company", "A", "--proposal", "P", "--forecast", _forecast_file(cli),
+                "--note", "n")
+    assert mixed.returncode == 1 and "framework-computed" in mixed.stderr and len(mixed.stderr.splitlines()) == 1
+    assert state_file.read_bytes() == before
 
 
 def test_check_coverage_passes_a_compliant_report_and_fails_a_weak_one(cli):

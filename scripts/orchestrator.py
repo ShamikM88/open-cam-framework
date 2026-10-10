@@ -552,7 +552,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # must not linger, even though it's currently inert (the caveat
         # trigger below already gates on financials_source itself).
         financials_source_note = ""
+        analyst_forecast = False        # a fresh recomputation replaces every figure, forward years included
     else:
+        analyst_forecast = existing_state.get("forecast_source") == "analyst-supplied"
         financials = existing_state.get("financials") or {}
         ratios = existing_state.get("ratios") or {}
         financials_source = existing_state.get("financials_source") or "framework-computed"
@@ -583,7 +585,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         multi_period_financials or existing_state.get("multi_period_financials")
     )
     stress_assumptions_to_persist = stress_assumptions or existing_state.get("stress_assumptions") or {}
-    if multi_period_financials_for_downside and stress_assumptions_to_persist:
+    if multi_period_financials_for_downside and stress_assumptions_to_persist and not analyst_forecast:
         downside_case = evaluate_downside_case(
             multi_period_financials_for_downside, stress_assumptions_to_persist,
         )
@@ -624,7 +626,11 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
                 multi_period_financials=multi_period_financials_to_persist,
                 policy_state=policy_state, steps_completed=steps_completed,
-                model_provenance=model_provenance)
+                model_provenance=model_provenance,
+                # A fresh recomputation replaced the forward years too, so an earlier analyst-supplied forecast flag
+                # no longer describes them (issue #124).
+                **({"forecast_source": None} if multi_period_financials and existing_state.get("forecast_source")
+                   else {}))
 
     grounding_context = _build_grounding_context(
         company, proposal, pd_score, lgd_score,

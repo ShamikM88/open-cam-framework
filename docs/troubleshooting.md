@@ -94,6 +94,26 @@ The workbook's subtotals and ratios are Excel formulas over the raw input rows, 
 while `state.json` keeps the figures the framework computed. Compare against `state.json` (or re-run `/spread`), not
 against an edited copy.
 
+### An analyst-supplied forecast
+
+Messages from `supplied_forecast.py` (`/project`'s analyst-supplied mode). Each is one `error:` line, exit status `1`, and nothing has been written.
+
+| Message starts with | Meaning | Fix |
+| :--- | :--- | :--- |
+| `error: forecast.FY+1.subtotals.ebitda: expected a finite number` | A figure is a string, `null` (not allowed for a subtotal), a boolean, `NaN` or infinite | Supply plain numbers exactly as the analyst gave them; only a ratio may be `null` (N/A) |
+| `error: ... unknown name(s) [...]` / `unknown forecast year(s)` | A misspelt subtotal, ratio or raw-line name, or a year other than `FY+1` to `FY+3` | Use the names listed in `/project` and `/spread` |
+| `error: forecast.FY+1: give the subtotals and/or ratios ...` | A year with only raw lines: that is the default mode's input | Use the default `/project` path, or add the analyst's subtotals/ratios |
+| `error: downside.description is required` | A stressed forecast was given without saying what scenario it is | Add the analyst's description |
+| `error: refused: forward years [...] are already recorded from raw line items` | The deal already has framework-computed forward years; supplying others would overwrite or blend them | Use the default path for this deal |
+| `error: refused: this deal's historical figures were computed by the framework` (or `record financial figures but no financials_source`) | One basis per deal: the deal-wide flag and the workbook's raw inputs cannot describe both | Redo the historical spread in `/spread`'s analyst-supplied mode, or use the default `/project` path |
+| `error: refused: --note is required` | The analyst's description of their forecast convention is what the CAM caveat quotes | Pass it |
+| `error: This deal's forecast ... was supplied by the analyst` from `spreading_check.py` | A framework-computed forward year, or a framework-computed `/spread`, was attempted on a deal with an analyst-supplied forecast | Record forward changes with `supplied_forecast.py`; spread history in the analyst-supplied mode |
+
+If a covenant is reported `UNRESOLVABLE` in a downside breach with the reason `downside analysis unavailable for FY+n: ...`, the
+forecast year had no downside the framework could produce (no raw lines, a requested shock's lines missing, or the lines do
+not reproduce the figures the analyst supplied) and no scenario of the analyst's own. Supply the year's own stressed
+forecast, or the reconciling raw lines, or address it in the draft.
+
 ### Figures read from an image
 
 The checks behind `transcription_check.py` (see [Workflows](workflows.md#figures-read-from-an-image)). Each failure is reported as one `error:` line with exit status `1`. Most are refused before anything is saved, and their rows say nothing was saved or changed. The exceptions are failures after the verified image is saved: a failed state update, a deal that changed after the image was saved, or a saved copy that fails its fingerprint check. In those cases the image and its `sources/manifest.json` entry can remain with no figures recorded, and the message says so. See the rows `the state update failed` and `the saved copy ... does not match the fingerprint` below for what remains and what to do.

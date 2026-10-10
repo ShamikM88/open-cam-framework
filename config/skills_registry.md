@@ -24,7 +24,7 @@ Execute the following actions when triggered by their respective slash commands:
 
 6. `/project`
    - Primary Inputs: Forward-year (FY+1-FY+3) P&L/Balance Sheet forecasts, stress-test assumptions (revenue haircut %, opex increase %, interest rate bump bps), covenants, and guarantees. Every piece is independently optional.
-   - Core Action: Spreads forward-year financials the same way `/spread` does for historical years, deterministically derives a downside (stressed) case from any stress assumptions given, and records any covenants/guarantees for `/assemble`'s code-enforced policy checks.
+   - Core Action: Spreads forward-year financials the same way `/spread` does for historical years, deterministically derives a downside (stressed) case from any stress assumptions given, and records any covenants/guarantees for `/assemble`'s code-enforced policy checks. Opt-in analyst-supplied mode (issue #124): forward-year subtotals/ratios recorded as given through `scripts/supplied_forecast.py`, with the downside the analyst's own scenario, derived only where the framework's shocks genuinely apply, or recorded as unavailable.
 
 7. `/assemble`
    - Primary Inputs: Aggregated outputs from steps `/triage` through `/project`.

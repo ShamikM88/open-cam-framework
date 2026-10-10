@@ -13,6 +13,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
 | `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
@@ -170,6 +171,29 @@ always passes it. The slash commands `/spread` and `/project` run it; see [Workf
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Supplied forecast
+
+`scripts/supplied_forecast.py --company ... --proposal ... --forecast <json> [--stress-assumptions <json>] --note <text>`
+is `/project`'s analyst-supplied mode (issue #124). `--forecast` holds `{"forecast": {"FY+1": {"subtotals": {...},
+"ratios": {...}, "lines": {...}}}, "downside": {"description": "...", "periods": {"FY+1": {"subtotals": {...},
+"ratios": {...}}}}}`: numbers as the analyst gave them, a ratio that is N/A as `null`, `lines` (the `/spread` raw field
+names) and `downside` optional. It validates strictly (unknown names, non-numbers, a year with only raw lines, a
+stressed forecast without a description), checks the deal (the state is readable and writable by this checkout, the
+basis is compatible: no framework-computed forward years, no framework-computed or unknown-basis history), and then
+writes `financials`, `ratios`, the optional `analyst_supplied_financials`, `forecast_source`, `financials_source`, the
+note and the downside treatment in **one** state update, printing a summary of which forward years are analyst-supplied
+and which downside years are framework-derived or unavailable. Any refusal is one `error:` line, exit status `1`, and
+nothing is written. `--note` is required; it is added to `financials_source_note`. It never uses the framework's
+formulas to produce a recorded value; the formulas are used only to test whether the stress shocks may be applied. The
+rules are in [the financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).
+
+```bash
+python scripts/supplied_forecast.py --company "Synthetic Co" --proposal "Synthetic Budget Loan" \
+    --forecast docs/examples/synthetic_co/forecast_supplied.json \
+    --stress-assumptions docs/examples/synthetic_co/forecast_stress.json \
+    --note "Management budget; depreciation is within cost of sales"
 ```
 
 ## Transcription check

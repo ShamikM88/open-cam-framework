@@ -177,6 +177,30 @@ SECTIONS = [
     ("Working Capital", WORKING_CAPITAL_ROWS),
 ]
 
+# The subtotals and ratios an analyst-supplied deal records (the names .claude/commands/spread.md and project.md
+# list), and the workbook row each one belongs on. An analyst-supplied forward year is exported as these values, not
+# as the Excel formulas, which would silently recompute it from raw cells (see export_to_xlsx). `total_debt` has no
+# row of its own in the workbook.
+SUPPLIED_SUBTOTALS = (
+    "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit", "fcf", "current_assets",
+    "current_liabilities", "total_assets", "total_liabilities", "total_equity", "total_debt", "tangible_net_worth",
+)
+SUPPLIED_RATIOS = (
+    "dscr", "gross_leverage", "net_debt_to_ebitda", "current_ratio", "gearing", "ebit_interest_cover",
+    "ebitda_interest_cover", "fcf_conversion_pct",
+)
+SUPPLIED_ROW_LABELS = {
+    "gross_profit": "Gross Profit", "operating_profit": "Operating Profit", "ebitda": "EBITDA",
+    "profit_before_tax": "Profit Before Tax", "net_profit": "Net Profit", "fcf": "FCF",
+    "current_assets": "Total Current Assets", "current_liabilities": "Total Current Liabilities",
+    "total_assets": "Total Assets", "total_liabilities": "Total Liabilities", "total_equity": "Total Equity",
+    "tangible_net_worth": "Tangible Net Worth (TNW)",
+    "dscr": "DSCR", "gross_leverage": "Gross Leverage", "net_debt_to_ebitda": "Net Debt / EBITDA",
+    "current_ratio": "Current Ratio", "gearing": "Gearing % (Interest-Bearing Debt / Equity)",
+    "ebit_interest_cover": "EBIT/Interest", "ebitda_interest_cover": "EBITDA/Interest",
+    "fcf_conversion_pct": "FCF Conversion %",
+}
+
 COLLATERAL_HEADERS = [
     "Asset Class", "Exposure (Rental + RV)", "Number of Units",
     "Cap / Model Value", "Non-Recovery", "Costs", "Collateral Value", "CV % of Exposure",
@@ -659,10 +683,26 @@ def evaluate_downside_case(multi_period_data, stress_assumptions, forward_period
     return evaluate_financial_model(shocked_inputs)
 
 
-def _write_financial_spreading(wb, row_of, financial_data=None, downside_financial_data=None):
+def _column_headers(supplied_values, supplied_downside_values, blank_downside_periods):
+    """PERIOD_HEADERS, with an analyst-supplied or unavailable forward column labelled as such."""
+    headers = list(PERIOD_HEADERS)
+    for index, col in enumerate(PERIOD_COLS, start=1):
+        if col in DOWNSIDE_COL_TO_PERIOD_KEY:
+            period = DOWNSIDE_COL_TO_PERIOD_KEY[col]
+            if period in (supplied_downside_values or {}):
+                headers[index] = f"{period} (Downside, analyst-supplied)"
+            elif period in (blank_downside_periods or ()):
+                headers[index] = f"{period} (Downside, unavailable)"
+        elif COL_TO_PERIOD_KEY[col] in (supplied_values or {}):
+            headers[index] = f"{COL_TO_PERIOD_KEY[col]} (analyst-supplied)"
+    return headers
+
+
+def _write_financial_spreading(wb, row_of, financial_data=None, downside_financial_data=None,
+                               supplied_values=None, supplied_downside_values=None, blank_downside_periods=None):
     ws = wb.active
     ws.title = "Financial Spreading"
-    ws.append(PERIOD_HEADERS)
+    ws.append(_column_headers(supplied_values, supplied_downside_values, blank_downside_periods))
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
@@ -675,7 +715,9 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
             row_values = [label]
             for col in PERIOD_COLS:
                 if formula_template:
-                    row_values.append(_resolve_formula(formula_template, row_of, col))
+                    row_values.append(_formula_or_supplied(
+                        label, formula_template, row_of, col, supplied_values, supplied_downside_values,
+                        blank_downside_periods))
                 else:
                     value = None
                     field = label_to_field.get(label)
@@ -693,6 +735,22 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
     ws.column_dimensions["A"].width = 34
     for col in PERIOD_COLS:
         ws.column_dimensions[col].width = 14
+
+
+def _formula_or_supplied(label, formula_template, row_of, col, supplied_values, supplied_downside_values,
+                         blank_downside_periods):
+    """A computed row's cell: the Excel formula, except in a column whose figures were supplied by the analyst (the
+    value they gave for this row, or blank if they gave none -- never a formula, which would recompute it from raw
+    cells and show a figure nobody supplied) or whose downside is unavailable (blank)."""
+    if col in DOWNSIDE_COL_TO_PERIOD_KEY:
+        period = DOWNSIDE_COL_TO_PERIOD_KEY[col]
+        if period in (supplied_downside_values or {}):
+            return supplied_downside_values[period].get(label)
+        if period in (blank_downside_periods or ()):
+            return None
+    elif COL_TO_PERIOD_KEY[col] in (supplied_values or {}):
+        return supplied_values[COL_TO_PERIOD_KEY[col]].get(label)
+    return _resolve_formula(formula_template, row_of, col)
 
 
 def _write_collateral_sheet(wb, collateral_data=None):
@@ -738,7 +796,8 @@ def _write_collateral_sheet(wb, collateral_data=None):
 
 
 def export_to_xlsx(company, output_path, financial_data=None, collateral_data=None,
-                    downside_financial_data=None):
+                    downside_financial_data=None, supplied_values=None, supplied_downside_values=None,
+                    blank_downside_periods=None):
     """Build the financial spreading + collateral workbook.
 
     `financial_data` is the same multi-period raw-figure shape consumed by
@@ -755,11 +814,19 @@ def export_to_xlsx(company, output_path, financial_data=None, collateral_data=No
     at all already is. `collateral_data` is a flat list of asset dicts (see
     COLLATERAL_HEADERS / FIELD_LABELS for the expected keys); a single blank
     row is written if omitted, matching the prior blank-template behaviour.
+
+    `supplied_values` / `supplied_downside_values` ({period: {row label: value}}) are the forward-year base-case and
+    downside figures an analyst supplied (issue #124): in those columns the computed rows hold the supplied values
+    (blank where none was given) instead of formulas, and the column header says so. `blank_downside_periods` are
+    forward years whose downside is unavailable: their downside columns are left blank and labelled. All three
+    default to None, which leaves the workbook exactly as it was.
     """
     row_of, _ = _row_layout(SECTIONS)
     validate_row_formulas()
     wb = openpyxl.Workbook()
     _write_financial_spreading(wb, row_of, financial_data=financial_data,
-                                downside_financial_data=downside_financial_data)
+                                downside_financial_data=downside_financial_data, supplied_values=supplied_values,
+                                supplied_downside_values=supplied_downside_values,
+                                blank_downside_periods=blank_downside_periods)
     _write_collateral_sheet(wb, collateral_data=collateral_data)
     wb.save(output_path)

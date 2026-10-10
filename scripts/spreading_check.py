@@ -21,7 +21,7 @@ import argparse
 import json
 import sys
 
-from spreading_builder import evaluate_downside_case, evaluate_financial_model
+from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
 from state_manager import StateError, read_state, write_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
@@ -37,6 +37,20 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
     ValueError when there is nothing to compute, and whatever the formulas raise for a malformed value.
     Does not modify `existing_state`."""
     existing_multi_period = existing_state.get("multi_period_financials") or {}
+    if existing_state.get("forecast_source") == "analyst-supplied":
+        # The forecast on file was supplied by the analyst (issue #124, scripts/supplied_forecast.py) and is not built
+        # from raw lines, so this call must neither overwrite a forward year with a recomputation nor stamp the whole
+        # deal framework-computed over it. Deals without that flag are untouched by this check.
+        if any(period in FORWARD_PERIOD_KEYS for period in (multi_period_financials or {})):
+            raise ValueError(
+                "This deal's forecast (FY+1 to FY+3) was supplied by the analyst and is recorded as given; "
+                "computing forward years from raw lines here would overwrite or blend it. Record forward-year "
+                "changes with scripts/supplied_forecast.py.")
+        if update_financials_source:
+            raise ValueError(
+                "This deal's forecast was supplied by the analyst, so its basis is analyst-supplied for the whole "
+                "deal; spreading historical years in framework-computed mode here would stamp the whole deal "
+                "framework-computed over it. Record the historical years in /spread's analyst-supplied mode.")
 
     merged_multi_period = dict(existing_multi_period)
     touched_periods = {}

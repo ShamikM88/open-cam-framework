@@ -109,7 +109,8 @@ really ends earlier is still reported for later projected years.
 ## The forward base case
 
 `FY+1`, `FY+2` and `FY+3` are management's own forecast: raw figures you supply, in the same shape as a historical
-year, computed by the same formulas. Nothing is extrapolated. In the example, `FY+1` has EBITDA 550 and total debt
+year, computed by the same formulas (or, in the analyst-supplied mode, the analyst's own figures recorded as given: see
+[Analyst-supplied forecasts](#analyst-supplied-forecasts-and-their-downside)). Nothing is extrapolated. In the example, `FY+1` has EBITDA 550 and total debt
 1650 (DSCR **1.1**, gross leverage **3.0**), and `FY+2` has EBITDA -100, so its gross leverage is N/A and its DSCR
 is -0.204. Against the covenants (minimum DSCR 1.25, maximum leverage 3.5): `FY+1` DSCR fails, `FY+1` leverage
 passes, `FY+2` DSCR fails and `FY+2` leverage is UNRESOLVABLE. All four are disclosed in `forward_covenant_results`
@@ -139,6 +140,48 @@ sold). The framework then records them **exactly as given**, sets `financials_so
 CAM must carry an explicit caveat that those figures were not independently recomputed. It never reconciles them to
 its own schema. One limit: a stored ratio whose denominator is not recorded (an analyst-supplied DSCR, say) cannot be
 cross-checked, so the N/A rule can only be applied where the denominator is on file.
+
+## Analyst-supplied forecasts and their downside
+
+`/project` has the same opt-in alternative as `/spread` (issue #124): when an institution's forecast convention does not
+fit the framework's raw schema, the analyst supplies already-computed forward-year subtotals and ratios and
+`scripts/supplied_forecast.py` records them **exactly as given** (`financials[FY+n]`, `ratios[FY+n]`, and an optional
+raw breakdown in `analyst_supplied_financials`). They are never passed through the framework's formulas to produce a
+recorded value. The default, framework-computed mode is unchanged.
+
+**Labelling.** `forecast_source: "analyst-supplied"` says the forward years were supplied (absent means
+framework-computed, which is every deal that existed before this mode), and the deal-wide `financials_source` is
+`"analyst-supplied"` so the CAM must carry the caveat; the analyst's description of their forecast convention is added
+to `financials_source_note`, which that caveat quotes. **One basis:** a deal whose forward years were computed from raw
+lines, or whose historical years were computed by the framework (or have no recorded basis), is refused rather than
+blended, because one deal-wide flag and one set of workbook raw inputs cannot describe two bases; and once an
+analyst-supplied forecast is on file, the framework-computed path refuses to overwrite its forward years or relabel the
+deal.
+
+**The downside, decided conservatively.** The three stress shocks are defined on the framework's raw field names and an
+interest-bearing-debt aggregate, so they cannot be assumed to mean anything for an analyst's own forecast. For each
+forward year:
+
+1. If the analyst supplied **their own stressed forecast** for it (subtotals and/or ratios plus a description of the
+   scenario), that is recorded as `analyst-supplied` and is what covenants are tested against under stress.
+2. Otherwise, if stress shocks were requested, they are applied **only if they genuinely meet their assumptions**: the
+   year's raw lines were supplied, every line a requested shock acts on is present, and the framework's formulas
+   *reproduce the subtotals and ratios the analyst gave for that year* to two decimal places. Then the downside is derived by
+   the existing calculation and labelled `framework-derived from reconciled analyst-supplied lines`. A year whose own
+   convention the formulas do not reproduce is not stressed with them.
+3. Otherwise, if a downside was wanted at all (shocks requested, or an own scenario given for another year), the year is
+   recorded under `downside_case["unavailable"]` with the reason. The policy engine then treats any covenant that passes
+   in that year's base case as **UNRESOLVABLE under stress**, exactly as it already does when a stress drives a ratio to
+   N/A: a `downside_covenant_breaches` entry with `downside_status` UNRESOLVABLE, `downside_actual` `null` and a reason
+   beginning `downside analysis unavailable for FY+n:`. The draft must address it (the existing "Undisclosed Downside
+   Breach" rejection), so the absence of a downside is disclosed, never silent and never a pass.
+4. If neither shocks nor a scenario were supplied, no downside was asked for and none is recorded, as for any deal.
+
+`downside_case` keeps its `financials` and `ratios`, and for these deals also carries `basis` (which source each year's
+downside came from), `unavailable` and the scenario's `description`. In the workbook, supplied forward and downside
+columns show the supplied values, unavailable downside columns are blank, and each is labelled
+([outputs](outputs.md#the-spreading-workbook-xlsx)). A worked example is in
+[Workflows](workflows.md#forward-years-supplied-by-the-analyst).
 
 ## Figures read from an image
 

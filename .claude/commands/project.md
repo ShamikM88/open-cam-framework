@@ -1,6 +1,6 @@
 ---
-description: Capture forward-year (FY+1-FY+3) financials, derive a stress-test downside case, and record covenants/guarantees (see config/skills_registry.md).
-argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [forward-year P&L/Balance Sheet figures] [stress assumptions] [covenants] [guarantees]"
+description: Capture forward-year (FY+1-FY+3) financials (computed from raw lines, or the analyst's own figures recorded as given), derive or record a downside case, and record covenants/guarantees (see config/skills_registry.md).
+argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [forward-year P&L/Balance Sheet figures, or the analyst's own forward-year subtotals/ratios] [stress assumptions or the analyst's own stressed forecast] [covenants] [guarantees]"
 disable-model-invocation: true
 ---
 
@@ -27,7 +27,8 @@ apply to this deal, and skip anything that doesn't (e.g. a deal with no covenant
 facility agreement simply has none to record here):
 
 1. **Forward-year (FY+1-FY+3) base-case financials.** 1-3 years of forecast/budget P&L and
-   Balance Sheet figures, in the same shape and with the same raw line items `/spread` asks for.
+   Balance Sheet figures, in the same shape and with the same raw line items `/spread` asks for — or, in
+   the analyst-supplied mode (next section), the analyst's own already-computed subtotals and ratios.
 2. **Stress-test assumptions**, to derive a downside (stressed) case from (1) above:
    - `revenue_haircut_pct` — % reduction applied to revenue.
    - `opex_increase_pct` — % increase applied to Admin Expenses only (never Cost of Goods Sold —
@@ -47,7 +48,77 @@ facility agreement simply has none to record here):
    "Personal Guarantee", "Corporate Guarantee"), and the `amount` (numeric — omit it entirely for
    an unlimited/uncapped guarantee; never write `0`, which would understate it as a nil guarantee).
 
-## Forward-year financials/ratios, and the downside case: computed by script, not by hand
+## Which mode: framework-computed (the default) or analyst-supplied
+
+Ask which applies before assuming — never infer it from how the historicals were recorded or from the shape of the
+figures, and never change the default:
+
+- **Framework-computed (the default).** The forward years are raw line items (the same fields `/spread` uses); the
+  framework recomputes every subtotal and ratio from them and can derive a downside case from the stress shocks. Use
+  the sections "Forward-year financials/ratios, and the downside case: computed by script" and below, unchanged.
+- **Analyst-supplied** (issue #124, mirroring `/spread`'s mode of the same name). Use it when the analyst's own
+  forecast convention does not fit the framework's raw schema, so feeding it through the framework's formulas would
+  silently misstate it, and the three stress shocks (which act on `revenue`, `admin_expenses`, `interest_paid` and a
+  specific debt aggregate) cannot be assumed to mean anything for it. The analyst supplies the forward-year subtotals
+  and ratios already computed; they are recorded exactly as given. Follow "Analyst-supplied forward years" below
+  instead of the script section, and do **not** run `spreading_check.py` for these years.
+
+Covenants and guarantees (pieces 3 and 4) are the same in either mode.
+
+## Analyst-supplied forward years
+
+Collect, for each forward year the analyst supplies (`"FY+1"`, `"FY+2"`, `"FY+3"`): the subtotals that the analyst's
+own template supplies (use only these exact names: `gross_profit`, `operating_profit`, `ebitda`, `profit_before_tax`,
+`net_profit`, `fcf`, `current_assets`, `current_liabilities`, `total_assets`, `total_liabilities`, `total_equity`,
+`total_debt`, `tangible_net_worth`; omit any the template does not break out and never back-derive one), and the
+ratios (`dscr`, `gross_leverage`, `net_debt_to_ebitda`, `current_ratio`, `gearing`, `ebit_interest_cover`,
+`ebitda_interest_cover`, `fcf_conversion_pct`; a ratio the analyst reports as not applicable is `null`). Plain numbers
+exactly as given: no strings, no units. A raw line-item breakdown for the year (the `/spread` field names) is optional
+context and goes in `lines`; supply it if you have it, because it is what lets the framework's shocks be tested (below).
+Raw lines alone are the default mode's input, not this one's.
+
+Also ask for the analyst's **description of their forecast convention** (for example "Management budget; depreciation
+within cost of sales"): it becomes `--note`, is added to `financials_source_note`, and is what the CAM's
+analyst-supplied caveat quotes.
+
+**Downside.** Ask the analyst which applies, and do not manufacture one:
+1. **Their own stressed forecast.** Subtotals and/or ratios for the stressed years plus a `description` of the
+   scenario. It is recorded as the analyst's data and is what covenants are tested against under stress.
+2. **The framework's shocks** (`revenue_haircut_pct`, `opex_increase_pct`, `interest_rate_bump_bps`, in a stress
+   file as in the default mode). They are applied to a year **only** if you supplied that year's raw lines, every line
+   a requested shock acts on, and the framework's formulas reproduce the subtotals and ratios the analyst gave for that
+   year (to two decimal places); otherwise that year gets no stressed case.
+3. **Neither.** Then no downside analysis is recorded, and say so.
+
+A year that was wanted but cannot be stressed is recorded as **unavailable**, with the reason, and the policy engine
+treats a covenant that passes in that year's base case as UNRESOLVABLE under stress (the draft must address it). It is
+never a silent absence and never a pass; do not describe it to the analyst as tested.
+
+Write the supplied figures to a temporary JSON file, e.g. `deals/<company>/<proposal>_forecast_input.json`:
+```json
+{"forecast": {"FY+1": {"subtotals": {"ebitda": 0}, "ratios": {"dscr": 0}, "lines": {"revenue": 0}}},
+ "downside": {"description": "...", "periods": {"FY+1": {"subtotals": {"ebitda": 0}, "ratios": {"dscr": 0}}}}}
+```
+(omit `lines` and `downside` if none), and a stress file only if the framework's shocks were asked for, then run:
+```
+python scripts/supplied_forecast.py --company "<company>" --proposal "<proposal>" \
+    --forecast "deals/<company>/<proposal>_forecast_input.json" \
+    [--stress-assumptions "deals/<company>/<proposal>_stress_input.json"] --note "<the analyst's convention>"
+```
+It records `financials`, `ratios`, the optional `analyst_supplied_financials`, `forecast_source:
+"analyst-supplied"`, the deal-wide `financials_source: "analyst-supplied"`, the note and the downside treatment in one
+state update, and prints a summary of what is analyst-supplied, framework-derived or unavailable; report that summary
+to the analyst as printed. It refuses, with one `error:` line and nothing written, a malformed input, and a deal that
+cannot take it: **one basis** applies, so a deal whose forward years were computed from raw lines, or whose historicals
+were computed by the framework (or have no recorded basis), is refused rather than blended; tell the analyst and stop.
+Once an analyst-supplied forecast is on file, the framework-computed path refuses to overwrite its forward years, and
+a framework-computed `/spread` refuses to relabel the deal. Delete the temporary file(s) afterward.
+
+If the supplied figures were read from an image, the same misreading risk as in `/spread` applies, and
+`transcription_check.py` covers historical years only: show the analyst the figures back, period by period, and obtain
+an explicit confirmation of exactly what you will record before running the command.
+
+## Forward-year financials/ratios, and the downside case: computed by script, not by hand (default mode)
 
 For each forward year supplied, extract the same raw line items `/spread` uses (`revenue`,
 `cost_of_sales`, `admin_expenses`, `depreciation`, `amortisation`, `other_income`,
@@ -116,7 +187,10 @@ scratch/intermediate artifacts — only the source documents themselves.
 
 ## State: write
 
-`scripts/spreading_check.py` (run above, if forward-year financials were supplied) already
+In the analyst-supplied mode, `scripts/supplied_forecast.py` (run above) already checkpointed
+the forward-year figures, `forecast_source`, `financials_source`, the note and the downside treatment in one state
+update — nothing left to write for those; only covenants, guarantees and the step below remain. In the default
+mode, `scripts/spreading_check.py` (run above, if forward-year financials were supplied) already
 checkpointed `financials`, `ratios`, `multi_period_financials`, `stress_assumptions`, and
 `downside_case` straight to this deal's `state.json` — nothing left to write for those fields.
 Update the rest of this step's results yourself (merge with whatever you read above — never drop

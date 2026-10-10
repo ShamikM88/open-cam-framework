@@ -65,17 +65,23 @@ def state():
     return read_state(COMPANY, PROPOSAL)
 
 
-# A year whose raw lines the framework's formulas reproduce exactly (to the supplied two decimals).
+# A year whose raw lines the framework's formulas reproduce exactly (to the supplied two decimals). Every line a
+# covenant ratio reads is given, the ones that are nil as explicit zeros: an omitted line is not a known zero.
 LINES = {"revenue": 1000, "cost_of_sales": 600, "admin_expenses": 100, "interest_paid": 50, "current_debt": 20,
          "overdraft": 0, "long_term_debt": 200, "loan_notes": 0, "cash": 10, "trade_debtors": 100, "stock": 20,
-         "tangible_assets": 300, "trade_creditors": 80, "share_capital": 100, "retained_profit": 200}
+         "tangible_assets": 300, "trade_creditors": 80, "share_capital": 100, "retained_profit": 200,
+         "depreciation": 0, "amortisation": 0, "other_income": 0, "interest_received": 0, "scheduled_principal": 0,
+         "capex": 0, "tax_paid": 0, "other_current_assets": 0, "other_current_liabilities": 0}
+# What the framework-derived downside leaves out for that year: figures that read a line nobody supplied.
+UNSUPPORTED_OUTPUTS = {"profit_before_tax", "net_profit", "total_assets", "total_liabilities", "tangible_net_worth"}
 
 
 def reconciled_year(lines=None, drop=()):
     lines = {k: v for k, v in (lines or LINES).items() if k not in drop}
     derived = evaluate_financial_model({"FY+1": lines})
     return {"subtotals": {k: round(derived["financials"]["FY+1"][k], 2) for k in ("ebitda", "gross_profit")},
-            "ratios": {k: round(derived["ratios"]["FY+1"][k], 2) for k in ("dscr", "gross_leverage")},
+            "ratios": {k: None if derived["ratios"]["FY+1"][k] is None else round(derived["ratios"]["FY+1"][k], 2)
+               for k in ("dscr", "gross_leverage")},
             "lines": lines}
 
 
@@ -337,7 +343,8 @@ def test_the_frameworks_shocks_are_applied_only_to_a_year_whose_lines_reproduce_
     record(forecast={"FY+1": year}, stress={"revenue_haircut_pct": 10, "opex_increase_pct": 5})
     case = state()["downside_case"]
     expected = evaluate_downside_case({"FY+1": LINES}, {"revenue_haircut_pct": 10, "opex_increase_pct": 5})
-    assert case["financials"] == expected["financials"] and case["ratios"] == expected["ratios"]
+    kept = {k: v for k, v in expected["financials"]["FY+1"].items() if k not in UNSUPPORTED_OUTPUTS}
+    assert case["financials"] == {"FY+1": kept} and case["ratios"] == expected["ratios"]
     assert case["basis"] == {"FY+1": sf.FRAMEWORK_DERIVED} and case["unavailable"] == {}
     assert state()["financials"]["FY+1"] == year["subtotals"], "the base case stays exactly as supplied"
 
@@ -613,3 +620,221 @@ def test_the_workflows_page_quotes_what_the_synthetic_example_really_records(dea
     (breach,) = policy_compute(COMPANY, "Synthetic Budget Loan")["policy_state"]["downside_covenant_breaches"]
     assert breach["breach_id"] == "DOWNSIDE-FY-2-DSCR" and breach["downside_status"] == "UNRESOLVABLE"
     assert breach["reason"] in page and "DOWNSIDE-FY-2-DSCR" in page
+
+
+# ---------------------------------------------------------------------------
+# Correctness pass (issue #124): incomplete raw lines never count as known zeros
+# ---------------------------------------------------------------------------
+
+STRESS = {"revenue_haircut_pct": 10, "opex_increase_pct": 5}
+
+
+@pytest.mark.parametrize("omitted", sorted(set(sf.REQUIRED_LINES) - set(sf.SHOCK_LINES["revenue_haircut_pct"])
+                                           - set(sf.SHOCK_LINES["opex_increase_pct"])))
+def test_a_line_a_covenant_ratio_reads_but_that_is_missing_makes_the_year_unavailable_even_if_the_rest_reconciles(
+        deal, omitted):
+    """The directly shocked lines (revenue, admin_expenses) and the supplied ratios are present and happen to
+    reconcile, because the evaluator reads an omitted line as zero. That is not a known zero."""
+    year = reconciled_year(drop=(omitted,))
+    only = sf.reconciliation_problems(year["lines"], year["subtotals"], year["ratios"], STRESS)
+    assert len(only) == 1 and omitted in only[0], "everything supplied does reconcile; only the omission is a problem"
+    record(forecast={"FY+1": year}, stress=STRESS)
+    case = state()["downside_case"]
+    assert case["financials"] == {} and case["ratios"] == {} and case["basis"] == {}
+    reason = case["unavailable"]["FY+1"]
+    assert omitted in reason and "not supplied" in reason and "explicit 0" in reason
+    saved = state()
+    assert saved["financials"]["FY+1"] == year["subtotals"] and saved["ratios"]["FY+1"] == year["ratios"]
+    assert saved["analyst_supplied_financials"]["FY+1"] == year["lines"], "the base case is exactly as supplied"
+
+
+def test_an_omitted_line_is_unavailable_but_the_same_line_given_as_an_explicit_zero_is_accepted(deal):
+    record(forecast={"FY+1": reconciled_year(drop=("cash",))}, stress=STRESS)
+    assert "FY+1" in state()["downside_case"]["unavailable"]
+    record(forecast={"FY+1": reconciled_year(lines={**LINES, "cash": 0})}, stress=STRESS)
+    case = state()["downside_case"]
+    assert case["basis"] == {"FY+1": sf.FRAMEWORK_DERIVED} and case["unavailable"] == {}
+
+
+def test_an_incomplete_year_is_an_unresolvable_breach_where_the_base_case_passes(deal):
+    record(forecast={"FY+1": reconciled_year(drop=("trade_debtors",))}, stress=STRESS)
+    (breach,) = policy(deal)["downside_covenant_breaches"]
+    assert (breach["year"], breach["downside_status"], breach["downside_actual"]) == ("FY+1", "UNRESOLVABLE", None)
+    assert "downside analysis unavailable for FY+1" in breach["reason"] and "trade_debtors" in breach["reason"]
+
+
+def test_the_derived_downside_carries_only_figures_whose_every_line_was_supplied(deal):
+    record(forecast={"FY+1": reconciled_year()}, stress=STRESS)
+    figures = state()["downside_case"]["financials"]["FY+1"]
+    assert not UNSUPPORTED_OUTPUTS & set(figures), "no profit before tax, total assets, TNW... from absent lines"
+    assert {"ebitda", "gross_profit", "operating_profit", "fcf", "total_debt", "total_equity"} <= set(figures)
+    assert set(SUPPLIED_RATIOS) <= set(state()["downside_case"]["ratios"]["FY+1"])
+    complete = {**LINES, "exceptional_costs": 0, "intangible_assets": 0, "other_fixed_assets": 0,
+                "other_long_term_liabilities": 0, "provisions": 0}
+    record(forecast={"FY+1": reconciled_year(lines=complete)}, stress=STRESS)
+    assert set(figures) | UNSUPPORTED_OUTPUTS <= set(state()["downside_case"]["financials"]["FY+1"])
+
+
+def test_the_dependency_tables_cover_every_output_and_name_every_line_it_reads():
+    """Sound: a line missing from an output's entry never changes that output. Complete: every output is listed."""
+    base = {name: 7.0 + 3 * i for i, name in enumerate(sf.RAW_FIELDS)}
+    reference = evaluate_financial_model({"p": base})
+    assert set(sf.SUBTOTAL_DEPENDS) == set(reference["financials"]["p"]) - {"raw"}
+    assert set(sf.RATIO_DEPENDS) == set(reference["ratios"]["p"])
+    for name in sf.RAW_FIELDS:
+        bumped = evaluate_financial_model({"p": {**base, name: base[name] + 1000}})
+        for store, depends in (("financials", sf.SUBTOTAL_DEPENDS), ("ratios", sf.RATIO_DEPENDS)):
+            for output, lines in depends.items():
+                if name not in lines:
+                    assert bumped[store]["p"][output] == reference[store]["p"][output], (name, output)
+    assert set(sf.REQUIRED_LINES) == {n for ratio in SUPPLIED_RATIOS for n in sf.RATIO_DEPENDS[ratio]}
+    assert {n for lines in sf.RATIO_DEPENDS.values() for n in lines} <= set(sf.REQUIRED_LINES),         "a derived year holds every ratio, so no ratio may read a line that is not required"
+
+
+def test_non_numeric_stored_figures_make_the_year_unavailable_instead_of_failing():
+    problems = sf.reconciliation_problems({**LINES, "cash": "n/m"}, {"ebitda": 300}, {}, STRESS)
+    assert problems and "cash" in problems[0] and "not a number" in problems[0]
+    problems = sf.reconciliation_problems(LINES, {"ebitda": "n/m"}, {"dscr": "n/m"}, STRESS)
+    assert any("ebitda" in p and "not a number" in p for p in problems)
+    assert any("dscr" in p and "not a number" in p for p in problems)
+
+
+# ---------------------------------------------------------------------------
+# Correctness pass: a scenario's description stays with the years it describes
+# ---------------------------------------------------------------------------
+
+def scenario(description, *years):
+    return {"description": description, "periods": {year: {"ratios": {"dscr": 1.1}} for year in years}}
+
+
+def test_a_different_description_for_another_year_is_refused_while_an_earlier_analyst_year_would_keep_the_old_one(deal):
+    record(downside=scenario("Scenario A", "FY+1"))
+    before = deals_bytes(deal)
+    with pytest.raises(sf.ForecastError) as refused:
+        record(forecast={"FY+2": FORECAST["FY+2"]}, downside=scenario("Scenario B", "FY+2"))
+    message = str(refused.value)
+    assert "Scenario A" in message and "Scenario B" in message and "FY+1" in message and len(message.splitlines()) == 1
+    assert deals_bytes(deal) == before, "refused with nothing written"
+    assert state()["downside_case"]["description"] == "Scenario A"
+
+
+def test_restating_every_affected_year_with_the_new_description_is_accepted(deal):
+    record(downside=scenario("Scenario A", "FY+1"))
+    record(downside=scenario("Scenario B", "FY+1", "FY+2"))
+    case = state()["downside_case"]
+    assert case["description"] == "Scenario B"
+    assert case["basis"] == {"FY+1": "analyst-supplied", "FY+2": "analyst-supplied"}
+
+
+def test_the_same_description_across_calls_and_years_is_a_normal_update(deal):
+    record(downside=scenario("Scenario A", "FY+1"))
+    record(downside=scenario("  Scenario A  ", "FY+2"))
+    case = state()["downside_case"]
+    assert case["description"] == "Scenario A" and set(case["basis"]) == {"FY+1", "FY+2"}
+    record(downside=scenario("Scenario A", "FY+1", "FY+2"))
+    assert state()["downside_case"]["description"] == "Scenario A"
+
+
+def test_a_year_that_is_not_an_analyst_scenario_does_not_hold_a_description_back(deal):
+    """Only years whose downside is the analyst's own carry a description; a framework-derived or unavailable year
+    does not, so a new description for another year conflicts with nothing."""
+    record(forecast={"FY+1": reconciled_year()}, stress=STRESS)
+    record(forecast={"FY+2": FORECAST["FY+2"]}, downside=scenario("Scenario B", "FY+2"))
+    case = state()["downside_case"]
+    assert case["description"] == "Scenario B" and case["basis"]["FY+1"] == sf.FRAMEWORK_DERIVED
+
+
+def test_a_record_with_one_description_keeps_its_shape_and_its_description(deal):
+    """Existing records have a single `description`, which describes all of their analyst years."""
+    record(downside=scenario("Scenario A", "FY+1"))
+    assert state()["downside_case"]["description"] == "Scenario A" and "descriptions" not in state()["downside_case"]
+    record(forecast={"FY+2": FORECAST["FY+2"]})
+    assert state()["downside_case"]["description"] == "Scenario A"
+
+
+# ---------------------------------------------------------------------------
+# Correctness pass: failures before the state update are one clear error line
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("failure", [TimeoutError("Could not acquire lock 'state.json.lock' within 30s"),
+                                     OSError(28, "No space left on device")])
+def test_a_failure_writing_state_is_a_state_error_that_keeps_its_cause_and_changes_nothing(deal, monkeypatch, failure):
+    record()
+    before = deals_bytes(deal)
+
+    def refuse(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(sf, "write_state", refuse)
+    with pytest.raises(StateError, match="could not write the deal's state") as raised:
+        record(forecast={"FY+3": {"ratios": {"dscr": 1.6}}})
+    assert raised.value.__cause__ is failure and len(str(raised.value).splitlines()) == 1
+    assert deals_bytes(deal) == before
+
+
+def test_a_failure_at_the_final_replace_leaves_state_and_the_folder_byte_identical(deal, monkeypatch):
+    record()
+    before = deals_bytes(deal)
+
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    with monkeypatch.context() as patched:
+        patched.setattr("state_manager.os.replace", refuse)
+        with pytest.raises(StateError, match="could not write the deal's state"):
+            record(forecast={"FY+3": {"ratios": {"dscr": 1.6}}})
+    assert deals_bytes(deal) == before, "no changed state.json, no leftover temporary or lock file"
+
+
+def test_a_failure_reading_state_is_a_state_error_that_keeps_its_cause(deal, monkeypatch):
+    failure = PermissionError(13, "Access is denied")
+
+    def refuse(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(sf, "read_state", refuse)
+    with pytest.raises(StateError, match="could not read the deal's state") as raised:
+        record()
+    assert raised.value.__cause__ is failure and not (deal / "deals").exists()
+
+
+def test_main_reports_a_write_failure_as_one_error_line_and_exits(deal, monkeypatch):
+    forecast_file = deal / "forecast.json"
+    forecast_file.write_text(json.dumps({"forecast": FORECAST}), encoding="utf-8")
+
+    def refuse(*args, **kwargs):
+        raise TimeoutError("Could not acquire lock")
+
+    monkeypatch.setattr(sf, "write_state", refuse)
+    with pytest.raises(SystemExit) as exit_info:
+        sf.main(["--company", COMPANY, "--proposal", PROPOSAL, "--forecast", str(forecast_file), "--note", NOTE])
+    message = exit_info.value.code
+    assert isinstance(message, str) and message.startswith("error: could not write the deal's state")
+    assert "\n" not in message
+    assert not list(deal.glob("deals/**/state.json")), "nothing was recorded"
+
+
+def set_state_field(deal, name, value):
+    path = state_file(deal)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data[name] = value
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+@pytest.mark.parametrize("bad", ["ten", True, [10], {"pct": 10}, float("nan"), float("inf")])
+def test_a_malformed_stored_shock_is_one_clear_error_naming_it_and_changes_nothing(deal, bad):
+    record(forecast={"FY+1": reconciled_year()})
+    set_state_field(deal, "stress_assumptions", {"revenue_haircut_pct": bad})
+    before = deals_bytes(deal)
+    with pytest.raises(sf.ForecastError) as refused:
+        record(forecast={"FY+2": FORECAST["FY+2"]})
+    message = str(refused.value)
+    assert "stress_assumptions" in message and "revenue_haircut_pct" in message and "state.json" in message
+    assert len(message.splitlines()) == 1 and deals_bytes(deal) == before
+
+
+def test_a_stored_shock_that_is_null_or_an_unrelated_key_is_tolerated_as_the_calculation_tolerates_it(deal):
+    record(forecast={"FY+1": reconciled_year()})
+    set_state_field(deal, "stress_assumptions", {"revenue_haircut_pct": None, "comment": "from an older run"})
+    record(forecast={"FY+2": FORECAST["FY+2"]})
+    assert state()["stress_assumptions"]["comment"] == "from an older run"

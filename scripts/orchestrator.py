@@ -139,6 +139,15 @@ def _content_hash(text):
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:12]
 
 
+def _meaningful_stress(assumptions):
+    """The stress assumptions that actually shock anything: an unset (null) or zero value is no shock, so a set that
+    only adds zeros is the same set. Anything else is kept exactly, so a malformed value never compares equal."""
+    if not isinstance(assumptions, dict):
+        return {}
+    return {key: value for key, value in assumptions.items()
+            if value is not None and not (isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0)}
+
+
 def _default_client():
     return Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -536,6 +545,23 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
     steps_completed = list(existing_state.get("steps_completed") or [])     # `or`: a null value is "not recorded"
 
+    # An analyst-supplied forecast's downside is the analyst's own scenario (or recorded as unavailable), which this
+    # run can neither recompute nor originate. A different stress assumption would be persisted beside a downside
+    # case it does not describe, so refuse it here -- before any write or model call -- rather than clear or relabel
+    # the analyst's downside to hide the mismatch (issue #124). Repeating the recorded assumptions changes nothing.
+    if (not multi_period_financials and existing_state.get("forecast_source") == "analyst-supplied"
+            and stress_assumptions):
+        recorded = existing_state.get("stress_assumptions")
+        offered, held = _meaningful_stress(stress_assumptions), _meaningful_stress(recorded)
+        if offered != held:
+            changed = sorted(key for key in offered.keys() | held.keys() if offered.get(key) != held.get(key))
+            raise StateError(
+                f"refused: --stress-assumptions differs from the stress assumptions recorded for this deal "
+                f"({', '.join(changed)}), and its forward years are an analyst-supplied forecast "
+                f"(forecast_source), whose downside is the analyst's own scenario or recorded as unavailable and "
+                f"cannot be recomputed here. Change it by re-running /project's analyst-supplied mode, or omit "
+                f"--stress-assumptions; nothing was written.")
+
     if multi_period_financials:
         model_data = evaluate_financial_model(multi_period_financials)
         financials, ratios = model_data["financials"], model_data["ratios"]
@@ -584,7 +610,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     multi_period_financials_for_downside = (
         multi_period_financials or existing_state.get("multi_period_financials")
     )
-    stress_assumptions_to_persist = stress_assumptions or existing_state.get("stress_assumptions") or {}
+    # For an analyst-supplied forecast only the recorded assumptions are ever kept: a repeat of them is a no-op, and a
+    # different set was refused above.
+    stress_assumptions_to_persist = (existing_state.get("stress_assumptions") or {} if analyst_forecast
+                                     else stress_assumptions or existing_state.get("stress_assumptions") or {})
     if multi_period_financials_for_downside and stress_assumptions_to_persist and not analyst_forecast:
         downside_case = evaluate_downside_case(
             multi_period_financials_for_downside, stress_assumptions_to_persist,

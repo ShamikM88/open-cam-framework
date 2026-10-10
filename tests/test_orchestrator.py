@@ -44,7 +44,7 @@ from orchestrator import (
     parse_verdict,
     run_pipeline,
 )
-from state_manager import read_state, state_path, write_state
+from state_manager import StateError, read_state, state_path, write_state
 
 
 class MockClient:
@@ -1724,3 +1724,79 @@ def test_a_deal_that_never_had_the_flag_does_not_gain_one_from_a_run(project_roo
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  multi_period_financials={"FY-Current": {"revenue": 100, "cost_of_sales": 60}}, client=client)
     assert "forecast_source" not in read_state("Acme Corp", "Fleet Loan")
+
+
+# ---------------------------------------------------------------------------
+# A changed stress assumption cannot be applied to an analyst-supplied forecast (issue #124)
+# ---------------------------------------------------------------------------
+
+def _deal_files():
+    return {p.as_posix(): p.read_bytes() for p in Path("deals").rglob("*") if p.is_file()}
+
+
+def test_a_changed_stress_assumption_for_an_analyst_supplied_forecast_is_refused_and_nothing_is_written(project_root):
+    """The headless run cannot recompute that forecast's downside, so persisting a new assumption would leave state
+    whose stress assumptions no longer describe its downside case. Refuse, before any write or model call."""
+    _analyst_forecast_state(forecast_source="analyst-supplied")
+    before = _deal_files()
+    client = MockClient([])
+    with pytest.raises(StateError) as refused:
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     stress_assumptions={"revenue_haircut_pct": 25}, client=client)
+    message = str(refused.value)
+    assert len(message.splitlines()) == 1
+    assert "analyst-supplied" in message and "/project" in message and "revenue_haircut_pct" in message
+    assert client.call_count == 0, "no model call"
+    assert _deal_files() == before, "state.json, and everything else under deals/, is byte-identical"
+
+
+@pytest.mark.parametrize("changed", [{"opex_increase_pct": 5}, {"revenue_haircut_pct": 10, "opex_increase_pct": 5},
+                                     {"revenue_haircut_pct": 0}, {"interest_rate_bump_bps": 100}])
+def test_any_difference_from_the_recorded_stress_assumptions_is_refused(project_root, changed):
+    _analyst_forecast_state(forecast_source="analyst-supplied")
+    before = _deal_files()
+    with pytest.raises(StateError, match="stress"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     stress_assumptions=changed, client=MockClient([]))
+    assert _deal_files() == before
+
+
+def test_stress_assumptions_cannot_be_added_to_an_analyst_forecast_that_had_none(project_root):
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied", forecast_source="analyst-supplied",
+                financials={"FY+1": {"ebitda": 300}}, ratios={"FY+1": {"dscr": 1.4}}, steps_completed=["spread"])
+    before = _deal_files()
+    with pytest.raises(StateError, match="stress"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     stress_assumptions={"revenue_haircut_pct": 10}, client=MockClient([]))
+    assert _deal_files() == before
+
+
+@pytest.mark.parametrize("repeat", [{"revenue_haircut_pct": 10}, {"revenue_haircut_pct": 10, "opex_increase_pct": 0},
+                                    {"revenue_haircut_pct": 10.0}, None, {}])
+def test_repeating_the_recorded_stress_assumptions_is_a_no_op(project_root, repeat):
+    _analyst_forecast_state(forecast_source="analyst-supplied")
+    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 stress_assumptions=repeat, client=client)
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["stress_assumptions"] == {"revenue_haircut_pct": 10}, "the recorded assumptions are not rewritten"
+    assert state["downside_case"] == ANALYST_DOWNSIDE and state["forecast_source"] == "analyst-supplied"
+
+
+def test_a_changed_assumption_is_still_allowed_with_a_fresh_recomputation_or_without_an_analyst_forecast(project_root):
+    """The refusal is only for a forecast the headless run cannot recompute: the ordinary path is unchanged."""
+    _analyst_forecast_state()          # no forecast_source flag: an ordinary deal
+    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 stress_assumptions={"revenue_haircut_pct": 25}, client=client)
+    assert read_state("Acme Corp", "Fleet Loan")["stress_assumptions"] == {"revenue_haircut_pct": 25}
+
+    _analyst_forecast_state(forecast_source="analyst-supplied")
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY-Current": {"revenue": 100, "cost_of_sales": 60},
+                                          "FY+1": {"revenue": 100, "cost_of_sales": 60}},
+                 stress_assumptions={"revenue_haircut_pct": 30}, client=client)
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["forecast_source"] is None and state["stress_assumptions"] == {"revenue_haircut_pct": 30}
+    assert state["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 70, "recomputed from the fresh figures"

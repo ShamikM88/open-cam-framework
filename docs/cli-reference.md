@@ -111,7 +111,8 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
   own forecast, never derived by the tool.
 - `--collateral` is a JSON file holding a flat list of asset objects.
-- `--stress-assumptions` is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
+- `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
+  refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
   `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none.
 - `--new-review` starts a fresh dated folder for a new annual review instead of resuming the most recent one, so it
   never inherits last year's inputs.
@@ -185,8 +186,10 @@ basis is compatible: no framework-computed forward years, no framework-computed 
 writes `financials`, `ratios`, the optional `analyst_supplied_financials`, `forecast_source`, `financials_source`, the
 note and the downside treatment in **one** state update, printing a summary of which forward years are analyst-supplied
 and which downside years are framework-derived or unavailable. Any refusal is one `error:` line, exit status `1`, and
-nothing is written. `--note` is required; it is added to `financials_source_note`. It never uses the framework's
-formulas to produce a recorded value; the formulas are used only to test whether the stress shocks may be applied. The
+nothing is written. A state that cannot be read or written (a lock that cannot be taken, a full disk) and a malformed
+shock already stored in `stress_assumptions` are also one `error:` line with nothing recorded. `--note` is required; it
+is added to `financials_source_note`. It never uses the framework's formulas to produce a recorded value; the formulas
+are used only to test whether the stress shocks may be applied, which needs every line the covenant ratios read. The
 rules are in [the financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).
 
 ```bash

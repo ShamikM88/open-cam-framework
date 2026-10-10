@@ -638,3 +638,21 @@ def test_the_orchestrator_reports_a_malformed_state_cleanly_before_any_model_cal
     assert result.returncode == 1 and "Traceback" not in result.stderr
     assert result.stderr.startswith("error: ") and '"steps_completed" must be a list' in result.stderr
     assert "Underwriter Agent drafting" not in result.stdout        # stopped before the pipeline did anything
+
+
+def test_supplied_forecast_turns_a_malformed_stored_shock_into_one_error_line_and_changes_nothing(cli):
+    first = cli("supplied_forecast", "--company", "A", "--proposal", "P", "--forecast", _forecast_file(cli),
+                "--note", "n")
+    assert first.returncode == 0, first.stderr
+    (state_file,) = cli.workdir.glob("deals/A/P_*/state.json")
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    state["stress_assumptions"] = {"revenue_haircut_pct": "ten"}      # a shape-valid object, a malformed value
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    before = {p: p.read_bytes() for p in cli.workdir.glob("deals/**/*") if p.is_file()}
+    result = cli("supplied_forecast", "--company", "A", "--proposal", "P", "--forecast", _forecast_file(cli),
+                 "--note", "n")
+    assert result.returncode == 1 and result.stdout == ""
+    assert len(result.stderr.splitlines()) == 1 and result.stderr.startswith("error: ")
+    assert "stress_assumptions" in result.stderr and "revenue_haircut_pct" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert {p: p.read_bytes() for p in cli.workdir.glob("deals/**/*") if p.is_file()} == before

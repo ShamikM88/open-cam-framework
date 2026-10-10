@@ -106,13 +106,18 @@ Messages from `supplied_forecast.py` (`/project`'s analyst-supplied mode). Each 
 | `error: downside.description is required` | A stressed forecast was given without saying what scenario it is | Add the analyst's description |
 | `error: refused: forward years [...] are already recorded from raw line items` | The deal already has framework-computed forward years; supplying others would overwrite or blend them | Use the default path for this deal |
 | `error: refused: this deal's historical figures were computed by the framework` (or `record financial figures but no financials_source`) | One basis per deal: the deal-wide flag and the workbook's raw inputs cannot describe both | Redo the historical spread in `/spread`'s analyst-supplied mode, or use the default `/project` path |
+| `error: refused: the analyst scenario already recorded for [...] is described as ...` | A downside case has one description, and this call describes its scenario differently while earlier analyst-supplied years are not restated | Restate those years in the same call with the new description, or reuse the recorded one |
+| `error: refused: the stress_assumptions recorded in state.json have a malformed ...` | A shock stored in `state.json` is not a number | Correct or remove it by hand (or restore a backup); the file was not modified |
+| `error: could not write the deal's state: ...` (or `read`) | The state file could not be written, for example a stale `.lock` file or a full disk | Fix the cause (a stale lock is safe to delete if no run is in progress) and run again; nothing was recorded |
+| `error: refused: --stress-assumptions differs from the stress assumptions recorded for this deal` (from `orchestrator.py`) | The deal's forecast is analyst-supplied, and the headless run cannot recompute that downside | Omit `--stress-assumptions` (or repeat the recorded ones), or change them by re-running `/project`'s analyst-supplied mode |
 | `error: refused: --note is required` | The analyst's description of their forecast convention is what the CAM caveat quotes | Pass it |
 | `error: This deal's forecast ... was supplied by the analyst` from `spreading_check.py` | A framework-computed forward year, or a framework-computed `/spread`, was attempted on a deal with an analyst-supplied forecast | Record forward changes with `supplied_forecast.py`; spread history in the analyst-supplied mode |
 
 If a covenant is reported `UNRESOLVABLE` in a downside breach with the reason `downside analysis unavailable for FY+n: ...`, the
-forecast year had no downside the framework could produce (no raw lines, a requested shock's lines missing, or the lines do
-not reproduce the figures the analyst supplied) and no scenario of the analyst's own. Supply the year's own stressed
-forecast, or the reconciling raw lines, or address it in the draft.
+forecast year had no downside the framework could produce (no raw lines, a line a requested shock or a covenant ratio reads
+left out (an omitted line is not a zero: give an explicit `0`), or the lines do not reproduce the figures the analyst
+supplied) and no scenario of the analyst's own. Supply the year's own stressed forecast, or the complete reconciling raw
+lines, or address it in the draft.
 
 ### Figures read from an image
 

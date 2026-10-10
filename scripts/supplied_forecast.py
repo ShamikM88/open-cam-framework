@@ -23,11 +23,14 @@ the framework's shocks may be applied, below):
 The downside case, decided conservatively:
 
 - An analyst's own stressed forecast (`downside`) is recorded as supplied, with its description, and is what the
-  policy engine tests covenants against for those years.
+  policy engine tests covenants against for those years. A downside case has one description, which describes all of
+  its analyst-supplied years: a call whose description differs while earlier analyst years are not restated is refused.
 - The framework's stress shocks are applied to a year only when they genuinely meet their assumptions: the analyst
-  gave that year's raw lines, every line a requested shock acts on, and the framework's formulas reproduce the
-  subtotals and ratios the analyst gave for that year (to two decimal places). Then the shocked case is derived by
-  evaluate_downside_case() and labelled framework-derived from the reconciled lines.
+  gave that year's raw lines, every line a requested shock acts on, every line the covenant ratios read (the evaluator
+  treats an omitted line as zero, which is not a zero the analyst confirmed, so each is given, as an explicit 0 where
+  it is nil), and the framework's formulas reproduce the subtotals and ratios the analyst gave for that year (to two
+  decimal places). Then the shocked case is derived by evaluate_downside_case(), labelled framework-derived from the
+  reconciled lines, and holds only the figures every one of whose lines was supplied.
 - Otherwise, if a downside was wanted (stress assumptions or a scenario of the analyst's own exist), the year is
   recorded as unavailable with the reason, and policy_engine treats a covenant that passes in that year's base case as
   UNRESOLVABLE under stress. Nothing is manufactured and nothing is silently dropped.
@@ -63,6 +66,52 @@ SHOCK_LINES = {
     "interest_rate_bump_bps": ("interest_paid", "current_debt", "overdraft", "long_term_debt", "loan_notes"),
 }
 FRAMEWORK_DERIVED = "framework-derived from reconciled analyst-supplied lines"
+
+# The raw lines each figure the framework derives reads (spreading_builder.evaluate_financial_model). The evaluator
+# reads an omitted line as zero, which is not the same as the analyst saying it is zero, so a derived downside figure
+# is recorded only when every line it reads was supplied (an explicit 0 counts). A superset is safe, a missing entry
+# is not: test_supplied_forecast checks every entry against the evaluator itself.
+_PROFIT = ("revenue", "cost_of_sales", "admin_expenses", "depreciation", "amortisation", "other_income")
+_BEFORE_TAX = (*_PROFIT, "interest_paid", "interest_received", "exceptional_costs")
+_CASH_FLOW = (*_PROFIT, "capex", "tax_paid", "interest_paid", "interest_received")
+_CURRENT_ASSETS = ("cash", "trade_debtors", "stock", "other_current_assets")
+_CURRENT_LIABILITIES = ("trade_creditors", "current_debt", "overdraft", "other_current_liabilities")
+_DEBT = ("current_debt", "overdraft", "long_term_debt", "loan_notes")
+_EQUITY = ("share_capital", "retained_profit")
+SUBTOTAL_DEPENDS = {
+    "gross_profit": ("revenue", "cost_of_sales"),
+    "operating_profit": _PROFIT,
+    "ebitda": _PROFIT,
+    "profit_before_tax": _BEFORE_TAX,
+    "net_profit": (*_BEFORE_TAX, "tax_paid"),
+    "fcf": _CASH_FLOW,
+    "current_assets": _CURRENT_ASSETS,
+    "current_liabilities": _CURRENT_LIABILITIES,
+    "total_assets": (*_CURRENT_ASSETS, "tangible_assets", "intangible_assets", "other_fixed_assets"),
+    "total_liabilities": (*_CURRENT_LIABILITIES, "long_term_debt", "loan_notes", "other_long_term_liabilities",
+                          "provisions"),
+    "total_equity": _EQUITY,
+    "total_debt": _DEBT,
+    "tangible_net_worth": (*_EQUITY, "intangible_assets"),
+}
+RATIO_DEPENDS = {
+    "dscr": (*_PROFIT, "interest_paid", "scheduled_principal"),
+    "gross_leverage": (*_DEBT, *_PROFIT),
+    "net_debt_to_ebitda": (*_DEBT, "cash", *_PROFIT),
+    "current_ratio": (*_CURRENT_ASSETS, *_CURRENT_LIABILITIES),
+    "gearing": (*_DEBT, *_EQUITY),
+    "ebit_interest_cover": (*_PROFIT, "interest_paid"),
+    "ebitda_interest_cover": (*_PROFIT, "interest_paid"),
+    "fcf_conversion_pct": _CASH_FLOW,
+    "trade_debtor_days": ("trade_debtors", "revenue"),
+    "trade_creditor_days": ("trade_creditors", "cost_of_sales"),
+    "stock_days": ("stock", "cost_of_sales"),
+    "working_capital_cycle_days": ("trade_debtors", "revenue", "stock", "trade_creditors", "cost_of_sales"),
+    "EBIT/Interest": (*_PROFIT, "interest_paid"),
+    "EBITDA/Interest": (*_PROFIT, "interest_paid"),
+}
+# Any covenant can be set on a ratio the analyst supplies, so a derived downside needs every line those ratios read.
+REQUIRED_LINES = tuple(sorted({line for ratio in SUPPLIED_RATIOS for line in RATIO_DEPENDS[ratio]}))
 
 
 class ForecastError(ValueError):
@@ -203,28 +252,47 @@ def _merge(existing, additions):
     return merged
 
 
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def reconciliation_problems(lines, subtotals, ratios, stress):
     """Why the framework's stress shocks may not be applied to this year, as a list of reasons (empty means they
-    may): the year needs its raw lines, every line a requested shock acts on, and the framework's formulas must
-    reproduce the figures the analyst gave for the year."""
+    may). The year needs its raw lines; every line a requested shock acts on; every line a covenant ratio reads (an
+    omitted line is not a known zero, so each is given, as an explicit 0 where it is nil); and the framework's
+    formulas must reproduce the figures the analyst gave for the year. Stored values that are not numbers are a
+    reason, never an error."""
     if not lines:
         return ["no raw lines were supplied for this year, so the framework's shocks have nothing to act on"]
     requested = [key for key in STRESS_KEYS if stress.get(key)]
     if not requested:
         return ["none of the stress shocks is non-zero"]
     problems = []
+    unreadable = [f"line {name}: {value!r} is not a number" for name, value in lines.items() if not _is_number(value)]
+    if unreadable:
+        return unreadable[:4] + ([f"and {len(unreadable) - 4} more"] if len(unreadable) > 4 else [])
+    shock_missing = set()
     for key in requested:
         missing = [line for line in SHOCK_LINES[key] if line not in lines]
+        shock_missing.update(missing)
         if missing:
             problems.append(f"{key} acts on {missing}, which were not supplied")
+    missing = [line for line in REQUIRED_LINES if line not in lines and line not in shock_missing]
+    if missing:
+        problems.append(f"the covenant ratios also read {missing}, which were not supplied: an omitted line is not a "
+                        "known zero, so give each as an explicit 0 where it is nil")
     derived = evaluate_financial_model({"p": lines})
     for name, value in subtotals.items():
         recomputed = derived["financials"]["p"].get(name)
-        if not isinstance(recomputed, (int, float)) or abs(value - recomputed) > RECONCILE_TOLERANCE:
+        if not _is_number(value):
+            problems.append(f"{name}: supplied {value!r} is not a number")
+        elif not isinstance(recomputed, (int, float)) or abs(value - recomputed) > RECONCILE_TOLERANCE:
             problems.append(f"{name}: supplied {value}, the framework's formulas give {recomputed}")
     for name, value in ratios.items():
         recomputed = derived["ratios"]["p"].get(name)
-        if value is None or recomputed is None:
+        if value is not None and not _is_number(value):
+            problems.append(f"{name}: supplied {value!r} is not a number")
+        elif value is None or recomputed is None:
             if value is not recomputed:
                 problems.append(f"{name}: supplied {value}, the framework's formulas give {recomputed}")
         elif abs(value - recomputed) > RECONCILE_TOLERANCE:
@@ -244,12 +312,21 @@ def build_downside(existing_downside, forecast_periods, financials, ratios, line
 
     down_fin, down_rat, basis, unavailable = {}, {}, {}, {}
     description = None
+    kept = []
     for period, how in old_basis.items():                  # an earlier analyst scenario for a year not re-supplied
         if how == "analyst-supplied" and period in forecast_periods and period in old_fin | old_rat \
                 and not (supplied and period in supplied["periods"]):
             down_fin[period], down_rat[period], basis[period] = old_fin.get(period), old_rat.get(period), how
             description = existing_downside.get("description")
+            kept.append(period)
     if supplied:
+        old_description = description.strip() if isinstance(description, str) else ""
+        if kept and old_description and old_description != supplied["description"]:
+            raise ForecastError(
+                f"refused: the analyst scenario already recorded for {kept} is described as {old_description!r}, "
+                f"but this call describes its scenario as {supplied['description']!r}, and a downside case has one "
+                f"description. Restate {kept} in this call with the new description, or use the recorded one; "
+                "nothing was written")
         description = supplied["description"]
         for period, block in supplied["periods"].items():
             if period not in forecast_periods:
@@ -270,8 +347,11 @@ def build_downside(existing_downside, forecast_periods, financials, ratios, line
             unavailable[period] = "; ".join(problems)
             continue
         derived = evaluate_downside_case({period: lines[period]}, stress)
-        down_fin[period] = derived["financials"][period]
-        down_rat[period] = derived["ratios"][period]
+        # Only figures every one of whose lines was supplied: the evaluator reads an omitted line as zero.
+        down_fin[period] = {key: value for key, value in derived["financials"][period].items()
+                            if key == "raw" or (key in SUBTOTAL_DEPENDS
+                                                and all(line in lines[period] for line in SUBTOTAL_DEPENDS[key]))}
+        down_rat[period] = derived["ratios"][period]       # every ratio's lines are in REQUIRED_LINES, checked above
         basis[period] = FRAMEWORK_DERIVED
 
     if not (down_fin or down_rat or unavailable):
@@ -300,6 +380,12 @@ def plan(existing, supplied, stress_in, note):
     lines = _merge(existing.get("analyst_supplied_financials"), line_by_period)
     stress = dict(existing.get("stress_assumptions") or {})
     stress.update(stress_in or {})
+    for key in STRESS_KEYS:
+        if stress.get(key) is not None and not _is_number(stress[key]):
+            raise ForecastError(
+                f"refused: the stress_assumptions recorded in state.json have a malformed {key} ({stress[key]!r}); "
+                "expected a finite number or null. Correct or remove it by hand, or restore state.json from a "
+                "backup; the file was not modified.")
     forecast_periods = [p for p in FORWARD_PERIOD_KEYS if p in financials or p in ratios]
 
     sentence = f"Forecast (FY+1 to FY+3) figures are analyst-supplied: {note.strip()}"
@@ -323,13 +409,19 @@ def plan(existing, supplied, stress_in, note):
 def record(company, proposal, supplied, stress_in, note):
     """Check the deal, then write the analyst-supplied forecast in one state update (write_state() refuses a newer
     schema version before touching the file). Returns the fields written."""
-    existing = read_state(company, proposal, keys=STATE_KEYS) or {}
+    try:
+        existing = read_state(company, proposal, keys=STATE_KEYS) or {}
+    except OSError as exc:
+        raise StateError(f"could not read the deal's state: {' '.join(str(exc).split())}; nothing was recorded") from exc
     source = existing.get("forecast_source")
     if source is not None and source != "analyst-supplied":
         raise StateError('Cannot use state.json: "forecast_source" must be "analyst-supplied" when present; fix the '
                          "file by hand or restore it from a backup; the file was not modified.")
     fields = plan(existing, supplied, stress_in, note)
-    write_state(company, proposal, **fields)
+    try:
+        write_state(company, proposal, **fields)
+    except OSError as exc:          # includes the lock timeout; write_state() replaces the file atomically
+        raise StateError(f"could not write the deal's state: {' '.join(str(exc).split())}; nothing was recorded") from exc
     return fields
 
 

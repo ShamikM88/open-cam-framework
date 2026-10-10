@@ -165,10 +165,13 @@ forward year:
 1. If the analyst supplied **their own stressed forecast** for it (subtotals and/or ratios plus a description of the
    scenario), that is recorded as `analyst-supplied` and is what covenants are tested against under stress.
 2. Otherwise, if stress shocks were requested, they are applied **only if they genuinely meet their assumptions**: the
-   year's raw lines were supplied, every line a requested shock acts on is present, and the framework's formulas
-   *reproduce the subtotals and ratios the analyst gave for that year* to two decimal places. Then the downside is derived by
-   the existing calculation and labelled `framework-derived from reconciled analyst-supplied lines`. A year whose own
-   convention the formulas do not reproduce is not stressed with them.
+   year's raw lines were supplied; every line a requested shock acts on is present; every line the covenant ratios read
+   is present (the calculation reads an omitted line as zero, and an omitted line is not a zero the analyst confirmed,
+   so each is given, as an explicit `0` where it is nil); and the framework's formulas *reproduce the subtotals and
+   ratios the analyst gave for that year* to two decimal places. Then the downside is derived by the existing
+   calculation, labelled `framework-derived from reconciled analyst-supplied lines`, and holds only the figures every
+   one of whose lines was supplied (no profit before tax unless exceptional costs were given, no total assets unless
+   the fixed-asset lines were). A year that fails any of this is not stressed with the framework's shocks.
 3. Otherwise, if a downside was wanted at all (shocks requested, or an own scenario given for another year), the year is
    recorded under `downside_case["unavailable"]` with the reason. The policy engine then treats any covenant that passes
    in that year's base case as **UNRESOLVABLE under stress**, exactly as it already does when a stress drives a ratio to
@@ -178,7 +181,12 @@ forward year:
 4. If neither shocks nor a scenario were supplied, no downside was asked for and none is recorded, as for any deal.
 
 `downside_case` keeps its `financials` and `ratios`, and for these deals also carries `basis` (which source each year's
-downside came from), `unavailable` and the scenario's `description`. In the workbook, supplied forward and downside
+downside came from), `unavailable` and the scenario's `description`. There is one `description` per case and it
+describes every analyst-supplied year in it: supplying a scenario with a different description while earlier
+analyst-supplied years are not restated is refused (nothing is written), and restating them all with the new
+description is accepted. The headless `orchestrator.py` can neither recompute nor originate such a downside, so it
+keeps the recorded stress assumptions and refuses a `--stress-assumptions` that differs from them (repeating them is a
+no-op); change them by re-running `/project`'s analyst-supplied mode. In the workbook, supplied forward and downside
 columns show the supplied values, unavailable downside columns are blank, and each is labelled
 ([outputs](outputs.md#the-spreading-workbook-xlsx)). A worked example is in
 [Workflows](workflows.md#forward-years-supplied-by-the-analyst).

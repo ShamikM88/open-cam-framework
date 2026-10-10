@@ -74,7 +74,9 @@ own template supplies (use only these exact names: `gross_profit`, `operating_pr
 ratios (`dscr`, `gross_leverage`, `net_debt_to_ebitda`, `current_ratio`, `gearing`, `ebit_interest_cover`,
 `ebitda_interest_cover`, `fcf_conversion_pct`; a ratio the analyst reports as not applicable is `null`). Plain numbers
 exactly as given: no strings, no units. A raw line-item breakdown for the year (the `/spread` field names) is optional
-context and goes in `lines`; supply it if you have it, because it is what lets the framework's shocks be tested (below).
+context and goes in `lines`; supply it if you have it, because it is what lets the framework's shocks be tested (below),
+and then **every** line the covenant ratios read, writing `0` for a line that is nil: an omitted line is not a confirmed
+zero, and the year's downside is then recorded as unavailable.
 Raw lines alone are the default mode's input, not this one's.
 
 Also ask for the analyst's **description of their forecast convention** (for example "Management budget; depreciation
@@ -86,8 +88,9 @@ analyst-supplied caveat quotes.
    scenario. It is recorded as the analyst's data and is what covenants are tested against under stress.
 2. **The framework's shocks** (`revenue_haircut_pct`, `opex_increase_pct`, `interest_rate_bump_bps`, in a stress
    file as in the default mode). They are applied to a year **only** if you supplied that year's raw lines, every line
-   a requested shock acts on, and the framework's formulas reproduce the subtotals and ratios the analyst gave for that
-   year (to two decimal places); otherwise that year gets no stressed case.
+   a requested shock acts on, every other line the covenant ratios read (explicit `0` where nil), and the framework's
+   formulas reproduce the subtotals and ratios the analyst gave for that year (to two decimal places); otherwise that
+   year gets no stressed case. All the analyst's own scenarios in the deal share one description.
 3. **Neither.** Then no downside analysis is recorded, and say so.
 
 A year that was wanted but cannot be stressed is recorded as **unavailable**, with the reason, and the policy engine

@@ -282,6 +282,7 @@ DSCR is -0.204; and the `FY+1` downside (5% less revenue, 200 basis points more 
 When an institution's forecast convention does not fit the framework's raw schema, `/project` asks which mode applies
 and, in the analyst-supplied mode, records the analyst's own forward-year figures as given
 (`docs/examples/synthetic_co/forecast_supplied.json`: `FY+1` with its subtotals, ratios and the raw lines behind them,
+every line the covenant ratios read, the nil ones as explicit zeros,
 `FY+2` with ratios and EBITDA only). It also takes the stress shocks (`forecast_stress.json`: a 10% revenue haircut and a
 200 basis point rise). On a deal with no framework-computed history:
 

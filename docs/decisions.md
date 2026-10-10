@@ -38,7 +38,7 @@ so in its Related line) when a later decision supersedes it.
 - **Consequences.** The prompts must not be merged or cross-referenced. Prompt text is recorded by content hash
   in a deal's `model_provenance`, and an evaluation baseline records it too, so editing a prompt is a deliberate
   act that makes earlier comparisons stale.
-- **Decision update: the interactive Checker is isolated (#204).** As first built, only the headless pipeline met the
+- **Decision update, 2026-10-10: the interactive Checker is isolated (#204).** As first built, only the headless pipeline met the
   choice above in full: `orchestrator.py` makes the Checker call as a separate message that carries no Maker prompt or
   reasoning, while an interactive `/review` ran in the draft's own conversation, so it was a separate role prompt and
   not a separate context. The maintainer chose to remove that difference: every interactive `/review` delegates the

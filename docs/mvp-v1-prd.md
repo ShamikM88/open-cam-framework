@@ -87,7 +87,7 @@ of scope for this document.
   [Evidence appendix](#evidence-appendix) for the dates. Before that second step, independence meant separate
   prompts, not yet separate models; the Checker's value comes from auditing cold either way. The interactive `/review`
   met the "never shares the Maker's reasoning" half later still: until [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) it ran in the draft's own
-  conversation, and it now starts a fresh, read-only sub-agent for every review (D1, R3).
+  conversation, and since the 2026-10-10 decision it starts a fresh, read-only sub-agent for every review (D1, R3).
 - **Anything that can be computed is computed by code, and enforced by code**
   ([D2](decisions.md#d2-anything-that-can-be-computed-is-computed-by-code-and-enforced-by-code)). Ratios and
   covenant results come from deterministic calculation code, never from the model. A code-enforced rejection

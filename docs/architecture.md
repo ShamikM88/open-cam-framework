@@ -126,7 +126,7 @@ the narrative is sound.
 | Agent | File | Role |
 | :--- | :--- | :--- |
 | Underwriter ("Maker") | [`agents/underwriter_agent.md`](../agents/underwriter_agent.md) | Drafts the CAM: calculates TNW, EBITDA, DSCR, Gross Leverage, Working Capital Days; cites sources for every qualitative claim; never invents figures; discloses when spreading was analyst-supplied rather than independently recomputed; drafts with awareness of a calibrated credit policy and any persisted deal learnings once they exist. |
-| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Independently audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
+| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Audits the draft with its own role prompt (a separate call in the headless pipeline; in an interactive session `/review` runs in the draft's conversation, see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)): re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
 
 The two prompts are kept deliberately independent — the Reviewer's value comes from auditing
 the Maker's work cold, not from sharing its reasoning. That is fully so on the headless path (a separate call); in a

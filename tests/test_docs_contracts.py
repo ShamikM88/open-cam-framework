@@ -296,7 +296,10 @@ def test_the_pages_say_interactive_review_shares_the_drafts_conversation_for_as_
 INDEPENDENCE_CLAIM = re.compile(
     r"separate prompt on a separate call|separate (model )?call|\bcold\b|share (the Maker'?s|its) reasoning"
     r"|sharing (its|the Maker'?s) reasoning|each other'?s reasoning|independent review|two independent agents"
-    r"|independent (checker|risk reviewer|model|agent)|no shared reasoning|without inheriting", re.I)
+    r"|independent (checker|risk reviewer|model|agent)|no shared reasoning|without inheriting"
+    r"|independently (audit|review)\w*|independently of the Maker"          # not "independently recomputed/configured"
+    r"|isolated (checker|risk reviewer|reviewer|context|conversation)"
+    r"|(context|conversation)[- ]isolation|isolat\w+ (the )?(checker|risk reviewer|reviewer)", re.I)
 # What makes such a sentence true: it names the interface it is about, or the limit of the interactive one.
 INTERFACE_QUALIFIER = re.compile(
     r"headless|slash-command session|interactive|same conversation|conversation-level|orchestrator\.py", re.I)
@@ -344,6 +347,15 @@ ORIGINAL_WORDING = [
     "- **Why.** The Checker's value is auditing the Maker's output cold.",
     "an independent **Risk Reviewer** agent audits the draft and returns `APPROVED` or `REJECTED`",
     "an independent **Checker** (the Risk Reviewer agent) audits the draft",
+    "| Risk Reviewer (\"Checker\") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Independently "
+    "audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources. |",
+    "the **Risk Reviewer Agent** independently audits that draft -- re-checking the ratio math,",
+    "- The Checker independently reviews the draft and then returns a verdict.",
+    "- The Checker audits independently of the Maker.",
+    "- The Reviewer runs as an isolated Checker with its own context.",
+    "- Context isolation protects the Checker from the Maker's reasoning.",
+    "- Conversation isolation keeps the Reviewer's context clean.",
+    "- The Reviewer's call uses an isolated context.",
     "> If AI drafts and audits a CAM through two independent agents, with every figure computed",
 ]
 QUALIFIED_WORDING = [
@@ -353,6 +365,9 @@ QUALIFIED_WORDING = [
     "The two prompts never import each other. The Checker is a separate role prompt.",
     "The Checker is independent only in the sense of its role prompt; conversation-level independence is not guaranteed.",
     "Nothing here claims anything about the Checker, the Maker or independence of any kind.",
+    "| Risk Reviewer (\"Checker\") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Audits the draft "
+    "with its own role prompt (a separate call in the headless pipeline; an interactive `/review` runs in the draft's "
+    "conversation): re-verifies ratio calculations. |",
 ]
 
 
@@ -383,6 +398,31 @@ def test_no_page_claims_an_isolated_or_cold_checker_without_naming_the_interface
     """The headless Checker is a separate call; an interactive `/review` runs in the draft's conversation (#204). A
     sentence that says the Checker is independent, audits cold or does not share the Maker's reasoning must say which
     interface it means, or give the limit, in the same paragraph, list item or table row. The move ledger quotes the
-    old README on purpose and is skipped."""
+    old README on purpose and is skipped.
+
+    The unit is the block, not the sentence, so a long paragraph that names an interface somewhere can still hide a bare
+    claim in another sentence (the README's overview paragraph did, until its wording was corrected). A passing check is
+    therefore a floor on the wording, not a review of it."""
     problems = unqualified_independence_claims(read(page))
     assert problems == [], "\n".join(f"{page}:{n}: {b[:140]}" for n, b in problems)
+
+
+UNRELATED_USES_OF_INDEPENDENCE = [
+    "| Underwriter (\"Maker\") | Drafts the CAM; discloses when spreading was analyst-supplied rather than independently "
+    "recomputed. |",
+    "The CAM must carry an explicit caveat that those figures were not independently recomputed.",
+    "- **Why.** Pretending to have independently verified a figure that was not recomputed would contradict the rule.",
+    "checker_temperature to independently configure the Risk Reviewer vs the Maker",
+    "Four pieces, all independently optional.",
+    "- Each run is **isolated**: a fresh working directory containing only the agent prompts and the shipped templates.",
+    "and every run gets a fresh isolated working directory",
+    "A skill's output is not an isolation guarantee.",
+    "A spreading is independently recomputed from the raw lines by the framework.",
+]
+
+
+@pytest.mark.parametrize("sentence", UNRELATED_USES_OF_INDEPENDENCE)
+def test_the_independence_check_leaves_unrelated_uses_of_the_words_alone(sentence):
+    """The Maker's figures being "independently recomputed", settings being "independently configured" and the
+    evaluation harness's runs being "isolated" are not claims about the Checker's context."""
+    assert unqualified_independence_claims(sentence) == []

@@ -62,7 +62,7 @@ synthetic data. More: [architecture](docs/architecture.md#two-ways-to-run-it) an
    Code), or run `scripts/orchestrator.py` (headless) with the
    borrower/company details. Either way, the **Underwriter Agent** drafts the CAM, grounded only
    in supplied source documents and user-provided risk inputs (never fabricated figures), and
-   the **Risk Reviewer Agent** independently audits that draft — re-checking the ratio math,
+   the **Risk Reviewer Agent** audits that draft with its own prompt (a separate call when headless; an interactive `/review` runs in the draft's conversation) — re-checking the ratio math,
    flagging unsourced claims, challenging weak risk mitigants, and (when a credit policy has been
    calibrated) flagging any violation of house lending criteria — before it's exported. Along the
    way, an analyst-confirmed spreading convention or credit-policy interpretation can be persisted

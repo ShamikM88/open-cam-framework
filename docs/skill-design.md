@@ -2,7 +2,8 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on and implements none of them. **No skill exists yet.** The inventory of commands and skills is
+build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); the maintainer
+procedures of Phase 3 are not. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -126,7 +127,7 @@ rate, a margin) the figure is not produced.
 
 | Job | The deterministic piece it uses | What is missing |
 | :--- | :--- | :--- |
-| Missing steps, missing sources, required conditions, UNRESOLVABLE results | `state_manager.py --check-steps`, `source_manifest.py --check-sources`, `policy_check.py` (without `--draft`) | Nothing |
+| Missing steps, whether declared citations were saved at all, required conditions, UNRESOLVABLE results | `state_manager.py --check-steps`, `source_manifest.py --check-sources`, `policy_check.py` (without `--draft`) | A per-citation audit: `--check-sources` is a deal-level floor over `triage` and `commercial` citations only, and does not yet fail cleanly on a malformed manifest ([#207](https://github.com/ShamikM88/open-cam-framework/issues/207)); the skills read the manifest themselves and report such a failure as a tool error |
 | Interpreting recorded figures | `state.json`, `policy_check.py`, [the financial model](financial-model.md) | Period-over-period movement. `financial-analysis` states direction between two recorded figures and quotes both; a movement helper would be a separate, tested script, decided separately |
 | Verifying a change | The commands in [Operations](operations.md#verify-a-change-the-full-suite) and the five documentation test files | A script that classifies a diff against the sensitive paths. `git diff --name-only` and the documented list serve until it is shown to be needed |
 
@@ -219,15 +220,17 @@ contextual, and a model-invocable description would sit in every session's conte
   "Source material persistence". The standard is the Underwriter's Guideline 1, which it points to and does not restate.
 - **Side effects.** None.
 - **Limits.** It can show that a document is saved, not that it supports the claim; it marks those for a person and
-  never says "verified". The catalogue's "keep analysis grounded" is built as an on-demand audit, not as an always-on
+  never says "verified". `--check-sources` says only that nothing was saved despite a declared `triage` or `commercial`
+  citation; the matching of citations to entries is the skill's own reading. The catalogue's "keep analysis grounded" is built as an on-demand audit, not as an always-on
   reminder: a persistent reminder is a Practice skill and would duplicate Guideline 1.
 - **Versus commands.** `/review` challenges a draft's assertions as the Checker; this audits the deal's records before
   drafting and is not a Checker.
 
 ### `financial-analysis` (Phase 2)
 
-- **Purpose.** Explain the recorded figures to the analyst: levels and direction across periods, why a ratio is N/A,
-  what a covenant result means as recorded (including the downside and the disclosure-only forward results), and the
+- **Purpose.** Explain the recorded figures to the analyst: levels and direction across periods, what a `null` ratio means
+  (a zero or negative denominator in a framework-computed deal; recorded as given, with no reason held, in an
+  analyst-supplied one), what a covenant result means as recorded (including the downside and the disclosure-only forward results), and the
   framework-computed against analyst-supplied distinction and what a reader may rely on in each case.
 - **Reads / delegates to.** `state.json` (`financials`, `ratios`, `financials_source`, `financials_source_note`,
   `downside_case`), `policy_check.py`, and [the financial model](financial-model.md) for every definition. It does not run
@@ -284,8 +287,8 @@ contextual, and a model-invocable description would sit in every session's conte
 
 1. **Design (this change).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
    `tests/test_skill_inventory.py`. No skill.
-2. **Analyst aids:** `information-gaps`, `evidence-discipline`, `financial-analysis`, with a user-facing skill
-   reference page and the skills' own tests.
+2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
+   [Skills](skills.md) page and `tests/test_skills.py`.
 3. **Maintainer procedures:** `cam-change-verification`, `docs-maintenance`.
 4. **From evidence:** the best of the deferred list, one pull request each.
 
@@ -307,5 +310,9 @@ examples only; the registry row flips to implemented in the same change; and the
 | This page's tranche table is the inventory's skill rows | the same |
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 
-Not tested, because nothing exists to test: a skill's behaviour. Each skill's pull request adds tests of the scripts
-it runs and of its own frontmatter, as the other command-line surfaces have.
+Each skill's own contract is tested in `tests/test_skills.py`: its frontmatter (typed by a person, forked, the write tools
+removed, only read-only scripts pre-approved; `allowed-tools` pre-approves and is not an allowlist, so this is a procedure plus
+permission settings, not a sandbox, and the frontmatter is checked by a strict parser for the small YAML subset it uses), that the scripts it runs leave a deal byte-for-byte unchanged, that every path it
+cites exists and every flag it passes is real, and that the files carry no real name or figure. What a model does with the
+instructions is not tested here, and no test can say a skill's prose is a good procedure; it is a prompt expectation, like
+a command's (see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).

@@ -109,8 +109,8 @@ the narrative is sound.
   independent on purpose (see [Decisions](decisions.md)). `config/system_instructions.md` is a short statement of
   the framework's principles; no script or command loads it.
 - **Slash commands** (`.claude/commands/`): the interactive implementation of each step, described by
-  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; none is implemented
-  yet and none is ever input to the Maker or the Checker, see [Skill design](skill-design.md)). They run the deterministic scripts through Bash steps and hand the model's
+  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; three analyst aids are implemented, see [Skills](skills.md),
+  and none is ever input to the Maker or the Checker, see [Skill design](skill-design.md)). They run the deterministic scripts through Bash steps and hand the model's
   drafting work back to the session.
 - **Scripts** (`scripts/`): the deterministic core and the headless entry points. Most have no `anthropic`
   dependency so they can run from a slash command's Bash step and be tested without a model.

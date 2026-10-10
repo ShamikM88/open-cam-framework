@@ -19,9 +19,9 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `/project` | command | analyst | implemented | user | Maker | yes |
 | `/assemble` | command | analyst | implemented | user | Maker | yes |
 | `/review` | command | analyst | implemented | user+model | Checker | yes |
-| `information-gaps` | skill | analyst | planned: phase 2 | user | None (aid) | no |
-| `evidence-discipline` | skill | analyst | planned: phase 2 | user | None (aid) | no |
-| `financial-analysis` | skill | analyst | planned: phase 2 | user | None (aid) | no |
+| `information-gaps` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
+| `evidence-discipline` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
+| `financial-analysis` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `cam-change-verification` | skill | maintainer | planned: phase 3 | user | None (aid) | no |
 | `docs-maintenance` | skill | maintainer | planned: phase 3 | user | None (aid) | no |
 

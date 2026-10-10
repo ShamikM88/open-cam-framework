@@ -24,6 +24,7 @@ command's.
 import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -441,6 +442,21 @@ def test_each_skill_states_the_dated_folder_rule_and_reports_the_folder_it_read(
 
 # --- 4. what reaches a shell -----------------------------------------------------------------------------------
 
+def posix_sh():
+    """A real POSIX sh, on any platform: `sh` on PATH, or the one Git for Windows ships next to git. None if there is
+    none, and then the shell-level tests skip (as the git-dependent tests do), so the passing count is the same on every
+    machine that has git, which the test-count badge relies on."""
+    if sys.platform != "win32":
+        return shutil.which("sh")
+    git = shutil.which("git")
+    for relative in ("../usr/bin/sh.exe", "../../usr/bin/sh.exe") if git else ():
+        candidate = (Path(git).parent / relative).resolve()
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+needs_sh = pytest.mark.skipif(posix_sh() is None, reason="no POSIX sh available")
 REFUSED_CHARACTERS = '\\ / : * ? " < > | $'
 REFUSAL = f"contains any of `{REFUSED_CHARACTERS}`"
 
@@ -483,19 +499,19 @@ def test_a_name_the_rule_accepts_reaches_the_scripts_as_one_literal_argument(dea
     assert [p.name for p in (workdir / "deals").iterdir()] == [deal_name], "and invented no other folder"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX sh")
+@needs_sh
 @pytest.mark.parametrize("deal_name", ACCEPTED_NAMES)
 def test_a_name_the_rule_accepts_is_one_literal_word_inside_double_quotes_in_a_real_shell(deal_name, workdir):
     command = f'printf "%s" "{deal_name}"'
-    done = subprocess.run(["sh", "-c", command], cwd=workdir, capture_output=True, text=True, encoding="utf-8")
+    done = subprocess.run([posix_sh(), "-c", command], cwd=workdir, capture_output=True, text=True, encoding="utf-8")
     assert done.stdout == deal_name and done.returncode == 0
     assert list(workdir.iterdir()) == [], "nothing else was run or created"
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX sh")
+@needs_sh
 @pytest.mark.parametrize("payload", ["$(touch pwned)", "`touch pwned`", 'x"; touch pwned; "'])
 def test_the_payloads_the_rule_refuses_would_have_run_a_command_so_the_refusal_is_needed(payload, workdir):
-    subprocess.run(["sh", "-c", f'printf "%s" "{payload}"'], cwd=workdir, capture_output=True, text=True)
+    subprocess.run([posix_sh(), "-c", f'printf "%s" "{payload}"'], cwd=workdir, capture_output=True, text=True)
     assert (workdir / "pwned").exists(), "a harmless command ran: the check really can detect injection"
 
 

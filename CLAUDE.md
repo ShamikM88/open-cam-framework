@@ -285,6 +285,14 @@ must not break:
   answer or the model's own confidence is never confirmation, and a correction needs a new read-back. Signs are
   read under a declared, confirmed convention (never guessed), one deal never mixes the two modes, and the
   confirmation is bound to the image's bytes. Figures read from text keep the ordinary path.
+- `/project` has an opt-in analyst-supplied mode (issue #124): it asks which mode applies and never infers or changes
+  the default. Supplied forward-year subtotals/ratios go through `scripts/supplied_forecast.py`, are recorded as given
+  and never pass through `evaluate_financial_model()` to produce a recorded value; `forecast_source` and the deal-wide
+  `financials_source` say so (one basis per deal, no blending with framework-computed years). The framework's stress
+  shocks apply to such a year only if every line the covenant ratios read was supplied (an omitted line is not a zero) and
+  they reproduce the supplied figures; otherwise the downside is the
+  analyst's own scenario or is recorded under `downside_case["unavailable"]`, which the policy engine reports as an
+  UNRESOLVABLE downside breach (never silently absent, never a pass).
 - `/review` loads the Risk Reviewer role and returns `APPROVED` or `REJECTED`; a code-enforced reason makes
   `REJECTED` mandatory.
 - `/calibrate-policy` and `/research` have no headless equivalent.
@@ -422,6 +430,13 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   is saved (the two are not atomic). It cannot see the image or
   know the analyst said yes; do not describe it as verifying figures.
   Full behaviour: [CLI reference](docs/cli-reference.md#transcription-check).
+- **`scripts/supplied_forecast.py`** (no `anthropic` dependency) -- `/project`'s analyst-supplied mode (issue #124). One
+  state update; records forward-year subtotals, ratios and optional raw lines exactly as given; a deal whose forward years
+  are framework-computed, or whose history is framework-computed or of unknown basis, is refused (no blending); once an
+  analyst-supplied forecast is on file `spreading_check` refuses to overwrite its forward years or relabel the deal.
+  A year is stressed by the framework only after its lines are complete and reproduce the figures supplied, and the headless
+  orchestrator refuses a changed `--stress-assumptions` for such a deal. Full behaviour:
+  [CLI reference](docs/cli-reference.md#supplied-forecast).
 - **`scripts/conventions.py`** (no `anthropic` dependency) -- the persisted-convention stores; deliberately never
   wired into `orchestrator.py`. See "Persisted conventions" above and the [data model](docs/data-model.md).
 - **`scripts/pii_scan.py`** -- heuristic scan for likely-real data in a calibrated template before it is promoted

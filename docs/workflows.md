@@ -277,6 +277,36 @@ below: `FY+1` has DSCR 1.1 and gross leverage 3.0; `FY+2` has negative EBITDA, s
 DSCR is -0.204; and the `FY+1` downside (5% less revenue, 200 basis points more interest) has gross leverage
 5.15625 and DSCR 0.600.
 
+### Forward years supplied by the analyst
+
+When an institution's forecast convention does not fit the framework's raw schema, `/project` asks which mode applies
+and, in the analyst-supplied mode, records the analyst's own forward-year figures as given
+(`docs/examples/synthetic_co/forecast_supplied.json`: `FY+1` with its subtotals, ratios and the raw lines behind them,
+every line the covenant ratios read, the nil ones as explicit zeros,
+`FY+2` with ratios and EBITDA only). It also takes the stress shocks (`forecast_stress.json`: a 10% revenue haircut and a
+200 basis point rise). On a deal with no framework-computed history:
+
+```bash
+python scripts/supplied_forecast.py --company "Synthetic Co" --proposal "Synthetic Budget Loan"     --forecast docs/examples/synthetic_co/forecast_supplied.json     --stress-assumptions docs/examples/synthetic_co/forecast_stress.json     --note "Management budget; depreciation is within cost of sales"
+```
+
+The figures are stored exactly as given, `forecast_source` and `financials_source` are `analyst-supplied`, and the note joins
+`financials_source_note` for the CAM's caveat. The summary says what became of the downside:
+
+```text
+"basis": {"FY+1": "framework-derived from reconciled analyst-supplied lines"},
+"unavailable": {"FY+2": "no raw lines were supplied for this year, so the framework's shocks have nothing to act on"}
+```
+
+`FY+1` was stressed by the framework because its lines reproduce the subtotals and ratios the analyst gave (EBITDA 300,
+gross profit 400, DSCR 6.0, gross leverage 0.67), so the shocks mean what they say: stressed EBITDA is 200. `FY+2` has no
+lines, so the shocks have nothing to act on and no downside is invented. With a minimum DSCR covenant of 1.25 the policy
+check then reports, for `FY+2` (whose supplied DSCR of 1.9 passes), a downside breach `DOWNSIDE-FY-2-DSCR` with status
+`UNRESOLVABLE` and the reason `downside analysis unavailable for FY+2: no raw lines were supplied for this year, so the
+framework's shocks have nothing to act on`: the draft must address it, and it cannot be read as a pass. Had the analyst
+supplied their own stressed `FY+2` forecast, that would have been recorded as theirs and tested instead. The rules are in
+the [financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).
+
 ## Policy checking
 
 **Use it when** you want the deterministic facts about a deal before drafting, or to audit a draft. **Needs** only

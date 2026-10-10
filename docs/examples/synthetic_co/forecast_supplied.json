@@ -1,0 +1,18 @@
+{
+  "forecast": {
+    "FY+1": {
+      "subtotals": {"ebitda": 300, "gross_profit": 400},
+      "ratios": {"dscr": 6.0, "gross_leverage": 0.67},
+      "lines": {"revenue": 1000, "cost_of_sales": 600, "admin_expenses": 100, "interest_paid": 50, "current_debt": 20,
+                "overdraft": 0, "long_term_debt": 180, "loan_notes": 0, "cash": 10, "trade_debtors": 100, "stock": 20,
+                "tangible_assets": 300, "trade_creditors": 80, "share_capital": 100, "retained_profit": 200,
+                "depreciation": 0, "amortisation": 0, "other_income": 0, "interest_received": 0,
+                "scheduled_principal": 0, "capex": 0, "tax_paid": 0, "other_current_assets": 0,
+                "other_current_liabilities": 0}
+    },
+    "FY+2": {
+      "subtotals": {"ebitda": 330},
+      "ratios": {"dscr": 1.9}
+    }
+  }
+}

@@ -13,6 +13,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
 | `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
@@ -110,7 +111,8 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
   own forecast, never derived by the tool.
 - `--collateral` is a JSON file holding a flat list of asset objects.
-- `--stress-assumptions` is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
+- `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
+  refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
   `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none.
 - `--new-review` starts a fresh dated folder for a new annual review instead of resuming the most recent one, so it
   never inherits last year's inputs.
@@ -170,6 +172,34 @@ always passes it. The slash commands `/spread` and `/project` run it; see [Workf
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Supplied forecast
+
+`scripts/supplied_forecast.py --company ... --proposal ... --forecast <json> [--stress-assumptions <json>] --note <text>`
+is `/project`'s analyst-supplied mode (issue #124). `--forecast` holds `{"forecast": {"FY+1": {"subtotals": {...},
+"ratios": {...}, "lines": {...}}}, "downside": {"description": "...", "periods": {"FY+1": {"subtotals": {...},
+"ratios": {...}}}}}`: numbers as the analyst gave them, a ratio that is N/A as `null`, `lines` (the `/spread` raw field
+names) and `downside` optional. It validates strictly (unknown names, non-numbers, a year with only raw lines, a
+stressed forecast without a description), checks the deal (the state is readable and writable by this checkout, the
+basis is compatible: no framework-computed forward years, no framework-computed or unknown-basis history), and then
+writes `financials`, `ratios`, the optional `analyst_supplied_financials`, `forecast_source`, `financials_source`, the
+note and the downside treatment in **one** state update, printing a summary of which forward years are analyst-supplied
+and which downside years are framework-derived or unavailable. Any refusal is one `error:` line, exit status `1`, and
+nothing is written. A state that cannot be read or written (a lock that cannot be taken, a full disk) and a malformed
+shock already stored in `stress_assumptions` are also one `error:` line. When the file is shown to be as it was, it says
+so and that nothing was recorded; when a failure came after the file may have been replaced (for example the lock file
+could not be removed), or the file cannot be read back, it says the update did not complete cleanly and to inspect
+`state.json` before retrying. `--note` is required; it
+is added to `financials_source_note`. It never uses the framework's formulas to produce a recorded value; the formulas
+are used only to test whether the stress shocks may be applied, which needs every line the covenant ratios read. The
+rules are in [the financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).
+
+```bash
+python scripts/supplied_forecast.py --company "Synthetic Co" --proposal "Synthetic Budget Loan" \
+    --forecast docs/examples/synthetic_co/forecast_supplied.json \
+    --stress-assumptions docs/examples/synthetic_co/forecast_stress.json \
+    --note "Management budget; depreciation is within cost of sales"
 ```
 
 ## Transcription check

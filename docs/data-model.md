@@ -50,6 +50,7 @@ shortened):
 | `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
+| `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
 | `collateral`, `security_package` | `/collateral` | One entry per asset; one per charge |
 | `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries; `{"provider", "type", "amount"}` entries |
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
@@ -66,7 +67,7 @@ A deal's raw line items live in exactly one of two places, depending on `financi
 | `financials_source` | Raw figures live in | Written by |
 | :--- | :--- | :--- |
 | `"framework-computed"` (default) | `multi_period_financials`, and `financials[period]["raw"]` | `spreading_check.py` |
-| `"analyst-supplied"` | `analyst_supplied_financials` | `/spread`, when the analyst also gives a raw breakdown |
+| `"analyst-supplied"` | `analyst_supplied_financials` | `/spread`, or `/project` for forward years, when the analyst also gives a raw breakdown |
 
 Code that needs "this deal's raw figures" (the workbook exporter, for one) checks `financials_source` first and reads
 the matching store; it never assumes one store is universal. An analyst-supplied deal is not required to supply raw

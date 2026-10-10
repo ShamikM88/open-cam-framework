@@ -233,4 +233,4 @@ The D1 verification script, re-run against the D3 corpus, reports the same two p
 
 ## Later single-line additions
 
-After D3, one line was added to the `scripts/` part of the repository-map tree in `docs/architecture.md` for the new `transcription_check.py` (issue #132), and one bullet each to `CLAUDE.md`'s "Slash commands" facts and "Execution scripts" entries. No moved text was changed.
+After D3, one line was added to the `scripts/` part of the repository-map tree in `docs/architecture.md` for the new `transcription_check.py` (issue #132), and one bullet each to `CLAUDE.md`'s "Slash commands" facts and "Execution scripts" entries. For `supplied_forecast.py` (issue #124) one line was added to the same tree and one bullet each to the same two `CLAUDE.md` places. No moved text was changed.

@@ -426,7 +426,7 @@ def _guarantee_standing_cs(guarantees):
 
 
 def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_financials=None,
-                                 downside_financials=None):
+                                 downside_financials=None, unavailable=None):
     """For each covenant, independently re-check it against every forward
     period that has both a base-case and a downside-case ratio set. Where
     the base case PASSes but the downside (stressed) case FAILs, record it
@@ -448,6 +448,13 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     and silently dropping it here would hide exactly the severest stress outcome. Such an entry has
     `downside_actual` None, `downside_status` "UNRESOLVABLE" and a `reason` naming the metric and denominator;
     an ordinary FAIL has `downside_status` "FAIL" and `reason` None.
+
+    `unavailable` ({year: reason}, from `downside_case["unavailable"]`, issue #124) names forward years for which a
+    downside analysis was wanted but could not be produced (an analyst-supplied forecast the framework's stress
+    shocks cannot meaningfully act on, and no scenario of the analyst's own). It is the same situation as a stress
+    that makes a ratio N/A: a covenant that PASSes in that year's base case cannot be tested under stress, so it is
+    recorded the same way (`downside_status` "UNRESOLVABLE", `downside_actual` None, the reason naming the year and
+    why), and the draft must address it. It is never a silent absence and never a pass.
 
     Returns a list of {"year", "metric", "base_actual", "downside_actual",
     "threshold", "breach_id", "downside_status", "reason"}. `breach_id` is built from _slugify() (the
@@ -483,6 +490,27 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
                     "downside_status": downside_result["status"],
                     "reason": downside_result["reason"],
+                })
+
+    for period in sorted(unavailable if isinstance(unavailable, dict) else {}):
+        base_ratios_for_period = (all_ratios or {}).get(period)
+        if period in (downside_ratios or {}) or not isinstance(base_ratios_for_period, dict) \
+                or not base_ratios_for_period:
+            continue
+        for covenant in covenants:
+            base_result = _evaluate_covenant(covenant, base_ratios_for_period,
+                                             _period_dict(base_financials, period))
+            if base_result["status"] == "PASS":
+                metric = covenant.get("metric")
+                breaches.append({
+                    "year": period,
+                    "metric": metric,
+                    "base_actual": base_result["actual"],
+                    "downside_actual": None,
+                    "threshold": base_result["threshold"],
+                    "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                    "downside_status": "UNRESOLVABLE",
+                    "reason": f"downside analysis unavailable for {period}: {unavailable[period]}",
                 })
 
     return breaches
@@ -575,7 +603,8 @@ def evaluate_deal_policy(state_dict):
     guarantee_cps = _guarantee_cps(guarantees)
     downside_covenant_breaches = _evaluate_downside_covenants(
         covenants, all_ratios, downside_ratios, base_financials,
-        (state_dict.get("downside_case") or {}).get("financials"))
+        (state_dict.get("downside_case") or {}).get("financials"),
+        (state_dict.get("downside_case") or {}).get("unavailable"))
     forward_covenant_results = _evaluate_forward_covenants(covenants, all_ratios, base_financials)
 
     required_conditions_precedent = (

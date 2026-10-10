@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 
 from docx_builder import export_to_docx
-from spreading_builder import export_to_xlsx
+from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
@@ -76,6 +76,59 @@ def _downside_financial_data_from_state(state):
     return _raw_financials(downside_financials)
 
 
+def _supplied_row_values(*period_dicts):
+    """{workbook row label: value} for the subtotals and ratios in these period dicts that have a workbook row. A
+    ratio recorded as null is N/A, written as the workbook writes it; a non-number elsewhere is left blank."""
+    values = {}
+    for period_dict in period_dicts:
+        for key, value in (period_dict if isinstance(period_dict, dict) else {}).items():
+            label = SUPPLIED_ROW_LABELS.get(key)
+            if label is None:
+                continue
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                values[label] = value
+            elif value is None and key in SUPPLIED_RATIOS:
+                values[label] = "N/A"
+    return values
+
+
+def _analyst_forecast_columns(state):
+    """(supplied base-case values, supplied downside values, forward years whose downside is unavailable, the raw
+    lines behind each framework-derived downside year) for a deal whose forecast was supplied by the analyst
+    (`forecast_source`, issue #124), else (None, None, None, None) -- which leaves the workbook exactly as it is for
+    every other deal. Those columns must show what was supplied, never a figure the workbook formulas would compute
+    from raw cells that were not the basis of the supplied numbers, and a derived downside row is shown only if every
+    line it reads was supplied."""
+    if state.get("forecast_source") != "analyst-supplied":
+        return None, None, None, None
+    financials, ratios = state.get("financials"), state.get("ratios")
+    supplied = {}
+    for period in FORWARD_PERIOD_KEYS:
+        period_financials = financials.get(period) if isinstance(financials, dict) else None
+        period_ratios = ratios.get(period) if isinstance(ratios, dict) else None
+        if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
+            supplied[period] = _supplied_row_values(period_financials, period_ratios)
+    downside = state.get("downside_case")
+    downside = downside if isinstance(downside, dict) else {}
+    basis = downside.get("basis") if isinstance(downside.get("basis"), dict) else {}
+    downside_financials = downside.get("financials") if isinstance(downside.get("financials"), dict) else {}
+    downside_ratios = downside.get("ratios") if isinstance(downside.get("ratios"), dict) else {}
+    supplied_downside = {
+        period: _supplied_row_values(downside_financials.get(period), downside_ratios.get(period))
+        for period, how in basis.items() if how == "analyst-supplied" and period in FORWARD_PERIOD_KEYS
+    }
+    unavailable = downside.get("unavailable") if isinstance(downside.get("unavailable"), dict) else {}
+    lines = state.get("analyst_supplied_financials")
+    lines = lines if isinstance(lines, dict) else {}
+    derived = {
+        period: {name for name, value in (lines.get(period) if isinstance(lines.get(period), dict) else {}).items()
+                 if isinstance(value, (int, float)) and not isinstance(value, bool)}
+        for period, how in basis.items()
+        if how != "analyst-supplied" and period in FORWARD_PERIOD_KEYS and period not in unavailable
+    }
+    return supplied, supplied_downside, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
+
+
 def _collateral_data_from_state(state):
     """state.json's `collateral` is expected to be the flat list of asset
     dicts export_to_xlsx() wants (see FIELD_LABELS / COLLATERAL_HEADERS in
@@ -124,6 +177,8 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     financial_data = _financial_data_from_state(state)
     downside_financial_data = _downside_financial_data_from_state(state)
     collateral_data = _collateral_data_from_state(state)
+    supplied_values, supplied_downside_values, blank_downside_periods, derived_downside_fields = \
+        _analyst_forecast_columns(state)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -145,7 +200,10 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     export_to_docx(draft_markdown, docx_path)
     export_to_xlsx(company, xlsx_path, financial_data=financial_data or None,
                     collateral_data=collateral_data,
-                    downside_financial_data=downside_financial_data or None)
+                    downside_financial_data=downside_financial_data or None,
+                    supplied_values=supplied_values, supplied_downside_values=supplied_downside_values,
+                    blank_downside_periods=blank_downside_periods or None,
+                    derived_downside_fields=derived_downside_fields or None)
 
     return output_dir
 

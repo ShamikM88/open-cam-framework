@@ -159,6 +159,14 @@ worked examples are in [Workflows](workflows.md).
   shocks. See the [financial model](financial-model.md#the-downside-case).
 - **State:** `financials`, `ratios`, `multi_period_financials`, `stress_assumptions`, `downside_case`, a flat
   `covenants` list, a flat `guarantees` list (both merged with what exists), `project` in `steps_completed`.
+- **Analyst-supplied mode (opt-in):** it asks which mode applies and never infers it. When the forecast convention does not
+  fit the framework's raw schema, the analyst supplies forward-year subtotals and ratios (and optionally raw lines, and
+  their own stressed forecast), run through `scripts/supplied_forecast.py` instead of `spreading_check.py`. They are recorded
+  as given, with `forecast_source: "analyst-supplied"` and the deal-wide `financials_source: "analyst-supplied"` (so the
+  CAM must carry the caveat; the analyst's convention note is added to `financials_source_note`). The framework's stress
+  shocks apply to a year only if its raw lines reproduce the supplied figures; otherwise the downside is the analyst's own
+  scenario or is recorded as unavailable, which the policy engine treats as UNRESOLVABLE under stress. One basis per deal:
+  an incompatible deal is refused. See [the financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).
 
 ## Assembly and audit
 

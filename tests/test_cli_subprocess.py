@@ -734,3 +734,29 @@ def test_source_manifest_check_sources_behaves_exactly_as_before_for_valid_manif
     saved = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
     assert saved.returncode == 0 and json.loads(saved.stdout) == {"missing_saved_sources": False}
     assert saved.stderr == ""
+
+
+def _deal_with_a_dangling_manifest(cli):
+    from test_source_manifest import dangling_link
+    state_file = _write_state(cli.workdir, {"triage": {"sources": ["https://example.invalid/registry"]}})
+    sources = state_file.parent / "sources"
+    sources.mkdir()
+    dangling_link(sources / "manifest.json", cli.workdir / "nowhere")
+    return sources
+
+
+def test_source_manifest_check_sources_treats_a_dangling_link_manifest_as_unusable_not_as_nothing_saved(cli):
+    sources = _deal_with_a_dangling_manifest(cli)
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "manifest.json", "target does not exist", "the file was not modified")
+    assert os.path.lexists(sources / "manifest.json")
+
+
+def test_source_manifest_save_refuses_a_dangling_link_manifest_and_copies_nothing(cli):
+    sources = _deal_with_a_dangling_manifest(cli)
+    source = cli.workdir / "filing.txt"
+    source.write_text("the filing", encoding="utf-8")
+    result = cli("source_manifest", "--company", "Acme", "--proposal", "Loan", "--step", "triage", "--claim",
+                 "legal identity", "--file", source)
+    _assert_a_clean_state_error(result, "manifest.json", "target does not exist", "the file was not modified")
+    assert [p.name for p in sources.iterdir()] == ["manifest.json"], "no copy of the document was left behind"

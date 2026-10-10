@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import threading
 import time
 from urllib.parse import urlparse
@@ -396,3 +397,70 @@ def test_the_error_says_what_a_manifest_that_is_not_a_list_actually_holds(tmp_pa
     base, _, _ = _deal_with_manifest(tmp_path, content)
     with pytest.raises(ManifestError, match=f"it holds {kind}\\)"):
         read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+
+
+# ---------------------------------------------------------------------------
+# A manifest (or a destination) that is a link to nothing is "there", not absent (#207, found reviewing #210)
+# ---------------------------------------------------------------------------
+
+def dangling_link(link, target):
+    """Make `link` a link whose `target` does not exist: a symlink where the platform allows one, otherwise (an
+    unprivileged Windows user cannot make a symlink) a directory junction whose directory is then removed. Either is
+    there to lstat and not there to stat, which is the case `os.path.exists` reports as absent."""
+    link, target = str(link), str(target)
+    try:
+        os.symlink(target, link)
+        return
+    except (OSError, NotImplementedError):
+        if os.name != "nt":
+            raise
+    os.makedirs(target)
+    subprocess.run(["cmd", "/c", "mklink", "/J", link, target], check=True, capture_output=True)
+    os.rmdir(target)
+
+
+def _deal_with_a_dangling_manifest(tmp_path):
+    base = str(tmp_path)
+    directory = sources_dir("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(directory)
+    path = os.path.join(directory, "manifest.json")
+    dangling_link(path, tmp_path / "nowhere")
+    assert os.path.lexists(path) and not os.path.exists(path), "the fixture must be a dangling link"
+    return base, directory, path
+
+
+def test_read_manifest_refuses_a_manifest_that_is_a_dangling_link_instead_of_calling_it_empty(tmp_path):
+    base, _, path = _deal_with_a_dangling_manifest(tmp_path)
+    with pytest.raises(ManifestError) as raised:
+        read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    message = str(raised.value)
+    assert "manifest.json" in message and "target does not exist" in message and "the file was not modified" in message
+    assert len(message.splitlines()) == 1
+    assert os.path.lexists(path), "the link is left exactly as it was"
+
+
+def test_save_source_refuses_a_dangling_link_manifest_before_it_copies_or_replaces_anything(tmp_path):
+    base, directory, path = _deal_with_a_dangling_manifest(tmp_path)
+    source_path = _local_file(tmp_path, name="filing.txt", content=b"the filing")
+    with pytest.raises(ManifestError, match="target does not exist"):
+        save_source("Acme Corp", "Fleet Loan", step="triage", claim="Legal identity", source_path=source_path,
+                    date_str="2026-01-15", base_dir=base)
+    assert os.listdir(directory) == ["manifest.json"], "no copy, no temporary file, and the link was not replaced"
+    assert os.path.lexists(path) and not os.path.exists(path)
+    assert not (tmp_path / "nowhere").exists(), "nothing was written through the link"
+
+
+def test_a_dangling_link_in_sources_is_a_taken_name_and_nothing_is_written_through_it(tmp_path):
+    """shutil.copyfile writes through a link, so a name that is a dangling link must count as taken, or a document
+    would be created wherever the link points."""
+    base = str(tmp_path)
+    directory = sources_dir("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(directory)
+    outside = tmp_path / "outside" / "filing.txt"
+    dangling_link(os.path.join(directory, "filing.txt"), outside)
+    source_path = _local_file(tmp_path, name="filing.txt", content=b"the filing")
+    entry = save_source("Acme Corp", "Fleet Loan", step="triage", claim="Legal identity", source_path=source_path,
+                        date_str="2026-01-15", base_dir=base)
+    assert entry["filename"] == "filing_2.txt"
+    assert not outside.exists(), "the link's target must not have been created"
+    assert os.path.lexists(os.path.join(directory, "filing.txt")), "the existing link is left alone"

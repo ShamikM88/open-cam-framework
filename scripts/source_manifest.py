@@ -57,14 +57,20 @@ def _kind(value):
 
 def _load_manifest(manifest_path):
     """The entries in a manifest file ([] when there is none), or a ManifestError naming the file and what is wrong:
-    unreadable, not UTF-8, not JSON, not a list, or a list with an entry that is not an object. A manifest that cannot
+    unreadable, a link whose target does not exist, not UTF-8, not JSON, not a list, or a list with an entry that is not
+    an object. A manifest that cannot
     be used must never read as "nothing saved" (an empty or wrong-typed file would), and is never rewritten."""
-    if not os.path.exists(manifest_path):
+    # lexists, not exists: a link whose target is gone is "not there" to exists() but is a manifest that cannot be
+    # used, and treating it as no manifest would read as "nothing saved" and let a save replace the link.
+    if not os.path.lexists(manifest_path):
         return []
 
     def refuse(why):
         return ManifestError(f"Cannot use {manifest_path}: {why}; fix the file by hand or restore it from a backup; "
                              "the file was not modified.")
+
+    if not os.path.exists(manifest_path):
+        raise refuse("it is a link and the target does not exist")
 
     try:
         with open(manifest_path, encoding="utf-8") as f:
@@ -144,7 +150,8 @@ def _unique_dest_path(directory, filename):
     root, ext = os.path.splitext(filename)
     candidate = filename
     n = 2
-    while os.path.exists(os.path.join(directory, candidate)):
+    # lexists: a dangling link is a taken name (copyfile would write through it to wherever it points)
+    while os.path.lexists(os.path.join(directory, candidate)):
         candidate = f"{root}_{n}{ext}"
         n += 1
     return candidate

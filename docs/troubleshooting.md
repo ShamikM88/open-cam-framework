@@ -183,7 +183,8 @@ change. Stop the loop and resolve the structure with the analyst.
 ### `error: Cannot use .../sources/manifest.json: ...`
 
 `source_manifest.py` (either mode) found a `sources/manifest.json` it cannot use: invalid JSON, not UTF-8 text, a value that
-is not a list, or an entry that is not an object. Nothing was changed, and nothing was read as "no sources saved". Fix the
+is not a list, an entry that is not an object, or a link whose target does not exist (a broken link is never read as
+"no manifest", and a save would otherwise have replaced it). Nothing was changed, and nothing was read as "no sources saved". Fix the
 file by hand or restore it from a backup (it is a list of objects with `filename`, `url`, `step`, `claim` and
 `fetched_date`). A company or proposal containing a character that is not valid in a folder name is refused the same way.
 

@@ -19,8 +19,9 @@ worked examples are in [Workflows](workflows.md).
   with `scripts/source_manifest.py`, so a claim can be checked against the exact material later. Scratch artefacts are
   not saved.
 - **Roles.** `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project` and `/assemble` act as the
-  Underwriter (`agents/underwriter_agent.md`); `/review` acts as the independent Risk Reviewer
-  (`agents/risk_reviewer_agent.md`).
+  Underwriter (`agents/underwriter_agent.md`); `/review` acts as the Risk Reviewer
+  (`agents/risk_reviewer_agent.md`) as a separate role prompt in the same conversation as the draft; see
+  [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters) for what that does and does not guarantee.
 - **Cost and authentication.** All of them run on your Claude Code login, with no `ANTHROPIC_API_KEY`. The
   deterministic scripts they call run locally with no network. Whatever the session reads or you type is sent to the
   model that serves your Claude Code session, and `/triage`, `/research` and `/commercial` may also fetch public web
@@ -86,7 +87,7 @@ worked examples are in [Workflows](workflows.md).
 - **Use when:** you need a screen and company research now, or ever, without a full CAM.
 - **Inputs:** everything `/triage` and `/commercial` ask for.
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
-  template side effects), after an independent review (`/review --research-brief`) loops to `APPROVED`.
+  template side effects), after a review by the Risk Reviewer role (`/review --research-brief`, run in the same conversation as the brief) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as

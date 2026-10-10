@@ -267,3 +267,122 @@ def test_the_schema_version_the_data_model_page_shows_is_the_one_the_code_writes
     shown = set(re.findall(r'"schema_version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"', read("docs/data-model.md")))
     assert shown == {SCHEMA_VERSION}, (
         f"docs/data-model.md shows schema_version {sorted(shown)}; scripts/state_manager.py writes {SCHEMA_VERSION}")
+
+
+# ---------------------------------------------------------------------------
+# Checker independence by interface (issue #204): the interactive claim is about the command files
+# ---------------------------------------------------------------------------
+
+def test_the_pages_say_interactive_review_shares_the_drafts_conversation_for_as_long_as_it_does():
+    """`/review` runs in the conversation that holds the draft unless a command isolates it (a forked context or a
+    subagent). Nothing does today, so the pages that distinguish the interfaces must say so. If #204 is resolved by
+    isolating `/review`, the first assertions fail: update those pages in the same change."""
+    from test_skill_inventory import frontmatter
+    commands = REPO / ".claude" / "commands"
+    review = frontmatter((commands / "review.md").read_text(encoding="utf-8"))
+    assert "context" not in review and "agent" not in review, "/review is isolated now: revise the interface statements"
+    for name in ("assemble", "research", "review"):
+        text = (commands / f"{name}.md").read_text(encoding="utf-8")
+        assert not re.search(r"\bsubagent\b|\bAgent tool\b|\bTask tool\b", text), f"{name}.md starts a subagent"
+    for page in ("docs/ai-assurance.md", "docs/mvp-v1-prd.md"):
+        assert "same conversation" in " ".join(read(page).split()), page
+
+
+# ---------------------------------------------------------------------------
+# No unqualified claim of an isolated or "cold" Checker (issue #204)
+# ---------------------------------------------------------------------------
+
+# Wording that says the Checker has an isolated context, audits "cold", or is simply "independent" of the Maker.
+INDEPENDENCE_CLAIM = re.compile(
+    r"separate prompt on a separate call|separate (model )?call|\bcold\b|share (the Maker'?s|its) reasoning"
+    r"|sharing (its|the Maker'?s) reasoning|each other'?s reasoning|independent review|two independent agents"
+    r"|independent (checker|risk reviewer|model|agent)|no shared reasoning|without inheriting", re.I)
+# What makes such a sentence true: it names the interface it is about, or the limit of the interactive one.
+INTERFACE_QUALIFIER = re.compile(
+    r"headless|slash-command session|interactive|same conversation|conversation-level|orchestrator\.py", re.I)
+BLOCK_START = re.compile(r"^\s*(?:[-*]\s|\d+\.\s|\|)")
+
+
+def claim_blocks(text):
+    """The paragraphs, list items and table rows of a page that make an independence claim, as (line, text)."""
+    blocks, current, start = [], [], 0
+    lines = text.split("\n")
+
+    def flush():
+        if current:
+            blocks.append((start, re.sub(r"[*`]", "", " ".join(" ".join(current).split()))))   # markup hides no claim
+            current.clear()
+
+    for number, line in enumerate(lines, start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            flush()
+            continue
+        if BLOCK_START.match(line):
+            flush()
+        if not current:
+            start = number
+        current.append(line.strip())
+    flush()
+    return [(n, b) for n, b in blocks if INDEPENDENCE_CLAIM.search(b)]
+
+
+def unqualified_independence_claims(text):
+    return [(n, b) for n, b in claim_blocks(strip_fences(text)) if not INTERFACE_QUALIFIER.search(b)]
+
+
+# The wording these pages had before they were corrected: each must be flagged.
+ORIGINAL_WORDING = [
+    "- The Risk Reviewer is a separate prompt on a separate call, so a planted instruction has to get past two passes "
+    "rather than one (a design intent, not a measured property).",
+    "- **Choice.** Two role prompts (`agents/underwriter_agent.md`, `agents/risk_reviewer_agent.md`) that never import\n"
+    "  each other or share the Maker's reasoning, optionally run on different models.",
+    "  They never import each other or share the Maker's reasoning. This was true from the start of MVP v1.",
+    "Each transition in that sequence is a trust boundary. The Maker and the Checker both work from the same\n"
+    "deterministically computed figures, never from each other's reasoning; the Checker's own verdict is separate.",
+    "- **Produces:** a standalone brief, after an independent review (`/review --research-brief`) loops to `APPROVED`.",
+    "| Reading the narrative | Form checks and an independent model cannot catch every sentence |",
+    "- **Why.** The Checker's value is auditing the Maker's output cold.",
+    "an independent **Risk Reviewer** agent audits the draft and returns `APPROVED` or `REJECTED`",
+    "an independent **Checker** (the Risk Reviewer agent) audits the draft",
+    "> If AI drafts and audits a CAM through two independent agents, with every figure computed",
+]
+QUALIFIED_WORDING = [
+    "- The Risk Reviewer is a separate prompt: a separate call in the headless pipeline, but in an interactive session "
+    "`/review` runs in the draft's conversation.",
+    "The Checker audits on a separate model call (headless pipeline); interactive `/review` shares the conversation.",
+    "The two prompts never import each other. The Checker is a separate role prompt.",
+    "The Checker is independent only in the sense of its role prompt; conversation-level independence is not guaranteed.",
+    "Nothing here claims anything about the Checker, the Maker or independence of any kind.",
+]
+
+
+@pytest.mark.parametrize("original", ORIGINAL_WORDING)
+def test_the_checker_independence_check_flags_each_wording_that_was_corrected(original):
+    assert unqualified_independence_claims(original), original
+
+
+@pytest.mark.parametrize("qualified", QUALIFIED_WORDING)
+def test_the_checker_independence_check_accepts_a_claim_that_names_its_interface(qualified):
+    assert unqualified_independence_claims(qualified) == []
+
+
+def test_the_blocks_are_split_the_way_a_reader_meets_them():
+    text = ("- first item says independent review\n- second item names the headless pipeline\n\n"
+            "| row | independent model |\n| row two | headless call, independent model |\n")
+    assert [n for n, _ in unqualified_independence_claims(text)] == [1, 4], "an item or row is judged on its own"
+    assert unqualified_independence_claims("A paragraph that says\nindependent review across two\nlines.") == [(1, "A paragraph that says independent review across two lines.")]
+    assert unqualified_independence_claims("A paragraph on independent review\nand the headless pipeline.") == []
+
+
+CHECKED_PAGES = ["README.md", *(f"docs/{p.name}" for p in sorted((REPO / "docs").glob("*.md"))
+                                if p.name != "move-ledger.md")]
+
+
+@pytest.mark.parametrize("page", CHECKED_PAGES)
+def test_no_page_claims_an_isolated_or_cold_checker_without_naming_the_interface(page):
+    """The headless Checker is a separate call; an interactive `/review` runs in the draft's conversation (#204). A
+    sentence that says the Checker is independent, audits cold or does not share the Maker's reasoning must say which
+    interface it means, or give the limit, in the same paragraph, list item or table row. The move ledger quotes the
+    old README on purpose and is skipped."""
+    problems = unqualified_independence_claims(read(page))
+    assert problems == [], "\n".join(f"{page}:{n}: {b[:140]}" for n, b in problems)

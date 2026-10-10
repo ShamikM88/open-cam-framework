@@ -8,7 +8,7 @@ checked. For the commands and scripts themselves, see the reference pages linked
 ## The idea in one paragraph
 
 A **Maker** (the Underwriter agent) drafts a Credit Assessment Memorandum (CAM) from source documents and
-user-supplied risk inputs; an independent **Checker** (the Risk Reviewer agent) audits the draft and returns
+user-supplied risk inputs; a separately prompted **Checker** (the Risk Reviewer agent) audits the draft and returns
 `APPROVED` or `REJECTED` with revision notes. Everything that can be computed deterministically (ratios,
 covenant results, required conditions, security gaps) is computed by code, handed to both agents as ground
 truth, and enforced by code on the draft, so the agents narrate and judge rather than calculate. Every step
@@ -129,7 +129,8 @@ the narrative is sound.
 | Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Independently audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
 
 The two prompts are kept deliberately independent — the Reviewer's value comes from auditing
-the Maker's work cold, not from sharing its reasoning.
+the Maker's work cold, not from sharing its reasoning. That is fully so on the headless path (a separate call); in a
+slash-command session the separation is the role prompt, in the draft's own conversation ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
 
 ### Grounding rule
 

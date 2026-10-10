@@ -97,11 +97,12 @@ layout.
 ## Maker-Checker agents
 
 An **Underwriter** agent drafts the CAM, grounded only in supplied source documents and user-provided risk inputs
-(never fabricated figures); an independent **Risk Reviewer** agent audits the draft and returns `APPROVED` or
+(never fabricated figures); a separately prompted **Risk Reviewer** agent audits the draft and returns `APPROVED` or
 `REJECTED` with revision notes. The two prompts, [`agents/underwriter_agent.md`](agents/underwriter_agent.md) and
 [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md), are kept deliberately independent, and everything
 that can be computed (ratios, covenant results, required conditions) is computed and enforced by code rather than
-left to either model. Details, including the grounding rule: [architecture](docs/architecture.md).
+left to either model. In the headless pipeline the Reviewer runs as a separate call; an interactive `/review` runs in the draft's own
+conversation ([what that means](docs/ai-assurance.md#where-the-enforcement-runs-matters)). Details, including the grounding rule: [architecture](docs/architecture.md).
 
 ## Skills / slash commands
 

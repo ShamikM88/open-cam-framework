@@ -58,6 +58,13 @@ The same checks serve both interfaces, but they are applied differently, and the
 | Who applies "code-enforced reason means `REJECTED`" | `_apply_deterministic_policy_checks()` in code | The model, because `review.md` says it must |
 | Who stops the loop and decides to export | The pipeline | The model, following `/assemble`'s steps |
 | Provenance recorded | Models and prompt hashes in `model_provenance` | None |
+| What the Checker's context contains | A separate model call: one new message of the Checker prompt, the grounding context and the draft, with no Maker prompt or reasoning (pinned by `test_orchestrator.py`), optionally on a different model (`checker_model`) | The same conversation as the draft: `/assemble` and `/research` run `/review` inline, so the Maker's reasoning and anything else said earlier is visible to it, and it uses the session's one model |
+
+So the Checker's independence is a different thing on each interface. Headless, it is a separate call. In a slash-command
+session it is a separate role prompt plus the deterministic checks, in the draft's own conversation: conversation-level
+independence is not guaranteed ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204) tracks whether to
+isolate it). Where an audit's independence matters, use the headless pipeline, or review a saved draft in a fresh
+session (`/review` accepts the draft as an argument).
 
 So in a slash-command session the deterministic *reasons* are exact, but whether they are run, quoted verbatim and obeyed depends on the model following the command text. That compliance is a prompt expectation, not a code guarantee, and it is part of what a live evaluation of the command path would have to measure (the current harness cannot drive it; see [what the harness cannot show](evaluation.md#what-the-harness-can-and-cannot-show)). A reader who needs the code guarantee end to end uses the headless pipeline, or runs `policy_check.py` themselves and compares.
 
@@ -93,9 +100,9 @@ Coverage floors say the governance modules are exercised; mutation testing asks 
 The two agent prompts are the specification of the model's job. Read as expectations, not guarantees:
 
 - **The Underwriter** drafts from the supplied facts; uses the computed figures rather than its own; never invents a figure; cites a source for every qualitative claim; discloses an analyst-supplied basis; declares what it covered in the trailing structured block (conditions, risk categories, figures, sources).
-- **The Risk Reviewer** audits independently of the Maker's reasoning, challenges ungrounded assertions and weak mitigants, applies a calibrated credit policy (a violation is a mandatory rejection finding), and returns `APPROVED` or `REJECTED` in a fixed JSON shape.
+- **The Risk Reviewer** audits with its own role prompt (independently of the Maker's reasoning on the headless path; in the same conversation as the draft in a slash-command session, see below), challenges ungrounded assertions and weak mitigants, applies a calibrated credit policy (a violation is a mandatory rejection finding), and returns `APPROVED` or `REJECTED` in a fixed JSON shape.
 
-The code can verify only the *declared form* of the Underwriter's behaviour (the block exists, parses, lists what the structure requires and agrees with the computed numbers). Whether the prose behind the declarations is honest is the model's job and, ultimately, a person's. This is why the Checker is a separate prompt on a separate call ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)): it is a second, independent attempt at the part the code cannot do, not a duplicate of the part it can.
+The code can verify only the *declared form* of the Underwriter's behaviour (the block exists, parses, lists what the structure requires and agrees with the computed numbers). Whether the prose behind the declarations is honest is the model's job and, ultimately, a person's. This is why the Checker is a separate prompt ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)), and in the headless pipeline a separate call: it is a second attempt at the part the code cannot do, not a duplicate of the part it can. In an interactive session it is the same kind of second attempt from a different role prompt, but run in the draft's own conversation, so the Maker's reasoning is visible to it (see [where the enforcement runs matters](#where-the-enforcement-runs-matters)).
 
 ## What live evaluation has not shown
 
@@ -125,7 +132,7 @@ Nothing in this framework approves credit. These remain human decisions:
 | Which sources are the documents of record, and whether a claim really follows from them | The code checks that sources were declared and saved, not that they say what the memo says |
 | Confirming a spreading convention, a policy interpretation or a deal learning for reuse | Persisted conventions are local memory that applies to later deals; the framework asks and never infers consent ([D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person)) |
 | The content of the credit policy and style guide, and any exception to it | Calibration summarises documents; a person owns what it says |
-| Reading the narrative and the Reviewer's notes, not only the verdict | Form checks and an independent model cannot catch every ungrounded or misleading sentence |
+| Reading the narrative and the Reviewer's notes, not only the verdict | Form checks and a second model pass (the Checker) cannot catch every ungrounded or misleading sentence |
 | For maintainers: editing a prompt, promoting a baseline, changing a floor or a rule, merging | Each changes what earlier evidence means ([contributing](contributing.md), [operations](operations.md)) |
 
 ## Reading a claim against its evidence
@@ -140,5 +147,6 @@ A quick way to use the page: take a sentence someone says about the system and f
 | "...ignores instructions hidden in a source document" | Nothing yet (#150, #151) | **Not demonstrated** |
 | "...would catch a weak risk mitigant" | The Checker prompt | Prompt expectation, **not measured** |
 | "...keeps borrower data out of git" | `test_confidential_paths.py` and the ignore rules | Test-enforced for the listed locations; process rule for issue and PR text |
+| "...the Checker audits independently of the Maker" | Headless: a separate call carrying no Maker prompt or reasoning (`test_orchestrator.py`). Slash command: a separate role prompt in the draft's own conversation | True of the headless pipeline. **Not guaranteed at conversation level** on the slash-command path (#204); the code-enforced checks apply on both |
 | "...records which model wrote this deal" | `model_provenance` for headless runs | True for headless runs only; slash-command runs record none |
 | "...cannot be steered by a Claude Code skill" | No agent prompt, command or `CLAUDE.md` names a skill and no script builds a path into `.claude/` (`test_skill_inventory`; a path assembled at run time is out of its reach); the design is [Skill design](skill-design.md) | Structural for the prompts and the headless path. In a session a skill's output stays visible to later steps, so not an isolation guarantee (#204) |

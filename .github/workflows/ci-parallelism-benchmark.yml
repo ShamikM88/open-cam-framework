@@ -12,27 +12,19 @@ jobs:
   benchmark:
     # Execute automatically only for this issue's benchmark PR; manual dispatch remains available later.
     if: github.event_name == 'workflow_dispatch' || github.head_ref == 'perf/212-ci-timing-baseline'
-    name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}
+    name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}-repeat-${{ matrix.repeat }}-repeat-${{ matrix.repeat }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     permissions:
       contents: read
     strategy:
       fail-fast: false
+      max-parallel: 6
       matrix:
-        include:
-          - os: ubuntu-latest
-            workers: 1
-          - os: ubuntu-latest
-            workers: 2
-          - os: ubuntu-latest
-            workers: 4
-          - os: windows-latest
-            workers: 1
-          - os: windows-latest
-            workers: 2
-          - os: windows-latest
-            workers: 4
+        os: [ubuntu-latest, windows-latest]
+        workers: [1, 2, 4]
+        # First sample completed in run #221; collect two more for stability.
+        repeat: [2, 3]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

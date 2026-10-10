@@ -111,14 +111,17 @@ fields must use a bullet list (`- **Label:** value`) or genuinely blank-line-sep
 paragraph instead of rendering as separate lines.
 
 1. Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet).
-2. **Run `/review --company "<company>" --proposal "<proposal>" --research-brief`** against that
-   brief (see issue #87 — this gives `/research` the same independent Checker audit `/assemble`
-   already gets, scoped to what actually applies before any credit structuring has happened). If
+2. **Run `/review --company "<company>" --proposal "<proposal>" --research-brief --draft "deals/<company>/<proposal>_brief.md"`**
+   against that saved brief (see issue #87 — this gives `/research` the same Checker audit `/assemble`
+   already gets, scoped to what actually applies before any credit structuring has happened). `/review`
+   reviews only the file on disk, never this conversation, and hands the audit to a fresh Risk Reviewer
+   sub-agent that has not seen this conversation (issue #204). If
    the verdict is REJECTED, revise the brief per the notes, **overwrite**
    `deals/<company>/<proposal>_brief.md` with the revised Markdown (never leave the stale,
-   rejected version on disk), and run `/review` again — repeat until APPROVED. `/review`'s own
-   file-reuse step only skips a rewrite when the on-disk file already matches the brief being
-   reviewed; a revision always changed it, so always overwrite here.
+   rejected version on disk; `/review` does not write the brief, so a stale file would be reviewed
+   again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
+   reports that it could not run or that no valid verdict came back, stop: that is neither an approval
+   nor a rejection, so do not export; tell the user.
 3. **Export it.** Once approved, run:
    ```
    python scripts/research_export.py --company "<company>" --proposal "<proposal>" --brief "deals/<company>/<proposal>_brief.md"

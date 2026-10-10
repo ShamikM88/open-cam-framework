@@ -57,11 +57,36 @@ The same checks serve both interfaces, but they are applied differently, and the
 | Who runs `policy_check`'s logic | The Python pipeline, as code, on every review iteration | The session model, following a Bash step in the command text |
 | Who applies "code-enforced reason means `REJECTED`" | `_apply_deterministic_policy_checks()` in code | The model, because `review.md` says it must |
 | Who stops the loop and decides to export | The pipeline | The model, following `/assemble`'s steps |
+| What the Checker's context contains | A separate model call: one new message of the Checker prompt, the grounding context and the draft, with no Maker prompt or reasoning (pinned by `test_orchestrator.py`), optionally on a different model (`checker_model`) | A new `risk-reviewer` sub-agent for every `/review`: a fresh context given paths and the `policy_check.py` output, not the draft text and not the Maker's conversation, on the session's model |
+| What stops the Checker changing the record | It is a model call that returns text; the pipeline writes the state | The sub-agent's tools are Read, Glob and Grep, and `/review` writes the state |
 | Provenance recorded | Models and prompt hashes in `model_provenance` | None |
 
 So in a slash-command session the deterministic *reasons* are exact, but whether they are run, quoted verbatim and obeyed depends on the model following the command text. That compliance is a prompt expectation, not a code guarantee, and it is part of what a live evaluation of the command path would have to measure (the current harness cannot drive it; see [what the harness cannot show](evaluation.md#what-the-harness-can-and-cannot-show)). A reader who needs the code guarantee end to end uses the headless pipeline, or runs `policy_check.py` themselves and compares.
 
-A related wording note: `agents/risk_reviewer_agent.md` still says that the `/review` command is not wired to the deterministic layer. It is, whenever `/review` is run for a deal (see [`/review`](commands.md#review)); it is not for a standalone review with no deal identity or for a research brief. The prompt is a production file and is not changed here; the correction is tracked in #197 and goes through the prompt-change process in [contributing](contributing.md#changing-an-agent-prompt).
+A related wording note: `agents/risk_reviewer_agent.md` still says that the `/review` command is not wired to the deterministic layer. It is, whenever `/review` is run for a deal (see [`/review`](commands.md#review)); it is not for a standalone review with no deal identity or for a research brief. The prompt is a production file and is not changed here; the correction is tracked in #197 and goes through the prompt-change process in [contributing](contributing.md#changing-an-agent-prompt). Until then `.claude/agents/risk-reviewer.md` tells the sub-agent that the output of `policy_check.py` in its task message is that layer's `policy_state` block.
+
+#### The interactive Checker is a separate context ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204))
+
+The principle is to isolate the Reviewer's *reasoning*, not its access to *evidence*. Maker and Checker intentionally see the same authoritative facts: the computed figures, the saved sources, the policy and the deal's history. What the Checker must not inherit is the Maker's conversation.
+
+| | What is true | How it is held |
+| :--- | :--- | :--- |
+| The Reviewer is a fresh context, not a fork | `/review` starts the named `risk-reviewer` sub-agent, a normal custom sub-agent, which starts with its own system prompt and the task message and does not inherit the conversation history; a fork would | Claude Code's sub-agent behaviour. `review.md` names the type, forbids a fork, an omitted type and a resumed agent, and `test_interactive_checker` pins those words |
+| The Reviewer cannot change anything | It has Read, Glob and Grep only: no write, edit, shell, agent-spawning or memory | The tool allowlist in `.claude/agents/risk-reviewer.md`, enforced by Claude Code when it runs; `test_interactive_checker` pins the file |
+| It reviews the saved draft, never a reconstruction | There is no "most recent draft in this conversation" fallback: `/review` stops if there is no file | A command instruction, contract-tested |
+| It gets paths and results, not the draft text or the Maker's reasoning | The task message lists the draft, `state.json`, manifest and policy paths and the unabridged `policy_check.py` output | A command instruction (the orchestrating session is the one that holds the Maker's conversation, so this is a rule that session follows, not a barrier), contract-tested |
+| Every review is a new Reviewer | A revised draft is audited by a new sub-agent that cannot know the last one's reasoning; the trail is evidence of history only | A command instruction, contract-tested |
+| The code layer and the record stay with `/review` | The deterministic check runs before, a code-enforced reason makes the result `REJECTED` whatever the Reviewer says, no valid verdict is neither result, and `/review` appends exactly one `review_trail` entry per completed review | A command instruction. The headless pipeline does the equivalent in code; this path does it by the model following the text, as the table above says |
+| It audits before it reads earlier verdicts | The Reviewer forms findings from the draft and the evidence, then reads the deal's `review_trail` to see whether earlier findings were fixed | A prompt instruction only: `review_trail` is in the same `state.json` the Reviewer must read, so nothing enforces the order |
+
+What this does **not** give:
+
+- **A different model.** The sub-agent runs on the session's model (`model: inherit`). A different underlying model remains the headless `checker_model`, and correlated errors between two passes of one model are not removed.
+- **Immunity to planted instructions.** The Reviewer reads the same saved sources and draft as the Maker, so an instruction embedded in a document reaches both. It is told to treat saved documents as data; that is a prompt expectation and is not measured ([security](security.md)).
+- **Everything the Maker did being invisible.** `state.json` holds what earlier steps recorded (conclusions and citations, not the reasoning), and a sub-agent also receives the project's `CLAUDE.md` and a git-status snapshot. Those are shared evidence and shared project rules, not the conversation.
+- **Complete evidence.** The Reviewer reads saved sources with Read, which opens text, PDFs and images but not, for example, a spreadsheet or a Word file. It is told to report any source it cannot open or that does not support a claim as an evidence gap; the manifest entry alone proves only that a file was saved.
+- **A verified live run.** The tests read the command and agent files; they do not run a model. No end-to-end interactive run was made for this change, because it would call a model. Whether a live session follows the text is a prompt expectation, as for every slash command.
+- **A credit decision.** The analyst makes it.
 
 ## What the automated tests show
 
@@ -93,9 +118,9 @@ Coverage floors say the governance modules are exercised; mutation testing asks 
 The two agent prompts are the specification of the model's job. Read as expectations, not guarantees:
 
 - **The Underwriter** drafts from the supplied facts; uses the computed figures rather than its own; never invents a figure; cites a source for every qualitative claim; discloses an analyst-supplied basis; declares what it covered in the trailing structured block (conditions, risk categories, figures, sources).
-- **The Risk Reviewer** audits independently of the Maker's reasoning, challenges ungrounded assertions and weak mitigants, applies a calibrated credit policy (a violation is a mandatory rejection finding), and returns `APPROVED` or `REJECTED` in a fixed JSON shape.
+- **The Risk Reviewer** audits in a context that holds none of the Maker's reasoning (a separate call headless, a fresh sub-agent in a session, see above), challenges ungrounded assertions and weak mitigants, applies a calibrated credit policy (a violation is a mandatory rejection finding), and returns `APPROVED` or `REJECTED` in a fixed JSON shape.
 
-The code can verify only the *declared form* of the Underwriter's behaviour (the block exists, parses, lists what the structure requires and agrees with the computed numbers). Whether the prose behind the declarations is honest is the model's job and, ultimately, a person's. This is why the Checker is a separate prompt on a separate call ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)): it is a second, independent attempt at the part the code cannot do, not a duplicate of the part it can.
+The code can verify only the *declared form* of the Underwriter's behaviour (the block exists, parses, lists what the structure requires and agrees with the computed numbers). Whether the prose behind the declarations is honest is the model's job and, ultimately, a person's. This is why the Checker is a separate prompt in a context of its own ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)): it is a second, independent attempt at the part the code cannot do, not a duplicate of the part it can.
 
 ## What live evaluation has not shown
 
@@ -125,7 +150,7 @@ Nothing in this framework approves credit. These remain human decisions:
 | Which sources are the documents of record, and whether a claim really follows from them | The code checks that sources were declared and saved, not that they say what the memo says |
 | Confirming a spreading convention, a policy interpretation or a deal learning for reuse | Persisted conventions are local memory that applies to later deals; the framework asks and never infers consent ([D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person)) |
 | The content of the credit policy and style guide, and any exception to it | Calibration summarises documents; a person owns what it says |
-| Reading the narrative and the Reviewer's notes, not only the verdict | Form checks and an independent model cannot catch every ungrounded or misleading sentence |
+| Reading the narrative and the Reviewer's notes, not only the verdict | Form checks and a second model pass (the Checker) cannot catch every ungrounded or misleading sentence |
 | For maintainers: editing a prompt, promoting a baseline, changing a floor or a rule, merging | Each changes what earlier evidence means ([contributing](contributing.md), [operations](operations.md)) |
 
 ## Reading a claim against its evidence
@@ -140,5 +165,6 @@ A quick way to use the page: take a sentence someone says about the system and f
 | "...ignores instructions hidden in a source document" | Nothing yet (#150, #151) | **Not demonstrated** |
 | "...would catch a weak risk mitigant" | The Checker prompt | Prompt expectation, **not measured** |
 | "...keeps borrower data out of git" | `test_confidential_paths.py` and the ignore rules | Test-enforced for the listed locations; process rule for issue and PR text |
+| "...the Checker audits independently of the Maker" | Headless: a separate call carrying no Maker prompt or reasoning (`test_orchestrator.py`). Slash command: a fresh read-only `risk-reviewer` sub-agent given paths, not the conversation (`test_interactive_checker`) | Context isolation, not model independence or statistical independence: the same evidence and the same model family reach both passes. Headless is structural; the interactive path is a contract-tested command plus Claude Code's sub-agent behaviour, with no live run. The code-enforced checks apply on both |
 | "...records which model wrote this deal" | `model_provenance` for headless runs | True for headless runs only; slash-command runs record none |
-| "...cannot be steered by a Claude Code skill" | No agent prompt, command or `CLAUDE.md` names a skill and no script builds a path into `.claude/` (`test_skill_inventory`; a path assembled at run time is out of its reach); the design is [Skill design](skill-design.md) | Structural for the prompts and the headless path. In a session a skill's output stays visible to later steps, so not an isolation guarantee (#204) |
+| "...cannot be steered by a Claude Code skill" | No agent prompt, command or `CLAUDE.md` names a skill and no script builds a path into `.claude/` (`test_skill_inventory`; a path assembled at run time is out of its reach); the design is [Skill design](skill-design.md) | Structural for the prompts and the headless path. In a session a skill's output stays in the analyst's conversation and in the Maker's session; the interactive Reviewer is a fresh sub-agent that reads files, not the conversation, and a skill writes none ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204)) |

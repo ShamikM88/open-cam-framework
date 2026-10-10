@@ -19,8 +19,8 @@ procedures of Phase 3 are not. The inventory of commands and skills is
   loads one on its own, and no command or prompt names one.
 - The registry file is **evolved in place** into the one inventory, not renamed and not duplicated.
 - `annual-review` cannot be built over today's primitives ([#203](https://github.com/ShamikM88/open-cam-framework/issues/203)),
-  and the independence of `/review` on the slash-command path has to be settled before an analyst-facing challenge
-  skill is introduced ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204)).
+  and the independence of `/review` on the slash-command path was settled by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204): the interactive Checker
+  is a fresh, read-only sub-agent, so an analyst-facing challenge skill is no longer waiting on it (it still needs its own design).
 
 ## What Claude Code does that this design depends on
 
@@ -33,7 +33,7 @@ registry test cannot see a change in the platform.
 | A command file and a skill create the same `/name`, and **the skill wins** on a clash | Names are unique across both kinds, enforced by a test. A skill called `triage` would silently disable `/triage`. |
 | `disable-model-invocation: true` keeps a skill's description out of the model's context and lets only a person invoke it | The invocation of every first-tranche skill. It also means `/assemble`'s review loop cannot reach one. |
 | `paths` limits automatic activation to matching files; command files do not support it | Reserved for a later, path-scoped maintainer skill. None in the first tranche. |
-| An invoked skill's text **stays in the conversation** and is re-attached after compaction | Anything loaded stays visible to every later step in the session, `/assemble` and `/review` included. This is why an aid is forked (next row) and why this page does not claim isolation. |
+| An invoked skill's text **stays in the conversation** and is re-attached after compaction | Anything loaded stays visible to every later step in the session, `/assemble` included. Since #204 the Reviewer that `/review` starts is not one of those steps: it is a fresh sub-agent that reads files, not the conversation. This is why an aid is forked (next row), and why this page claims no more than that. |
 | `context: fork` runs the skill in a subagent that **does not see the conversation**; only its result comes back | The aid skills fork: their instructions never join the conversation, and they read the deal from `state.json` as the rehydration rule already says. |
 | `allowed-tools` **pre-approves** tools for the turn; it does not restrict them. `disallowed-tools` removes tools while the skill is active | Read-only is expressed with `disallowed-tools` as well as a short `allowed-tools`, and reviewed like a workflow change: a checked-in skill can grant itself broad tool access. |
 | The description is capped (1,536 characters with `when_to_use`) and sits in context for every model-invocable skill | Another reason to keep the first tranche user-only: no always-on descriptions. |
@@ -69,11 +69,12 @@ provenance exists, the skill is hashed into it and into the baseline, and a main
 either. The slash-command path records no provenance, so for an interactive skill option (b) in the issue does not
 exist yet.
 
-**What this does not claim.** A report skill's *output* appears in the conversation, and a later `/assemble` or
-`/review` in the same session can read it, exactly as it can read anything the analyst types. The forking keeps the
-skill's instructions out of the session, and the skill's output is labelled as an aid and written nowhere. That
-narrows the exposure; it is not isolation. Run the aids before drafting, or in another session, when the independence
-of the audit matters.
+**What this does not claim.** A report skill's *output* appears in the conversation, and a later `/assemble` in the
+same session can read it, exactly as it can read anything the analyst types. The forking keeps the skill's instructions
+out of the session, and the skill's output is labelled as an aid and written nowhere. Since [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) the
+Risk Reviewer that `/review` starts does not see the conversation, so that output does not reach it: it is given paths,
+and a skill writes no file. That holds because `/review` passes only paths, which is a command instruction (contract-tested,
+not enforced at run time); the session that orchestrates it can still read the output.
 
 **Held by.** The `Role in the pipeline` column (a skill row must say `None (aid)`), and the test that no agent prompt
 or command names a skill, points at the skills folder or lets a session run one.
@@ -98,13 +99,14 @@ Each skill's own tests (Phase 2 and 3) check that it can run only read-only scri
 typed by a person, forked, named nowhere in `agents/` or a command, write nothing to `review_trail`, and never print a
 verdict word. They are not a substitute for `/review`.
 
-**Why the gate.** On the slash-command path `/review` runs in the *same conversation* as the draft: `review.md` loads
-the role "for the rest of this task" and reviews "the most recently drafted content earlier in this conversation", and
-`/assemble` runs it inline. The Checker's independence there is a separate role prompt plus the deterministic checks,
-not a separate context; the headless pipeline makes a separate Checker call. So "never in the Checker's context"
-cannot be promised for anything that has been in the session. That is a property of the existing design, not of
-skills, and it is tracked in [#204](https://github.com/ShamikM88/open-cam-framework/issues/204). The adversarial
-skills wait for that decision.
+**Why the gate, and what changed.** `/review` used to run in the *same conversation* as the draft: it loaded the role
+"for the rest of this task" and reviewed "the most recently drafted content earlier in this conversation", so "never in
+the Checker's context" could not be promised for anything that had been in the session. [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) settled
+that: every interactive `/review` now delegates the audit to a fresh, read-only `risk-reviewer` sub-agent that reads the
+saved draft and the deal's files, not the conversation ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
+The adversarial skills are therefore no longer waiting on that decision. They stay out of the first tranche because they
+need their own design, which must keep them outside the Reviewer's inputs (they write nothing, so nothing of theirs is on
+disk for it) and must not present their output as the Checker's verdict.
 
 **Held by.** The same wiring test as constraint 1: `agents/*.md` and the commands may not name a skill, so nothing
 loads one into either role by design.
@@ -277,7 +279,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-assurance` | Deferred, evidence-gated | Its rules (deterministic enforcement is authoritative, fail closed) are already in `CLAUDE.md`, D2 and D5 to D7 and enforced by tests; a path-scoped skill would restate them. Built only if a governance regression gets past those, and then as a change-impact map, not a copy of the rules. |
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Phase 4 candidate | Explains PASS / FAIL / UNRESOLVABLE and the disclosure-only results, which [the financial model](financial-model.md) and [troubleshooting](troubleshooting.md) already do; it must never read as an override of a code-enforced rejection. Decide after the Phase 2 reports show the pattern. |
-| `credit-risk`, `credit-challenge` | Gated by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) | Close to the Checker's job (constraint 3). |
+| `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `prompt-change-gate`, `mutation-triage`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. |

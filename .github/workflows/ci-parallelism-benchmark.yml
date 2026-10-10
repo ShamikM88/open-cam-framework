@@ -2,12 +2,16 @@ name: CI Parallelism Benchmark
 
 # Manual-only experiment for issue #212. Never adds work to ordinary PR/push CI.
 on:
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions: {}
 
 jobs:
   benchmark:
+    # Execute automatically only for this issue's benchmark PR; manual dispatch remains available later.
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'perf/212-ci-timing-baseline'
     name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30

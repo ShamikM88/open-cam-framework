@@ -388,3 +388,11 @@ def test_save_source_still_appends_to_a_valid_manifest(tmp_path):
                         date_str="2026-01-15", base_dir=base)
     assert read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base) == [{"filename": "old.txt"}, entry]
     assert sorted(os.listdir(directory)) == ["filing.txt", "manifest.json"]
+
+
+@pytest.mark.parametrize("content, kind", [(b"{}", "an object"), (b"null", "null"), (b'"text"', "a string"),
+                                           (b"123", "a number"), (b"1.5", "a number"), (b"true", "a boolean")])
+def test_the_error_says_what_a_manifest_that_is_not_a_list_actually_holds(tmp_path, content, kind):
+    base, _, _ = _deal_with_manifest(tmp_path, content)
+    with pytest.raises(ManifestError, match=f"it holds {kind}\\)"):
+        read_manifest("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)

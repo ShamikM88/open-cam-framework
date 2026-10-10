@@ -46,12 +46,13 @@ class ManifestError(StateError):
 
 
 def _kind(value):
+    """What a parsed JSON value that is not a list is, in words (a list never reaches here)."""
     if value is None:
         return "null"
-    for kind, name in ((bool, "a boolean"), (dict, "an object"), (str, "a string"), ((int, float), "a number")):
+    for kind, name in ((bool, "a boolean"), (dict, "an object"), (str, "a string")):
         if isinstance(value, kind):
             return name
-    return "something else"
+    return "a number"
 
 
 def _load_manifest(manifest_path):

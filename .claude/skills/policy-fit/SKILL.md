@@ -44,11 +44,11 @@ An **analyst aid**, not a policy engine, approval, recommendation or /review sub
 
 ## Authoritative sources
 
-- The actual deal's state.json and the result of scripts/policy_check.py
-- scripts/policy_engine.py and scripts/policy_checks.py for the meaning of returned fields and which reasons are code-enforced
-- docs/financial-model.md, especially N/A and UNRESOLVABLE and Covenants
-- docs/troubleshooting.md, review and rejection
-- docs/data-model.md
+- The actual deal's state.json and the result of [scripts/policy_check.py](../../../scripts/policy_check.py)
+- [scripts/policy_engine.py](../../../scripts/policy_engine.py) and [scripts/policy_checks.py](../../../scripts/policy_checks.py) for the meaning of returned fields and which reasons are code-enforced
+- [Financial model and policy engine](../../../docs/financial-model.md), especially [N/A and UNRESOLVABLE](../../../docs/financial-model.md#na-and-unresolvable) and [Covenants](../../../docs/financial-model.md#covenants)
+- [Troubleshooting](../../../docs/troubleshooting.md#review-and-rejection)
+- [Data model](../../../docs/data-model.md)
 
 ## Rules
 

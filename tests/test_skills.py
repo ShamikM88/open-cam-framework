@@ -1,15 +1,15 @@
 """The contract of each shipped skill (issue #196, Phase 2).
 
 `test_skill_inventory.py` keeps the inventory equal to the files and keeps every prompt, command and script from
-reaching a skill. This file tests the skills themselves, the three analyst report skills in `.claude/skills/`:
+reaching a skill. This file tests the analyst report skills in `.claude/skills/`:
 
 - each is typed by a person (never started by the model), forked, may carry no hook or model override, has the write
-  tools removed, and pre-approves only the read-only script calls it needs. `allowed-tools` pre-approves; it is not an
-  allowlist, so the other tools stay under the user's permission settings. These tests prove what the files say and what
-  the commands they show do; they do not prove an operating-system sandbox;
-- the commands in its body use only those scripts and flags, each one is pre-approved by its own `allowed-tools`, and
-  the real commands, run against a synthetic deal, leave everything under `deals/` byte-for-byte unchanged (and create
-  nothing when there is no deal);
+  tools removed, and pre-approves only read-only tools or the deterministic script calls it needs. `allowed-tools`
+  pre-approves; it is not an allowlist, so the other tools stay under the user's permission settings. These tests prove
+  what the files say and what the commands they show do; they do not prove an operating-system sandbox;
+- the skills with script calls use only those scripts and flags, each one is pre-approved by its own `allowed-tools`,
+  and the real commands, run against a synthetic deal, leave everything under `deals/` byte-for-byte unchanged (and
+  create nothing when there is no deal). `credit-challenge` has no shell/script surface and is checked as such;
 - the dated folder a skill is told to read is the one `state_manager` and the scripts use, a company or proposal is put
   in a quoted command only if it passes the stated refusal rule, and a `null` ratio is explained by basis;
 - every repository path it cites exists, every flag it passes is real, and its links resolve;
@@ -75,7 +75,7 @@ def tools(fields, key):
 
 
 def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_is_bounded():
-    assert report_skills() == ["evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
+    assert report_skills() == ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
 
     policy_fit = skill_text("policy-fit")
     body = body_of(policy_fit)
@@ -99,6 +99,30 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
         "An unresolvable result is neither a pass nor a fail",
     ):
         assert phrase in body, phrase
+
+    challenge_text = skill_text("credit-challenge")
+    challenge_fields = frontmatter(challenge_text)
+    challenge_body = body_of(challenge_text)
+    assert set(tools(challenge_fields, "allowed-tools")) == READ_ONLY_TOOLS
+    assert not body_commands(challenge_text), "credit-challenge must not add a shell/script surface"
+    assert command_problems(challenge_text) == []
+    for phrase in (
+        "No challenge identified in the material reviewed",
+        "The manifest's `claim`, `filename`, `url`, `step` and `fetched_date` fields are provenance metadata",
+        "current mitigant",
+        "residual uncertainty",
+        "information gap / next question",
+        "not a claim that the deal is sound",
+        "Never issue an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL` verdict",
+        "Never edit the draft, update `state.json`",
+        "Never make a live model/API call",
+    ):
+        assert phrase in challenge_body, phrase
+    output_contract = challenge_body.partition("## 5. Report each substantive challenge")[2].partition("## 6. Boundaries")[0]
+    fields_in_order = ["**Challenge / question:**", "**Recorded evidence:**", "**Potential impact:**",
+                       "**Current mitigant:**", "**Residual uncertainty:**", "**Information gap / next question:**"]
+    positions = [output_contract.index(label) for label in fields_in_order]
+    assert positions == sorted(positions), "the six required challenge fields must stay in order"
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +234,11 @@ def command_problems(text):
 @pytest.mark.parametrize("name", report_skills())
 def test_a_skill_runs_only_read_only_scripts_and_each_is_pre_approved(name):
     text = skill_text(name)
-    assert body_commands(text), "the skill delegates to a deterministic script"
+    if name == "credit-challenge":
+        assert body_commands(text) == [], "the skill deliberately has no shell/script command"
+        assert set(tools(frontmatter(text), "allowed-tools")) == READ_ONLY_TOOLS
+    else:
+        assert body_commands(text), "the skill delegates to a deterministic script"
     assert command_problems(text) == []
 
 
@@ -262,10 +290,13 @@ def rich_deal(tmp_path, monkeypatch):
 def test_the_commands_a_skill_runs_leave_the_deal_byte_for_byte_unchanged(name, rich_deal):
     before = deal_files(rich_deal)
     results = run_commands(name, rich_deal)
-    assert results, "the skill shows at least one command"
-    for result in results:
-        assert result.returncode == 0, result.stderr
-        json.loads(result.stdout)
+    if name == "credit-challenge":
+        assert results == [], "there is no command to run: the skill is limited to Read, Glob and Grep"
+    else:
+        assert results, "the skill shows at least one command"
+        for result in results:
+            assert result.returncode == 0, result.stderr
+            json.loads(result.stdout)
     assert deal_files(rich_deal) == before, "no changed state.json, no new file, no lock or temporary file"
 
 
@@ -455,7 +486,7 @@ def test_the_rule_ignores_a_folder_that_is_not_exactly_the_proposal_and_an_iso_d
     assert documented_folder(["P_latest"], "P") is None
 
 
-@pytest.mark.parametrize("name", [n for n in ["evidence-discipline", "financial-analysis", "information-gaps"]])
+@pytest.mark.parametrize("name", [n for n in ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps"]])
 def test_each_skill_states_the_dated_folder_rule_and_reports_the_folder_it_read(name):
     text = " ".join(skill_text(name).split())
     assert "YYYY-MM-DD" in text and "exactly" in text and "latest" in text
@@ -723,7 +754,7 @@ def test_the_latest_is_chosen_by_date_text_not_by_the_order_the_tool_returns_fil
     assert lookup_result([], "Fleet") == ("found", None)
 
 
-@pytest.mark.parametrize("name", ["evidence-discipline", "financial-analysis", "information-gaps"])
+@pytest.mark.parametrize("name", ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps"])
 def test_each_skill_narrows_its_glob_to_the_proposal_and_does_not_trust_a_capped_result(name):
     text = " ".join(body_of(skill_text(name)).split())
     assert "deals/<company>/<proposal>_*/state.json" in text, "the pattern names the proposal, so fewer files match"

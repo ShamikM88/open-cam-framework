@@ -180,6 +180,11 @@ hash; those are not interchangeable.
 - **No edits or live calls.** It does not edit prompts, commands, `EXPECTED_SUBJECTS`, provenance records or baselines;
   does not run `gh`, fetch, commit, push or merge; and makes no live model/API call. The allowed commands are exact
   read-only Git inspection and the prompt-consistency test. The user must still make the explicit maintainer decision.
+- **What is enforced and what is a rule.** Only two things are enforced by the tool settings: `Write`, `Edit` and
+  `NotebookEdit` are removed, and the listed commands are pre-approved. `Bash` is not removed, so any other command is
+  not blocked: it asks for the maintainer's permission like any other command. "Never commits, never runs `gh`" is
+  therefore an instruction the skill follows, not a sandbox, and the contract test checks the file's wording and its exact
+  pre-approval list, not a live run.
 
 ### `mutation-triage`
 

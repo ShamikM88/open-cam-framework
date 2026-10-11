@@ -109,6 +109,13 @@ def test_the_risk_reviewer_subagent_is_fresh_read_only_and_told_how_to_audit_ind
     assert agent_problems(read(AGENT)) == []
 
 
+def test_the_registry_names_the_one_subagent_and_says_it_is_neither_a_command_nor_a_skill():
+    registry = flat(read("config/skills_registry.md"))
+    assert "Sub-agents are neither commands nor skills and have no row" in registry
+    assert "The only one is risk-reviewer (.claude/agents/risk-reviewer.md)" in registry
+    assert "/review starts for every review" in registry
+
+
 def test_the_reviewer_is_the_only_subagent_the_repository_defines():
     """A second agent would be a new thing that can read or write the deal; it needs its own design and its own test."""
     assert sorted(p.name for p in (REPO / ".claude" / "agents").iterdir()) == ["risk-reviewer.md"]

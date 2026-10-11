@@ -24,18 +24,21 @@ Expected, not an error. `calibrate.py` has no key, so it wrote placeholder files
 call. To calibrate for real, set the key in your own shell (see [Configuration](configuration.md#credentials)) and
 run again without `--mock`.
 
-### `orchestrator.py` ends in a traceback ending `Could not resolve authentication method`
+### `orchestrator.py` stops with `error: no Anthropic credentials were found`
 
-The headless pipeline needs `ANTHROPIC_API_KEY` in the environment of the process. With none set it prints
-`[1/3] Underwriter Agent drafting CAM for ...` and then fails with a `TypeError` from the Anthropic SDK:
+The headless pipeline needs credentials the Anthropic SDK can use: normally `ANTHROPIC_API_KEY` in the environment of
+the process (the SDK also accepts `ANTHROPIC_AUTH_TOKEN` or a configured credentials profile). With none, it checks
+before anything else, prints one line and exits with status 1:
 
 ```text
-TypeError: "Could not resolve authentication method. Expected one of api_key, auth_token, or credentials to be set. ..."
+error: no Anthropic credentials were found; the headless pipeline calls the Anthropic API directly. Set ANTHROPIC_API_KEY in the environment of this process (the SDK also accepts ANTHROPIC_AUTH_TOKEN or a configured credentials profile), or use the slash commands, which need no key. See docs/configuration.md#credentials.
 ```
 
-Nothing was sent: the SDK refuses before making a request, so nothing was billed. Set the variable in the shell you
-run the script from (never in a file in this repository), or use the slash commands, which need no key. The
-traceback rather than a plain message is a known rough edge.
+Nothing was read, written or sent: no progress line, no deal folder and no `state.json` change, and nothing was billed. Set
+the variable in the shell you run the script from (never in a file in this repository), or use the slash commands, which
+need no key. An empty `ANTHROPIC_API_KEY` counts as not set. If you do have credentials and still see this line, the
+SDK found none it could use: check the variable is exported to the process that runs the script, not just set in another
+terminal. Any other error from the SDK, such as a rejected key, is reported as it is and is not this message.
 
 ### A headless run is costing more than expected
 

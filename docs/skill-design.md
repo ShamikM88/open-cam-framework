@@ -2,8 +2,9 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); the maintainer
-two maintainer procedures of Phase 3, `cam-change-verification` and `docs-maintenance`, are too. The inventory of commands and skills is
+build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); so are the two
+maintainer procedures of Phase 3, `cam-change-verification` and `docs-maintenance`, and the first Phase 4 skill, the
+maintainer report `mutation-triage`. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -15,7 +16,7 @@ two maintainer procedures of Phase 3, `cam-change-verification` and `docs-mainte
 - Every skill in this initiative is an **aid**. It is not the Maker's or the Checker's input, leaves no record in a
   deal, and has no headless equivalent. A skill that would change what the Maker or the Checker is told is a different
   kind of thing and is not permitted here.
-- All five skills in the first tranche are **typed by a person** (`disable-model-invocation: true`). The model never
+- All six skills in the first tranche are **typed by a person** (`disable-model-invocation: true`). The model never
   loads one on its own, and no command or prompt names one.
 - The registry file is **evolved in place** into the one inventory, not renamed and not duplicated.
 - `annual-review` cannot be built over today's primitives ([#203](https://github.com/ShamikM88/open-cam-framework/issues/203)),
@@ -45,7 +46,7 @@ Two things decide what a skill is allowed to be: who it is for, and what it does
 
 | Effect | What it is | Allowed here |
 | :--- | :--- | :--- |
-| **Report** | Reads a named deal's records and scripts' output and gives the analyst an account in chat. Read-only, forked, writes nothing. | Yes: `information-gaps`, `evidence-discipline`, `financial-analysis` |
+| **Report** | Reads a named deal's records and scripts' output (or, for a maintainer, a downloaded report) and gives an account in chat. Read-only, forked, writes nothing. | Yes: `information-gaps`, `evidence-discipline`, `financial-analysis`; for a maintainer, `mutation-triage` |
 | **Procedure** | Gives a maintainer a sequence of actions over the repository (run these checks, find these pages), run in the maintainer's own session. Touches no deal. | Yes: `cam-change-verification`, `docs-maintenance` |
 | **Practice** | Changes how the model works for the rest of the conversation. | Deferred. It cannot avoid shaping later drafting in the same session, and a persistent reminder of a rule already in `CLAUDE.md` is a second copy. |
 | **Input** | Changes what the Maker or the Checker is told, on any interface. | **Not permitted.** It would need provenance and an evaluation baseline, and slash-command runs have no provenance at all today ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)). A separate design and issue come first. |
@@ -81,7 +82,7 @@ or command names a skill, points at the skills folder or lets a session run one.
 
 ### 2. Headless parity
 
-**Decision.** All five skills are interactive only. They write no `state.json` key, append nothing to
+**Decision.** All six skills are interactive only. They write no `state.json` key, append nothing to
 `steps_completed` or `review_trail`, create no draft, export, convention, learning or saved source. So no deal can
 differ because someone used one, and no record implies a capability the headless pipeline lacks.
 
@@ -193,6 +194,7 @@ scripts that exist today; the two procedures wrap documented sequences that a ma
 | `financial-analysis` | 2 | analyst | user | Report | Yes, no record |
 | `cam-change-verification` | 3 | maintainer | user | Procedure | Not a deal skill |
 | `docs-maintenance` | 3 | maintainer | user | Procedure | Not a deal skill |
+| `mutation-triage` | 4 | maintainer | user | Report | Not a deal skill |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -283,6 +285,30 @@ contextual, and a model-invocable description would sit in every session's conte
   ledger or a snapshot) as its own rule. It pre-approves the read-only `git` forms, the five documentation test files
   named in the runbook as one exact command, and `pii_scan.py <path>`.
 
+### `mutation-triage` (Phase 4)
+
+- **Purpose.** Walk a maintainer through a mutation report: the scores as recorded, the largest groups of survivors by
+  function, which tests name each function and whether the mutation run's test selection includes them, a candidate class
+  for each group, the existing issue that may already cover it, and a proposed disposition with its evidence. It is the
+  runbook's triage steps applied to one report, not a new method.
+- **Reads / delegates to.** The downloaded `mutation-report` artifact (`mutation-report.json`, `mutation-survivors.txt`,
+  `mutation-all.txt`), the runbook in [Operations](operations.md#mutation-testing-reading-the-report-and-triaging-survivors),
+  the run's description in [Testing](testing.md#mutation-testing), `pyproject.toml`'s `[tool.mutmut]` (scope and test
+  selection) and the source and tests it names. It runs no script: the JSON is what `mutation_report.py` already built.
+- **Side effects.** None. Chat output only. It edits nothing, files no issue, runs no mutation or test, and never changes
+  the mutation scope, the 75% diagnostic target, the configuration or the workflow ([D13](decisions.md#d13-mutation-testing-and-coverage-are-diagnostics-and-floors-not-a-scoring-game)).
+- **Implemented.** `.claude/skills/mutation-triage/SKILL.md`. It is a *report* in the taxonomy: forked, typed by a person,
+  `Read`, `Glob` and `Grep` pre-approved, and `Write`, `Edit`, `NotebookEdit` and `Bash` removed while it runs. It
+  pre-approves no command at all, because it needs none. A tool that is not removed stays under the user's permission
+  settings, so the skill states in its own rule that it uses only the three read tools; a deny rule would enforce it.
+- **Limits.** The artifact lists mutant names and statuses, not the mutated source, so every class is a *candidate*:
+  "equivalent" is never concluded without the mutated line (`mutmut show`, run by the maintainer on Linux or macOS).
+  The link from a function to its tests is by name, so a function reached only through a caller looks untested. The
+  artifact records no commit, so the source it reads must be the revision that was mutated. It cannot search the issue
+  tracker; it names the issues the docs attach to a group and asks the maintainer to search for the rest.
+- **Versus the runbook.** The runbook is the procedure and stays authoritative; the skill adds the checks that are
+  tedious by hand (test-selection membership, finding the function's source and tests) and a fixed report shape.
+
 ## Later, and why
 
 | Skill | Status | Reason and gate |
@@ -293,7 +319,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
-| `state-migration`, `prompt-change-gate`, `mutation-triage`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. |
+| `state-migration`, `prompt-change-gate`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built as the first Phase 4 skill: its value is the evidence it gathers against one report, not a restatement of the runbook.) |
 | The issue's "nice to have" skills | Out of scope | Unchanged from the issue. |
 
 ## Phased delivery
@@ -304,7 +330,9 @@ contextual, and a model-invocable description would sit in every session's conte
    [Skills](skills.md) page and `tests/test_skills.py`.
 3. **Maintainer procedures (done):** `cam-change-verification` (`tests/test_maintainer_skills.py`) and `docs-maintenance`
    (`tests/test_docs_maintenance_skill.py`).
-4. **From evidence:** the best of the deferred list, one pull request each.
+4. **From evidence:** the best of the deferred list, one pull request each. Done so far: `mutation-triage`
+   (`tests/test_mutation_triage_skill.py`), chosen first because open triage issues (#182 to #184, #219) and a report
+   that already exists show the need.
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its
@@ -328,6 +356,7 @@ would enforce it.
 | No agent prompt, command or `CLAUDE.md` names a skill, points at a skills path (the documented `<name>` placeholder is fine) or lets a session run one (`allowed-tools`, a `skills` frontmatter key, the Skill tool) | the same |
 | No production script builds a path into `.claude/`, so a helper a headless entry point imports cannot start reading it unnoticed (string constants in code are checked; a path assembled from fragments, or code outside `scripts/`, is not) | the same |
 | This page's tranche table is the inventory's skill rows | the same |
+| The mutation-triage report skill is typed, forked, read-only (no `Bash`), pre-approves no command, never touches the mutation scope or target, and says every class is a candidate | `tests/test_mutation_triage_skill.py` |
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 
 Each skill's own contract is tested in `tests/test_skills.py`: its frontmatter (typed by a person, forked, the write tools

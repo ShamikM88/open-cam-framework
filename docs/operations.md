@@ -78,7 +78,7 @@ To triage:
    - *Unreachable by the tests as written:* for example command-line `main()` wrappers that are only run by subprocess tests, which neither run under mutmut nor are visible to it (#182). The fix is to test them in-process, not to ignore them.
    - *Equivalent mutant:* the change cannot alter observable behaviour (a log message, a redundant guard). Note it and move on; do not contort the code.
    - *Timeout:* counted as killed, but a pattern of them can mean a mutant caused a loop; look once.
-3. **File an issue per cluster** with the function, the surviving mutations and the assertion that would kill them. Existing examples are #182, #183 and #184.
+3. **File an issue per cluster** with the function, the surviving mutations and the assertion that would kill them. Existing examples are #182, #183 and #184. Search the open issues for the function first; the cluster may already be filed.
 4. **Fix with a test that fails against the mutant**, then re-run the weekly job to see the module's score move. Do not chase 100%: the target is a to-do list, and the cost of the last survivors usually exceeds their value.
 5. **Never change the scope or the target casually.** `only_mutate` must equal the critical modules plus the named supporting list (a test pins it), and changing the target is a reviewed change.
 

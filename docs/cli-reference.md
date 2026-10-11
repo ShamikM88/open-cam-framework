@@ -117,8 +117,9 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
 - `--new-review` starts a fresh dated folder for a new annual review instead of resuming the most recent one, so it
   never inherits last year's inputs.
 
-It needs `ANTHROPIC_API_KEY`; without one it fails at its first model call (after checkpointing the grounded figures)
-with a missing-credentials error and sends nothing. See [Troubleshooting](troubleshooting.md#orchestratorpy-ends-in-a-traceback-ending-could-not-resolve-authentication-method).
+It needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any it stops first, before it reads or
+writes the deal, with one `error: no Anthropic credentials were found...` line and exit status `1`, and sends nothing. See
+[Troubleshooting](troubleshooting.md#orchestratorpy-stops-with-error-no-anthropic-credentials-were-found).
 
 ## Export
 

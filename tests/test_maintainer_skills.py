@@ -107,7 +107,7 @@ def frontmatter_problems(text, name=NAME):
 def test_the_maintainer_skills_of_phase_3_are_the_implemented_ones():
     rows = [r for r in inventory_rows(read(REGISTRY)) if r["kind"] == "skill" and r["audience"] == "maintainer"]
     implemented = sorted(r["name"] for r in rows if r["status"].startswith("implemented"))
-    assert implemented == [NAME, "docs-maintenance"]
+    assert implemented == [NAME, "docs-maintenance", "mutation-triage"]     # the last is Phase 4
     assert [r["name"] for r in rows if r["status"].startswith("planned")] == []
 
 

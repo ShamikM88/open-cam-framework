@@ -355,15 +355,18 @@ def test_the_state_error_messages_are_the_ones_the_troubleshooting_page_quotes(d
 
 
 def test_the_orchestrator_without_credentials_fails_the_way_the_troubleshooting_page_says(deal):
+    """Issue #187: no credentials is one `error:` line before anything runs, and the page quotes that line."""
+    before = deal.state_file().read_bytes()
     done = deal.run("orchestrator", "--company", COMPANY, "--proposal", PROPOSAL, "--type", "asset_finance")
-    assert done.returncode == 1
-    assert "[1/3] Underwriter Agent drafting CAM for Synthetic Co" in done.stdout
-    assert "Could not resolve authentication method" in done.stderr
+    assert done.returncode == 1 and done.stdout == ""
+    assert "Traceback" not in done.stderr and "Could not resolve authentication method" not in done.stderr
+    (line,) = done.stderr.splitlines()
+    assert line.startswith("error: no Anthropic credentials were found;")
     trouble = page("troubleshooting.md")
-    assert "Could not resolve authentication method" in trouble and "[1/3] Underwriter Agent drafting CAM for ..." in trouble
-    # the grounded figures were checkpointed before the model call, as docs/data-model.md says
-    state = json.loads(deal.state_file().read_text(encoding="utf-8"))
-    assert "policy_state" in state and "model_provenance" in state
+    assert line in trouble, "the page quotes the line exactly"
+    assert "### `orchestrator.py` stops with `error: no Anthropic credentials were found`" in trouble
+    # nothing was read, written or checkpointed: the deal is byte for byte what it was
+    assert deal.state_file().read_bytes() == before
 
 
 # ---------------------------------------------------------------------------

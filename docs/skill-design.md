@@ -185,7 +185,7 @@ registry holds only what a test can compare with a file.
 ## The first tranche
 
 Chosen from the issue's catalogue against what the repository already has, not as a wish list. The aid skills sit on
-scripts that exist today; the two procedures wrap documented sequences that a maintainer runs on every change.
+scripts that exist today; the procedures wrap documented sequences for change verification, documentation maintenance and prompt-sensitive review.
 
 | Skill | Phase | Audience | Invocation | Effect | Interactive only |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -195,6 +195,7 @@ scripts that exist today; the two procedures wrap documented sequences that a ma
 | `cam-change-verification` | 3 | maintainer | user | Procedure | Not a deal skill |
 | `docs-maintenance` | 3 | maintainer | user | Procedure | Not a deal skill |
 | `mutation-triage` | 4 | maintainer | user | Report | Not a deal skill |
+| `prompt-change-gate` | 4 | maintainer | user | Procedure | Not a deal skill |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -309,6 +310,16 @@ contextual, and a model-invocable description would sit in every session's conte
 - **Versus the runbook.** The runbook is the procedure and stays authoritative; the skill adds the checks that are
   tedious by hand (test-selection membership, finding the function's source and tests) and a fixed report shape.
 
+
+### `prompt-change-gate` (Phase 4)
+
+- **Purpose.** Gather and report the repository evidence required before a maintainer changes a production agent prompt, the interactive Checker agent, or a slash-command instruction. It is a procedure/checklist, not an approval bot.
+- **Reads / delegates to.** The current diff; [Contributing: changing an agent prompt](contributing.md#changing-an-agent-prompt); [Evaluation](evaluation.md) and [AI assurance](ai-assurance.md); the existing prompt-hash implementation, baseline schema and `tests/test_prompt_consistency.py` including `EXPECTED_SUBJECTS`. It points to those sources rather than copying their rules.
+- **Side effects.** None by design. It reads repository state and reports in chat. The write tools are removed; the rest is an
+  instruction, because `Bash` stays available and an unlisted command only asks for permission. It does not edit prompts, commands, test expectations, provenance records or baselines; it does not call `gh`, fetch from a remote, commit, push, merge or make live model calls.
+- **Gate logic.** It distinguishes an observed issue/PR/authorisation reference from an assertion supplied in arguments. Where issue or review discussion is not in the local evidence, it marks that gate unknown. It checks whether a relevant, complete baseline exists and distinguishes assembled-prompt hashes from source-file hashes. Issue #150 remains blocked until the applicable pre-change baseline required by #151 exists; a green structural test is not generative-quality evidence.
+- **Limits.** It cannot grant authorisation or verify remote GitHub discussion without the evidence being supplied. It reports present/missing/unknown, never “approved”, “safe” or “ready to merge”. The maintainer decides whether the evaluation rationale is sufficient and whether any change may proceed.
+
 ## Later, and why
 
 | Skill | Status | Reason and gate |
@@ -319,7 +330,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
-| `state-migration`, `prompt-change-gate`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built as the first Phase 4 skill: its value is the evidence it gathers against one report, not a restatement of the runbook.) |
+| `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
 | The issue's "nice to have" skills | Out of scope | Unchanged from the issue. |
 
 ## Phased delivery
@@ -331,8 +342,9 @@ contextual, and a model-invocable description would sit in every session's conte
 3. **Maintainer procedures (done):** `cam-change-verification` (`tests/test_maintainer_skills.py`) and `docs-maintenance`
    (`tests/test_docs_maintenance_skill.py`).
 4. **From evidence:** the best of the deferred list, one pull request each. Done so far: `mutation-triage`
-   (`tests/test_mutation_triage_skill.py`), chosen first because open triage issues (#182 to #184, #219) and a report
-   that already exists show the need.
+   (`tests/test_mutation_triage_skill.py`), chosen because open triage issues (#182 to #184, #219) and an existing report
+   show the need; and `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
+   documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful.
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its

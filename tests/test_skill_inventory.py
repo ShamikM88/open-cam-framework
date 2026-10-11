@@ -147,27 +147,24 @@ def inventory_problems(rows, commands, skills):
     return problems
 
 
-def test_the_inventory_is_the_command_and_skill_files():
-    rows = inventory_rows(read(REGISTRY))
-    assert command_files(), "no slash commands found: the test is looking in the wrong place"
-    assert rows, "no inventory rows found: the registry's table changed shape"
-    assert inventory_problems(rows, command_files(), skill_files()) == []
-
-    # prompt-change-gate is a maintainer procedure, not an approval bot. Keep its platform-facing
-    # contract guarded here without changing the suite's test-count badge for assertion-only coverage.
-    gate_path = REPO / ".claude" / "skills" / "prompt-change-gate" / "SKILL.md"
-    gate_text = gate_path.read_text(encoding="utf-8")
-    gate_fields = frontmatter(gate_text)
-    gate_row = next(r for r in rows if r["kind"] == "skill" and r["name"] == "prompt-change-gate")
-    assert gate_fields["name"] == "prompt-change-gate"
-    assert invocation_of(gate_fields) == "user"
-    assert gate_fields["disable-model-invocation"].lower() == "true"
-    assert "context" not in gate_fields, "the maintainer needs to inspect the change in their own session"
-    assert set(gate_fields["disallowed-tools"].split()) >= {"Write", "Edit", "NotebookEdit"}
-    assert gate_row["audience"] == "maintainer" and gate_row["status"] == "implemented: phase 4"
-    assert gate_row["role"] == "None (aid)" and gate_row["headless"] == "no"
-    frontmatter_text = gate_text.split("---", 2)[1]
-    for command in (
+def prompt_gate_contract_problems(text):
+    """Check the maintainer procedure's safety contract; callers also run this on deliberately wrong variants."""
+    fields = frontmatter(text)
+    problems = []
+    if fields.get("name") != "prompt-change-gate":
+        problems.append("wrong name")
+    if invocation_of(fields) != "user":
+        problems.append("must be user-invocable only")
+    if "context" in fields:
+        problems.append("must stay in the maintainer's own session")
+    if set(fields.get("disallowed-tools", "").split()) < {"Write", "Edit", "NotebookEdit"}:
+        problems.append("write tools must be removed")
+    if set(fields) != {"name", "description", "argument-hint", "disable-model-invocation", "allowed-tools", "disallowed-tools"}:
+        problems.append("unexpected frontmatter key or a required key is missing")
+    fm = text.split("---", 2)[1] if text.count("---") >= 2 else ""
+    actual_tools = {m.group(1).strip().strip("\"'") for m in re.finditer(r"(?m)^\s+-\s+(.+?)\s*$", fm)}
+    expected_tools = {
+        "Read", "Glob", "Grep",
         "Bash(git status --short)",
         "Bash(git branch --show-current)",
         "Bash(git diff --name-only origin/main...HEAD)",
@@ -175,26 +172,55 @@ def test_the_inventory_is_the_command_and_skill_files():
         "Bash(git diff origin/main...HEAD)",
         "Bash(git diff --check)",
         "Bash(python -m pytest tests/test_prompt_consistency.py)",
-    ):
-        assert command in frontmatter_text, command
-    for forbidden in ("Bash(git fetch", "Bash(git commit", "Bash(git push", "Bash(gh ", "Bash(python scripts/run_evals.py"):
-        assert forbidden not in frontmatter_text, forbidden
-    required_rules = (
+    }
+    if actual_tools != expected_tools:
+        problems.append("allowed-tools must be the exact read-only list")
+    body_rules = (
         "Never concludes that a change is authorised",
         "Never treats a passing consistency test as evidence",
         "explicit maintainer authorisation",
         "Distinguish hashes of assembled prompts in a run/baseline from any hash of a source file",
         "Prompt hardening in issue #150 must wait for the pre-change baseline required by #151",
-        "Never edits `agents/*.md`",
+        "Never edits",
+        "agents/*.md",
         "Never creates or updates a baseline",
-        "Never concludes that a change is authorised",
         "does not authorise, approve or merge a prompt or command change",
         "EXPECTED_SUBJECTS",
     )
-    for rule in required_rules:
-        assert rule in gate_text, rule
-    assert not ({"APPROVED", "REJECTED", "PASS", "FAIL"} & set(re.findall(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|FAIL)(?![A-Za-z])", gate_text.split("## Report format")[1].split("## Authoritative sources")[0]))), \
-        "the gate report must not turn the checklist into an approval verdict"
+    for rule in body_rules:
+        if rule not in text:
+            problems.append(f"missing safety rule: {rule}")
+    report = text.partition("## Report format")[2].partition("## Authoritative sources")[0]
+    if re.search(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|FAIL)(?![A-Za-z])", report):
+        problems.append("report format emits a policy or approval verdict")
+    return problems
+
+
+def test_the_inventory_is_the_command_and_skill_files():
+    rows = inventory_rows(read(REGISTRY))
+    assert command_files(), "no slash commands found: the test is looking in the wrong place"
+    assert rows, "no inventory rows found: the registry's table changed shape"
+    assert inventory_problems(rows, command_files(), skill_files()) == []
+
+    gate_text = read(".claude/skills/prompt-change-gate/SKILL.md")
+    gate_fields = frontmatter(gate_text)
+    gate_row = next(r for r in rows if r["kind"] == "skill" and r["name"] == "prompt-change-gate")
+    assert gate_fields["disable-model-invocation"].lower() == "true"
+    assert gate_row["audience"] == "maintainer" and gate_row["status"] == "implemented: phase 4"
+    assert gate_row["role"] == "None (aid)" and gate_row["headless"] == "no"
+    assert prompt_gate_contract_problems(gate_text) == []
+
+    # These deliberate mutations show that the contract catches the most important ways to weaken the gate.
+    weakened_authorisation = gate_text.replace(
+        "Never concludes that a change is authorised", "Concludes that a change is authorised", 1)
+    assert "missing safety rule: Never concludes that a change is authorised" in prompt_gate_contract_problems(weakened_authorisation)
+    weakened_baseline = gate_text.replace(
+        "Prompt hardening in issue #150 must wait for the pre-change baseline required by #151",
+        "Prompt hardening can proceed without a baseline", 1)
+    assert any("baseline required by #151" in p for p in prompt_gate_contract_problems(weakened_baseline))
+    unsafe_tool = gate_text.replace(
+        "Bash(git diff --check)", "Bash(git commit -m unsafe)", 1)
+    assert "allowed-tools must be the exact read-only list" in prompt_gate_contract_problems(unsafe_tool)
 
 
 def row(name, kind="skill", **overrides):

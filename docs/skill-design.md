@@ -329,7 +329,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
-| `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` and `prompt-change-gate` had the same overlap: their value is the specific evidence they gather, not a restatement of the runbook.) |
+| `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
 | The issue's "nice to have" skills | Out of scope | Unchanged from the issue. |
 
 ## Phased delivery

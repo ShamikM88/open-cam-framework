@@ -148,8 +148,34 @@ def _meaningful_stress(assumptions):
             if value is not None and not (isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0)}
 
 
+class MissingCredentialsError(Exception):
+    """No usable Anthropic authentication was found, so the pipeline cannot call the API (issue #187)."""
+
+
+MISSING_CREDENTIALS_MESSAGE = (
+    "no Anthropic credentials were found; the headless pipeline calls the Anthropic API directly. Set "
+    "ANTHROPIC_API_KEY in the environment of this process (the SDK also accepts ANTHROPIC_AUTH_TOKEN or a configured "
+    "credentials profile), or use the slash commands, which need no key. See docs/configuration.md#credentials."
+)
+
+
+def _has_credentials(client):
+    """True if `client` would send an authentication header or has a credentials provider. This mirrors the SDK's own
+    pre-request check (an `X-Api-Key` or `Authorization` header, or a credentials provider that supplies one later) using
+    its public attributes, so every method the SDK supports -- a key, a token, a profile, a header set through
+    ANTHROPIC_CUSTOM_HEADERS -- counts, and the check is made without a request."""
+    if getattr(client, "custom_auth", None) is not None:
+        return True
+    headers = {str(name).lower(): value for name, value in client.default_headers.items()}
+    return any(isinstance(headers.get(name), str) and headers[name].strip() for name in ("x-api-key", "authorization"))
+
+
 def _default_client():
-    return Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    # `or None`: an empty ANTHROPIC_API_KEY is "not set", so the SDK may still use a token or profile.
+    client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY") or None)
+    if not _has_credentials(client):
+        raise MissingCredentialsError(MISSING_CREDENTIALS_MESSAGE)
+    return client
 
 
 def _load_json_file(path):
@@ -796,5 +822,5 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except StateError as exc:
+    except (StateError, MissingCredentialsError) as exc:
         sys.exit(f"error: {exc}")

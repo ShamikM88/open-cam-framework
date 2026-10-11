@@ -8,9 +8,11 @@ subprocess -- the __main__ block is a thin argparse+print wrapper around
 compute(), matching test_policy_check.py's own stated rationale for doing
 the same.
 """
+import json
+
 import pytest
 
-from spreading_check import compute, plan_fields
+from spreading_check import compute, main, plan_fields
 from state_manager import read_state, write_state
 
 
@@ -219,3 +221,153 @@ def test_plan_fields_takes_historical_raw_years_on_an_analyst_supplied_forecast_
     with pytest.raises(ValueError, match="would stamp the whole deal framework-computed"):
         plan_fields(existing, historical, update_financials_source=True)
     assert existing == {"forecast_source": "analyst-supplied", "financials_source": "analyst-supplied"}, "input untouched"
+
+
+# ---------------------------------------------------------------------------
+# main(): the command-line wrapper, called in-process (issue #182)
+#
+# tests/test_cli_subprocess.py still runs the real entry point as a child process; mutmut runs the selected tests in this
+# process, so only calls like these can reach (and so kill mutants in) main() itself.
+# ---------------------------------------------------------------------------
+
+RAW_YEAR = {"revenue": 1000, "cost_of_sales": 400, "admin_expenses": 200}
+
+
+def _json_file(tmp_path, name, content):
+    path = tmp_path / name
+    path.write_text(json.dumps(content), encoding="utf-8")
+    return str(path)
+
+
+def _run_main(capsys, *argv):
+    main(list(argv))
+    out = capsys.readouterr()
+    assert out.err == ""
+    return json.loads(out.out)
+
+
+def test_main_recomputes_prints_the_four_keys_and_checkpoints_the_same_figures(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    financials = _json_file(tmp_path, "fin.json", {"FY-Current": RAW_YEAR})
+
+    printed = _run_main(capsys, "--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", financials)
+
+    assert list(printed) == ["financials", "ratios", "downside_case", "financials_source"]
+    assert printed["financials"]["FY-Current"]["gross_profit"] == 600
+    assert printed["financials"]["FY-Current"]["raw"] == RAW_YEAR
+    assert printed["downside_case"] is None, "no stress assumption, so no downside case"
+    assert printed["financials_source"] == "framework-computed", "the default stamps the basis"
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials"] == printed["financials"] and state["ratios"] == printed["ratios"]
+    assert state["multi_period_financials"] == {"FY-Current": RAW_YEAR}
+
+
+def test_main_reads_the_stress_assumptions_file_and_prints_the_downside_case(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    financials = _json_file(tmp_path, "fin.json", {"FY+1": RAW_YEAR})
+    stress = _json_file(tmp_path, "stress.json", {"revenue_haircut_pct": 10})
+
+    printed = _run_main(capsys, "--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", financials,
+                        "--stress-assumptions", stress)
+
+    assert printed["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 900
+    assert read_state("Acme Corp", "Fleet Loan")["stress_assumptions"] == {"revenue_haircut_pct": 10}
+
+
+def test_main_accepts_stress_assumptions_alone_for_a_deal_that_already_has_figures(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": RAW_YEAR})
+    stress = _json_file(tmp_path, "stress.json", {"revenue_haircut_pct": 20})
+
+    printed = _run_main(capsys, "--company", "Acme Corp", "--proposal", "Fleet Loan", "--stress-assumptions", stress)
+
+    assert printed["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 800
+
+
+def test_main_no_update_financials_source_leaves_the_basis_label_as_it_was(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied")
+    financials = _json_file(tmp_path, "fin.json", {"FY+1": RAW_YEAR})
+
+    printed = _run_main(capsys, "--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", financials,
+                        "--no-update-financials-source")
+
+    assert printed["financials_source"] == "analyst-supplied"
+    assert read_state("Acme Corp", "Fleet Loan")["financials_source"] == "analyst-supplied"
+
+
+def test_main_without_the_flag_does_stamp_the_basis_on_a_deal_that_had_none(tmp_path, monkeypatch, capsys):
+    """The flag's default is the stamping behaviour: only the flag turns it off."""
+    monkeypatch.chdir(tmp_path)
+    financials = _json_file(tmp_path, "fin.json", {"FY-Current": RAW_YEAR})
+    off = _run_main(capsys, "--company", "A", "--proposal", "P", "--financials", financials, "--no-update-financials-source")
+    on = _run_main(capsys, "--company", "B", "--proposal", "P", "--financials", financials)
+    assert off["financials_source"] is None and on["financials_source"] == "framework-computed"
+
+
+def test_main_turns_a_state_error_into_one_error_line_and_changes_nothing(tmp_path, monkeypatch, capsys):
+    """A state written by a newer framework is never downgraded: one `error:` line as the exit message, the file untouched."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": RAW_YEAR})
+    state_file = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    newer = json.loads(state_file.read_text(encoding="utf-8"))
+    newer["schema_version"] = "9.0.0"
+    state_file.write_text(json.dumps(newer), encoding="utf-8")
+    before = state_file.read_bytes()
+    financials = _json_file(tmp_path, "fin.json", {"FY-Current": dict(RAW_YEAR, revenue=2000)})
+
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", financials])
+
+    message = str(caught.value.code)
+    assert message.startswith("error: ") and "9.0.0" in message and "\n" not in message
+    assert capsys.readouterr().out == "", "no result is printed for a refused call"
+    assert state_file.read_bytes() == before
+
+
+def test_main_with_nothing_to_compute_writes_no_state(tmp_path, monkeypatch):
+    """No --financials and nothing on file is refused (as compute() does), and no deal folder is created for it."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="Nothing to compute"):
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan"])
+    assert not (tmp_path / "deals").exists()
+
+
+def test_main_with_a_missing_financials_file_fails_before_writing_anything(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", str(tmp_path / "nope.json")])
+    assert not (tmp_path / "deals").exists()
+
+
+def test_main_reads_its_input_files_as_utf8(tmp_path, monkeypatch, capsys):
+    """A period label or a note with a non-ASCII character must not depend on the platform's default encoding."""
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "fin.json"
+    path.write_text(json.dumps({"FY-Current": dict(RAW_YEAR, note="£ \u2014 \u00e9")}, ensure_ascii=False), encoding="utf-8")
+    printed = _run_main(capsys, "--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", str(path))
+    assert printed["financials"]["FY-Current"]["raw"]["note"] == "£ \u2014 \u00e9"
+
+
+@pytest.mark.parametrize("argv, missing", [
+    ([], "--company"),
+    (["--company", "A"], "--proposal"),
+])
+def test_main_requires_company_and_proposal(capsys, argv, missing):
+    with pytest.raises(SystemExit) as caught:
+        main(argv)
+    assert caught.value.code == 2
+    err = capsys.readouterr().err
+    assert "usage:" in err and missing in err
+
+
+def test_main_rejects_an_unknown_flag_and_help_lists_every_flag(capsys):
+    with pytest.raises(SystemExit) as bad:
+        main(["--company", "A", "--proposal", "P", "--nope"])
+    assert bad.value.code == 2 and "unrecognized arguments: --nope" in capsys.readouterr().err
+    with pytest.raises(SystemExit) as helped:
+        main(["--help"])
+    assert helped.value.code == 0
+    text = capsys.readouterr().out
+    for flag in ("--company", "--proposal", "--financials", "--stress-assumptions", "--no-update-financials-source"):
+        assert flag in text, flag

@@ -139,8 +139,9 @@ non-existent.
   grade, or recommend lend/decline. It is an adversarial question set, not a full risk matrix, policy engine or formal Checker.
 - **No overlap with the deterministic policy report.** `policy-fit` structures the recorded results from `policy_check.py`;
   `credit-challenge` may ask an evidence-based question about a result but does not recalculate or re-interpret it.
-- **No persistence or external actions.** It uses only `Read`, `Glob` and `Grep`. It has no shell or script command, makes no
-  web/API call, does not modify the draft or `state.json`, does not append to `review_trail`, and creates no evidence/learning file.
+- **No persistence or external actions.** It uses only `Read`, `Glob` and `Grep`. `Bash`, `WebFetch` and `WebSearch` are removed
+  while it runs, so it has no shell or script command and cannot browse (enforced for those tools; any other tool is an
+  instruction and stays under your permission settings). It makes no web/API call, does not modify the draft or `state.json`, does not append to `review_trail`, and creates no evidence/learning file.
   Its output is an analyst aid in chat and is not passed into the separate `/review` Checker path.
 
 

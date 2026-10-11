@@ -9,7 +9,7 @@ allowed-tools:
   - Read
   - Glob
   - Grep
-disallowed-tools: Write Edit NotebookEdit
+disallowed-tools: Write Edit NotebookEdit Bash WebFetch WebSearch
 ---
 
 # credit-challenge
@@ -56,6 +56,8 @@ Do not repeat the entire `policy-fit` report. If a deterministic policy result m
 
 ## 5. Report each substantive challenge in this exact order
 
+Begin the report with a **Material reviewed:** line that names the `state.json` read, says whether `sources/manifest.json` was readable and how many entries it holds (or that it is not present), and gives the draft path or “no draft available”.
+
 ### Challenge N — <short, neutral title>
 
 1. **Challenge / question:** The assumption, inference, inconsistency or missing support worth testing, phrased as a question rather than a verdict.
@@ -72,7 +74,7 @@ Order challenges by materiality to the decision-making question, without assigni
 - Never issue an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL` verdict, borrower rating/grade, numerical score, lend/decline recommendation, or claim that the deal is cleared.
 - Never impersonate, replace or short-circuit the formal Checker. `/review` remains the separate formal review path, and deterministic policy checks remain authoritative for the checks they enforce.
 - Never edit the draft, update `state.json`, append to `review_trail`, write to the source manifest, create a source/evidence file, or persist learnings. This report exists only in chat and is not part of the deal record or model provenance.
-- Never make a live model/API call, browse the web, fetch source material, run shell commands or invoke scripts. Use only Read, Glob and Grep to inspect the bounded local inputs.
+- Never make a live model/API call, browse the web, fetch source material, run shell commands or invoke scripts. Use only Read, Glob and Grep to inspect the bounded local inputs. `Bash`, `WebFetch` and `WebSearch` are removed while the skill runs, so for those the limit is enforced; for any other tool it is an instruction, and the tool stays under the user's permission settings.
 - Do not invent an objection to fill the template. Do not withhold counter-evidence. Distinguish “not present in the material reviewed” from “does not exist.”
 - End with the caveat below and name the next question, if any, for the analyst to resolve.
 

@@ -349,7 +349,7 @@ contextual, and a model-invocable description would sit in every session's conte
 
 ### `credit-challenge` — design contract
 
-**Decision recorded here:** the design-only proposal is preserved separately from the executable skill implementation. The implementation lives in a follow-up PR and must satisfy this contract. It remains an analyst aid, not an input to the Maker or Checker.
+**Decision recorded here:** the design-only proposal is preserved separately from the executable skill implementation. The implementation lives in a follow-up PR stacked on the design PR (it merges after it) and must satisfy this contract. It remains an analyst aid, not an input to the Maker or Checker.
 
 **Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
 

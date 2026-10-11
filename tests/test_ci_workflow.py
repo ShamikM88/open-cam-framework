@@ -128,6 +128,7 @@ def test_the_workflow_only_runs_on_push_to_main_and_pull_requests_never_pull_req
 
 def test_the_test_job_measures_and_enforces_coverage_from_the_pyproject_floors():
     body = split_jobs(workflow_text())["test"]
+    assert "pytest tests/ -n 4 --dist=loadfile --durations=30 --cov" in body
     assert "--durations=30" in body, "keep slow-test profiling visible on Ubuntu"
     assert "--cov" in body and "--cov-report=xml" in body and "--cov-report=json" in body
     assert "python scripts/check_coverage.py coverage.json" in body
@@ -223,7 +224,8 @@ def test_the_count_check_in_the_test_job_runs_after_the_suite_and_never_writes()
 
 def test_the_windows_job_runs_the_suite_on_windows():
     body = split_jobs(workflow_text())["test-windows"]
-    assert "runs-on: windows-latest" in body and "pytest tests/" in body and "--durations=30" in body
+    assert "runs-on: windows-latest" in body and "pytest tests/ -n 2 --dist=loadfile --durations=30" in body
+    assert "pytest-xdist>=3.8.0" in (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
 
 
 def test_the_runtime_job_installs_only_the_runtime_requirements():
@@ -349,11 +351,10 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
     # full-suite runs on both operating systems; it must never add work to every PR.
     benchmark = (WORKFLOW.parent / "ci-parallelism-benchmark.yml").read_text(encoding="utf-8")
     triggers = benchmark.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"pull_request", "workflow_dispatch"}
-    assert "github.head_ref == 'perf/212-ci-timing-baseline'" in benchmark
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"workflow_dispatch"}
     assert "os: [ubuntu-latest, windows-latest]" in benchmark
     assert "workers: [1, 2, 4]" in benchmark
-    assert "repeat: [4]" in benchmark
+    assert "repeat: [1, 2, 3]" in benchmark
     assert "max-parallel: 6" in benchmark
     assert "pytest tests/ -n 2 --dist=loadfile --durations=30" in benchmark
     assert "pytest tests/ -n 4 --dist=loadfile --durations=30" in benchmark

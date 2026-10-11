@@ -246,8 +246,12 @@ def test_the_skill_asks_for_the_report_shape_the_checker_reads():
     assert SPEC.nothing_phrase in body and SPEC.caveat in body
 
 
-def test_the_refusal_list_has_one_backslash_not_two():
-    """The list is the same characters as the other analyst aids: a doubled backslash would read as two characters."""
+def test_the_refusal_list_names_each_character_once_so_a_backslash_in_a_name_is_refused():
+    """The skill's list is read as space-separated one-character tokens. A doubled backslash is a two-character token that
+    no name contains by accident, so a name with one backslash would not be refused; this is the defect the review found."""
     line = next(ln for ln in read(SKILL).splitlines() if "contains any of" in ln)
-    assert "`\\ / : * ? \" < > | $ [ ] { }`" in line and "`\\\\ " not in line
-    assert re.search(r"\\\\", line) is None
+    listed = re.search(r"contains any of `([^`]+)`", line).group(1).split()
+    assert listed == list("\\/:*?\"<>|$[]{}")        # the same characters as the other analyst aids, in the same order
+    assert all(len(token) == 1 for token in listed)
+    for name in ("Acme\\Holdings", "Acme/Holdings", "Acme:Holdings", "Acme$Holdings"):
+        assert any(token in name for token in listed), name

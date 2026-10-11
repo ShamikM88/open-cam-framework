@@ -491,8 +491,10 @@ Lead with a **Material reviewed:** line (the `state.json` read, whether the mani
    (`tests/test_mutation_triage_skill.py`), chosen because open triage issues (#182 to #184, #219) and an existing report
    show the need; `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
    documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful; and
-   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit), and
-   `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker).
+   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit),
+   `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker),
+   and `credit-risk` (organises the evidenced risk picture by category, with mitigants and residual uncertainty, without
+   duplicating `financial-analysis`, `policy-fit`, `credit-challenge` or the formal Checker).
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its

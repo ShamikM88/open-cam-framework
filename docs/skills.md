@@ -157,7 +157,7 @@ The risk categories are a navigation aid, not a checklist. The report includes o
 
 - **No decision, score or recalculation.** No overall `APPROVED`, `REJECTED`, `PASS` or `FAIL`; no rating, risk grade, score, probability or lend/decline recommendation. Recorded financial and policy outputs are quoted, not recalculated or reinterpreted.
 - **Distinct from adjacent aids.** `financial-analysis` interprets recorded figures, `policy-fit` explains deterministic policy output, and `credit-challenge` adversarially tests assumptions. `credit-risk` organises the broader evidenced risk picture and residual uncertainty.
-- **Read-only, no external actions.** Only `Read`, `Glob` and `Grep` are pre-approved; `Write`, `Edit`, `NotebookEdit` and `Bash` are removed. It makes no web/API calls, writes nothing to the deal, and is not passed to the separate `/review` Checker. The tool settings and procedure are not an operating-system sandbox.
+- **Read-only, no external actions.** Only `Read`, `Glob` and `Grep` are pre-approved; `Write`, `Edit`, `NotebookEdit`, `Bash`, `WebFetch` and `WebSearch` are removed while it runs, which is enforced for those tools; that it invokes no other skill or tool is an instruction. It makes no web/API calls, writes nothing to the deal, and is not passed to the separate `/review` Checker. The tool settings and procedure are not an operating-system sandbox.
 
 ## The maintainer procedures
 

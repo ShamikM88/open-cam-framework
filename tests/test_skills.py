@@ -572,7 +572,7 @@ def test_each_skill_states_the_refusal_rule_before_it_runs_anything(name):
     assert REFUSAL in text and "backtick" in text and "starts with `-`" in text
     lines = body.splitlines()
     refusal_line = next(i for i, line in enumerate(lines) if "contains any of" in line or "Refuse (say why" in line)
-    if name == "credit-challenge":
+    if name in {"credit-challenge", "credit-risk"}:
         assert not any(line.strip().startswith("python scripts/") for line in lines)
     else:
         first_command = next(i for i, line in enumerate(lines) if line.strip().startswith("python scripts/"))

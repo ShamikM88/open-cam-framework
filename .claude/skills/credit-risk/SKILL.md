@@ -9,7 +9,7 @@ allowed-tools:
   - Read
   - Glob
   - Grep
-disallowed-tools: Write Edit NotebookEdit Bash
+disallowed-tools: Write Edit NotebookEdit Bash WebFetch WebSearch
 ---
 
 # credit-risk
@@ -20,7 +20,7 @@ An **analyst aid** that organises the risk picture evidenced in a named deal's r
 
 ## 1. Validate identifiers and an optional draft
 
-- Require one non-empty company and proposal. Refuse (explain why and stop) if either is `.` or `..`, starts with `-`, or contains any of `\\ / : * ? " < > | $ [ ] { }`, a backtick, a newline or another control character. These make a lookup ambiguous or unsafe; do not silently repair a name.
+- Require one non-empty company and proposal. Refuse (explain why and stop) if either is `.` or `..`, starts with `-`, or contains any of `\ / : * ? " < > | $ [ ] { }`, a backtick, a newline or another control character. These make a lookup ambiguous or unsafe; do not silently repair a name.
 - An explicit draft path must be repository-relative, start with `deals/<company>/`, and contain no absolute prefix, `..` path component, glob metacharacter, backslash or control character. If it is outside the named company's deal area, ambiguous, or unsafe, refuse and stop.
 - Do not run commands, scripts or another tool to interpret arguments. Use validated values only to construct the local lookup patterns below.
 
@@ -54,7 +54,7 @@ Do not recalculate financial ratios, covenant headroom, exposure, collateral cov
 
 ## 5. Report each material risk in this exact order
 
-Start with a short **Scope reviewed** statement naming the selected dated folder, whether a draft was read, and the categories/material actually reviewed. For each material risk use:
+Start with a **Material reviewed:** line that names the `state.json` read, says whether `sources/manifest.json` was readable and how many entries it holds (or that it is not present), and gives the draft path or “no draft available”. Follow it with a **Categories reviewed:** line naming the categories for which material was found and those for which none was. For each material risk use:
 
 ### Risk N — <short, neutral title>
 
@@ -72,9 +72,17 @@ If no material risk is identified, say only “No material risk identified in th
 - Never issue an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL` verdict. Never recommend lend/decline, say the deal is cleared, or assign a borrower rating, risk grade, numerical score or probability.
 - Never replace `/review`, the Checker or deterministic policy engine. Human judgement, exceptions and waivers remain with the authorised human process.
 - Never edit the draft, update `state.json`, change the source manifest, append to `review_trail`, or create a learning/evidence file.
-- Never run a shell command or script, browse the web, fetch a source, make a live model/API call, or invoke another skill.
+- Never run a shell command or script, browse the web, fetch a source, make a live model/API call, or invoke another skill. `Bash`, `WebFetch` and `WebSearch` are removed while the skill runs, so for those the limit is enforced; for any other tool it is an instruction, and the tool stays under the user's permission settings.
 - The report is an interactive analyst aid only. It is not persisted, is not provenance/evaluation input and is not passed into the formal Checker. Tests pin this contract text and tool surface; they do not prove that a model will always obey it.
+
+End the report with this caveat:
+
+> Analyst aid only. Read-only: no deal record or draft was changed. This is an organised view of the recorded material, not a formal review, credit verdict or recommendation. Use the deterministic checks and `/review` for their defined roles.
 
 ## Authoritative sources
 
 The deal's selected `state.json`, saved-source manifest and any unambiguously identified current draft are the deal-specific material. For schema and financial definitions, follow [Data model](../../../docs/data-model.md), [Financial model](../../../docs/financial-model.md), and [Skill design](../../../docs/skill-design.md). The user-facing limits of the skill layer are in [Skills](../../../docs/skills.md). These references remain authoritative; this skill adds no new financial or policy definition.
+
+## Repository paths inspected
+
+The design and source-of-truth rules are in `docs/skill-design.md`, `docs/skills.md`, `docs/data-model.md`, `docs/financial-model.md` and `CLAUDE.md`. The formal workflow is defined in `.claude/commands/review.md`; the saved-source manifest shape and trust boundaries are implemented by `scripts/source_manifest.py` and tested in `tests/test_skills.py`.

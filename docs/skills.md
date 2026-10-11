@@ -89,7 +89,7 @@ script.
 
 ## The maintainer procedures
 
-`cam-change-verification` and `docs-maintenance` are for the person who maintains the repository, not for an analyst, and
+`cam-change-verification`, `docs-maintenance` and `prompt-change-gate` are for the person who maintains the repository, not for an analyst, and
 they touch no deal. The bullets under "What every skill here is" describe the analyst aids; they differ where this
 section says. `docs-maintenance` is described after the details of `cam-change-verification`.
 
@@ -97,9 +97,10 @@ section says. `docs-maintenance` is described after the details of `cam-change-v
 | :--- | :--- | :--- |
 | `cam-change-verification` | `/cam-change-verification [what the change is about]` | Before asking for review, run in order and report: what changed and which sensitive paths (`agents/`, `config/`, `scripts/`, `.claude/`, `.github/`, `pyproject.toml`) it touches, Ruff and Bandit, the full suite with coverage, the test-count badge, the coverage floors and changed-line coverage, the documentation checks, a scan of added text, and a clean tree |
 | `docs-maintenance` | `/docs-maintenance [what changed]` | For a change, find the pages and worked examples that describe the changed source, update them in the same change, run the documentation checks, and say what the checks cannot confirm |
+| `prompt-change-gate` | `/prompt-change-gate [issue/PR or intended instruction change, optional]` | Before changing a prompt or slash-command instruction, gather evidence for the dedicated issue, explicit maintainer authorisation, provenance/evaluation story and structural consistency checks; report missing or unknown gates without approving the change |
 
-- **Same as the aids (both procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
-  `CLAUDE.md` line, and never input to the Maker or the Checker. Both run in your own session and make no network or model call.
+- **Same as the aids (all three procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
+  `CLAUDE.md` line, and never input to the Maker or the Checker. All three run in your own session and make no network or model call.
 - **`cam-change-verification` is different:** it is not forked, so you see the run, and `Write`, `Edit` and `NotebookEdit` are removed
   while it runs, so it makes no ad hoc edit to any tracked file. What does write is by design: the checks generate local artefacts, and the badge update is a
   separate, explicitly gated write. The artefacts are coverage files and `pytest_output.txt`, ignored by git. It runs the
@@ -156,6 +157,29 @@ deal.
 | Skill | Run | Use it to |
 | :--- | :--- | :--- |
 | `mutation-triage` | `/mutation-triage <path to the downloaded mutation-report folder or its mutation-report.json> [module or module.function]` | Read a mutation report and triage the surviving mutants: the scores as recorded, the largest groups of survivors by function, which tests name each function and whether the mutation run's test selection includes them, a candidate class for each group, the issue that may already cover it, and a proposed disposition with its evidence |
+
+
+### `prompt-change-gate`
+
+Use `/prompt-change-gate` before reviewing or starting an instruction change to `agents/underwriter_agent.md`,
+`agents/risk_reviewer_agent.md`, `.claude/agents/risk-reviewer.md`, or `.claude/commands/*.md`. It reads the current
+diff, follows [Contributing: changing an agent prompt](contributing.md#changing-an-agent-prompt), and checks the current
+evaluation and AI-assurance guidance rather than keeping a second copy of the rules.
+
+The report separates the actual changed paths, a dedicated issue/PR reference, visible authorisation evidence, the
+evaluation story, prompt/baseline comparability and structural prompt-consistency checks. It uses **present / missing /
+unknown** for evidence gates. If the GitHub issue or review discussion is not available in the supplied material, it
+does not pretend to have checked it. It distinguishes an assembled prompt hash recorded by a run from a source-file
+hash; those are not interchangeable.
+
+- **No automatic approval.** It does not say a change is safe, approved or ready to merge. A passing
+  `tests/test_prompt_consistency.py` run establishes only structural consistency, not whether a model follows the
+  prompt.
+- **Baseline dependency.** Prompt hardening #150 remains blocked until the relevant pre-change baseline required by
+  #151 exists and is applicable. A partial evaluation is diagnostic, not a baseline.
+- **No edits or live calls.** It does not edit prompts, commands, `EXPECTED_SUBJECTS`, provenance records or baselines;
+  does not run `gh`, fetch, commit, push or merge; and makes no live model/API call. The allowed commands are exact
+  read-only Git inspection and the prompt-consistency test. The user must still make the explicit maintainer decision.
 
 ### `mutation-triage`
 

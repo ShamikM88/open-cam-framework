@@ -10,7 +10,7 @@ the same.
 """
 import pytest
 
-from spreading_check import compute
+from spreading_check import compute, plan_fields
 from state_manager import read_state, write_state
 
 
@@ -191,3 +191,31 @@ def test_compute_preexisting_multi_period_financials_allows_stress_only_call(tmp
     state = compute("Acme Corp", "Fleet Loan", stress_assumptions={"revenue_haircut_pct": 10})
 
     assert state["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 900
+
+
+# ---------------------------------------------------------------------------
+# plan_fields(): the two guards no other test reached (issue #219)
+# ---------------------------------------------------------------------------
+
+def test_plan_fields_refuses_a_call_that_adds_no_period_and_no_stress_even_when_the_deal_has_figures():
+    """Nothing to compute is an error, not an empty success: the deal already has raw figures (so the "no figures on file"
+    guard is not the one that fires), but this call supplies no period and no stress assumption, so computing would write
+    nothing while looking as if it had worked."""
+    existing = {"multi_period_financials": {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}}
+    with pytest.raises(ValueError, match="Nothing to compute: --financials produced no new periods"):
+        plan_fields(existing)
+
+
+def test_plan_fields_takes_historical_raw_years_on_an_analyst_supplied_forecast_deal_only_without_relabelling_it():
+    """The analyst-supplied forecast guard stops two things: a recomputed forward year, and stamping the deal
+    framework-computed. A historical year passed with update_financials_source=False (what /project passes) does neither,
+    so it is accepted and the basis label is left alone; the same call that would relabel the deal is refused."""
+    existing = {"forecast_source": "analyst-supplied", "financials_source": "analyst-supplied"}
+    historical = {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}
+    fields = plan_fields(existing, historical, update_financials_source=False)
+    assert "financials_source" not in fields, "the basis label is not rewritten"
+    assert fields["financials"]["FY-Current"]["raw"]["revenue"] == 1000
+    assert fields["multi_period_financials"] == historical
+    with pytest.raises(ValueError, match="would stamp the whole deal framework-computed"):
+        plan_fields(existing, historical, update_financials_source=True)
+    assert existing == {"forecast_source": "analyst-supplied", "financials_source": "analyst-supplied"}, "input untouched"

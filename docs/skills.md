@@ -28,6 +28,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
 | `information-gaps` | `/information-gaps --company "<Name>" --proposal "<Proposal name>"` | Turn what is on disk into a prioritised request list: item, why it matters, where it should come from, priority, whether it blocks the next step | `state_manager.py --check-steps`, `source_manifest.py --check-sources`, `policy_check.py` (no `--draft`) |
 | `evidence-discipline` | `/evidence-discipline --company "<Name>" --proposal "<Proposal name>" [claims]` | Audit the deal's evidence: saved source, cited but not saved, analyst-supplied, read from an image, or unsupported | `source_manifest.py --check-sources` |
 | `financial-analysis` | `/financial-analysis --company "<Name>" --proposal "<Proposal name>"` | Read the recorded figures: what basis they rest on, levels and direction by period, what a `null` ratio means on that basis, covenant results as recorded | `policy_check.py` (no `--draft`) |
+| `policy-fit` | `/policy-fit --company "<Name>" --proposal "<Proposal name>"` | Explain recorded current covenant status, mandatory conditions, security gaps, downside items and forward-year disclosure-only outcomes using deterministic policy output | `policy_check.py` (no `--draft`) |
 
 Each is described in the registry; the files are `.claude/skills/<name>/SKILL.md`, and the files are authoritative for
 exactly what the model is told.
@@ -86,6 +87,28 @@ quoted, covenant results with their status and headroom as the policy check prin
 only; downside breaches are enforced when the draft is checked), and recorded figures that sit oddly together. It produces
 no growth rate, margin or other new number: a movement metric would be a calculation, so it would be a separate, tested
 script.
+
+
+### `policy-fit`
+
+Use `/policy-fit --company "<Name>" --proposal "<Proposal name>"` to inspect the deterministic, pre-draft policy view. The skill
+runs `scripts/policy_check.py` without `--draft`, so its report is not a draft-compliance check and not an overall credit verdict.
+
+It quotes the engine's current covenant results and reasons, mandatory Conditions Precedent (CPs), Conditions Subsequent (CSs),
+security gaps, downside covenant breaches and forward base-case results. Current-period covenant `PASS`, `FAIL` and
+`UNRESOLVABLE` statuses are reported as recorded; an unresolvable item is neither a pass nor a fail. Forward-year results are
+disclosure-only in the code-enforced path. Downside breaches must be surfaced and acknowledged in the eventual draft, but their
+existence alone is not an automatic rejection.
+
+- **The draftless limitation matters.** The CLI may return `compliant: true` because no code-enforced current covenant or security
+  reason was found, even when no draft has been checked. It does not mean the CAM includes required IDs, source declarations,
+  taxonomy, figure grounding or downside acknowledgements. The skill explains this rather than turning that flag into approval.
+- **Narrative policy and exceptions remain human decisions.** The command does not evaluate every sentence of the institutional
+  policy document, and its JSON does not authorise an exception or waiver. The skill does not make a lending recommendation; the
+  deterministic checks and `/review` retain their respective roles.
+- **A failed tool is not a deal finding.** Non-JSON output, a non-zero exit or a traceback stops the report. It does not guess or
+  calculate a replacement answer, and writes nothing to the deal.
+
 
 ## The maintainer procedures
 

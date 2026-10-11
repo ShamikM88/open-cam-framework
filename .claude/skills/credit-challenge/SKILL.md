@@ -20,14 +20,14 @@ An **analyst aid** for an adversarial second look at a named deal. Ask what coul
 
 ## 1. Validate the identifiers and optional draft path
 
-- Require one non-empty company and proposal. Refuse if either is `.` or `..`, starts with `-`, or contains any of `\\ / : * ? " < > | $ [ ] { }`, a backtick, a newline or another control character. Those characters make a glob/path lookup ambiguous or unsafe. Explain the refusal and stop; do not try to repair the name silently.
+- Require one non-empty company and proposal. Refuse if either is `.` or `..`, starts with `-`, or contains any of `\\ / : * ? " < > | $ [ ] { }`, a backtick, a newline or another control character. Those characters make a glob/path lookup ambiguous or unsafe. In particular, glob characters such as brackets and braces can make a lookup match a different directory. Explain the refusal and stop; do not try to repair the name silently.
 - Do not act on extra free text or flags beyond the documented company, proposal and optional draft path.
 - An explicit draft path must be repository-relative, must start with `deals/<company>/`, must not be absolute, and must contain no `..` path component, glob metacharacter, backslash or control character. If it falls outside that company’s deal area or is ambiguous, refuse it and stop.
 - Do not run a command or ask another tool to interpret the arguments. Use them only to construct the validated local lookup patterns below.
 
 ## 2. Locate exactly one deal record
 
-Glob for `deals/<company>/<proposal>_*/state.json`. The lookup lists at most 100 files and sorts by modification time, not necessarily by deal date. If the result reaches 100 files or is marked truncated, say that the latest dated folder could not be established and stop.
+Glob for `deals/<company>/<proposal>_*/state.json`. The lookup lists at most 100 files newest-modified first, which is not the same as latest by date. If the lookup reaches 100 files or is marked truncated, say that the latest dated folder could not be established and stop.
 
 Otherwise consider only a folder named exactly `<proposal>_YYYY-MM-DD`. Compare the ISO date text and choose the latest matching folder. Read its `state.json`, check that its `date` agrees with the folder suffix, and name the folder in your report. If there is no qualifying record or the identity/date does not agree, report that and stop. Do not use figures remembered from the conversation.
 

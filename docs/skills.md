@@ -1,6 +1,6 @@
 # Skills
 
-The analyst aids that ship with the framework. A skill is a short, reusable procedure that a person starts by name in a
+The analyst aids and the maintainer procedure that ship with the framework. A skill is a short, reusable procedure that a person starts by name in a
 Claude Code session opened on this repository; it is not a step of the CAM pipeline. This page is the user-facing
 reference. Why skills are shaped this way, what they may never become, and what is planned or deferred is in
 [Skill design](skill-design.md); the single inventory of commands and skills is
@@ -87,6 +87,43 @@ only; downside breaches are enforced when the draft is checked), and recorded fi
 no growth rate, margin or other new number: a movement metric would be a calculation, so it would be a separate, tested
 script.
 
+## The maintainer procedure
+
+`cam-change-verification` is for the person who maintains the repository, not for an analyst, and it touches no deal. The
+bullets under "What every skill here is" describe the analyst aids; it differs where this section says.
+
+| Skill | Run | Use it to |
+| :--- | :--- | :--- |
+| `cam-change-verification` | `/cam-change-verification [what the change is about]` | Before asking for review, run in order and report: what changed and which sensitive paths (`agents/`, `config/`, `scripts/`, `.claude/`, `.github/`, `pyproject.toml`) it touches, Ruff and Bandit, the full suite with coverage, the test-count badge, the coverage floors and changed-line coverage, the documentation checks, a scan of added text, and a clean tree |
+
+- **Same as the aids:** typed by a person (`disable-model-invocation`), named by no command, prompt or `CLAUDE.md` line, never
+  input to the Maker or the Checker, and `Write`, `Edit` and `NotebookEdit` are removed while it runs, so it makes no ad hoc
+  edit to any tracked file. What does write is by design: the checks generate local artefacts, and the badge update is a
+  separate, explicitly gated write.
+- **Different:** it runs in your own session (it is not forked, so you see the run), and it runs the test suite, which
+  writes coverage files and `pytest_output.txt` in the repository (ignored by git). It makes no network or model call.
+- **What it pre-approves:** only exact commands, `git status --short`, `git branch --show-current`, two
+  `git diff ... origin/main...HEAD` forms, `ruff check .`, `bandit -r scripts/ -ll`, the one full-suite `pytest` command
+  with `tee pytest_output.txt`, `check_test_count.py pytest_output.txt`, `check_coverage.py coverage.json`,
+  `diff-cover coverage.xml --config-file pyproject.toml` and `pii_scan.py <path>`. Everything else, including a targeted
+  `pytest` run and `check_test_count.py --write`, is not pre-approved, so your permission settings decide, and by default
+  they ask you.
+- **What actually holds the limits:** the procedure, plus the removed write tools. `allowed-tools` pre-approves; it does not
+  restrict, and a settings allow rule or a mode that skips prompts (such as `bypassPermissions`) removes the question for a
+  command that is not pre-approved. The procedure therefore does not rely on a prompt: it will not run a commit, push, merge,
+  `gh` call, `--write` without your go-ahead, or `--update-snapshots` in any mode. To enforce that rather than rely on it, add deny
+  rules to your permission settings. No test here, and no frontmatter field, can enforce it.
+- **What it will not do:** commit, push, merge, rebase, run `gh`, change a setting or ruleset, edit a file, regenerate a
+  golden snapshot, edit an agent prompt, or hand-edit the badge. It offers `--write` only after a complete green run and
+  waits for your go-ahead.
+- **Limits:** a green local run is not a green CI run. It cannot show the Windows job, the clean-environment
+  `runtime-smoke` job, `pip-audit`, `zizmor` or CodeQL, and says so. It does not judge the design, and the strongest thing
+  it reports is "no blocker found by these checks". `diff-cover` sees only committed changes, and `origin/main` is as fresh
+  as your last fetch (it does not fetch).
+- **Source of truth:** [Operations](operations.md#verify-a-change-the-full-suite) and
+  [Contributing](contributing.md#before-you-ask-for-review); the skill points to them for the flags and does not restate
+  what each check means.
+
 ## Requirements
 
 These are Claude Code features, so they follow its behaviour: a skill in `.claude/skills/<name>/SKILL.md`, a `context:
@@ -100,7 +137,8 @@ for the session as Claude Code's documentation describes.
 ## Changing or adding a skill
 
 A skill pull request meets the contract in [Skill design](skill-design.md#phased-delivery), and the tests that enforce
-it are in `tests/test_skills.py` and `tests/test_skill_inventory.py`: the frontmatter equals the registry row, the
+it are in `tests/test_skills.py` (the analyst aids), `tests/test_maintainer_skills.py` (the procedure) and
+`tests/test_skill_inventory.py`: the frontmatter equals the registry row, the
 `allowed-tools` name only read-only scripts, every source it cites exists, the files carry no real names or figures, the
 scripts it runs leave a deal byte-for-byte unchanged, and the frontmatter stays inside a small YAML subset that a strict
 parser in the tests reads (it is not a general YAML validator). A skill that wrote to a deal, was named by a command or prompt, or

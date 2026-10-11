@@ -13,6 +13,7 @@ from policy_engine import (
     STANDARD_CONDITIONS_PRECEDENT,
     STANDARD_CONDITIONS_SUBSEQUENT,
     _evaluate_downside_covenants,
+    _evaluate_forward_covenants,
     evaluate_deal_policy,
 )
 
@@ -815,3 +816,172 @@ def test_a_downside_year_with_no_base_case_ratios_is_not_compared_and_cannot_cra
         ("FY+1", "gross_leverage", "FAIL", "DOWNSIDE-FY-1-GROSS-LEVERAGE")]
     assert _evaluate_downside_covenants(covenants, {}, downside) == []
     assert _evaluate_downside_covenants(covenants, None, downside) == []
+
+
+# ---------------------------------------------------------------------------
+# Downside breaches: the full record, the stressed-but-unresolvable case and the unavailable-downside case (issue #183)
+#
+# A downside breach is a covenant that PASSes in a year's base case but is FAIL or UNRESOLVABLE under stress, or whose stress
+# could not be derived at all (`downside_case["unavailable"]`). It is enforced when a draft is checked, so a missing or
+# renamed field, a dropped status or a silently skipped year is a governance defect, not cosmetics. The deal-level tests of
+# the unavailable case (tests/test_supplied_forecast.py) run the same code; these pin it at the function.
+# ---------------------------------------------------------------------------
+
+LEVERAGE_MAX = {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}
+DSCR_MIN = {"metric": "dscr", "type": "minimum", "threshold": 1.25}
+
+
+def test_a_failing_downside_year_is_recorded_with_every_field_the_draft_check_and_the_model_read():
+    breaches = _evaluate_downside_covenants(
+        [LEVERAGE_MAX], {"FY+1": {"gross_leverage": 2.0}}, {"FY+1": {"gross_leverage": 5.0}})
+    assert breaches == [{
+        "year": "FY+1", "metric": "gross_leverage", "base_actual": 2.0, "downside_actual": 5.0, "threshold": 3.5,
+        "breach_id": "DOWNSIDE-FY-1-GROSS-LEVERAGE", "downside_status": "FAIL", "reason": None}]
+
+
+def test_a_downside_ratio_that_cannot_be_computed_is_an_unresolvable_breach_not_a_pass():
+    """Base PASS -> stressed UNRESOLVABLE is enforced exactly like FAIL, with the reason naming why the ratio is N/A."""
+    breaches = _evaluate_downside_covenants(
+        [LEVERAGE_MAX], {"FY+1": {"gross_leverage": 2.0}}, {"FY+1": {"gross_leverage": None}},
+        base_financials={"FY+1": {"ebitda": 400}}, downside_financials={"FY+1": {"ebitda": -50}})
+    (breach,) = breaches
+    assert breach["downside_status"] == "UNRESOLVABLE" and breach["downside_actual"] is None
+    assert breach["base_actual"] == 2.0 and breach["threshold"] == 3.5
+    assert "EBITDA is negative" in breach["reason"]
+
+
+def test_a_stressed_pass_and_a_base_failure_are_not_breaches():
+    """Only base PASS -> stressed non-PASS is a downside breach: a stressed pass is not, and a base failure is disclosed once
+    in the forward results, not again here."""
+    covenants = [LEVERAGE_MAX, DSCR_MIN]
+    base = {"FY+1": {"gross_leverage": 2.0, "dscr": 0.9}}                       # leverage passes, DSCR already fails
+    downside = {"FY+1": {"gross_leverage": 3.0, "dscr": 0.5}}                   # leverage still passes under stress
+    assert _evaluate_downside_covenants(covenants, base, downside) == []
+
+
+def test_a_year_without_base_ratios_is_skipped_but_the_years_after_it_are_still_compared():
+    """The skip is per year (a `continue`), not the end of the check: a stressed FY+1 with no base case sits before a
+    FY+2 that does have one, and FY+2's breach must still be found."""
+    base = {"FY+2": {"gross_leverage": 2.0}}
+    downside = {"FY+1": {"gross_leverage": 9.0}, "FY+2": {"gross_leverage": 5.0}}
+    breaches = _evaluate_downside_covenants([LEVERAGE_MAX], base, downside)
+    assert [(b["year"], b["downside_status"]) for b in breaches] == [("FY+2", "FAIL")]
+
+
+def test_an_unavailable_downside_is_an_unresolvable_breach_for_every_covenant_that_passes_in_the_base_case():
+    """The stress could not be derived for FY+2, so a covenant that passes there cannot be shown to survive it: it is
+    recorded UNRESOLVABLE with no downside figure and a reason that names the year and why, never silently absent."""
+    base = {"FY+2": {"gross_leverage": 2.0, "dscr": 2.0}}
+    breaches = _evaluate_downside_covenants(
+        [LEVERAGE_MAX, DSCR_MIN], base, {}, unavailable={"FY+2": "no downside scenario was supplied for this year"})
+    assert breaches == [
+        {"year": "FY+2", "metric": "gross_leverage", "base_actual": 2.0, "downside_actual": None, "threshold": 3.5,
+         "breach_id": "DOWNSIDE-FY-2-GROSS-LEVERAGE", "downside_status": "UNRESOLVABLE",
+         "reason": "downside analysis unavailable for FY+2: no downside scenario was supplied for this year"},
+        {"year": "FY+2", "metric": "dscr", "base_actual": 2.0, "downside_actual": None, "threshold": 1.25,
+         "breach_id": "DOWNSIDE-FY-2-DSCR", "downside_status": "UNRESOLVABLE",
+         "reason": "downside analysis unavailable for FY+2: no downside scenario was supplied for this year"}]
+
+
+@pytest.mark.parametrize("label, base, unavailable", [
+    ("the base case already fails", {"FY+2": {"gross_leverage": 4.0}}, {"FY+2": "x"}),
+    ("the base ratios are empty", {"FY+2": {}}, {"FY+2": "x"}),
+    ("the base ratios are not an object", {"FY+2": [1, 2]}, {"FY+2": "x"}),
+    ("the year has no base ratios", {"FY+1": {"gross_leverage": 2.0}}, {"FY+2": "x"}),
+    ("no base ratios at all", None, {"FY+2": "x"}),
+    ("unavailable is not a mapping", {"FY+2": {"gross_leverage": 2.0}}, ["FY+2"]),
+    ("nothing is unavailable", {"FY+2": {"gross_leverage": 2.0}}, None),
+])
+def test_an_unavailable_downside_adds_no_breach_where_there_is_nothing_to_survive(label, base, unavailable):
+    assert _evaluate_downside_covenants([LEVERAGE_MAX], base, {}, unavailable=unavailable) == []
+
+
+def test_a_year_with_a_derived_downside_is_not_also_reported_as_unavailable():
+    """If the year has downside ratios the first loop has judged it; `unavailable` must not produce a second record."""
+    base = {"FY+1": {"gross_leverage": 2.0}}
+    breaches = _evaluate_downside_covenants(
+        [LEVERAGE_MAX], base, {"FY+1": {"gross_leverage": 3.0}}, unavailable={"FY+1": "stale note"})
+    assert breaches == []
+    failing = _evaluate_downside_covenants(
+        [LEVERAGE_MAX], base, {"FY+1": {"gross_leverage": 5.0}}, unavailable={"FY+1": "stale note"})
+    assert [b["downside_status"] for b in failing] == ["FAIL"], "one record, from the derived downside"
+
+
+def test_evaluate_deal_policy_passes_the_downside_figures_and_the_unavailable_years_through():
+    state = {
+        "ratios": {"FY-Current": {"gross_leverage": 2.0}, "FY+1": {"gross_leverage": 2.0}, "FY+2": {"gross_leverage": 2.0}},
+        "financials": {"FY+1": {"ebitda": 400}},
+        "covenants": [LEVERAGE_MAX],
+        "downside_case": {"ratios": {"FY+1": {"gross_leverage": None}}, "financials": {"FY+1": {"ebitda": -50}},
+                          "unavailable": {"FY+2": "no scenario"}},
+    }
+    breaches = evaluate_deal_policy(state)["downside_covenant_breaches"]
+    assert [(b["year"], b["downside_status"]) for b in breaches] == [("FY+1", "UNRESOLVABLE"), ("FY+2", "UNRESOLVABLE")]
+    assert "EBITDA is negative" in breaches[0]["reason"], "the downside financials reach the explanation"
+    assert "downside analysis unavailable for FY+2: no scenario" in breaches[1]["reason"]
+
+
+def test_a_skipped_unavailable_year_does_not_end_the_check_for_the_years_after_it():
+    """FY+1 has nothing to survive (its base ratios are empty) and is skipped; FY+2, later in the order, must still be found."""
+    base = {"FY+1": {}, "FY+2": {"gross_leverage": 2.0}}
+    breaches = _evaluate_downside_covenants([LEVERAGE_MAX], base, {}, unavailable={"FY+1": "a", "FY+2": "b"})
+    assert [(b["year"], b["reason"]) for b in breaches] == [("FY+2", "downside analysis unavailable for FY+2: b")]
+
+
+# ---------------------------------------------------------------------------
+# _evaluate_covenant's UNRESOLVABLE reasons, and the forward record (issue #183)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("covenant, ratios, reason", [
+    ({"metric": "dscr", "type": "floor", "threshold": 1.25}, {"dscr": 2.0},
+     "unrecognized covenant type 'floor' (expected 'minimum' or 'maximum')"),
+    ({"metric": "dscr", "type": "minimum"}, {"dscr": 2.0}, "the covenant threshold is missing or not a number"),
+    ({"metric": "dscr", "type": "minimum", "threshold": "1.25"}, {"dscr": 2.0}, "the covenant threshold is missing or not a number"),
+    ({"metric": "dscr", "type": "minimum", "threshold": True}, {"dscr": 2.0}, "the covenant threshold is missing or not a number"),
+    ({"metric": "icr", "type": "minimum", "threshold": 1.25}, {"dscr": 2.0},
+     "metric 'icr' is not among this period's computed ratios"),
+    ({"metric": "dscr", "type": "minimum", "threshold": 1.25}, {"dscr": None}, "dscr has no computed value for this period"),
+    ({"metric": "dscr", "type": "minimum", "threshold": 1.25}, {"dscr": "n/m"}, "dscr has no computed value for this period"),
+])
+def test_a_covenant_that_cannot_be_tested_is_unresolvable_with_the_reason_that_says_why(covenant, ratios, reason):
+    """Never a PASS and never a silent skip: UNRESOLVABLE, no actual and no headroom, with one sentence for the cause."""
+    (result,) = evaluate_deal_policy({"covenants": [covenant], "ratios": {"FY-Current": ratios}})["covenant_results"]
+    assert (result["status"], result["actual"], result["headroom_pct"], result["reason"]) == ("UNRESOLVABLE", None, None, reason)
+    assert (result["metric"], result["type"], result["threshold"]) == (covenant["metric"], covenant["type"], covenant.get("threshold"))
+
+
+def test_a_recorded_denominator_that_makes_a_ratio_meaningless_overrides_a_stored_number_and_says_so():
+    """Issue #169: a number stored next to a negative recorded EBITDA is ignored, and the sentence says it was."""
+    state = {"covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+             "ratios": {"FY-Current": {"gross_leverage": 2.0}}, "financials": {"FY-Current": {"ebitda": -10}}}
+    (result,) = evaluate_deal_policy(state)["covenant_results"]
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
+    assert result["reason"] == "gross leverage not meaningful: EBITDA is negative (the recorded value 2.0 is ignored)"
+
+
+def test_the_forward_record_lists_each_projected_year_then_each_covenant_with_a_stable_id():
+    """Disclosure only: one entry per projected year and covenant, in year order then covenant order, each the covenant
+    result plus `year` and `forward_id`; a year with nothing recorded, or a null or non-object ratio set, is not listed."""
+    covenants = [LEVERAGE_MAX, DSCR_MIN, LEVERAGE_MAX]                          # the same metric twice: a numeric suffix
+    ratios = {"FY-Current": {"gross_leverage": 2.0, "dscr": 2.0},               # not a forward year
+              "FY+1": {"gross_leverage": 2.0, "dscr": 2.0}, "FY+2": {}, "FY+3": {"gross_leverage": 4.0, "dscr": 1.0}}
+    forward = evaluate_deal_policy({"covenants": covenants, "ratios": ratios})["forward_covenant_results"]
+    assert [(r["year"], r["metric"], r["status"], r["forward_id"]) for r in forward] == [
+        ("FY+1", "gross_leverage", "PASS", "FORWARD-FY-1-GROSS-LEVERAGE"),
+        ("FY+1", "dscr", "PASS", "FORWARD-FY-1-DSCR"),
+        ("FY+1", "gross_leverage", "PASS", "FORWARD-FY-1-GROSS-LEVERAGE-2"),
+        ("FY+3", "gross_leverage", "FAIL", "FORWARD-FY-3-GROSS-LEVERAGE"),
+        ("FY+3", "dscr", "FAIL", "FORWARD-FY-3-DSCR"),
+        ("FY+3", "gross_leverage", "FAIL", "FORWARD-FY-3-GROSS-LEVERAGE-2")]
+
+
+@pytest.mark.parametrize("ratios", [None, {}, {"FY+1": None}, {"FY+1": [1]}, {"FY+1": {}}])
+def test_the_forward_record_is_empty_when_no_year_has_a_usable_ratio_set(ratios):
+    state = {"covenants": [LEVERAGE_MAX], "ratios": ratios}
+    assert evaluate_deal_policy(state)["forward_covenant_results"] == []
+
+
+@pytest.mark.parametrize("ratios", ["text", ["FY+1"], 5])
+def test_the_forward_evaluator_itself_returns_nothing_for_ratios_that_are_not_an_object(ratios):
+    """evaluate_deal_policy's callers validate the state first; the helper still must not raise on a malformed mapping."""
+    assert _evaluate_forward_covenants([LEVERAGE_MAX], ratios) == []

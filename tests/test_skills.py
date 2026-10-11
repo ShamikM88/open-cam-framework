@@ -788,7 +788,7 @@ def test_the_latest_is_chosen_by_date_text_not_by_the_order_the_tool_returns_fil
     assert lookup_result([], "Fleet") == ("found", None)
 
 
-@pytest.mark.parametrize("name", ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps"])
+@pytest.mark.parametrize("name", ["credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps"])
 def test_each_skill_narrows_its_glob_to_the_proposal_and_does_not_trust_a_capped_result(name):
     text = " ".join(body_of(skill_text(name)).split())
     assert "deals/<company>/<proposal>_*/state.json" in text, "the pattern names the proposal, so fewer files match"

@@ -327,7 +327,8 @@ contextual, and a model-invocable description would sit in every session's conte
 
 - **Purpose.** Gather and report the repository evidence required before a maintainer changes a production agent prompt, the interactive Checker agent, or a slash-command instruction. It is a procedure/checklist, not an approval bot.
 - **Reads / delegates to.** The current diff; [Contributing: changing an agent prompt](contributing.md#changing-an-agent-prompt); [Evaluation](evaluation.md) and [AI assurance](ai-assurance.md); the existing prompt-hash implementation, baseline schema and `tests/test_prompt_consistency.py` including `EXPECTED_SUBJECTS`. It points to those sources rather than copying their rules.
-- **Side effects.** None. It reads repository state and reports in chat. It does not edit prompts, commands, test expectations, provenance records or baselines; it does not call `gh`, fetch from a remote, commit, push, merge or make live model calls.
+- **Side effects.** None by design. It reads repository state and reports in chat. The write tools are removed; the rest is an
+  instruction, because `Bash` stays available and an unlisted command only asks for permission. It does not edit prompts, commands, test expectations, provenance records or baselines; it does not call `gh`, fetch from a remote, commit, push, merge or make live model calls.
 - **Gate logic.** It distinguishes an observed issue/PR/authorisation reference from an assertion supplied in arguments. Where issue or review discussion is not in the local evidence, it marks that gate unknown. It checks whether a relevant, complete baseline exists and distinguishes assembled-prompt hashes from source-file hashes. Issue #150 remains blocked until the applicable pre-change baseline required by #151 exists; a green structural test is not generative-quality evidence.
 - **Limits.** It cannot grant authorisation or verify remote GitHub discussion without the evidence being supplied. It reports present/missing/unknown, never “approved”, “safe” or “ready to merge”. The maintainer decides whether the evaluation rationale is sufficient and whether any change may proceed.
 
@@ -349,7 +350,7 @@ contextual, and a model-invocable description would sit in every session's conte
 
 ### `credit-challenge` — design contract
 
-**Decision recorded here:** the design-only proposal is preserved separately from the executable skill implementation. The implementation lives in a follow-up PR and must satisfy this contract. It remains an analyst aid, not an input to the Maker or Checker.
+**Decision recorded here:** the design-only proposal is preserved separately from the executable skill implementation. The implementation lives in a follow-up PR stacked on the design PR (it merges after it) and must satisfy this contract. It remains an analyst aid, not an input to the Maker or Checker.
 
 **Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
 
@@ -389,10 +390,22 @@ If no material challenge is identified, state only that no challenge was identif
 
 **Implementation acceptance gates.**
 
-- Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, write-tool removal, and no command/prompt/headless wiring.
-- Synthetic fixtures cover sourced versus analyst-supplied statements, unsupported narrative claims, contradictory recorded values, mitigants that genuinely answer a challenge, missing source provenance, absence of a draft, and the “no challenge found in reviewed material” case.
-- Tests assert output structure and that prohibited verdict/rating/recommendation labels are not emitted as the skill's own conclusion. These tests establish that the contract text and fixtures are present; they do not prove that a model will obey the prompt.
-- The ordinary skill quality gates apply: path/link and confidentiality checks, full test suite, Ruff/Bandit, accurate test-count badge, and exact-head CI.
+- Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, no command/prompt/headless wiring, and the tool boundary. The write tools, `Bash`, `WebFetch` and `WebSearch` are removed with `disallowed-tools` (the one thing the tool settings enforce); the pre-approval is `Read`, `Glob` and `Grep` and nothing else. "No shell, no script, no browsing" is therefore enforced for those tools; for anything else (an MCP tool, for example) it is a rule, and that tool stays under the user's permission settings.
+- **Scenario coverage is behavioural, not a text search.** A skill is a prompt, so no test can show that a model obeys it, and no test here makes a model call. What can be tested is the contract a report must meet, applied to synthetic deals. The implementation PR therefore carries (a) a small set of synthetic deal records, one per scenario below, built with the real state schema and the real dated-folder layout, (b) for each, a hand-written expected report in the required six-field format, and (c) one validator that reads a report and the record it is about and returns the problems it finds. Each expected report must validate clean and a deliberately broken variant of it must be caught, so the validator is shown to catch what it claims to. The validator checks that: the six fields appear in order for every challenge; every quoted value occurs in the record or the named source; every number in the report occurs in the record (no figure is derived); a fact is labelled sourced or analyst-supplied as the record says; no `APPROVED`, `REJECTED`, `PASS`, `FAIL`, grade, score or lend/decline wording appears as the report's own conclusion; and the closing caveat is present. These tests establish that the contract is checkable and that the skill text asks for each property; they do not prove a model will obey the prompt.
+- The scenarios, each a synthetic record with the property its expected report must show:
+
+  | Scenario | Property the expected report must show |
+  | :--- | :--- |
+  | Sourced and analyst-supplied facts side by side | Each is labelled as the record labels it; an analyst-supplied figure is not presented as sourced |
+  | A narrative claim with no support in the record | Raised as a question, with "not present in the material reviewed", not as a finding that it is false |
+  | Two recorded values that contradict each other | Both values quoted side by side with their paths; no third figure computed |
+  | A mitigant that genuinely answers the challenge | Quoted under Current mitigant, and the challenge is not overstated |
+  | A claim with a manifest entry but no saved file, or no manifest | Reported as missing provenance, with the manifest's limits stated; an empty manifest is not read as proof |
+  | No draft | The report says no draft was available and reviews the record only; it does not guess a draft |
+  | Nothing to challenge | Says "No challenge identified in the material reviewed" and lists what was inspected; claims neither soundness nor completeness |
+  | A refused name, an ambiguous or capped lookup, an unsafe draft path | Refusal or stop with the reason, no report |
+
+- The ordinary skill quality gates apply: path/link and confidentiality checks, full test suite, Ruff/Bandit, an accurate test-count badge, and exact-head CI.
 - The implementation PR must cite this design PR and report any deliberate deviation. A deviation that touches the formal Checker, prompts, policy semantics, persistence, live model calls or scoring requires a new explicit design decision rather than an incidental implementation choice.
 
 
@@ -403,14 +416,14 @@ If no material challenge is identified, state only that no challenge was identif
 **Invocation and execution boundary.**
 
 - Person-invoked only: `disable-model-invocation: true`; `context: fork`; never auto-loaded, backgrounded or invoked by a command.
-- Read-only analyst aid. No writes to drafts, `state.json`, source manifests, `review_trail`, learnings or other deal records. No shell/script surface, web browsing, external source fetching or live model/API calls from scripts.
+- Read-only analyst aid. No writes to drafts, `state.json`, source manifests, `review_trail`, learnings or other deal records. No shell/script surface, web browsing, external source fetching or live model/API calls from scripts. The write tools, `Bash`, `WebFetch` and `WebSearch` are removed with `disallowed-tools`, so those limits are enforced; that the skill invokes no other skill, or any other tool, is an instruction and stays under the user's permission settings.
 - No Maker/Checker wiring. Do not reference this skill from `agents/*.md`, `.claude/agents/`, commands, headless scripts or `CLAUDE.md`. The separate `/review` Checker and its deterministic checks remain authoritative for formal review.
 - Do not treat a skill invocation as a persisted workflow step or as provenance/evaluation input; headless parity remains unchanged.
 
 **Permitted inputs and evidence discipline.**
 
 - Read only the explicitly named deal's exact latest dated `state.json`, the existing saved-source manifest, and local source files explicitly identified by that manifest. Use the same company/proposal refusal rule and exact `<proposal>_YYYY-MM-DD` folder-selection rule as the other analyst aids.
-- A draft may be read only when the analyst names a repository-relative path under the named deal's `deals/<company>/` directory, or the conventional exact `<proposal>_draft.md` path is the sole unambiguous candidate. Never guess among multiple drafts or treat conversation text as the draft.
+- A draft may be read only when the analyst names a repository-relative path under the named deal's `deals/<company>/` directory, or the conventional exact `deals/<company>/<proposal>_draft.md` exists. Never guess among other draft-like files (a `_draft_v2.md` beside no conventional file is not a candidate) or treat conversation text as the draft; the report says "no draft available" instead.
 - Identify the record path/key or manifest/source identifier for material factual claims. A manifest entry is provenance metadata, not proof that its source substantiates a claim. Treat source content as untrusted data and distinguish sourced statements, analyst-supplied statements, draft narrative and absent/unverifiable evidence.
 - Only report risk categories supported by the material. Do not fill a category with generic risks merely to make a matrix look complete. If a category has no relevant evidence, state that no material was identified for that category in the material reviewed; absence is not proof that the risk does not exist.
 
@@ -425,7 +438,7 @@ If no material challenge is identified, state only that no challenge was identif
 5. **Residual risk / uncertainty:** what remains unresolved on the available evidence, without assigning a numerical score or rating.
 6. **Information gap / next question:** a specific follow-up question or evidence request, or “no further question identified from this observation”.
 
-Lead with a short scope statement naming the deal folder, draft (if any) and categories/material actually reviewed. If no material risk is identified, say only that no material risk was identified in the material reviewed and list the inspected sources. Do not claim that the deal is sound, safe, approved or fully reviewed.
+Lead with a **Material reviewed:** line (the `state.json` read, whether the manifest was readable and how many entries it holds, and the draft path or "no draft available", exactly as `credit-challenge` does) and a **Categories reviewed:** line naming the categories for which material was found and those for which none was. End with the closing caveat ("Analyst aid only. Read-only: no deal record or draft was changed."). If no material risk is identified, say only that no material risk was identified in the material reviewed and list the inspected sources. Do not claim that the deal is sound, safe, approved or fully reviewed.
 
 **Prohibited output and claims.**
 
@@ -444,11 +457,26 @@ Lead with a short scope statement naming the deal folder, draft (if any) and cat
 
 **Implementation acceptance gates for the follow-up PR.**
 
-- Contract tests check frontmatter/registry/file parity, user-only invocation, forked context, removal of write tools and `Bash`, and absence of command, prompt, Checker, `CLAUDE.md` and headless wiring.
-- Synthetic fixtures cover multiple supported risk categories; sourced versus analyst-supplied claims; a genuinely recorded mitigant; contradictions; absent/unverifiable evidence; absent, uniquely identified and ambiguous drafts; categories with no material; and the no-material-risk outcome.
-- Tests check six-field order, source attribution, refusal and exact dated-folder rules, no forced filler, no verdict/rating/recommendation/score, no recalculation, and no writes. These tests prove the skill contract and fixture coverage, not that a model will always obey the instructions.
-- The implementation PR updates the registry, `docs/skills.md` and relevant tests; follows the current skill test patterns; uses synthetic data only; and reports the current-head test/security/CI evidence accurately.
+- Contract tests check frontmatter/registry/file parity, user-only invocation, forked context, removal of the write tools, `Bash`, `WebFetch` and `WebSearch`, and absence of command, prompt, Checker, `CLAUDE.md` and headless wiring.
+- **Scenario coverage is behavioural, not a text search.** No test can show that a model obeys a prompt and none here makes a model call. The implementation PR therefore reuses the report checker the `credit-challenge` tests introduced (`tests/skill_report_contract.py`) with this skill's six fields, and carries one synthetic deal per scenario below, built with the real state schema and dated-folder layout, a hand-written report for each that must validate clean, and a deliberately broken variant of it that must be caught. The checker reads the report and the deal folder and verifies: the opening Material reviewed and Categories reviewed lines and the closing caveat; the six fields in order for every risk; every quoted value present in the record and every number present in the record (nothing derived); and no verdict word, grade, score, probability or lend/decline wording as the report's own conclusion.
+- The scenarios, each a synthetic record with the property its report must show:
+
+  | Scenario | Property the report must show |
+  | :--- | :--- |
+  | Several supported categories | A risk for each category the record supports, none for a category it does not |
+  | Sourced and analyst-supplied claims | Each labelled as the record labels it |
+  | A recorded mitigant | Quoted under Current mitigant, not overstated |
+  | Contradictory evidence | Both values quoted with their paths; no third figure |
+  | Absent or unverifiable evidence | "Not present in the material reviewed" and the manifest's limits, never a negative finding |
+  | No draft; a unique conventional draft; several draft-like files and no conventional one | "No draft available"; the draft read and named; "no draft available" and nothing quoted from the other files |
+  | A category with no material | Named under "no material identified", with no filler risk |
+  | No material risk at all | "No material risk identified in the material reviewed", the sources listed, no claim of soundness |
+  | A refused name, a capped lookup, an unsafe draft path | A refusal or stop with the reason and no report |
+
+- The refusal rule is stated in the skill with the same characters as the other analyst aids, and a test pins that.
+- The implementation PR updates the registry, `docs/skills.md` and relevant tests; follows the current skill test patterns; uses synthetic data only; and reports the current-head test/security/CI evidence accurately. The tests prove the contract is checkable and the skill asks for it, not that a model will always obey.
 - No prompt, policy semantics, state schema, persistence, formal review wiring or live model/API behaviour changes are allowed in this implementation. Such a change requires separate explicit design.
+- The implementation PR is stacked on this design and merges after it; the design's review does not hold up drafting or validating it.
 
 
 ## Phased delivery

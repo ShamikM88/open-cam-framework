@@ -17,6 +17,7 @@ from spreading_builder import (
     FIELD_LABELS,
     SECTIONS,
     _build_label_to_field,
+    _raw_figure,
     apply_stress_shocks,
     evaluate_downside_case,
     evaluate_financial_model,
@@ -911,3 +912,27 @@ def test_export_to_xlsx_scales_total_row_for_multiple_collateral_assets(tmp_path
     assert total_exposure == 170
     assert total_collateral_value == 135
     assert cv_pct == pytest.approx(135 / 170)
+
+
+# ---------------------------------------------------------------------------
+# _raw_figure: a raw line item as the model reads it (issue #219)
+# ---------------------------------------------------------------------------
+
+def test_raw_figure_reads_a_missing_or_null_item_as_zero_and_text_or_no_raw_block_as_unreadable():
+    """A framework-computed period carries `raw`; a missing item and a null both count as 0, exactly as
+    evaluate_financial_model() reads them. Text and a boolean are unreadable (None, never 0), and so is a period with no
+    usable `raw` block (an analyst-supplied one). A defect turns an unreadable figure into a number that a diagnosis
+    of an N/A ratio then states as fact."""
+    assert _raw_figure({"raw": {"revenue": 5}}, "revenue") == 5
+    assert _raw_figure({"raw": {"revenue": 0}}, "revenue") == 0
+    assert _raw_figure({"raw": {}}, "revenue") == 0
+    assert _raw_figure({"raw": {"revenue": None}}, "revenue") == 0
+    assert _raw_figure({"raw": {"revenue": "n/m"}}, "revenue") is None
+    assert _raw_figure({"raw": {"revenue": True}}, "revenue") is None
+    assert _raw_figure({}, "revenue") is None
+    assert _raw_figure({"raw": [1]}, "revenue") is None
+    # the same reading as the model: a null and an omitted item produce identical subtotals and ratios
+    with_null = evaluate_financial_model({"FY-Current": {"revenue": None, "cost_of_sales": 0}})
+    omitted = evaluate_financial_model({"FY-Current": {"cost_of_sales": 0}})
+    assert with_null["ratios"] == omitted["ratios"]
+    assert {k: v for k, v in with_null["financials"]["FY-Current"].items() if k != "raw"} ==         {k: v for k, v in omitted["financials"]["FY-Current"].items() if k != "raw"}

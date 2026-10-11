@@ -75,7 +75,7 @@ def tools(fields, key):
 
 
 def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_is_bounded():
-    assert report_skills() == ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
+    assert report_skills() == ["credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
 
     policy_fit = skill_text("policy-fit")
     body = body_of(policy_fit)
@@ -123,6 +123,36 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
                        "**Current mitigant:**", "**Residual uncertainty:**", "**Information gap / next question:**"]
     positions = [output_contract.index(label) for label in fields_in_order]
     assert positions == sorted(positions), "the six required challenge fields must stay in order"
+
+
+    risk_text = skill_text("credit-risk")
+    risk_fields = frontmatter(risk_text)
+    risk_body = body_of(risk_text)
+    assert set(tools(risk_fields, "allowed-tools")) == READ_ONLY_TOOLS
+    assert set(tools(risk_fields, "disallowed-tools")) >= WRITE_TOOLS | {"Bash"}
+    assert not body_commands(risk_text), "credit-risk must not add a shell/script surface"
+    assert command_problems(risk_text) == []
+    for phrase in (
+        "No material risk identified in the material reviewed",
+        "The manifest's `claim`, `filename`, `url`, `step` and `fetched_date` fields are provenance metadata",
+        "**Risk:**",
+        "**Recorded evidence:**",
+        "**Potential impact:**",
+        "**Current mitigant:**",
+        "**Residual risk / uncertainty:**",
+        "**Information gap / next question:**",
+        "Never issue an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL` verdict",
+        "Never edit the draft, update `state.json`",
+        "Never run a shell command or script, browse the web, fetch a source, make a live model/API call",
+        "not proof that a source substantiates a claim",
+        "Do not fill categories with generic risks",
+    ):
+        assert phrase in risk_body, phrase
+    risk_contract = risk_body.partition("## 5. Report each material risk in this exact order")[2].partition("## 6. Boundaries")[0]
+    risk_fields_order = ["**Risk:**", "**Recorded evidence:**", "**Potential impact:**", "**Current mitigant:**",
+                         "**Residual risk / uncertainty:**", "**Information gap / next question:**"]
+    positions = [risk_contract.index(label) for label in risk_fields_order]
+    assert positions == sorted(positions), "the six required risk fields must stay in order"
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +264,7 @@ def command_problems(text):
 @pytest.mark.parametrize("name", report_skills())
 def test_a_skill_runs_only_read_only_scripts_and_each_is_pre_approved(name):
     text = skill_text(name)
-    if name == "credit-challenge":
+    if name in {"credit-challenge", "credit-risk"}:
         assert body_commands(text) == [], "the skill deliberately has no shell/script command"
         assert set(tools(frontmatter(text), "allowed-tools")) == READ_ONLY_TOOLS
     else:
@@ -290,7 +320,7 @@ def rich_deal(tmp_path, monkeypatch):
 def test_the_commands_a_skill_runs_leave_the_deal_byte_for_byte_unchanged(name, rich_deal):
     before = deal_files(rich_deal)
     results = run_commands(name, rich_deal)
-    if name == "credit-challenge":
+    if name in {"credit-challenge", "credit-risk"}:
         assert results == [], "there is no command to run: the skill is limited to Read, Glob and Grep"
     else:
         assert results, "the skill shows at least one command"
@@ -486,7 +516,7 @@ def test_the_rule_ignores_a_folder_that_is_not_exactly_the_proposal_and_an_iso_d
     assert documented_folder(["P_latest"], "P") is None
 
 
-@pytest.mark.parametrize("name", [n for n in ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps"]])
+@pytest.mark.parametrize("name", [n for n in ["credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps"]])
 def test_each_skill_states_the_dated_folder_rule_and_reports_the_folder_it_read(name):
     text = " ".join(skill_text(name).split())
     assert "YYYY-MM-DD" in text and "exactly" in text and "latest" in text

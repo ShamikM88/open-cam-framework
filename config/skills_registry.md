@@ -27,6 +27,7 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `mutation-triage` | skill | maintainer | implemented: phase 4 | user | None (aid) | no |
 | `prompt-change-gate` | skill | maintainer | implemented: phase 4 | user | None (aid) | no |
 | `policy-fit` | skill | analyst | implemented: phase 4 | user | None (aid) | no |
+| `policy-fit` | skill | analyst | implemented: phase 4 | user | None (aid) | no |
 
 - **Invocation** is what the file's frontmatter says. `user`: `disable-model-invocation: true`, so it runs only when a
   person types it. `user+model`: no restriction; `/review` has to be this, because `/assemble` and `/research` run it

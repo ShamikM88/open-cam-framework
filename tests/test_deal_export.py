@@ -5,7 +5,13 @@ import docx
 import openpyxl
 import pytest
 
-from deal_export import _downside_financial_data_from_state, _financial_data_from_state, export_deal, main
+from deal_export import (
+    _downside_financial_data_from_state,
+    _financial_data_from_state,
+    _supplied_row_values,
+    export_deal,
+    main,
+)
 
 
 def _write(path, content="content"):
@@ -336,3 +342,30 @@ def test_cli_does_not_export_into_another_deals_prefix_sharing_folder(tmp_path, 
 
     assert (tmp_path / "deals" / "Acme" / "Fleet_2026-01-10" / "Acme_Fleet_CAM.docx").exists()
     assert not (tmp_path / "deals" / "Acme" / "Fleet_Q2_2026-05-01" / "Acme_Fleet_CAM.docx").exists()
+
+
+# ---------------------------------------------------------------------------
+# _supplied_row_values: what an analyst-supplied period writes into the workbook (issue #219)
+# ---------------------------------------------------------------------------
+
+def test_supplied_row_values_keeps_numbers_writes_na_for_a_null_ratio_and_leaves_everything_else_blank():
+    """The docstring's contract, row by row. A number (zero included) is written; a ratio recorded as null is N/A, as the
+    workbook writes it; a null subtotal, text, a boolean and a key with no workbook row are left out, so the cell stays
+    blank. A defect here is a wrong number or a stray "N/A" in the exported workbook."""
+    values = _supplied_row_values({
+        "ebitda": 1000, "total_assets": 0, "dscr": 2.5,
+        "gross_leverage": None,                 # a ratio recorded as null: N/A
+        "net_profit": None,                     # a subtotal recorded as null: blank, not "N/A"
+        "current_ratio": "n/m",                 # text: blank
+        "gearing": True,                        # a boolean is not a number: blank
+        "not_a_workbook_row": 5,                # no row for it: ignored
+    })
+    assert values == {"EBITDA": 1000, "Total Assets": 0, "DSCR": 2.5, "Gross Leverage": "N/A"}
+
+
+def test_supplied_row_values_takes_the_later_period_dict_and_ignores_a_malformed_one():
+    """The forecast columns pass the subtotals and then the ratios (or a base and an override): a later value wins for
+    the same row, and anything that is not a dict is skipped rather than failing the export."""
+    assert _supplied_row_values({"ebitda": 1}, {"ebitda": 2}) == {"EBITDA": 2}
+    assert _supplied_row_values(None, "text", ["ebitda"], {"dscr": 1.5}) == {"DSCR": 1.5}
+    assert _supplied_row_values() == {}

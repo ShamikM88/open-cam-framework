@@ -153,6 +153,49 @@ def test_the_inventory_is_the_command_and_skill_files():
     assert rows, "no inventory rows found: the registry's table changed shape"
     assert inventory_problems(rows, command_files(), skill_files()) == []
 
+    # prompt-change-gate is a maintainer procedure, not an approval bot. Keep its platform-facing
+    # contract guarded here without changing the suite's test-count badge for assertion-only coverage.
+    gate_path = REPO / ".claude" / "skills" / "prompt-change-gate" / "SKILL.md"
+    gate_text = gate_path.read_text(encoding="utf-8")
+    gate_fields = frontmatter(gate_text)
+    gate_row = next(r for r in rows if r["kind"] == "skill" and r["name"] == "prompt-change-gate")
+    assert gate_fields["name"] == "prompt-change-gate"
+    assert invocation_of(gate_fields) == "user"
+    assert gate_fields["disable-model-invocation"].lower() == "true"
+    assert "context" not in gate_fields, "the maintainer needs to inspect the change in their own session"
+    assert set(gate_fields["disallowed-tools"].split()) >= {"Write", "Edit", "NotebookEdit"}
+    assert gate_row["audience"] == "maintainer" and gate_row["status"] == "implemented: phase 4"
+    assert gate_row["role"] == "None (aid)" and gate_row["headless"] == "no"
+    frontmatter_text = gate_text.split("---", 2)[1]
+    for command in (
+        "Bash(git status --short)",
+        "Bash(git branch --show-current)",
+        "Bash(git diff --name-only origin/main...HEAD)",
+        "Bash(git diff --stat origin/main...HEAD)",
+        "Bash(git diff origin/main...HEAD)",
+        "Bash(git diff --check)",
+        "Bash(python -m pytest tests/test_prompt_consistency.py)",
+    ):
+        assert command in frontmatter_text, command
+    for forbidden in ("Bash(git fetch", "Bash(git commit", "Bash(git push", "Bash(gh ", "Bash(python scripts/run_evals.py"):
+        assert forbidden not in frontmatter_text, forbidden
+    required_rules = (
+        "Never concludes that a change is authorised",
+        "Never treats a passing consistency test as evidence",
+        "explicit maintainer authorisation",
+        "assembled-prompt hashes from any hash of a source file",
+        "Prompt hardening in issue #150 must wait for the pre-change baseline required by #151",
+        "Never edits `agents/*.md`",
+        "never creates or updates a baseline",
+        "Never concludes that a change is authorised",
+        "does not authorise, approve or merge a prompt or command change",
+        "EXPECTED_SUBJECTS",
+    )
+    for rule in required_rules:
+        assert rule in gate_text, rule
+    assert not ({"APPROVED", "REJECTED", "PASS", "FAIL"} & set(re.findall(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|FAIL)(?![A-Za-z])", gate_text.split("## Report format")[1].split("## Authoritative sources")[0]))), \
+        "the gate report must not turn the checklist into an approval verdict"
+
 
 def row(name, kind="skill", **overrides):
     values = {"name": name, "kind": kind, "audience": "analyst", "status": "planned: phase 2",

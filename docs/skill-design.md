@@ -3,7 +3,7 @@
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
 build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); the maintainer
-procedures of Phase 3 are not. The inventory of commands and skills is
+first maintainer procedure of Phase 3, `cam-change-verification`, is too; `docs-maintenance` is not. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -253,7 +253,11 @@ contextual, and a model-invocable description would sit in every session's conte
   flags; the flags themselves are checked against `--help` by `tests/test_command_flags.py`.
 - **Side effects.** Runs tests locally (no network, no model) and writes coverage artefacts. It runs
   `check_test_count.py --write` only after a complete green run and a maintainer's go-ahead, and it never commits,
-  pushes, merges or touches repository settings.
+  pushes, merges or touches repository settings. The `--write` call is deliberately not pre-approved, so it asks.
+- **Implemented.** `.claude/skills/cam-change-verification/SKILL.md`; the pre-approved commands are exact strings
+  (`ruff check .`, `bandit -r scripts/ -ll`, the one full-suite `pytest` command, the read forms of the two `check_*`
+  scripts, `diff-cover ... --config-file pyproject.toml`, `pii_scan.py`, and four read-only `git` forms), and
+  `Write`, `Edit` and `NotebookEdit` are removed while it runs.
 - **Limits.** A green local run is not a green CI run (Windows, a clean environment); it says so. It does not judge the
   design. It reads no deal.
 - **Folded in.** The sensitive-path and security review of `security-and-confidentiality` is a step here, using
@@ -291,13 +295,17 @@ contextual, and a model-invocable description would sit in every session's conte
    `tests/test_skill_inventory.py`. No skill.
 2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
    [Skills](skills.md) page and `tests/test_skills.py`.
-3. **Maintainer procedures:** `cam-change-verification`, `docs-maintenance`.
+3. **Maintainer procedures:** `cam-change-verification` (done, with `tests/test_maintainer_skills.py`), then `docs-maintenance`.
 4. **From evidence:** the best of the deferred list, one pull request each.
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its
 `allowed-tools` name only read-only scripts; every source it cites exists; it computes nothing; it uses synthetic
-examples only; the registry row flips to implemented in the same change; and the documentation says so.
+examples only; the registry row flips to implemented in the same change; and the documentation says so. A *procedure*
+skill differs in two ways and is held to its own contract: it runs in the maintainer's session (it is not forked,
+because it runs the test suite and the maintainer watches it), and its `allowed-tools` pre-approve only exact,
+non-writing commands (no commit, push, merge, `gh`, `--write` or `--update-snapshots`), so anything that changes the
+repository asks.
 
 ## What the tests protect
 

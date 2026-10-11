@@ -24,6 +24,7 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `financial-analysis` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `cam-change-verification` | skill | maintainer | implemented: phase 3 | user | None (aid) | no |
 | `docs-maintenance` | skill | maintainer | implemented: phase 3 | user | None (aid) | no |
+| `mutation-triage` | skill | maintainer | implemented: phase 4 | user | None (aid) | no |
 
 - **Invocation** is what the file's frontmatter says. `user`: `disable-model-invocation: true`, so it runs only when a
   person types it. `user+model`: no restriction; `/review` has to be this, because `/assemble` and `/research` run it
@@ -37,6 +38,10 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 - **Status**: a skill is `planned: phase N` until the pull request that adds its `SKILL.md` under
   `.claude/skills/<name>/` flips it to `implemented: phase N`. A name is unique across both kinds: in Claude Code a skill
   wins over a command of the same name, so a clash would silently disable the command.
+- **Sub-agents** are neither commands nor skills and have no row. The only one is `risk-reviewer`
+  (`.claude/agents/risk-reviewer.md`), the interactive Checker: a fresh, read-only context that `/review` starts for
+  every review (issue #204). A person does not type it and a skill never starts it; see
+  [AI assurance](../docs/ai-assurance.md#where-the-enforcement-runs-matters). A new sub-agent needs its own design.
 
 ## Commands
 

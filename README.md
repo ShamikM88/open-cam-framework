@@ -32,7 +32,7 @@ equivalent: `/research` (a standalone research brief, not a CAM or a workbook) a
 | :--- | :--- | :--- |
 | Authentication | Your Claude Code login; no `ANTHROPIC_API_KEY` needed or read | `ANTHROPIC_API_KEY` in the environment of the process |
 | Billing | What your Claude Code plan covers | Per-token Anthropic **API** billing, separate from any subscription |
-| Without a key | n/a | `calibrate.py` runs in `--mock` mode (placeholder output, no API call); `orchestrator.py` fails at its first model call, sending nothing |
+| Without a key | n/a | `calibrate.py` runs in `--mock` mode (placeholder output, no API call); `orchestrator.py` stops at once with one error line, reading, writing and sending nothing |
 | What stays local | Your files, `state.json`, the generated documents and the deterministic scripts the commands run | The same |
 | What goes to an external service | What the session sends to Claude Code's model while it works; the public pages and filings a research step fetches | The prompts and documents each script sends to the Anthropic API |
 

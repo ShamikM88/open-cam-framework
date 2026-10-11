@@ -233,4 +233,6 @@ The D1 verification script, re-run against the D3 corpus, reports the same two p
 
 ## Later single-line additions
 
+`config/system_instructions.md` was removed (issue #188). Nothing loaded it, so removing it changed no model input. The D2 rows above that corrected the claim that it was the shared system prompt describe the wording of that time, and `docs/architecture.md`, `docs/configuration.md` and `CLAUDE.md` no longer mention the file.
+
 After D3, one line was added to the `scripts/` part of the repository-map tree in `docs/architecture.md` for the new `transcription_check.py` (issue #132), and one bullet each to `CLAUDE.md`'s "Slash commands" facts and "Execution scripts" entries. For `supplied_forecast.py` (issue #124) one line was added to the same tree and one bullet each to the same two `CLAUDE.md` places. No moved text was changed.

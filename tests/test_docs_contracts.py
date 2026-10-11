@@ -267,3 +267,59 @@ def test_the_schema_version_the_data_model_page_shows_is_the_one_the_code_writes
     shown = set(re.findall(r'"schema_version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"', read("docs/data-model.md")))
     assert shown == {SCHEMA_VERSION}, (
         f"docs/data-model.md shows schema_version {sorted(shown)}; scripts/state_manager.py writes {SCHEMA_VERSION}")
+
+
+# ---------------------------------------------------------------------------
+# The removed system-instructions file (issue #188)
+# ---------------------------------------------------------------------------
+
+REMOVED_FILE = "config/system_instructions.md"
+# The claims that file made possible: it is named, or something is called the shared (top-level) system prompt.
+SYSTEM_PROMPT_CLAIM = re.compile(r"system_instructions|shared (?:top-level )?system prompt", re.I)
+# The one page that records, as history, what was once said and moved.
+HISTORY_PAGES = {"docs/move-ledger.md"}
+
+
+def live_sources():
+    """Every tracked file that describes or drives the framework today: the documents, the agent prompts, the commands,
+    skills and registry, the scripts and the configuration. Tests are left out (they may name the file to guard it)."""
+    patterns = ("CLAUDE.md", "README.md", "docs/*.md", "evals/README.md", "templates/README.md", "agents/*.md",
+                ".claude/commands/*.md", ".claude/agents/*.md", ".claude/skills/*/SKILL.md", "config/*.md",
+                "config/*.json", "scripts/*.py")
+    found = {p for pattern in patterns for p in REPO.glob(pattern)}
+    return sorted(p for p in found if p.relative_to(REPO).as_posix() not in HISTORY_PAGES)
+
+
+def system_prompt_claims(files):
+    """{path: [matching lines]} over a {path: text} mapping."""
+    claims = {}
+    for path, text in files.items():
+        lines = [ln.strip() for ln in text.splitlines() if SYSTEM_PROMPT_CLAIM.search(ln)]
+        if lines:
+            claims[path] = lines
+    return claims
+
+
+def test_the_unused_system_instructions_file_stays_removed_and_nothing_claims_a_shared_system_prompt():
+    """Nothing ever loaded `config/system_instructions.md`, so the pages that called it the shared system prompt were
+    wrong and the file was removed. It must not return as a file nothing reads, and no live page, prompt, command or script
+    may name it or say a shared system prompt exists. (Wiring one in would change model input: that is a prompt change
+    with its own baseline, not a side effect.)"""
+    assert not (REPO / REMOVED_FILE).exists(), f"{REMOVED_FILE} is back; nothing loads it (issue #188)"
+    claims = system_prompt_claims({p.relative_to(REPO).as_posix(): p.read_text(encoding="utf-8") for p in live_sources()})
+    assert claims == {}, "a live file refers to the removed system-instructions file or a shared system prompt"
+
+
+def test_the_system_prompt_claim_check_flags_each_wording_and_passes_the_current_text():
+    wrong = {
+        "a.md": "`config/system_instructions.md` is the shared top-level system prompt both agents inherit.",
+        "b.md": "Both agents inherit the shared system prompt.",
+        "c.py": "text = read_text('config/system_instructions.md')",
+        "d.md": "See System_Instructions.md.",
+    }
+    assert set(system_prompt_claims(wrong)) == set(wrong)
+    right = {"agents.md": "Agent behaviour is set by `agents/*.md` alone; nothing adds a shared prompt.",
+             "e.md": "Each agent has its own system prompt, loaded by the orchestrator."}
+    assert system_prompt_claims(right) == {}
+    assert live_sources(), "the check must scan something"
+    assert REPO / "docs" / "move-ledger.md" not in live_sources()

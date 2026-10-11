@@ -304,7 +304,7 @@ EXPECTED_SUBJECTS = {
 }
 SCANNED_FILES = ("CLAUDE.md", "README.md", "docs/*.md", ".claude/commands/*.md", ".claude/skills/*/SKILL.md",
                  "agents/*.md", "templates/cam/*.md",
-                 "templates/README.md", "evals/README.md", "config/skills_registry.md", "config/system_instructions.md",
+                 "templates/README.md", "evals/README.md", "config/skills_registry.md",
                  "scripts/*.py")     # code comments and the prompt/error text the scripts send to the model
 
 

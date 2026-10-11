@@ -3,7 +3,7 @@
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
 build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); the maintainer
-first maintainer procedure of Phase 3, `cam-change-verification`, is too; `docs-maintenance` is not. The inventory of commands and skills is
+two maintainer procedures of Phase 3, `cam-change-verification` and `docs-maintenance`, are too. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -276,6 +276,12 @@ contextual, and a model-invocable description would sit in every session's conte
   snapshot, and never touches the move ledger.
 - **Limits.** The checks catch renames and removals, not behaviour that changed under an unchanged name, so it reads the
   page against the diff and says what it could not confirm. Wiki publication (#192) is separate.
+- **Implemented.** `.claude/skills/docs-maintenance/SKILL.md`. Unlike `cam-change-verification` it edits files, so it
+  does not pre-approve `Edit` or `Write`: each edit goes through the maintainer's permission settings, which ask by
+  default but can be set to allow or to skip prompts, so the skill states its edit boundary (`docs/` and `README.md`;
+  command text only when asked; never `agents/*.md`, `CLAUDE.md`, source, tests, configuration, workflows, the move
+  ledger or a snapshot) as its own rule. It pre-approves the read-only `git` forms, the five documentation test files
+  named in the runbook as one exact command, and `pii_scan.py <path>`.
 
 ## Later, and why
 
@@ -296,7 +302,8 @@ contextual, and a model-invocable description would sit in every session's conte
    `tests/test_skill_inventory.py`. No skill.
 2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
    [Skills](skills.md) page and `tests/test_skills.py`.
-3. **Maintainer procedures:** `cam-change-verification` (done, with `tests/test_maintainer_skills.py`), then `docs-maintenance`.
+3. **Maintainer procedures (done):** `cam-change-verification` (`tests/test_maintainer_skills.py`) and `docs-maintenance`
+   (`tests/test_docs_maintenance_skill.py`).
 4. **From evidence:** the best of the deferred list, one pull request each.
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:

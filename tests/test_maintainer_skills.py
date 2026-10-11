@@ -104,11 +104,11 @@ def frontmatter_problems(text, name=NAME):
     return problems
 
 
-def test_the_procedure_is_the_implemented_maintainer_skill_of_phase_3a():
+def test_the_maintainer_skills_of_phase_3_are_the_implemented_ones():
     rows = [r for r in inventory_rows(read(REGISTRY)) if r["kind"] == "skill" and r["audience"] == "maintainer"]
     implemented = sorted(r["name"] for r in rows if r["status"].startswith("implemented"))
-    assert implemented == [NAME]
-    assert [r["name"] for r in rows if r["status"].startswith("planned")] == ["docs-maintenance"]
+    assert implemented == [NAME, "docs-maintenance"]
+    assert [r["name"] for r in rows if r["status"].startswith("planned")] == []
 
 
 def test_the_procedure_is_typed_unforked_cannot_write_and_pre_approves_only_exact_non_writing_commands():
@@ -333,7 +333,7 @@ def test_the_pages_describe_the_procedure_as_implemented_and_name_its_limits():
                    "the checks generate local artefacts, and the badge update is a separate, explicitly gated write",
                    "a green local run is not a green CI run", "no blocker found by these checks"):
         assert needle in skills, needle
-    for needle in ("cam-change-verification (done", "A procedure skill differs in two ways", "deliberately not pre-approved",
+    for needle in ("Maintainer procedures (done)", "A procedure skill differs in two ways", "deliberately not pre-approved",
                    "ask by default but can be set to allow or to skip prompts", "a deny rule in the settings is what would enforce it"):
         assert needle in design, needle
     row = next(r for r in inventory_rows(read(REGISTRY)) if r["name"] == NAME)

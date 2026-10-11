@@ -87,19 +87,22 @@ only; downside breaches are enforced when the draft is checked), and recorded fi
 no growth rate, margin or other new number: a movement metric would be a calculation, so it would be a separate, tested
 script.
 
-## The maintainer procedure
+## The maintainer procedures
 
-`cam-change-verification` is for the person who maintains the repository, not for an analyst, and it touches no deal. The
-bullets under "What every skill here is" describe the analyst aids; it differs where this section says.
+`cam-change-verification` and `docs-maintenance` are for the person who maintains the repository, not for an analyst, and
+they touch no deal. The bullets under "What every skill here is" describe the analyst aids; they differ where this
+section says. `docs-maintenance` is described after the details of `cam-change-verification`.
 
 | Skill | Run | Use it to |
 | :--- | :--- | :--- |
 | `cam-change-verification` | `/cam-change-verification [what the change is about]` | Before asking for review, run in order and report: what changed and which sensitive paths (`agents/`, `config/`, `scripts/`, `.claude/`, `.github/`, `pyproject.toml`) it touches, Ruff and Bandit, the full suite with coverage, the test-count badge, the coverage floors and changed-line coverage, the documentation checks, a scan of added text, and a clean tree |
+| `docs-maintenance` | `/docs-maintenance [what changed]` | For a change, find the pages and worked examples that describe the changed source, update them in the same change, run the documentation checks, and say what the checks cannot confirm |
 
-- **Same as the aids:** typed by a person (`disable-model-invocation`), named by no command, prompt or `CLAUDE.md` line, never
-  input to the Maker or the Checker, and `Write`, `Edit` and `NotebookEdit` are removed while it runs.
-- **Different:** it runs in your own session (it is not forked, so you see the run), and it runs the test suite, which
-  writes coverage files and `pytest_output.txt` in the repository (ignored by git). It makes no network or model call.
+- **Same as the aids (both procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
+  `CLAUDE.md` line, and never input to the Maker or the Checker. Both run in your own session and make no network or model call.
+- **`cam-change-verification` is different:** it is not forked, so you see the run, `Write`, `Edit` and `NotebookEdit` are removed
+  while it runs, and it runs the test suite, which writes coverage files and `pytest_output.txt` in the repository (ignored by
+  git). The next three bullets are about it; `docs-maintenance` follows them.
 - **What it pre-approves:** only exact commands, `git status --short`, `git branch --show-current`, two
   `git diff ... origin/main...HEAD` forms, `ruff check .`, `bandit -r scripts/ -ll`, the one full-suite `pytest` command
   with `tee pytest_output.txt`, `check_test_count.py pytest_output.txt`, `check_coverage.py coverage.json`,
@@ -121,6 +124,27 @@ bullets under "What every skill here is" describe the analyst aids; it differs w
 - **Source of truth:** [Operations](operations.md#verify-a-change-the-full-suite) and
   [Contributing](contributing.md#before-you-ask-for-review); the skill points to them for the flags and does not restate
   what each check means.
+
+### `docs-maintenance`
+
+Maps a change to the kind of fact that moved (using the authoritative-source table in the [docs index](README.md#where-each-kind-of-fact-is-authoritative)),
+searches `docs/`, `README.md`, `CLAUDE.md`, `evals/README.md` and the command files for every name that changed, reads each
+page against the diff (the checks catch renames and removals, not behaviour that changed under an unchanged name), brings the
+page in step with the source, runs the five documentation test files, and reports each page it affected, whether it changed it
+and what it confirmed.
+
+- **What it edits:** `docs/` and `README.md`, to make them describe the source. Command text only when you ask. It does not
+  edit `agents/*.md` (it stops and points to [the prompt-change process](contributing.md#changing-an-agent-prompt)),
+  `CLAUDE.md`, source, tests, configuration or workflows; it never regenerates a golden snapshot, hand-edits a quoted example
+  figure, or touches the move ledger. Where a page and the source disagree and the source looks wrong, it reports that and
+  changes nothing.
+- **What it pre-approves:** `git status --short`, `git branch --show-current`, the two `git diff ... origin/main...HEAD` forms,
+  the documentation tests as one exact `pytest` command, and `pii_scan.py <path>`. It does **not** pre-approve `Edit` or
+  `Write`, so by default each edit asks you; as for the other procedure, a settings allow rule or a mode that skips prompts
+  removes that question, and the edit boundary above is therefore the skill's own rule in every mode. A deny rule in your
+  permission settings would enforce it; no test here can.
+- **Limits:** a green documentation run says the names, links, flags and quoted examples agree, not that every sentence is
+  true. It says which pages it read against the diff and which it only searched. Wiki publication (#192) is separate.
 
 ## Requirements
 

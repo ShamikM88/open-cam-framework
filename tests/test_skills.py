@@ -79,8 +79,9 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
 
     policy_fit = skill_text("policy-fit")
     body = body_of(policy_fit)
-    calls = body_commands(policy_fit)
+    calls = [call for call in body_commands(policy_fit) if call[1]]
     assert len(calls) == 1 and calls[0][0] == "policy_check"
+    assert {"--company", "--proposal"} <= set(calls[0][1])
     assert "--draft" not in calls[0][1], "policy-fit is deliberately draftless"
     for phrase in (
         "forward_covenant_results",

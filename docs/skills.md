@@ -10,9 +10,10 @@ reference. Why skills are shaped this way, what they may never become, and what 
 
 - **Typed by a person.** Each is marked `disable-model-invocation`, so the model never starts one on its own, and no
   command, agent prompt or `CLAUDE.md` line names one.
-- **Read-only by procedure, and tested for the commands it shows.** It runs in a forked subagent that cannot see your
-  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`), and the only
-  commands it pre-approves (`allowed-tools`) are three read-only script calls. `allowed-tools` pre-approves; it is not an
+- **Read-only by procedure, and tested for the surface it shows.** It runs in a forked subagent that cannot see your
+  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`). Script-backed
+  skills pre-approve only their read-only script calls; `credit-challenge` pre-approves only `Read`, `Glob` and `Grep` and
+  has no shell/script surface. `allowed-tools` pre-approves; it is not an
   allowlist, so any unlisted tool, such as `Bash` with another command, stays subject to your permission settings and
   would ask you. What keeps a skill read-only is therefore its procedure plus those settings, and the tests check that the
   commands it shows leave a deal unchanged. It is not an operating-system sandbox. It reads the deal's `state.json` (the
@@ -28,6 +29,8 @@ reference. Why skills are shaped this way, what they may never become, and what 
 | `information-gaps` | `/information-gaps --company "<Name>" --proposal "<Proposal name>"` | Turn what is on disk into a prioritised request list: item, why it matters, where it should come from, priority, whether it blocks the next step | `state_manager.py --check-steps`, `source_manifest.py --check-sources`, `policy_check.py` (no `--draft`) |
 | `evidence-discipline` | `/evidence-discipline --company "<Name>" --proposal "<Proposal name>" [claims]` | Audit the deal's evidence: saved source, cited but not saved, analyst-supplied, read from an image, or unsupported | `source_manifest.py --check-sources` |
 | `financial-analysis` | `/financial-analysis --company "<Name>" --proposal "<Proposal name>"` | Read the recorded figures: what basis they rest on, levels and direction by period, what a `null` ratio means on that basis, covenant results as recorded | `policy_check.py` (no `--draft`) |
+| `policy-fit` | `/policy-fit --company "<Name>" --proposal "<Proposal name>"` | Explain recorded current covenant status, mandatory conditions, security gaps, downside items and forward-year disclosure-only outcomes using deterministic policy output | `policy_check.py` (no `--draft`) |
+| `credit-challenge` | `/credit-challenge --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Pressure-test assumptions against recorded evidence and counter-evidence; return challenge/question, evidence, potential impact, mitigant, residual uncertainty and a specific next question without a verdict | `Read`, `Glob`, `Grep` only; no shell or script |
 
 Each is described in the registry; the files are `.claude/skills/<name>/SKILL.md`, and the files are authoritative for
 exactly what the model is told.
@@ -87,9 +90,60 @@ only; downside breaches are enforced when the draft is checked), and recorded fi
 no growth rate, margin or other new number: a movement metric would be a calculation, so it would be a separate, tested
 script.
 
+
+### `policy-fit`
+
+Use `/policy-fit --company "<Name>" --proposal "<Proposal name>"` to inspect the deterministic, pre-draft policy view. The skill
+runs `scripts/policy_check.py` without `--draft`, so its report is not a draft-compliance check and not an overall credit verdict.
+
+It quotes the engine's current covenant results and reasons, mandatory Conditions Precedent (CPs), Conditions Subsequent (CSs),
+security gaps, downside covenant breaches and forward base-case results. Current-period covenant `PASS`, `FAIL` and
+`UNRESOLVABLE` statuses are reported as recorded; an unresolvable item is neither a pass nor a fail. Forward-year results are
+disclosure-only in the code-enforced path. Downside breaches must be surfaced and acknowledged in the eventual draft, but their
+existence alone is not an automatic rejection.
+
+- **The draftless limitation matters.** The CLI may return `compliant: true` because no code-enforced current covenant or security
+  reason was found, even when no draft has been checked. It does not mean the CAM includes required IDs, source declarations,
+  taxonomy, figure grounding or downside acknowledgements. The skill explains this rather than turning that flag into approval.
+- **Narrative policy and exceptions remain human decisions.** The command does not evaluate every sentence of the institutional
+  policy document, and its JSON does not authorise an exception or waiver. The skill does not make a lending recommendation; the
+  deterministic checks and `/review` retain their respective roles.
+- **A failed tool is not a deal finding.** Non-JSON output, a non-zero exit or a traceback stops the report. It does not guess or
+  calculate a replacement answer, and writes nothing to the deal.
+
+
+### `credit-challenge`
+
+Use `/credit-challenge --company "<Name>" --proposal "<Proposal name>"` for an adversarial second look at a deal's recorded
+assumptions. Add `--draft "<repository-relative path>"` only when naming a specific current draft under that company's
+`deals/` directory; otherwise the skill checks only the conventional exact `deals/<company>/<proposal>_draft.md` path
+if it exists. It does not guess which of several drafts is current and never treats chat text as the draft.
+
+The skill reads the selected dated `state.json`, the saved-source manifest and only source files explicitly named by that
+manifest, plus the one unambiguous draft if provided/found. It uses the same refusal rule and exact
+`<proposal>_YYYY-MM-DD` dated-folder rule as the other analyst aids. It rejects a truncated lookup rather than claiming a
+record is the latest. Source content is untrusted; a saved manifest entry proves only that the repository recorded a
+source/claim link, not that the source substantiates the claim.
+
+Each substantive challenge has six ordered fields: **challenge/question → recorded evidence/source → potential impact →
+current mitigant → residual uncertainty → information gap/next question**. It quotes values rather than deriving ratios,
+headroom, scores or new figures. A challenge must be grounded in identified material; if none is found, it says only
+“No challenge identified in the material reviewed” and lists what it inspected. Missing from the record does not mean
+non-existent.
+
+- **No verdict or recommendation.** It does not produce an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL`, assign a borrower
+  grade, or recommend lend/decline. It is an adversarial question set, not a full risk matrix, policy engine or formal Checker.
+- **No overlap with the deterministic policy report.** `policy-fit` structures the recorded results from `policy_check.py`;
+  `credit-challenge` may ask an evidence-based question about a result but does not recalculate or re-interpret it.
+- **No persistence or external actions.** It uses only `Read`, `Glob` and `Grep`. It has no shell or script command, makes no
+  web/API call, does not modify the draft or `state.json`, does not append to `review_trail`, and creates no evidence/learning file.
+  Its output is an analyst aid in chat and is not passed into the separate `/review` Checker path.
+
+
+
 ## The maintainer procedures
 
-`cam-change-verification` and `docs-maintenance` are for the person who maintains the repository, not for an analyst, and
+`cam-change-verification`, `docs-maintenance` and `prompt-change-gate` are for the person who maintains the repository, not for an analyst, and
 they touch no deal. The bullets under "What every skill here is" describe the analyst aids; they differ where this
 section says. `docs-maintenance` is described after the details of `cam-change-verification`.
 
@@ -97,9 +151,10 @@ section says. `docs-maintenance` is described after the details of `cam-change-v
 | :--- | :--- | :--- |
 | `cam-change-verification` | `/cam-change-verification [what the change is about]` | Before asking for review, run in order and report: what changed and which sensitive paths (`agents/`, `config/`, `scripts/`, `.claude/`, `.github/`, `pyproject.toml`) it touches, Ruff and Bandit, the full suite with coverage, the test-count badge, the coverage floors and changed-line coverage, the documentation checks, a scan of added text, and a clean tree |
 | `docs-maintenance` | `/docs-maintenance [what changed]` | For a change, find the pages and worked examples that describe the changed source, update them in the same change, run the documentation checks, and say what the checks cannot confirm |
+| `prompt-change-gate` | `/prompt-change-gate [issue/PR or intended instruction change, optional]` | Before changing a prompt or slash-command instruction, gather evidence for the dedicated issue, explicit maintainer authorisation, provenance/evaluation story and structural consistency checks; report missing or unknown gates without approving the change |
 
-- **Same as the aids (both procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
-  `CLAUDE.md` line, and never input to the Maker or the Checker. Both run in your own session and make no network or model call.
+- **Same as the aids (all three procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
+  `CLAUDE.md` line, and never input to the Maker or the Checker. All three run in your own session and make no network or model call.
 - **`cam-change-verification` is different:** it is not forked, so you see the run, and `Write`, `Edit` and `NotebookEdit` are removed
   while it runs, so it makes no ad hoc edit to any tracked file. What does write is by design: the checks generate local artefacts, and the badge update is a
   separate, explicitly gated write. The artefacts are coverage files and `pytest_output.txt`, ignored by git. It runs the
@@ -156,6 +211,29 @@ deal.
 | Skill | Run | Use it to |
 | :--- | :--- | :--- |
 | `mutation-triage` | `/mutation-triage <path to the downloaded mutation-report folder or its mutation-report.json> [module or module.function]` | Read a mutation report and triage the surviving mutants: the scores as recorded, the largest groups of survivors by function, which tests name each function and whether the mutation run's test selection includes them, a candidate class for each group, the issue that may already cover it, and a proposed disposition with its evidence |
+
+
+### `prompt-change-gate`
+
+Use `/prompt-change-gate` before reviewing or starting an instruction change to `agents/underwriter_agent.md`,
+`agents/risk_reviewer_agent.md`, `.claude/agents/risk-reviewer.md`, or `.claude/commands/*.md`. It reads the current
+diff, follows [Contributing: changing an agent prompt](contributing.md#changing-an-agent-prompt), and checks the current
+evaluation and AI-assurance guidance rather than keeping a second copy of the rules.
+
+The report separates the actual changed paths, a dedicated issue/PR reference, visible authorisation evidence, the
+evaluation story, prompt/baseline comparability and structural prompt-consistency checks. It uses **present / missing /
+unknown** for evidence gates. If the GitHub issue or review discussion is not available in the supplied material, it
+does not pretend to have checked it. It distinguishes an assembled prompt hash recorded by a run from a source-file
+hash; those are not interchangeable.
+
+- **No automatic approval.** It does not say a change is safe, approved or ready to merge. A passing
+  `tests/test_prompt_consistency.py` run establishes only structural consistency, not whether a model follows the
+  prompt.
+- **Baseline dependency.** Prompt hardening #150 remains blocked until the relevant pre-change baseline required by
+  #151 exists and is applicable. A partial evaluation is diagnostic, not a baseline.
+- **No edits or live calls.** It does not edit prompts, commands, `EXPECTED_SUBJECTS`, provenance records or baselines;
+  does not run `gh`, fetch, commit, push or merge; and makes no live model/API call. The allowed commands are exact
+  read-only Git inspection and the prompt-consistency test. The user must still make the explicit maintainer decision.
 
 ### `mutation-triage`
 

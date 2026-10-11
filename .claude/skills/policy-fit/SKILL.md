@@ -57,7 +57,7 @@ The concrete authoritative files used by this skill are `scripts/policy_check.py
 ## Rules
 
 - Run only the command shown in step 4. Its allowed-tools pre-approves the script invocation; it does not prevent other tools from being available under permission settings. By procedure, run no other command, use no write tool, and make no network call.
-- Never pass --draft: this skill is not a draft checker.
+- Never pass --draft: this skill is not a draft checker. This is an instruction, not an enforced boundary: the pre-approval pattern ends in a wildcard, so it would also cover a call with --draft, and the tool settings have no way to exclude one flag from a pre-approval. The contract test checks this file's own command, not a live run.
 - Quote policy values, status, IDs and reasons; do not compute, normalise, re-rank or paraphrase the code's reasons.
 - The words PASS, FAIL and UNRESOLVABLE are allowed only when reporting the engine's individual recorded results. They never constitute this skill's overall credit verdict.
 - No exception, waiver, override or narrative policy compliance is inferred. The formal code-enforced check and /review retain their authoritative roles.

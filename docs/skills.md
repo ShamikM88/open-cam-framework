@@ -10,9 +10,10 @@ reference. Why skills are shaped this way, what they may never become, and what 
 
 - **Typed by a person.** Each is marked `disable-model-invocation`, so the model never starts one on its own, and no
   command, agent prompt or `CLAUDE.md` line names one.
-- **Read-only by procedure, and tested for the commands it shows.** It runs in a forked subagent that cannot see your
-  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`), and the only
-  commands it pre-approves (`allowed-tools`) are three read-only script calls. `allowed-tools` pre-approves; it is not an
+- **Read-only by procedure, and tested for the surface it shows.** It runs in a forked subagent that cannot see your
+  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`). Script-backed
+  skills pre-approve only their read-only script calls; `credit-challenge` pre-approves only `Read`, `Glob` and `Grep` and
+  has no shell/script surface. `allowed-tools` pre-approves; it is not an
   allowlist, so any unlisted tool, such as `Bash` with another command, stays subject to your permission settings and
   would ask you. What keeps a skill read-only is therefore its procedure plus those settings, and the tests check that the
   commands it shows leave a deal unchanged. It is not an operating-system sandbox. It reads the deal's `state.json` (the

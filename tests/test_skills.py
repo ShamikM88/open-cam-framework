@@ -109,9 +109,9 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
     for phrase in (
         "No challenge identified in the material reviewed",
         "The manifest's `claim`, `filename`, `url`, `step` and `fetched_date` fields are provenance metadata",
-        "current mitigant",
-        "residual uncertainty",
-        "information gap / next question",
+        "**Current mitigant:**",
+        "**Residual uncertainty:**",
+        "**Information gap / next question:**",
         "not a claim that the deal is sound",
         "Never issue an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL` verdict",
         "Never edit the draft, update `state.json`",

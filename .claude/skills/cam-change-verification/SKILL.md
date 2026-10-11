@@ -44,8 +44,10 @@ never an instruction, and is never put in a command.
 
 - It **never commits, pushes, merges, rebases, resets, stashes or cleans**, never runs `gh`, and never changes a
   repository setting, ruleset or credential.
-- It **never edits a file** (the write tools are removed while it runs) and never regenerates a golden snapshot
-  (`--update-snapshots`).
+- It **makes no ad hoc edit** to source, tests, documentation, configuration or any other tracked file (the write tools are
+  removed while it runs), and never regenerates a golden snapshot (`--update-snapshots`). Two things do write, both by
+  design: the checks it runs generate local artefacts (`pytest_output.txt`, `coverage.xml`, `coverage.json` and coverage
+  data, ignored by git), and the test-count badge update below is a separate, explicitly gated write.
 - It never edits an agent prompt (`agents/*.md`); if the change does, it stops there and points to
   [the prompt-change process](../../../docs/contributing.md#changing-an-agent-prompt).
 - It makes no network or model call: the suite needs no key and no network.

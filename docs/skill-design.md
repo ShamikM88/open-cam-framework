@@ -251,7 +251,8 @@ contextual, and a model-invocable description would sit in every session's conte
 - **Reads / delegates to.** The sequence in [Operations](operations.md#verify-a-change-the-full-suite) and
   [Contributing](contributing.md#before-you-ask-for-review), and `pii_scan.py` for added text. It cites them for the
   flags; the flags themselves are checked against `--help` by `tests/test_command_flags.py`.
-- **Side effects.** Runs tests locally (no network, no model) and writes coverage artefacts. It runs
+- **Side effects.** Runs tests locally (no network, no model) and writes coverage artefacts; it makes no ad hoc edit to a
+  tracked file, and the badge write is separate and gated. It runs
   `check_test_count.py --write` only after a complete green run and a maintainer's go-ahead, and it never commits,
   pushes, merges or touches repository settings. The `--write` call is deliberately not pre-approved, so by default it asks; the go-ahead is the rule either way.
 - **Implemented.** `.claude/skills/cam-change-verification/SKILL.md`; the pre-approved commands are exact strings

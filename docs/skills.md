@@ -97,7 +97,9 @@ bullets under "What every skill here is" describe the analyst aids; it differs w
 | `cam-change-verification` | `/cam-change-verification [what the change is about]` | Before asking for review, run in order and report: what changed and which sensitive paths (`agents/`, `config/`, `scripts/`, `.claude/`, `.github/`, `pyproject.toml`) it touches, Ruff and Bandit, the full suite with coverage, the test-count badge, the coverage floors and changed-line coverage, the documentation checks, a scan of added text, and a clean tree |
 
 - **Same as the aids:** typed by a person (`disable-model-invocation`), named by no command, prompt or `CLAUDE.md` line, never
-  input to the Maker or the Checker, and `Write`, `Edit` and `NotebookEdit` are removed while it runs.
+  input to the Maker or the Checker, and `Write`, `Edit` and `NotebookEdit` are removed while it runs, so it makes no ad hoc
+  edit to any tracked file. What does write is by design: the checks generate local artefacts, and the badge update is a
+  separate, explicitly gated write.
 - **Different:** it runs in your own session (it is not forked, so you see the run), and it runs the test suite, which
   writes coverage files and `pytest_output.txt` in the repository (ignored by git). It makes no network or model call.
 - **What it pre-approves:** only exact commands, `git status --short`, `git branch --show-current`, two

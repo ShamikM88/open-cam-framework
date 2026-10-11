@@ -162,7 +162,7 @@ def prompt_gate_contract_problems(text):
     if set(fields) != {"name", "description", "argument-hint", "disable-model-invocation", "allowed-tools", "disallowed-tools"}:
         problems.append("unexpected frontmatter key or a required key is missing")
     fm = text.split("---", 2)[1] if text.count("---") >= 2 else ""
-    actual_tools = {m.group(1).strip().strip("\"'") for m in re.finditer(r"(?m)^\\s+-\\s+(.+?)\\s*$", fm)}
+    actual_tools = {m.group(1).strip().strip("\"'") for m in re.finditer(r"(?m)^\s+-\s+(.+?)\s*$", fm)}
     expected_tools = {
         "Read", "Glob", "Grep",
         "Bash(git status --short)",

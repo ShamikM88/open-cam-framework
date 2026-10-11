@@ -384,7 +384,7 @@ If no material challenge is identified, state only that no challenge was identif
 **Overlap boundaries.**
 
 - `policy-fit` explains the actual deterministic policy output, covenant statuses and formal CP/CS/security/downside records. `credit-challenge` may ask a question about those recorded items but must not reproduce a second policy report or change their meaning.
-- `credit-risk`, if separately designed later, would organise the risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
+- `credit-risk` organises the broader evidenced risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
 - `/review` runs the separate Checker and deterministic draft compliance path. `credit-challenge` does not issue a review verdict, alter a draft or pass its own output into the Checker.
 
 **Implementation acceptance gates.**
@@ -396,7 +396,7 @@ If no material challenge is identified, state only that no challenge was identif
 - The implementation PR must cite this design PR and report any deliberate deviation. A deviation that touches the formal Checker, prompts, policy semantics, persistence, live model calls or scoring requires a new explicit design decision rather than an incidental implementation choice.
 
 
-### `credit-risk` — design proposal (implementation is a separate PR)
+### `credit-risk` — design contract (implemented in Phase 4)
 
 **Job to be done.** Organise the material risk picture for a named deal into a consistent, evidence-grounded analyst view. Unlike `credit-challenge`, which actively pressure-tests assumptions, `credit-risk` gives a structured account of risks evidenced in the available material. It is not a credit decision, rating, formal review or substitute for the deterministic policy engine.
 

@@ -89,7 +89,7 @@ script.
 
 ## The maintainer procedures
 
-`cam-change-verification` and `docs-maintenance` are for the person who maintains the repository, not for an analyst, and
+`cam-change-verification`, `docs-maintenance` and `prompt-change-gate` are for the person who maintains the repository, not for an analyst, and
 they touch no deal. The bullets under "What every skill here is" describe the analyst aids; they differ where this
 section says. `docs-maintenance` is described after the details of `cam-change-verification`.
 
@@ -97,9 +97,10 @@ section says. `docs-maintenance` is described after the details of `cam-change-v
 | :--- | :--- | :--- |
 | `cam-change-verification` | `/cam-change-verification [what the change is about]` | Before asking for review, run in order and report: what changed and which sensitive paths (`agents/`, `config/`, `scripts/`, `.claude/`, `.github/`, `pyproject.toml`) it touches, Ruff and Bandit, the full suite with coverage, the test-count badge, the coverage floors and changed-line coverage, the documentation checks, a scan of added text, and a clean tree |
 | `docs-maintenance` | `/docs-maintenance [what changed]` | For a change, find the pages and worked examples that describe the changed source, update them in the same change, run the documentation checks, and say what the checks cannot confirm |
+| `prompt-change-gate` | `/prompt-change-gate [issue/PR or intended instruction change, optional]` | Before changing a prompt or slash-command instruction, gather evidence for the dedicated issue, explicit maintainer authorisation, provenance/evaluation story and structural consistency checks; report missing or unknown gates without approving the change |
 
-- **Same as the aids (both procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
-  `CLAUDE.md` line, and never input to the Maker or the Checker. Both run in your own session and make no network or model call.
+- **Same as the aids (all three procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
+  `CLAUDE.md` line, and never input to the Maker or the Checker. All three run in your own session and make no network or model call.
 - **`cam-change-verification` is different:** it is not forked, so you see the run, and `Write`, `Edit` and `NotebookEdit` are removed
   while it runs, so it makes no ad hoc edit to any tracked file. What does write is by design: the checks generate local artefacts, and the badge update is a
   separate, explicitly gated write. The artefacts are coverage files and `pytest_output.txt`, ignored by git. It runs the

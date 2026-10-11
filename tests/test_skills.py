@@ -531,15 +531,18 @@ def test_the_refusal_rule_refuses_every_payload_and_none_of_the_ordinary_names()
     assert [n for n in ACCEPTED_NAMES if refused(n)] == []
 
 
-@pytest.mark.parametrize("name", ["evidence-discipline", "financial-analysis", "information-gaps"])
+@pytest.mark.parametrize("name", ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps"])
 def test_each_skill_states_the_refusal_rule_before_it_runs_anything(name):
     body = body_of(skill_text(name))
     text = " ".join(body.split())
     assert REFUSAL in text and "backtick" in text and "starts with `-`" in text
     lines = body.splitlines()
-    first_command = next(i for i, line in enumerate(lines) if line.strip().startswith("python scripts/"))
     refusal_line = next(i for i, line in enumerate(lines) if "contains any of" in line or "Refuse (say why" in line)
-    assert refusal_line < first_command, "the check comes before the first command that is run"
+    if name == "credit-challenge":
+        assert not any(line.strip().startswith("python scripts/") for line in lines)
+    else:
+        first_command = next(i for i, line in enumerate(lines) if line.strip().startswith("python scripts/"))
+        assert refusal_line < first_command, "the check comes before the first command that is run"
 
 
 @pytest.mark.parametrize("deal_name", ACCEPTED_NAMES)

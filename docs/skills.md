@@ -100,9 +100,10 @@ section says. `docs-maintenance` is described after the details of `cam-change-v
 
 - **Same as the aids (both procedures):** typed by a person (`disable-model-invocation`), named by no command, prompt or
   `CLAUDE.md` line, and never input to the Maker or the Checker. Both run in your own session and make no network or model call.
-- **`cam-change-verification` is different:** it is not forked, so you see the run, `Write`, `Edit` and `NotebookEdit` are removed
-  while it runs, and it runs the test suite, which writes coverage files and `pytest_output.txt` in the repository (ignored by
-  git). The next three bullets are about it; `docs-maintenance` follows them.
+- **`cam-change-verification` is different:** it is not forked, so you see the run, and `Write`, `Edit` and `NotebookEdit` are removed
+  while it runs, so it makes no ad hoc edit to any tracked file. What does write is by design: the checks generate local artefacts, and the badge update is a
+  separate, explicitly gated write. The artefacts are coverage files and `pytest_output.txt`, ignored by git. It runs the
+  test suite. The next three bullets are about it; `docs-maintenance` follows them.
 - **What it pre-approves:** only exact commands, `git status --short`, `git branch --show-current`, two
   `git diff ... origin/main...HEAD` forms, `ruff check .`, `bandit -r scripts/ -ll`, the one full-suite `pytest` command
   with `tee pytest_output.txt`, `check_test_count.py pytest_output.txt`, `check_coverage.py coverage.json`,

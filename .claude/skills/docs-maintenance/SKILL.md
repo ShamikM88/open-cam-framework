@@ -38,7 +38,8 @@ never put in a command.
 - **It edits** files under `docs/` and `README.md`, and only to make them describe the source accurately. Each edit is a
   normal edit in your session: `Edit` and `Write` are not pre-approved here, so by default your permission settings ask,
   and a settings allow rule or a mode that skips prompts (such as `bypassPermissions`) removes the question. It does not
-  rely on a prompt: the list below is its own rule in every mode.
+  rely on a prompt: the list below is its own rule in every mode. Running the documentation tests writes only git-ignored
+  caches (such as `.pytest_cache`); that is not an edit to a tracked file.
 - **It edits command text** (`.claude/commands/`) **only when the maintainer asks** in this conversation, and never anything
   else under `.claude/`.
 - **It never edits an agent prompt** (`agents/*.md`): if a prompt is wrong or stale it stops there, says so, and points to

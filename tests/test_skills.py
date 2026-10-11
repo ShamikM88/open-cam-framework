@@ -90,8 +90,10 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
         "Security gaps",
         "human exception",
         "The JSON has no field that grants an exception",
-        "Quote every item in reasons verbatim",
-        "compliant only as the result returned by this draftless structural check",
+        "Quote every item in",
+        "reasons verbatim",
+        "draftless structural check",
+        "can be true when no draft-level checks ran",
         "never translate it into \"policy passed\", \"approved\" or \"fit to lend\"",
         "An unresolvable result is neither a pass nor a fail",
     ):

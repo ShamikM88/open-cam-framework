@@ -54,7 +54,7 @@ jobs:
       - name: Run test suite with coverage
         run: |
           set -o pipefail
-          pytest tests/ --durations=30 --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
+          pytest tests/ -n 4 --dist=loadfile --durations=30 --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
 
       - name: Verify checked-in test count
         run: python scripts/check_test_count.py pytest_output.txt
@@ -116,7 +116,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run test suite
-        run: pytest tests/ --durations=30
+        run: pytest tests/ -n 2 --dist=loadfile --durations=30
 
   runtime-smoke:
     name: runtime-smoke

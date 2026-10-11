@@ -45,7 +45,7 @@ include traceable acceptance criteria, design trade-offs, docs, and assurance ev
 - [ ] Known limitations and follow-ups are stated.
 
 ## AI assistance disclosure
-<!-- REQUIRED and must remain the final section. Identify each AI product/tool and exact model/version known to have contributed. If not exposed or verified, say so; never guess. Distinguish implementation/authorship from planning, documentation, or review. If no AI contributed, say "None". -->
+<!-- REQUIRED and must remain the final section. Identify each AI product/tool and exact model/version known to have contributed (for a Claude Code session, the model the session itself reports). If not exposed or verified, say so; never guess. A tool's own attribution footer (for example Claude Code's "Generated with Claude Code" line) may follow this section, but does not replace it. Distinguish implementation/authorship from planning, documentation, or review. If no AI contributed, say "None". -->
 - **Assistant(s) and model(s):** [e.g. ChatGPT (GPT-6), Claude Code (exact model if known), or None]
 - **Contribution scope:** [what each did—planning, implementation, tests, documentation, review; be specific and don't overstate authorship]
 - **Human review:** [Pending / Reviewed by <maintainer>]. The human maintainer owns the final decision to merge.

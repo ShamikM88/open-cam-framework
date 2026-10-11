@@ -74,8 +74,28 @@ def tools(fields, key):
     return TOOL_TOKEN.findall(fields.get(key, ""))
 
 
-def test_the_three_analyst_aids_of_phase_two_are_the_implemented_report_skills():
-    assert report_skills() == ["evidence-discipline", "financial-analysis", "information-gaps"]
+def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_is_bounded():
+    assert report_skills() == ["evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
+
+    policy_fit = skill_text("policy-fit")
+    body = body_of(policy_fit)
+    calls = body_commands(policy_fit)
+    assert len(calls) == 1 and calls[0][0] == "policy_check"
+    assert "--draft" not in calls[0][1], "policy-fit is deliberately draftless"
+    for phrase in (
+        "forward_covenant_results",
+        "disclosure-only",
+        "required_conditions_precedent",
+        "required_conditions_subsequent",
+        "Security gaps",
+        "human exception",
+        "The JSON has no field that grants an exception",
+        "Quote every item in reasons verbatim",
+        "compliant only as the result returned by this draftless structural check",
+        "never translate it into \"policy passed\", \"approved\" or \"fit to lend\"",
+        "An unresolvable result is neither a pass nor a fail",
+    ):
+        assert phrase in body, phrase
 
 
 # ---------------------------------------------------------------------------

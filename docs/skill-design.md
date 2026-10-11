@@ -196,6 +196,7 @@ scripts that exist today; the procedures wrap documented sequences for change ve
 | `docs-maintenance` | 3 | maintainer | user | Procedure | Not a deal skill |
 | `mutation-triage` | 4 | maintainer | user | Report | Not a deal skill |
 | `prompt-change-gate` | 4 | maintainer | user | Procedure | Not a deal skill |
+| `policy-fit` | 4 | analyst | user | Report | Yes, no record |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -311,6 +312,14 @@ contextual, and a model-invocable description would sit in every session's conte
   tedious by hand (test-selection membership, finding the function's source and tests) and a fixed report shape.
 
 
+
+### `policy-fit` (Phase 4)
+
+- **Purpose.** Explain deterministic policy output for a named deal: current covenant results and reasons, required CPs/CSs, security gaps, downside breaches and forward-year disclosures.
+- **Reads / delegates to.** The deal's state and structured output from `scripts/policy_check.py` called without `--draft`; `scripts/policy_engine.py` and `scripts/policy_checks.py` define the semantics. The skill quotes IDs, statuses, thresholds, headroom and reasons rather than reimplementing checks.
+- **Side effects.** None. It runs a read-only CLI and returns a chat report; no deal record, draft, file or review trail is written.
+- **Limits.** Without `--draft`, draft-level checks (required IDs appearing in the draft, source declarations, risk taxonomy, reported figures, downside acknowledgements and certain disclosures) have not been run. The top-level `compliant` flag can therefore be true without a draft audit and is never an overall approval. `forward_covenant_results` are disclosure-only; downside breaches must be surfaced and acknowledged in a draft but do not alone create an automatic adverse credit verdict. The JSON does not grant human exceptions or evaluate every clause of narrative policy. This aid makes no lending recommendation and never substitutes for `/review`.
+
 ### `prompt-change-gate` (Phase 4)
 
 - **Purpose.** Gather and report the repository evidence required before a maintainer changes a production agent prompt, the interactive Checker agent, or a slash-command instruction. It is a procedure/checklist, not an approval bot.
@@ -325,7 +334,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | :--- | :--- | :--- |
 | `credit-assurance` | Deferred, evidence-gated | Its rules (deterministic enforcement is authoritative, fail closed) are already in `CLAUDE.md`, D2 and D5 to D7 and enforced by tests; a path-scoped skill would restate them. Built only if a governance regression gets past those, and then as a change-impact map, not a copy of the rules. |
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
-| `policy-fit` | Phase 4 candidate | Explains PASS / FAIL / UNRESOLVABLE and the disclosure-only results, which [the financial model](financial-model.md) and [troubleshooting](troubleshooting.md) already do; it must never read as an override of a code-enforced rejection. Decide after the Phase 2 reports show the pattern. |
+| `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
 | `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
@@ -342,8 +351,9 @@ contextual, and a model-invocable description would sit in every session's conte
    (`tests/test_docs_maintenance_skill.py`).
 4. **From evidence:** the best of the deferred list, one pull request each. Done so far: `mutation-triage`
    (`tests/test_mutation_triage_skill.py`), chosen because open triage issues (#182 to #184, #219) and an existing report
-   show the need; and `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
-   documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful.
+   show the need; `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
+   documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful; and
+   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit).
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its

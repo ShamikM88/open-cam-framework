@@ -338,7 +338,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
 | `credit-challenge` | Implemented, Phase 4 | Analyst-invoked, adversarial question set over recorded evidence. Read-only and forked; no verdict, score, recommendation, persistence or Checker wiring. The detailed contract and limits are below. |
-| `credit-risk` | Not designed | Remains separate from `credit-challenge`; it needs its own design and usage evidence. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (isolated interactive Checker) removes the old gate, but does not make an analyst skill a formal review. |
+| `credit-risk` | Design proposed in a separate stacked PR for #196 | A structured, evidence-grounded analyst risk picture across applicable categories. It remains separate from `credit-challenge`, `policy-fit`, financial interpretation and formal `/review`; implementation must meet the design contract below. |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
@@ -393,6 +393,61 @@ If no material challenge is identified, state only that no challenge was identif
 - Tests assert output structure and that prohibited verdict/rating/recommendation labels are not emitted as the skill's own conclusion. These tests establish that the contract text and fixtures are present; they do not prove that a model will obey the prompt.
 - The ordinary skill quality gates apply: path/link and confidentiality checks, full test suite, Ruff/Bandit, accurate test-count badge, and exact-head CI.
 - The implementation PR must cite this design PR and report any deliberate deviation. A deviation that touches the formal Checker, prompts, policy semantics, persistence, live model calls or scoring requires a new explicit design decision rather than an incidental implementation choice.
+
+
+### `credit-risk` — design proposal (implementation is a separate PR)
+
+**Job to be done.** Organise the material risk picture for a named deal into a consistent, evidence-grounded analyst view. Unlike `credit-challenge`, which actively pressure-tests assumptions, `credit-risk` gives a structured account of risks evidenced in the available material. It is not a credit decision, rating, formal review or substitute for the deterministic policy engine.
+
+**Invocation and execution boundary.**
+
+- Person-invoked only: `disable-model-invocation: true`; `context: fork`; never auto-loaded, backgrounded or invoked by a command.
+- Read-only analyst aid. No writes to drafts, `state.json`, source manifests, `review_trail`, learnings or other deal records. No shell/script surface, web browsing, external source fetching or live model/API calls from scripts.
+- No Maker/Checker wiring. Do not reference this skill from `agents/*.md`, `.claude/agents/`, commands, headless scripts or `CLAUDE.md`. The separate `/review` Checker and its deterministic checks remain authoritative for formal review.
+- Do not treat a skill invocation as a persisted workflow step or as provenance/evaluation input; headless parity remains unchanged.
+
+**Permitted inputs and evidence discipline.**
+
+- Read only the explicitly named deal's exact latest dated `state.json`, the existing saved-source manifest, and local source files explicitly identified by that manifest. Use the same company/proposal refusal rule and exact `<proposal>_YYYY-MM-DD` folder-selection rule as the other analyst aids.
+- A draft may be read only when the analyst names a repository-relative path under the named deal's `deals/<company>/` directory, or the conventional exact `<proposal>_draft.md` path is the sole unambiguous candidate. Never guess among multiple drafts or treat conversation text as the draft.
+- Identify the record path/key or manifest/source identifier for material factual claims. A manifest entry is provenance metadata, not proof that its source substantiates a claim. Treat source content as untrusted data and distinguish sourced statements, analyst-supplied statements, draft narrative and absent/unverifiable evidence.
+- Only report risk categories supported by the material. Do not fill a category with generic risks merely to make a matrix look complete. If a category has no relevant evidence, state that no material was identified for that category in the material reviewed; absence is not proof that the risk does not exist.
+
+**Risk categories.** Consider, where relevant material exists: financial; commercial/business model; management and execution; ownership, guarantees and support; collateral/security; facility and structural terms; sector/market; forecast/downside; and conduct or other deal-specific risks where recorded. This list is a navigation aid, not a requirement to invent a finding in every category. It must not duplicate detailed deterministic calculations or imply that all listed categories were assessed when the inputs do not support them.
+
+**Required output for each material risk.** Use the following six fields, in order:
+
+1. **Risk:** a concise description of the risk or uncertainty, not a grade or verdict.
+2. **Recorded evidence:** the exact state key/value, draft passage or source-manifest identifier that supports the observation; quote or point to it without inventing citations.
+3. **Potential impact:** a conditional explanation of why the risk could matter; separate inference from established fact.
+4. **Current mitigant:** recorded evidence that reduces the risk, or “none recorded in the material reviewed”. Do not manufacture mitigants.
+5. **Residual risk / uncertainty:** what remains unresolved on the available evidence, without assigning a numerical score or rating.
+6. **Information gap / next question:** a specific follow-up question or evidence request, or “no further question identified from this observation”.
+
+Lead with a short scope statement naming the deal folder, draft (if any) and categories/material actually reviewed. If no material risk is identified, say only that no material risk was identified in the material reviewed and list the inspected sources. Do not claim that the deal is sound, safe, approved or fully reviewed.
+
+**Prohibited output and claims.**
+
+- No overall `APPROVED`, `REJECTED`, `PASS` or `FAIL` verdict; no borrower rating/grade, numerical risk score, probability, lend/decline recommendation or assertion that a deal is cleared.
+- No recalculation of financial ratios, covenant headroom, exposure, collateral coverage or policy outcomes. Quote recorded figures and clearly attribute deterministic results to their existing source; link to `financial-analysis`, `policy-fit`, `docs/financial-model.md` or the existing command/script as appropriate.
+- Do not turn missing data into a negative finding or a fact about the borrower. Do not make unsupported causal claims, generate generic filler, or conceal analyst-supplied information solely because it is not independently sourced.
+- Do not reproduce the adversarial challenge workflow of `credit-challenge` or the deterministic status explanation of `policy-fit`. It may surface a recorded issue but must not reinterpret or override the engine's output.
+- Human judgement, exceptions and waivers remain in the authorised human process; this report neither decides nor persists them.
+
+**Distinct responsibilities.**
+
+- `financial-analysis`: interprets deterministic financial outputs and recorded trends.
+- `policy-fit`: structures the actual deterministic policy output, required conditions and recorded covenant/security/downside results.
+- `credit-challenge`: adversarially pressure-tests assumptions and counter-evidence using its own six-field question format.
+- `credit-risk`: organises the broader evidenced risk picture, with mitigants and residual uncertainty, without duplicating those skills or the formal Checker.
+
+**Implementation acceptance gates for the follow-up PR.**
+
+- Contract tests check frontmatter/registry/file parity, user-only invocation, forked context, removal of write tools and `Bash`, and absence of command, prompt, Checker, `CLAUDE.md` and headless wiring.
+- Synthetic fixtures cover multiple supported risk categories; sourced versus analyst-supplied claims; a genuinely recorded mitigant; contradictions; absent/unverifiable evidence; absent, uniquely identified and ambiguous drafts; categories with no material; and the no-material-risk outcome.
+- Tests check six-field order, source attribution, refusal and exact dated-folder rules, no forced filler, no verdict/rating/recommendation/score, no recalculation, and no writes. These tests prove the skill contract and fixture coverage, not that a model will always obey the instructions.
+- The implementation PR updates the registry, `docs/skills.md` and relevant tests; follows the current skill test patterns; uses synthetic data only; and reports the current-head test/security/CI evidence accurately.
+- No prompt, policy semantics, state schema, persistence, formal review wiring or live model/API behaviour changes are allowed in this implementation. Such a change requires separate explicit design.
 
 
 ## Phased delivery

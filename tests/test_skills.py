@@ -74,7 +74,7 @@ def tools(fields, key):
     return TOOL_TOKEN.findall(fields.get(key, ""))
 
 
-def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_is_bounded():
+def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_credit_risk_are_bounded():
     assert report_skills() == ["credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
 
     policy_fit = skill_text("policy-fit")

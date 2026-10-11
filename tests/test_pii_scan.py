@@ -215,6 +215,36 @@ def test_an_ein_shaped_string_inside_a_longer_number_or_a_date_is_not_an_ein():
         assert _by_reason(text, "employer identification") == [], text
 
 
+def test_detects_ibans_register_numbers_and_vat_numbers():
+    cases = {
+        "IBAN GB82 WEST 1234 5698 7654 32 for payment.": ("IBAN", "GB82 WEST 1234 5698 7654 32"),
+        "Account DE89370400440532013000 at the bank.": ("IBAN", "DE89370400440532013000"),
+        "Account FR1420041010050500013M02606 closed.": ("IBAN", "FR1420041010050500013M02606"),
+        "Eingetragen im Handelsregister HRB 12345 Berlin.": ("register number", "HRB 12345"),
+        "Register HRA7788 of the court.": ("register number", "HRA7788"),
+        "VAT DE123456789 applies.": ("VAT number", "DE123456789"),
+        "VAT GB123456789 applies.": ("VAT number", "GB123456789"),
+        "VAT GB123456789012 applies.": ("VAT number", "GB123456789012"),
+        "VAT NL123456789B01 applies.": ("VAT number", "NL123456789B01"),
+        "VAT FRXX123456789 applies.": ("VAT number", "FRXX123456789"),
+        "VAT IT12345678901 applies.": ("VAT number", "IT12345678901"),
+        "VAT ATU12345678 applies.": ("VAT number", "ATU12345678"),
+    }
+    for text, (reason, expected) in cases.items():
+        assert expected in _by_reason(text, reason), text
+
+
+def test_ordinary_codes_and_words_are_not_ibans_register_numbers_or_vat_numbers():
+    text = ("Standard ISO27001 and SHA256 apply. Model v2 of the HR budget, HRM and HRT teams. The DSCR is 1.25x. "
+            "Reference AB12 and CD34 only. Facility FAC12345 and GB pound sterling. DE and FR markets.")
+    for reason in ("IBAN", "register number", "VAT number"):
+        assert _by_reason(text, reason) == [], reason
+
+
+def test_a_bracketed_iban_or_vat_number_is_a_placeholder():
+    assert scan_for_likely_real_data("Account [GB82 WEST 1234 5698 7654 32], VAT [DE123456789], [HRB 12345].") == []
+
+
 def test_the_scanner_still_says_it_is_not_an_international_detector():
     import pii_scan
     doc = " ".join(pii_scan.__doc__.split())

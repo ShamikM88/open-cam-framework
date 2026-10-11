@@ -10,9 +10,10 @@ address, a Companies House-style registration number, a "Something
 Limited"-shaped company name, a real-looking date) that a human skimming a
 long template can plausibly miss. The patterns are UK-shaped first, with a
 short list of other common company suffixes, international and North American
-phone formats and the US EIN added (issue #111); it is not an international
-PII detector, and a clean result says nothing about, for example, a German
-register number, a national ID or a street address. It cannot verify a template is *fully*
+phone formats, the US EIN, IBANs, German HRA/HRB register numbers and the VAT numbers
+of a few countries added (issue #111); it is not an international PII detector, and a
+clean result says nothing about, for example, another country's register number, a
+national ID or a street address. It cannot verify a template is *fully*
 scrubbed -- that still requires a human review, per the existing
 promotion rule. False positives are expected and fine (a flagged line that
 turns out to be a genuinely generic example is a two-second check); false
@@ -49,6 +50,15 @@ INTERNATIONAL_PHONE_RE = re.compile(
 NORTH_AMERICAN_PHONE_RE = re.compile(r"(?<![\d+])(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?!\d)")
 # A US employer identification number (NN-NNNNNNN); the UK has no counterpart of this shape.
 US_EIN_RE = re.compile(r"(?<![\d-])\d{2}-\d{7}(?![\d-])")
+# An IBAN (two capitals, two check digits, then 8-30 letters and digits, optionally in groups of four), a German
+# commercial register number (HRA/HRB) and a VAT number with the country prefix for a few common countries. Shape only: no
+# checksum is verified, and a number written without its prefix or in an unlisted country is not recognised.
+IBAN_RE = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b")
+GERMAN_REGISTER_NUMBER_RE = re.compile(r"\bHR[AB]\s?\d{1,6}\b")
+VAT_NUMBER_RE = re.compile(
+    r"\b(?:ATU\d{8}|BE0?\d{9}|DE\d{9}|ES[A-Z0-9]\d{7}[A-Z0-9]|FR[A-Z0-9]{2}\d{9}|GB\d{9}(?:\d{3})?|"
+    r"IE\d[A-Z0-9+*]\d{5}[A-Z]{1,2}|IT\d{11}|NL\d{9}B\d{2})\b"
+)
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 LONG_DATE_RE = re.compile(
     r"\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|"
@@ -72,6 +82,9 @@ CHECKS = [
     (INTERNATIONAL_PHONE_RE, "looks like a real international phone number"),
     (NORTH_AMERICAN_PHONE_RE, "looks like a real North American phone number"),
     (US_EIN_RE, "looks like a real US employer identification number (EIN)"),
+    (IBAN_RE, "looks like a real IBAN (bank account number)"),
+    (GERMAN_REGISTER_NUMBER_RE, "looks like a real German commercial register number (HRA/HRB)"),
+    (VAT_NUMBER_RE, "looks like a real VAT number"),
     (ISO_DATE_RE, "looks like a real ISO date, not a [placeholder]"),
     (LONG_DATE_RE, "looks like a real date, not a [placeholder]"),
     (COMPANY_NAME_RE, "looks like a real company name (Limited/Ltd/PLC/LLP/Inc/LLC/Corp/GmbH/AG/S.A. ...), not a [placeholder]"),

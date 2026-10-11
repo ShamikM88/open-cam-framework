@@ -6,11 +6,11 @@ Practical guidance for changing this repository: what to treat as true, what mus
 
 ```bash
 python -m venv venv                    # then activate it (venv\Scriptsctivate on Windows)
-pip install -r requirements-dev.txt    # runtime requirements + pytest, ruff, bandit, coverage and diff tools
+pip install -r requirements-dev.txt    # runtime requirements + pytest, pytest-xdist, ruff, bandit and coverage tools
 pytest                                 # the whole suite; no API key and no network needed
 ```
 
-CI runs Python 3.11 on Ubuntu and on Windows; Windows is the primary development platform, so a change must work with a cp1252 console, backslash paths and CRLF line endings. `pytest` rejects its own options until `requirements-dev.txt` is installed.
+CI runs Python 3.11 on Ubuntu and on Windows; Windows is the primary development platform, so a change must work with a cp1252 console, backslash paths and CRLF line endings. The basic `pytest` command above is serial. To match CI's test profile, Ubuntu runs `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage and Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` supplies `-n`, `--dist=loadfile` keeps each test file on one worker, and `--durations=30` records the slowest tests.
 
 ## What is true when sources disagree
 
@@ -76,7 +76,7 @@ A pull request is ready when all of these pass locally, because CI will run them
 ```bash
 ruff check .                      # rules live in pyproject.toml
 bandit -r scripts/ -ll
-pytest --cov --cov-report=json --cov-report=xml
+pytest tests/ -n 4 --dist=loadfile --durations=30 --cov --cov-report=term --cov-report=json --cov-report=xml
 python scripts/check_coverage.py coverage.json
 ```
 
@@ -147,7 +147,7 @@ Before asking for review, check the change against this list. Each item is a pla
 - If your change adds or removes passing tests, update the file **in the same pull request**, from a complete green run of the whole suite:
 
   ```bash
-  pytest tests/ | tee pytest_output.txt
+  pytest tests/ -n 4 --dist=loadfile --durations=30 | tee pytest_output.txt
   python scripts/check_test_count.py pytest_output.txt --write
   ```
 

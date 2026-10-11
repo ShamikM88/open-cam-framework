@@ -11,12 +11,12 @@ This page is evergreen. It does not record what the latest run showed; current s
 ```bash
 ruff check .
 bandit -r scripts/ -ll
-pytest tests/ --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
+pytest tests/ -n 4 --dist=loadfile --durations=30 --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
 python scripts/check_test_count.py pytest_output.txt
 python scripts/check_coverage.py coverage.json
 ```
 
-That is what CI's `test` job runs, in that order; on a pull request it also runs `diff-cover coverage.xml --config-file pyproject.toml` (the `--config-file` matters: without it the floor is silently zero). The suite takes a few minutes; it needs no key and no network. If a run is slow or hangs, a test is over its 120-second limit and will fail by itself.
+That is what CI's Ubuntu `test` job runs, in that order; on a pull request it also runs `diff-cover coverage.xml --config-file pyproject.toml` (the `--config-file` matters: without it the floor is silently zero). Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30` without coverage. `pytest-xdist` (in `requirements-dev.txt`) supplies the bounded workers; `--dist=loadfile` keeps one test file on a worker, and `--durations=30` records the 30 slowest tests. The suite needs no key and no network; a test over its 120-second limit fails by itself.
 
 A green local run is not the same as a green CI run, because CI also runs on Windows and in a clean environment with only `requirements.txt` (below). It is the right thing to have before you push.
 

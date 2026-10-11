@@ -40,8 +40,8 @@ def _run_pytest_on(tmp_path, source, *extra):
     test_file = tmp_path / "test_probe.py"
     test_file.write_text(textwrap.dedent(source), encoding="utf-8")
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-c", str(PYPROJECT), "--rootdir", str(tmp_path), "-p", "no:cacheprovider",
-         str(test_file), *extra],
+        [sys.executable, "-m", "pytest", "-c", str(PYPROJECT), "--rootdir", str(tmp_path),
+         "--confcutdir", str(tmp_path), "-p", "no:cacheprovider", str(test_file), *extra],
         capture_output=True, text=True, cwd=tmp_path, timeout=120)
 
 
@@ -63,13 +63,24 @@ def _codes(result):
 # pytest settings
 # ---------------------------------------------------------------------------
 
-def test_the_probe_runner_passes_a_clean_test(tmp_path):
-    """Control: the harness below does not fail everything, so a failure further down means something."""
+def test_the_probe_runner_passes_a_clean_test(tmp_path, monkeypatch):
+    """The control passes, and child pytest confines conftest discovery to its throwaway directory."""
+    real_run = subprocess.run
+    commands = []
+
+    def run_and_record(args, **kwargs):
+        commands.append(args)
+        return real_run(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", run_and_record)
     result = _run_pytest_on(tmp_path, """
+
         def test_fine():
             assert 1 + 1 == 2
         """)
     assert result.returncode == 0, result.stdout + result.stderr
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("--confcutdir") + 1] == str(tmp_path)
 
 
 def test_a_leaked_file_object_fails_the_test_that_leaked_it(tmp_path):

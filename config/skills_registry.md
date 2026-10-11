@@ -24,6 +24,7 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `financial-analysis` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `cam-change-verification` | skill | maintainer | implemented: phase 3 | user | None (aid) | no |
 | `docs-maintenance` | skill | maintainer | implemented: phase 3 | user | None (aid) | no |
+| `mutation-triage` | skill | maintainer | implemented: phase 4 | user | None (aid) | no |
 
 - **Invocation** is what the file's frontmatter says. `user`: `disable-model-invocation: true`, so it runs only when a
   person types it. `user+model`: no restriction; `/review` has to be this, because `/assemble` and `/research` run it

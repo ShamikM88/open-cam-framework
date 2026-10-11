@@ -1,6 +1,6 @@
 # Skills
 
-The analyst aids and the maintainer procedure that ship with the framework. A skill is a short, reusable procedure that a person starts by name in a
+The analyst aids and the maintainer skills that ship with the framework. A skill is a short, reusable procedure that a person starts by name in a
 Claude Code session opened on this repository; it is not a step of the CAM pipeline. This page is the user-facing
 reference. Why skills are shaped this way, what they may never become, and what is planned or deferred is in
 [Skill design](skill-design.md); the single inventory of commands and skills is
@@ -147,6 +147,52 @@ and what it confirmed.
 - **Limits:** a green documentation run says the names, links, flags and quoted examples agree, not that every sentence is
   true. It says which pages it read against the diff and which it only searched. Wiki publication (#192) is separate.
 
+## The maintainer report
+
+`mutation-triage` is for the person who maintains the repository and touches no deal. Unlike the two procedures above it is
+a *report*: it runs forked and read-only, like the analyst aids, but its input is a downloaded mutation report rather than a
+deal.
+
+| Skill | Run | Use it to |
+| :--- | :--- | :--- |
+| `mutation-triage` | `/mutation-triage <path to the downloaded mutation-report folder or its mutation-report.json> [module or module.function]` | Read a mutation report and triage the surviving mutants: the scores as recorded, the largest groups of survivors by function, which tests name each function and whether the mutation run's test selection includes them, a candidate class for each group, the issue that may already cover it, and a proposed disposition with its evidence |
+
+### `mutation-triage`
+
+Download the `mutation-report` artifact from a weekly or manual run of the mutation workflow (the workflow and what the
+report holds are in [Testing](testing.md#mutation-testing); the triage procedure it follows is the runbook in
+[Operations](operations.md#mutation-testing-reading-the-report-and-triaging-survivors)). Give the skill the path. It reads
+`mutation-report.json`, the survivors list and the source and tests it names, and it reports in a fixed table. It
+stops first, and triages nothing, if the report carries completeness warnings, because the run is then suspect before the
+score is.
+
+- **What it does for each group of survivors** (a function, with its count): finds the function's source; finds the tests that
+  name it and says which are in the mutation run's test selection (`[tool.mutmut]` in `pyproject.toml`; a test outside it
+  cannot kill a mutant, and a test that reaches the function only through a subprocess is invisible to mutmut); says which of
+  the function's branches and values a selected test asserts on; and classifies the group as a **candidate**: missing
+  assertion, unreachable as selected, possible equivalent, timeout, or cannot classify. It names the issue the docs already
+  attach the group to (for example the command-line `main()` wrappers, the draft-audit and covenant functions, the calibrate
+  helpers) and asks you to search open issues for the rest, so it points to existing work instead of duplicating it.
+- **What you get back:** a proposed disposition per group (add an assertion and say which behaviour and what defect it would
+  catch; add an in-process test; review the test selection; an existing issue covers it; record as a possible equivalent;
+  needs `mutmut show` first; leave) with its evidence. You record it, in an issue or a pull request; the skill files nothing.
+- **Example.** In the report of the manual run on `main` `59e3836` the 16 mutants of `deal_export._supplied_row_values`
+  are `no tests`: no test names the function and the selected tests never reach it, so the candidate class is *unreachable as
+  selected*, and the disposition is an in-process test or a reviewed look at the selection. The 75 survivors of
+  `policy_engine._evaluate_downside_covenants` are `survived`, so the selected tests do reach it; the one test file that names
+  it is `tests/test_forward_covenants.py`, which is not in the selection. That is a finding about the selection, reported
+  for a reviewed change, and a candidate *missing assertion* for the behaviour no selected test checks. Both are
+  [#219](https://github.com/ShamikM88/open-cam-framework/issues/219)'s groups.
+- **Read-only, and what that rests on.** It pre-approves only `Read`, `Glob` and `Grep`, and `Write`, `Edit`, `NotebookEdit`
+  and `Bash` are removed while it runs, so it runs no `mutmut`, no test and no script, and edits and files nothing. A tool
+  that is not removed stays under your permission settings, so its own rule is to use only the three read tools; a deny rule
+  would enforce that. It never changes the mutation scope, the 75% diagnostic target, the configuration or the workflow.
+- **Limits.** The artifact lists mutant names and statuses, not the mutated source, so every class is a candidate:
+  it never calls a mutant equivalent until you have seen the mutated line (`mutmut show <id>` after a local `mutmut run`, on
+  Linux or macOS). The link from a function to its tests is by name, so a function reached only through its caller looks
+  untested. The artifact records no commit, so the source it reads must be the revision that was mutated. It cannot search
+  the issue tracker. A proposed test is never "to raise the score": it states the behaviour and the defect it would catch.
+
 ## Requirements
 
 These are Claude Code features, so they follow its behaviour: a skill in `.claude/skills/<name>/SKILL.md`, a `context:
@@ -160,7 +206,8 @@ for the session as Claude Code's documentation describes.
 ## Changing or adding a skill
 
 A skill pull request meets the contract in [Skill design](skill-design.md#phased-delivery), and the tests that enforce
-it are in `tests/test_skills.py` (the analyst aids), `tests/test_maintainer_skills.py` (the procedure) and
+it are in `tests/test_skills.py` (the analyst aids), `tests/test_maintainer_skills.py` and
+`tests/test_docs_maintenance_skill.py` (the procedures), `tests/test_mutation_triage_skill.py` (the report) and
 `tests/test_skill_inventory.py`: the frontmatter equals the registry row, the
 `allowed-tools` name only read-only scripts, every source it cites exists, the files carry no real names or figures, the
 scripts it runs leave a deal byte-for-byte unchanged, and the frontmatter stays inside a small YAML subset that a strict

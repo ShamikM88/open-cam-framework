@@ -56,7 +56,7 @@ The full table, including flags, settings and security controls, is in the [docu
 The repository is public and forkable. Everything in it that looks like a deal is invented.
 
 - Use obviously fictional names ("Synthetic Co", "Synthetic Fleet Loan") and round, invented figures in examples, fixtures, snapshots and documentation. The evaluation dataset requires every company name to start with `Synthetic `.
-- Run `python scripts/pii_scan.py <file>` over any template or text you add if there is any doubt. It is a heuristic (UK-shaped patterns); a clean result is not a guarantee, and a by-hand read is still required.
+- Run `python scripts/pii_scan.py <file>` over any template or text you add if there is any doubt. It is a heuristic (UK-shaped patterns plus a few international ones); it is not an international PII detector, a clean result is not a guarantee, and a by-hand read is still required.
 - Never put a real borrower, person, institution, figure, document or screenshot into the repository, a test, an issue or a pull request. The tests cannot see issue or pull-request text, so that one is a process rule.
 - Do not copy a reference document someone shared with you into the repository, even into an ignored folder: it creates a persistent copy nobody asked for.
 - An example credential is a placeholder such as `sk-ant-...`, never a real key, and never one that merely looks real.

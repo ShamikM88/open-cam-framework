@@ -122,3 +122,130 @@ def test_shipped_default_templates_scan_clean():
         with open(path, encoding="utf-8") as f:
             findings = scan_for_likely_real_data(f.read())
         assert findings == [], f"{path} flagged likely-real data: {findings}"
+
+
+# ---------------------------------------------------------------------------
+# Beyond the UK (issue #111): more company suffixes, international and North American phones, the US EIN.
+# Narrow on purpose: this is not an international PII detector, and every new pattern has a negative case below.
+# ---------------------------------------------------------------------------
+
+def _snippets(text):
+    return [f["snippet"] for f in scan_for_likely_real_data(text)]
+
+
+def _by_reason(text, fragment):
+    return [f["snippet"] for f in scan_for_likely_real_data(text) if fragment in f["reason"]]
+
+
+def test_detects_company_suffixes_used_outside_the_uk():
+    cases = {
+        "The borrower is Acme Lending LLC and its parent.": "Acme Lending LLC",
+        "Guarantor: Beispiel Handels GmbH.": "Beispiel Handels GmbH",
+        "Guarantor: Muster Holding AG.": "Muster Holding AG",
+        "Parent is Example Holdings Corp in the US.": "Example Holdings Corp",
+        "Parent is Example Holdings Corporation in the US.": "Example Holdings Corporation",
+        "Subsidiary Voorbeeld Finance B.V. operates it.": "Voorbeeld Finance B.V",
+        "Subsidiary Exemple Finance S.A. operates it.": "Exemple Finance S.A",
+        "Subsidiary Esempio Credito S.p.A. operates it.": "Esempio Credito S.p.A",
+        "Borrower Sample Trading Pty Ltd in Sydney.": "Sample Trading Pty Ltd",
+        "Borrower Sample Trading Pte in Singapore.": "Sample Trading Pte",
+        "Borrower Exemple Capital SARL in Paris.": "Exemple Capital SARL",
+    }
+    for text, name in cases.items():
+        assert any(name in snippet for snippet in _by_reason(text, "company name")), text
+
+
+def test_the_uk_company_suffixes_are_still_detected():
+    cases = ["Acme Holdings Limited", "Foo Trading Ltd", "Bar Group PLC", "Baz Partners LLP", "Qux Corp Inc"]
+    for name in cases:
+        assert _by_reason(f"The borrower is {name} today.", "company name"), name
+
+
+def test_ordinary_words_and_unbracketed_abbreviations_are_not_company_names():
+    text = ("Corporate Credit Policy applies. The Agreement was signed by the Security Agent. The AGM is in May. "
+            "Smith & Co acted. South Africa (SA) is the market. Annual Review of the Facility.")
+    assert _by_reason(text, "company name") == []
+
+
+def test_a_bracketed_placeholder_before_a_foreign_suffix_is_not_flagged():
+    assert scan_for_likely_real_data("[Company Name] GmbH and [Borrower] LLC and [Parent] Corp.") == []
+
+
+def test_detects_international_and_north_american_phone_numbers():
+    cases = {
+        "Call +49 30 12345678 today.": "+49 30 12345678",
+        "Call +1 212 555 0147 today.": "+1 212 555 0147",
+        "Call +33 1 23 45 67 89 today.": "+33 1 23 45 67 89",
+        "Call (212) 555-0147 today.": "(212) 555-0147",
+        "Call 212-555-0147 today.": "212-555-0147",
+        "Call 212.555.0147 today.": "212.555.0147",
+        "Call 212 555 0147 today.": "212 555 0147",
+    }
+    for text, number in cases.items():
+        assert number in _by_reason(text, "phone number"), text
+
+
+def test_a_uk_number_is_reported_once_and_not_again_as_an_international_or_american_one():
+    """One number, one finding. A 0-prefixed UK number stays a UK finding (its tail is not also a North American one); a
+    +44 number is found, which it was not before when it followed a space, and not twice."""
+    for number in ("+44 20 7946 0958", "+442079460958", "0207 946 0958", "020 7946 0958", "01632 960001", "Tel+44 20 7946 0958"):
+        findings = [f for f in scan_for_likely_real_data(f"Call {number} now.") if "phone number" in f["reason"]]
+        assert len(findings) == 1, (number, findings)
+    for number in ("0207 946 0958", "020 7946 0958", "01632 960001"):
+        (finding,) = [f for f in scan_for_likely_real_data(f"Call {number} now.") if "phone number" in f["reason"]]
+        assert finding["reason"] == "looks like a real phone number", number
+
+
+def test_figures_dates_versions_and_ratios_are_not_phone_numbers():
+    text = ("Facility of 1,250,000 over 36-60 months at 4.75%. Version 3.2.1 of the model. DSCR 1.25x and leverage 3.5x. "
+            "Page 12 of 40. Reference 2026-01-05. Items 10 20 30.")
+    assert [f for f in scan_for_likely_real_data(text) if "phone number" in f["reason"]] == []
+
+
+def test_a_bracketed_phone_number_is_a_placeholder():
+    assert scan_for_likely_real_data("Phone: [+49 30 12345678] or [(212) 555-0147].") == []
+
+
+def test_detects_a_us_employer_identification_number():
+    assert _by_reason("Borrower EIN 12-3456789 on file.", "employer identification") == ["12-3456789"]
+
+
+def test_an_ein_shaped_string_inside_a_longer_number_or_a_date_is_not_an_ein():
+    for text in ("Account 12-3456789012 closed.", "Reference 912-3456789.", "Range 12-3456789-5.", "Dated 2026-01-05."):
+        assert _by_reason(text, "employer identification") == [], text
+
+
+def test_detects_ibans_register_numbers_and_vat_numbers():
+    cases = {
+        "IBAN GB82 WEST 1234 5698 7654 32 for payment.": ("IBAN", "GB82 WEST 1234 5698 7654 32"),
+        "Account DE89370400440532013000 at the bank.": ("IBAN", "DE89370400440532013000"),
+        "Account FR1420041010050500013M02606 closed.": ("IBAN", "FR1420041010050500013M02606"),
+        "Eingetragen im Handelsregister HRB 12345 Berlin.": ("register number", "HRB 12345"),
+        "Register HRA7788 of the court.": ("register number", "HRA7788"),
+        "VAT DE123456789 applies.": ("VAT number", "DE123456789"),
+        "VAT GB123456789 applies.": ("VAT number", "GB123456789"),
+        "VAT GB123456789012 applies.": ("VAT number", "GB123456789012"),
+        "VAT NL123456789B01 applies.": ("VAT number", "NL123456789B01"),
+        "VAT FRXX123456789 applies.": ("VAT number", "FRXX123456789"),
+        "VAT IT12345678901 applies.": ("VAT number", "IT12345678901"),
+        "VAT ATU12345678 applies.": ("VAT number", "ATU12345678"),
+    }
+    for text, (reason, expected) in cases.items():
+        assert expected in _by_reason(text, reason), text
+
+
+def test_ordinary_codes_and_words_are_not_ibans_register_numbers_or_vat_numbers():
+    text = ("Standard ISO27001 and SHA256 apply. Model v2 of the HR budget, HRM and HRT teams. The DSCR is 1.25x. "
+            "Reference AB12 and CD34 only. Facility FAC12345 and GB pound sterling. DE and FR markets.")
+    for reason in ("IBAN", "register number", "VAT number"):
+        assert _by_reason(text, reason) == [], reason
+
+
+def test_a_bracketed_iban_or_vat_number_is_a_placeholder():
+    assert scan_for_likely_real_data("Account [GB82 WEST 1234 5698 7654 32], VAT [DE123456789], [HRB 12345].") == []
+
+
+def test_the_scanner_still_says_it_is_not_an_international_detector():
+    import pii_scan
+    doc = " ".join(pii_scan.__doc__.split())
+    assert "not an international PII detector" in doc and "clean result" in doc

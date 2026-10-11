@@ -52,7 +52,7 @@ An **analyst aid**, not a policy engine, approval, recommendation or /review sub
 
 ## Rules
 
-- Run only python scripts/policy_check.py --company "<company>" --proposal "<proposal>". Its allowed-tools pre-approves the script invocation; it does not prevent other tools from being available under permission settings. By procedure, run no other command, use no write tool, and make no network call.
+- Run only the command shown in step 4. Its allowed-tools pre-approves the script invocation; it does not prevent other tools from being available under permission settings. By procedure, run no other command, use no write tool, and make no network call.
 - Never pass --draft: this skill is not a draft checker.
 - Quote policy values, status, IDs and reasons; do not compute, normalise, re-rank or paraphrase the code's reasons.
 - The words PASS, FAIL and UNRESOLVABLE are allowed only when reporting the engine's individual recorded results. They never constitute this skill's overall credit verdict.

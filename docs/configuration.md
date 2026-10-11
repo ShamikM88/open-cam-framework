@@ -23,7 +23,6 @@ material and never committed (see [Security](security.md)).
 | `config/spreading_conventions.json`, `deals/<Company>/_conventions.json` *git-ignored* | `/spread` via `conventions.py` | `/spread` | A confirmed spreading convention; always re-confirmed, never silently applied |
 | `inputs/calibration_samples/`, `inputs/credit_policy/` *git-ignored* | you | the calibration commands | The documents calibration reads |
 | `config/skills_registry.md` (tracked) | the project | people (and the slash-command text points at it) | The inventory of commands and skills; the files in `.claude/commands/` (and a skill's `SKILL.md`) are what runs |
-| `config/system_instructions.md` (tracked) | the project | **nothing today** | A short statement of the framework's principles, kept as reference text. No script or command loads it; agent behaviour is set by `agents/*.md` |
 
 ### Environment variables
 
@@ -54,9 +53,8 @@ There are no other environment variables, no `.env` loading, and no configuratio
 `checker_model`/`maker_temperature`/`checker_temperature` to independently configure the Risk
 Reviewer vs. the Underwriter. It also accepts `max_tokens`/`default_currency`/`output_directory`/
 `template_directory`/`spreading_template_directory`, though no script reads them -- they have no
-effect (see "Which settings are read" below). [`config/system_instructions.md`](../config/system_instructions.md)
-is a short statement of the framework's principles (objectivity, metric standardization,
-structured Markdown output); no script or command loads it, so it has no effect on a run.
+effect (see "Which settings are read" below). Agent behaviour is set by `agents/*.md` alone; there is no shared
+system-prompt file.
 
 ## Which settings are read
 

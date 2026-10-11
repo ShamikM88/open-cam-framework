@@ -158,6 +158,29 @@ deal.
 | :--- | :--- | :--- |
 | `mutation-triage` | `/mutation-triage <path to the downloaded mutation-report folder or its mutation-report.json> [module or module.function]` | Read a mutation report and triage the surviving mutants: the scores as recorded, the largest groups of survivors by function, which tests name each function and whether the mutation run's test selection includes them, a candidate class for each group, the issue that may already cover it, and a proposed disposition with its evidence |
 
+
+### `prompt-change-gate`
+
+Use `/prompt-change-gate` before reviewing or starting an instruction change to `agents/underwriter_agent.md`,
+`agents/risk_reviewer_agent.md`, `.claude/agents/risk-reviewer.md`, or `.claude/commands/*.md`. It reads the current
+diff, follows [Contributing: changing an agent prompt](contributing.md#changing-an-agent-prompt), and checks the current
+evaluation and AI-assurance guidance rather than keeping a second copy of the rules.
+
+The report separates the actual changed paths, a dedicated issue/PR reference, visible authorisation evidence, the
+evaluation story, prompt/baseline comparability and structural prompt-consistency checks. It uses **present / missing /
+unknown** for evidence gates. If the GitHub issue or review discussion is not available in the supplied material, it
+does not pretend to have checked it. It distinguishes an assembled prompt hash recorded by a run from a source-file
+hash; those are not interchangeable.
+
+- **No automatic approval.** It does not say a change is safe, approved or ready to merge. A passing
+  `tests/test_prompt_consistency.py` run establishes only structural consistency, not whether a model follows the
+  prompt.
+- **Baseline dependency.** Prompt hardening #150 remains blocked until the relevant pre-change baseline required by
+  #151 exists and is applicable. A partial evaluation is diagnostic, not a baseline.
+- **No edits or live calls.** It does not edit prompts, commands, `EXPECTED_SUBJECTS`, provenance records or baselines;
+  does not run `gh`, fetch, commit, push or merge; and makes no live model/API call. The allowed commands are exact
+  read-only Git inspection and the prompt-consistency test. The user must still make the explicit maintainer decision.
+
 ### `mutation-triage`
 
 Download the `mutation-report` artifact from a weekly or manual run of the mutation workflow (the workflow and what the

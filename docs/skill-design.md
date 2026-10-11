@@ -346,7 +346,7 @@ contextual, and a model-invocable description would sit in every session's conte
 
 ### `credit-challenge` — design proposal (implementation is a separate gate)
 
-**Decision recorded here:** design and implementation are separate deliverables. This change defines an analyst-facing contract only. No `.claude/skills/credit-challenge/SKILL.md` or registry row is created by the design PR. Do not implement the executable skill until this design PR has been reviewed and merged.
+**Decision recorded here:** design and implementation are separate deliverables. This change defines an analyst-facing contract only. No executable credit-challenge skill file or registry row is created by the design PR. Do not implement the executable skill until this design PR has been reviewed and merged.
 
 **Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
 

@@ -79,7 +79,8 @@ A step begins by finding the deal's state (the most recent dated folder for that
 call or a brand-new deal gets today's date) and treats everything recorded there as true. A new annual review uses a
 fresh folder (`orchestrator.py --new-review`) so it never inherits last year's inputs. The orchestrator also
 checkpoints its grounded figures and `policy_state` to the state **before** it calls either agent, which is why a run
-that fails at its first model call (for instance with no API key) still leaves the figures on disk.
+that fails at its first model call (for instance a network error or a rejected key) still leaves the figures on disk. A run with no
+credentials at all never gets that far: it stops before the state is read.
 
 ### Schema versions and validation
 

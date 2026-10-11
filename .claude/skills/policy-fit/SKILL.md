@@ -50,6 +50,10 @@ An **analyst aid**, not a policy engine, approval, recommendation or /review sub
 - [Troubleshooting](../../../docs/troubleshooting.md#review-and-rejection)
 - [Data model](../../../docs/data-model.md)
 
+## Repository paths inspected
+
+The concrete authoritative files used by this skill are `scripts/policy_check.py`, `scripts/policy_engine.py`, `scripts/policy_checks.py`, `docs/financial-model.md`, `docs/troubleshooting.md`, `docs/data-model.md`, and `tests/test_skills.py`.
+
 ## Rules
 
 - Run only the command shown in step 4. Its allowed-tools pre-approves the script invocation; it does not prevent other tools from being available under permission settings. By procedure, run no other command, use no write tool, and make no network call.

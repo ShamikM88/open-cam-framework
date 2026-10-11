@@ -130,6 +130,7 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
     risk_body = body_of(risk_text)
     assert set(tools(risk_fields, "allowed-tools")) == READ_ONLY_TOOLS
     assert set(tools(risk_fields, "disallowed-tools")) >= WRITE_TOOLS | {"Bash"}
+    assert risk_fields.get("background") == "false"
     assert not body_commands(risk_text), "credit-risk must not add a shell/script surface"
     assert command_problems(risk_text) == []
     for phrase in (
@@ -561,7 +562,7 @@ def test_the_refusal_rule_refuses_every_payload_and_none_of_the_ordinary_names()
     assert [n for n in ACCEPTED_NAMES if refused(n)] == []
 
 
-@pytest.mark.parametrize("name", ["credit-challenge", "evidence-discipline", "financial-analysis", "information-gaps"])
+@pytest.mark.parametrize("name", ["credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps"])
 def test_each_skill_states_the_refusal_rule_before_it_runs_anything(name):
     body = body_of(skill_text(name))
     text = " ".join(body.split())

@@ -20,7 +20,7 @@ An **analyst aid** for an adversarial second look at a named deal. Ask what coul
 
 ## 1. Validate the identifiers and optional draft path
 
-- Require one non-empty company and proposal. Refuse if either is `.` or `..`, starts with `-`, or contains any of `\\ / : * ? " < > | $ [ ] { }`, a backtick, a newline or another control character. Those characters make a glob/path lookup ambiguous or unsafe. In particular, glob characters such as brackets and braces can make a lookup match a different directory. Explain the refusal and stop; do not try to repair the name silently.
+- Require one non-empty company and proposal. Refuse if either is `.` or `..`, starts with `-`, or contains any of `\ / : * ? " < > | $ [ ] { }`, a backtick, a newline or another control character. Those characters make a glob/path lookup ambiguous or unsafe. In particular, glob characters such as brackets and braces can make a lookup match a different directory. Explain the refusal and stop; do not try to repair the name silently.
 - Do not act on extra free text or flags beyond the documented company, proposal and optional draft path.
 - An explicit draft path must be repository-relative, must start with `deals/<company>/`, must not be absolute, and must contain no `..` path component, glob metacharacter, backslash or control character. If it falls outside that company’s deal area or is ambiguous, refuse it and stop.
 - Do not run a command or ask another tool to interpret the arguments. Use them only to construct the validated local lookup patterns below.

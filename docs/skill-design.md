@@ -253,7 +253,7 @@ contextual, and a model-invocable description would sit in every session's conte
   flags; the flags themselves are checked against `--help` by `tests/test_command_flags.py`.
 - **Side effects.** Runs tests locally (no network, no model) and writes coverage artefacts. It runs
   `check_test_count.py --write` only after a complete green run and a maintainer's go-ahead, and it never commits,
-  pushes, merges or touches repository settings. The `--write` call is deliberately not pre-approved, so it asks.
+  pushes, merges or touches repository settings. The `--write` call is deliberately not pre-approved, so by default it asks; the go-ahead is the rule either way.
 - **Implemented.** `.claude/skills/cam-change-verification/SKILL.md`; the pre-approved commands are exact strings
   (`ruff check .`, `bandit -r scripts/ -ll`, the one full-suite `pytest` command, the read forms of the two `check_*`
   scripts, `diff-cover ... --config-file pyproject.toml`, `pii_scan.py`, and four read-only `git` forms), and
@@ -304,8 +304,10 @@ true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `di
 examples only; the registry row flips to implemented in the same change; and the documentation says so. A *procedure*
 skill differs in two ways and is held to its own contract: it runs in the maintainer's session (it is not forked,
 because it runs the test suite and the maintainer watches it), and its `allowed-tools` pre-approve only exact,
-non-writing commands (no commit, push, merge, `gh`, `--write` or `--update-snapshots`), so anything that changes the
-repository asks.
+non-writing commands (no commit, push, merge, `gh`, `--write` or `--update-snapshots`). Anything not pre-approved is
+left to the maintainer's permission settings, which ask by default but can be set to allow or to skip prompts, so the
+procedure states that it never runs those commands and does not rely on a prompt; a deny rule in the settings is what
+would enforce it.
 
 ## What the tests protect
 

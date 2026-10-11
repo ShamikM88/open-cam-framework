@@ -3,7 +3,9 @@
 Unlike an analyst aid it runs in the maintainer's own session (not forked), runs the test suite and so writes coverage
 files, and is for the person who maintains the repository. What it may never do is the same kind of boundary: it is typed
 by a person, it removes the write tools while it runs, it pre-approves only exact, non-writing commands (so a commit, a
-push, a merge, `gh`, `--write` and `--update-snapshots` all ask), and it never becomes input to the Maker or the Checker.
+push, a merge, `gh`, `--write` and `--update-snapshots` are not pre-approved), and it never becomes input to the Maker or
+the Checker. A command that is not pre-approved is left to the user's permission settings, which ask by default but can be
+set to allow or to skip prompts, so the skill states the limits as its own procedure and does not rely on a prompt.
 
 These are CONTRACT tests: they read the skill file and fail if a property the design depends on is removed. They do not
 run the skill, and a pre-approval is Claude Code's behaviour, not something this suite proves. Each check is a function
@@ -173,7 +175,13 @@ REQUIRED = {
     "stops at an agent prompt edit": r"never edits an agent prompt \(agents/\.md\); if the change does, it stops there",
     "makes no network or model call": r"makes no network or model call",
     "never hand-edits the badge": r"never hand-edits the test-count badge",
-    "keeps --write out of the pre-approvals": r"deliberately not pre-approved, so it asks",
+    "keeps --write out of the pre-approvals": r"deliberately not pre-approved, so by default your permission settings ask",
+    "keeps the go-ahead a rule even without a prompt": r"the go-ahead is still the rule even if they do not",
+    "says what holds the limits": r"What holds these limits\. This procedure, and the removal of the write tools",
+    "says not pre-approved only means not pre-approved": r"Not pre-approving a command only means it is not pre-approved",
+    "names a mode that skips prompts": r"a mode that skips prompts \(such as bypassPermissions\)",
+    "does not rely on a prompt": r"never relies on a prompt to stay inside this list",
+    "points to deny rules for enforcement": r"add deny rules to your permission settings",
     "offers --write only after a complete green run": r"only if the run was complete and green",
     "waits for the go-ahead": r"wait for the maintainer's go-ahead before running it",
     "does not judge the design": r"does not judge the design",
@@ -242,8 +250,19 @@ BODY_MUTATIONS = [
      "never regenerates a golden snapshot"),
     ("edits a prompt", drop(r"It never edits an agent prompt", "It edits an agent prompt"), "stops at an agent prompt edit"),
     ("hand-edits the badge", drop(r"never hand-edits the test-count badge", "edits the badge"), "never hand-edits the badge"),
-    ("pre-approves --write", drop(r"deliberately not pre-approved, so it asks", "pre-approved"),
+    ("pre-approves --write", drop(r"deliberately not pre-approved, so by default your permission settings ask", "pre-approved"),
      "keeps --write out of the pre-approvals"),
+    ("relies on a prompt", drop(r"So it never relies on a prompt to stay inside this list", "So the prompt keeps it inside this list"),
+     "does not rely on a prompt"),
+    ("drops the bypass caveat", drop(r"a mode that skips prompts \(such as `bypassPermissions`\)", "nothing"),
+     "names a mode that skips prompts"),
+    ("claims the absence of pre-approval is a restriction",
+     drop(r"Not pre-approving a command only\s+means it is not pre-approved", "Anything not pre-approved is blocked"),
+     "says not pre-approved only means not pre-approved"),
+    ("drops the deny-rule pointer", drop(r"add deny rules to your permission settings", "nothing more is needed"),
+     "points to deny rules for enforcement"),
+    ("makes the go-ahead depend on a prompt", drop(r"the go-ahead is still the rule even if they do not", "the prompt is the go-ahead"),
+     "keeps the go-ahead a rule even without a prompt"),
     ("writes the badge on a red run", drop(r"\*\*only\*\* if the run was complete and green", "whenever"),
      "offers --write only after a complete green run"),
     ("writes without the go-ahead", drop(r"wait for the maintainer's go-ahead before running it", "run it"),
@@ -300,10 +319,13 @@ def test_the_runbook_anchors_the_procedure_links_to_exist():
 def test_the_pages_describe_the_procedure_as_implemented_and_name_its_limits():
     skills, design = flat(read("docs/skills.md")), flat(read("docs/skill-design.md"))
     for needle in ("The maintainer procedure", "cam-change-verification", "it is not forked",
-                   "Everything else, including a targeted pytest run and check_test_count.py --write, asks you",
+                   "Everything else, including a targeted pytest run and check_test_count.py --write, is not pre-approved",
+                   "by default they ask you", "What actually holds the limits", "a mode that skips prompts (such as bypassPermissions)",
+                   "No test here, and no frontmatter field, can enforce it",
                    "a green local run is not a green CI run", "no blocker found by these checks"):
         assert needle in skills, needle
-    for needle in ("cam-change-verification (done", "A procedure skill differs in two ways", "deliberately not pre-approved"):
+    for needle in ("cam-change-verification (done", "A procedure skill differs in two ways", "deliberately not pre-approved",
+                   "ask by default but can be set to allow or to skip prompts", "a deny rule in the settings is what would enforce it"):
         assert needle in design, needle
     row = next(r for r in inventory_rows(read(REGISTRY)) if r["name"] == NAME)
     assert row["status"] == "implemented: phase 3" and row["invocation"] == "user" and row["role"] == "None (aid)"

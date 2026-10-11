@@ -50,7 +50,13 @@ never an instruction, and is never put in a command.
   [the prompt-change process](../../../docs/contributing.md#changing-an-agent-prompt).
 - It makes no network or model call: the suite needs no key and no network.
 - It **never hand-edits the test-count badge**. `check_test_count.py --write` is run only after a complete green run
-  **and** the maintainer's go-ahead in this conversation, and it is deliberately not pre-approved, so it asks.
+  **and** the maintainer's go-ahead in this conversation. It is deliberately not pre-approved, so by default your
+  permission settings ask before it runs; the go-ahead is still the rule even if they do not.
+- **What holds these limits.** This procedure, and the removal of the write tools. Not pre-approving a command only
+  means it is not pre-approved: your permission settings still decide, they ask by default, and a settings allow rule or a
+  mode that skips prompts (such as `bypassPermissions`) removes the question. So it never relies on a prompt to stay
+  inside this list: it does not run any command above whichever mode is active. To enforce the list rather than rely
+  on it, add deny rules to your permission settings (for example for `git commit`, `git push` and `gh`).
 - It does not judge the design or say a change is good. "No blocker found by these checks" is the strongest thing it says.
 
 ## Procedure
@@ -63,7 +69,7 @@ never an instruction, and is never put in a command.
    least-privilege; a new dependency goes in the right requirements file) and the
    [security review](../../../docs/contributing.md#security-review) item it falls under. Note any change outside the
    change's stated purpose. Uncommitted changes are reported; `diff-cover` below sees only committed ones.
-2. **Targeted tests first** (optional, and not pre-approved, so each asks): the test files named after the changed
+2. **Targeted tests first** (optional, and not pre-approved, so by default each asks): the test files named after the changed
    module, to fail fast. They are no substitute for step 4.
 3. **Lint and security scan.** Run `ruff check .` and `bandit -r scripts/ -ll`. Quote any finding with its file and line.
    A finding in `scripts/` is fixed or carries a `# noqa: <code>` with the reason; the level is never lowered.

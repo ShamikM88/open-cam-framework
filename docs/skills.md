@@ -104,7 +104,13 @@ bullets under "What every skill here is" describe the analyst aids; it differs w
   `git diff ... origin/main...HEAD` forms, `ruff check .`, `bandit -r scripts/ -ll`, the one full-suite `pytest` command
   with `tee pytest_output.txt`, `check_test_count.py pytest_output.txt`, `check_coverage.py coverage.json`,
   `diff-cover coverage.xml --config-file pyproject.toml` and `pii_scan.py <path>`. Everything else, including a targeted
-  `pytest` run and `check_test_count.py --write`, asks you.
+  `pytest` run and `check_test_count.py --write`, is not pre-approved, so your permission settings decide, and by default
+  they ask you.
+- **What actually holds the limits:** the procedure, plus the removed write tools. `allowed-tools` pre-approves; it does not
+  restrict, and a settings allow rule or a mode that skips prompts (such as `bypassPermissions`) removes the question for a
+  command that is not pre-approved. The procedure therefore does not rely on a prompt: it will not run a commit, push, merge,
+  `gh` call, `--write` without your go-ahead, or `--update-snapshots` in any mode. To enforce that rather than rely on it, add deny
+  rules to your permission settings. No test here, and no frontmatter field, can enforce it.
 - **What it will not do:** commit, push, merge, rebase, run `gh`, change a setting or ruleset, edit a file, regenerate a
   golden snapshot, edit an agent prompt, or hand-edit the badge. It offers `--write` only after a complete green run and
   waits for your go-ahead.

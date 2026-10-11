@@ -3,8 +3,8 @@
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
 build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); so are the two
-maintainer procedures of Phase 3, `cam-change-verification` and `docs-maintenance`, and the first Phase 4 skill, the
-maintainer report `mutation-triage`. The inventory of commands and skills is
+maintainer procedures of Phase 3, `cam-change-verification` and `docs-maintenance`, and the Phase 4 follow-ons
+`mutation-triage`, `prompt-change-gate`, `policy-fit` and `credit-challenge`. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -16,12 +16,12 @@ maintainer report `mutation-triage`. The inventory of commands and skills is
 - Every skill in this initiative is an **aid**. It is not the Maker's or the Checker's input, leaves no record in a
   deal, and has no headless equivalent. A skill that would change what the Maker or the Checker is told is a different
   kind of thing and is not permitted here.
-- All six skills in the first tranche are **typed by a person** (`disable-model-invocation: true`). The model never
+- All skills in this initiative are **typed by a person** (`disable-model-invocation: true`). The model never
   loads one on its own, and no command or prompt names one.
 - The registry file is **evolved in place** into the one inventory, not renamed and not duplicated.
 - `annual-review` cannot be built over today's primitives ([#203](https://github.com/ShamikM88/open-cam-framework/issues/203)),
   and the independence of `/review` on the slash-command path was settled by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204): the interactive Checker
-  is a fresh, read-only sub-agent, so an analyst-facing challenge skill is no longer waiting on it (it still needs its own design).
+  is a fresh, read-only sub-agent, so `credit-challenge` can remain an analyst aid as long as it does not issue a verdict or enter the Checker's inputs.
 
 ## What Claude Code does that this design depends on
 
@@ -82,7 +82,7 @@ or command names a skill, points at the skills folder or lets a session run one.
 
 ### 2. Headless parity
 
-**Decision.** All six skills are interactive only. They write no `state.json` key, append nothing to
+**Decision.** All skills in this initiative are interactive only. They write no `state.json` key, append nothing to
 `steps_completed` or `review_trail`, create no draft, export, convention, learning or saved source. So no deal can
 differ because someone used one, and no record implies a capability the headless pipeline lacks.
 
@@ -96,18 +96,19 @@ Each skill's own tests (Phase 2 and 3) check that it can run only read-only scri
 
 ### 3. Maker-Checker independence
 
-**Decision.** `credit-risk` and `credit-challenge` are **not in the first tranche**. When they are designed they are
-typed by a person, forked, named nowhere in `agents/` or a command, write nothing to `review_trail`, and never print a
-verdict word. They are not a substitute for `/review`.
+**Decision.** `credit-challenge` is a Phase 4 analyst report, typed by a person and forked. It reads only the named deal's
+record, the saved-source manifest and an unambiguously identified current draft. It is named nowhere in `agents/` or a
+command, writes nothing to `review_trail`, and never emits an overall verdict, rating or recommendation. It is not a
+substitute for `/review`. `credit-risk` remains a separate, not-yet-designed skill.
 
 **Why the gate, and what changed.** `/review` used to run in the *same conversation* as the draft: it loaded the role
 "for the rest of this task" and reviewed "the most recently drafted content earlier in this conversation", so "never in
 the Checker's context" could not be promised for anything that had been in the session. [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) settled
 that: every interactive `/review` now delegates the audit to a fresh, read-only `risk-reviewer` sub-agent that reads the
 saved draft and the deal's files, not the conversation ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
-The adversarial skills are therefore no longer waiting on that decision. They stay out of the first tranche because they
-need their own design, which must keep them outside the Reviewer's inputs (they write nothing, so nothing of theirs is on
-disk for it) and must not present their output as the Checker's verdict.
+The adversarial aid remains outside the Reviewer's inputs: it writes nothing, its instructions stay in a forked context,
+and its output is not passed to the Checker. The output may be visible to the analyst's wider conversation, so the skill
+labels itself as an aid and does not use verdict language as its own conclusion.
 
 **Held by.** The same wiring test as constraint 1: `agents/*.md` and the commands may not name a skill, so nothing
 loads one into either role by design.
@@ -197,6 +198,7 @@ scripts that exist today; the procedures wrap documented sequences for change ve
 | `mutation-triage` | 4 | maintainer | user | Report | Not a deal skill |
 | `prompt-change-gate` | 4 | maintainer | user | Procedure | Not a deal skill |
 | `policy-fit` | 4 | analyst | user | Report | Yes, no record |
+| `credit-challenge` | 4 | analyst | user | Report | Yes, no record |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -336,7 +338,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-assurance` | Deferred, evidence-gated | Its rules (deterministic enforcement is authoritative, fail closed) are already in `CLAUDE.md`, D2 and D5 to D7 and enforced by tests; a path-scoped skill would restate them. Built only if a governance regression gets past those, and then as a change-impact map, not a copy of the rules. |
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
-| `credit-challenge` | Design proposed in stacked PR #229; the implementation PR is stacked on it and merges only after it | Analyst-invoked adversarial challenge report; must not become or imitate the formal Checker, emit an overall verdict, score the borrower or write to the deal. See the design contract below. |
+| `credit-challenge` | Implemented, Phase 4 | Analyst-invoked, adversarial question set over recorded evidence. Read-only and forked; no verdict, score, recommendation, persistence or Checker wiring. The detailed contract and limits are below. |
 | `credit-risk` | Not designed | Remains separate from `credit-challenge`; it needs its own design and usage evidence. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (isolated interactive Checker) removes the old gate, but does not make an analyst skill a formal review. |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
@@ -345,9 +347,9 @@ contextual, and a model-invocable description would sit in every session's conte
 
 
 
-### `credit-challenge` — design proposal (implementation is a separate gate)
+### `credit-challenge` — design contract
 
-**Decision recorded here:** design and implementation are separate deliverables. This change defines an analyst-facing contract only. No executable credit-challenge skill file or registry row is created by the design PR. The implementation may be drafted and validated on a branch stacked on this design, so the design review does not hold up that work, but the design PR is merged first and the implementation merges only after it: the review and merge of this design is the final gate, not a prerequisite for writing the code.
+**Decision recorded here:** the design-only proposal is preserved separately from the executable skill implementation. The implementation lives in a follow-up PR stacked on the design PR (it merges after it) and must satisfy this contract. It remains an analyst aid, not an input to the Maker or Checker.
 
 **Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
 
@@ -385,7 +387,7 @@ If no material challenge is identified, state only that no challenge was identif
 - `credit-risk`, if separately designed later, would organise the risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
 - `/review` runs the separate Checker and deterministic draft compliance path. `credit-challenge` does not issue a review verdict, alter a draft or pass its own output into the Checker.
 
-**Implementation acceptance gates for the later PR.**
+**Implementation acceptance gates.**
 
 - Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, no command/prompt/headless wiring, and the tool boundary. The write tools, `Bash`, `WebFetch` and `WebSearch` are removed with `disallowed-tools` (the one thing the tool settings enforce); the pre-approval is `Read`, `Glob` and `Grep` and nothing else. "No shell, no script, no browsing" is therefore enforced for those tools; for anything else (an MCP tool, for example) it is a rule, and that tool stays under the user's permission settings.
 - **Scenario coverage is behavioural, not a text search.** A skill is a prompt, so no test can show that a model obeys it, and no test here makes a model call. What can be tested is the contract a report must meet, applied to synthetic deals. The implementation PR therefore carries (a) a small set of synthetic deal records, one per scenario below, built with the real state schema and the real dated-folder layout, (b) for each, a hand-written expected report in the required six-field format, and (c) one validator that reads a report and the record it is about and returns the problems it finds. Each expected report must validate clean and a deliberately broken variant of it must be caught, so the validator is shown to catch what it claims to. The validator checks that: the six fields appear in order for every challenge; every quoted value occurs in the record or the named source; every number in the report occurs in the record (no figure is derived); a fact is labelled sourced or analyst-supplied as the record says; no `APPROVED`, `REJECTED`, `PASS`, `FAIL`, grade, score or lend/decline wording appears as the report's own conclusion; and the closing caveat is present. These tests establish that the contract is checkable and that the skill text asks for each property; they do not prove a model will obey the prompt.
@@ -408,8 +410,8 @@ If no material challenge is identified, state only that no challenge was identif
 
 ## Phased delivery
 
-1. **Design (this change).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
-   `tests/test_skill_inventory.py`. No skill.
+1. **Foundational design (completed).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
+   `tests/test_skill_inventory.py`. No executable skill was added in that original phase.
 2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
    [Skills](skills.md) page and `tests/test_skills.py`.
 3. **Maintainer procedures (done):** `cam-change-verification` (`tests/test_maintainer_skills.py`) and `docs-maintenance`
@@ -418,12 +420,14 @@ If no material challenge is identified, state only that no challenge was identif
    (`tests/test_mutation_triage_skill.py`), chosen because open triage issues (#182 to #184, #219) and an existing report
    show the need; `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
    documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful; and
-   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit).
+   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit), and
+   `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker).
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its
-`allowed-tools` name only read-only scripts; every source it cites exists; it computes nothing; it uses synthetic
-examples only; the registry row flips to implemented in the same change; and the documentation says so. A *procedure*
+`allowed-tools` pre-approve only read-only tools or deterministic read-only scripts as applicable; every source it cites
+exists; it computes nothing; it uses synthetic examples only; the registry row flips to implemented in the same change;
+and the documentation says so. A *procedure*
 skill differs in two ways and is held to its own contract: it runs in the maintainer's session (it is not forked,
 because it runs the test suite and the maintainer watches it), and its `allowed-tools` pre-approve only exact,
 non-writing commands (no commit, push, merge, `gh`, `--write` or `--update-snapshots`). Anything not pre-approved is
@@ -446,8 +450,9 @@ would enforce it.
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 
 Each skill's own contract is tested in `tests/test_skills.py`: its frontmatter (typed by a person, forked, the write tools
-removed, only read-only scripts pre-approved; `allowed-tools` pre-approves and is not an allowlist, so this is a procedure plus
-permission settings, not a sandbox, and the frontmatter is checked by a strict parser for the small YAML subset it uses), that the scripts it runs leave a deal byte-for-byte unchanged, that every path it
-cites exists and every flag it passes is real, and that the files carry no real name or figure. What a model does with the
+removed, and only read-only tools or deterministic read-only scripts pre-approved as applicable; `allowed-tools` pre-approves
+and is not an allowlist, so this is a procedure plus permission settings, not a sandbox; the frontmatter is checked by a
+strict parser for the small YAML subset it uses), that its commands leave a deal byte-for-byte unchanged or that it has
+no command surface, that every path it cites exists and every flag it passes is real, and that its files carry no real name or figure. What a model does with the
 instructions is not tested here, and no test can say a skill's prose is a good procedure; it is a prompt expectation, like
 a command's (see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).

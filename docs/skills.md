@@ -10,9 +10,10 @@ reference. Why skills are shaped this way, what they may never become, and what 
 
 - **Typed by a person.** Each is marked `disable-model-invocation`, so the model never starts one on its own, and no
   command, agent prompt or `CLAUDE.md` line names one.
-- **Read-only by procedure, and tested for the commands it shows.** It runs in a forked subagent that cannot see your
-  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`), and the only
-  commands it pre-approves (`allowed-tools`) are three read-only script calls. `allowed-tools` pre-approves; it is not an
+- **Read-only by procedure, and tested for the surface it shows.** It runs in a forked subagent that cannot see your
+  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`). Script-backed
+  skills pre-approve only their read-only script calls; `credit-challenge` pre-approves only `Read`, `Glob` and `Grep` and
+  has no shell/script surface. `allowed-tools` pre-approves; it is not an
   allowlist, so any unlisted tool, such as `Bash` with another command, stays subject to your permission settings and
   would ask you. What keeps a skill read-only is therefore its procedure plus those settings, and the tests check that the
   commands it shows leave a deal unchanged. It is not an operating-system sandbox. It reads the deal's `state.json` (the
@@ -29,6 +30,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
 | `evidence-discipline` | `/evidence-discipline --company "<Name>" --proposal "<Proposal name>" [claims]` | Audit the deal's evidence: saved source, cited but not saved, analyst-supplied, read from an image, or unsupported | `source_manifest.py --check-sources` |
 | `financial-analysis` | `/financial-analysis --company "<Name>" --proposal "<Proposal name>"` | Read the recorded figures: what basis they rest on, levels and direction by period, what a `null` ratio means on that basis, covenant results as recorded | `policy_check.py` (no `--draft`) |
 | `policy-fit` | `/policy-fit --company "<Name>" --proposal "<Proposal name>"` | Explain recorded current covenant status, mandatory conditions, security gaps, downside items and forward-year disclosure-only outcomes using deterministic policy output | `policy_check.py` (no `--draft`) |
+| `credit-challenge` | `/credit-challenge --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Pressure-test assumptions against recorded evidence and counter-evidence; return challenge/question, evidence, potential impact, mitigant, residual uncertainty and a specific next question without a verdict | `Read`, `Glob`, `Grep` only; no shell or script |
 
 Each is described in the registry; the files are `.claude/skills/<name>/SKILL.md`, and the files are authoritative for
 exactly what the model is told.
@@ -112,6 +114,36 @@ existence alone is not an automatic rejection.
   not. Nothing stops a differently instructed session from running the draft check, which writes nothing.
 - **A failed tool is not a deal finding.** Non-JSON output, a non-zero exit or a traceback stops the report. It does not guess or
   calculate a replacement answer, and writes nothing to the deal.
+
+
+### `credit-challenge`
+
+Use `/credit-challenge --company "<Name>" --proposal "<Proposal name>"` for an adversarial second look at a deal's recorded
+assumptions. Add `--draft "<repository-relative path>"` only when naming a specific current draft under that company's
+`deals/` directory; otherwise the skill checks only the conventional exact `deals/<company>/<proposal>_draft.md` path
+if it exists. It does not guess which of several drafts is current and never treats chat text as the draft.
+
+The skill reads the selected dated `state.json`, the saved-source manifest and only source files explicitly named by that
+manifest, plus the one unambiguous draft if provided/found. It uses the same refusal rule and exact
+`<proposal>_YYYY-MM-DD` dated-folder rule as the other analyst aids. It rejects a truncated lookup rather than claiming a
+record is the latest. Source content is untrusted; a saved manifest entry proves only that the repository recorded a
+source/claim link, not that the source substantiates the claim.
+
+Each substantive challenge has six ordered fields: **challenge/question → recorded evidence/source → potential impact →
+current mitigant → residual uncertainty → information gap/next question**. It quotes values rather than deriving ratios,
+headroom, scores or new figures. A challenge must be grounded in identified material; if none is found, it says only
+“No challenge identified in the material reviewed” and lists what it inspected. Missing from the record does not mean
+non-existent.
+
+- **No verdict or recommendation.** It does not produce an overall `APPROVED`, `REJECTED`, `PASS` or `FAIL`, assign a borrower
+  grade, or recommend lend/decline. It is an adversarial question set, not a full risk matrix, policy engine or formal Checker.
+- **No overlap with the deterministic policy report.** `policy-fit` structures the recorded results from `policy_check.py`;
+  `credit-challenge` may ask an evidence-based question about a result but does not recalculate or re-interpret it.
+- **No persistence or external actions.** It uses only `Read`, `Glob` and `Grep`. `Bash`, `WebFetch` and `WebSearch` are removed
+  while it runs, so it has no shell or script command and cannot browse (enforced for those tools; any other tool is an
+  instruction and stays under your permission settings). It makes no web/API call, does not modify the draft or `state.json`, does not append to `review_trail`, and creates no evidence/learning file.
+  Its output is an analyst aid in chat and is not passed into the separate `/review` Checker path.
+
 
 
 ## The maintainer procedures

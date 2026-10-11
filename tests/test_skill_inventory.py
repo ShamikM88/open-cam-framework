@@ -1,7 +1,7 @@
 """The one inventory of commands and skills, and the boundaries a skill must stay inside (issue #196, Phase 1).
 
-`config/skills_registry.md` lists every command and skill by name, and `docs/skill-design.md` records why. No skill
-exists yet, so most of what is checked here is the relationship, not a skill's content:
+`config/skills_registry.md` lists every command and skill by name, and `docs/skill-design.md` records why. The
+inventory and implemented skill files now exist, so these checks guard their relationships as well as their boundaries:
 
 - the commands in the inventory are the files in `.claude/commands/`, and each one's Invocation is what its
   frontmatter says (a command's `disable-model-invocation` decides whether the model can run it);

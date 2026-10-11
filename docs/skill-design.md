@@ -336,11 +336,75 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-assurance` | Deferred, evidence-gated | Its rules (deterministic enforcement is authoritative, fail closed) are already in `CLAUDE.md`, D2 and D5 to D7 and enforced by tests; a path-scoped skill would restate them. Built only if a governance regression gets past those, and then as a change-impact map, not a copy of the rules. |
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
-| `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
+| `credit-challenge` | Design proposed in stacked PR #229; the implementation PR is stacked on it and merges only after it | Analyst-invoked adversarial challenge report; must not become or imitate the formal Checker, emit an overall verdict, score the borrower or write to the deal. See the design contract below. |
+| `credit-risk` | Not designed | Remains separate from `credit-challenge`; it needs its own design and usage evidence. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (isolated interactive Checker) removes the old gate, but does not make an analyst skill a formal review. |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
 | The issue's "nice to have" skills | Out of scope | Unchanged from the issue. |
+
+
+
+### `credit-challenge` — design proposal (implementation is a separate gate)
+
+**Decision recorded here:** design and implementation are separate deliverables. This change defines an analyst-facing contract only. No executable credit-challenge skill file or registry row is created by the design PR. The implementation may be drafted and validated on a branch stacked on this design, so the design review does not hold up that work, but the design PR is merged first and the implementation merges only after it: the review and merge of this design is the final gate, not a prerequisite for writing the code.
+
+**Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
+
+**Invocation and execution boundary.**
+
+- Person-invoked only: `disable-model-invocation: true`; `context: fork`; not model-invocable, backgrounded or auto-loaded.
+- Read-only. No `Write`, `Edit` or `NotebookEdit`; no script is needed to formulate a challenge report in the first implementation. No file writes, state changes, draft edits, new evidence-manifest entries, review-trail entries or persistent learnings.
+- No Maker/Checker wiring. It is not named or invoked by `agents/*.md`, `.claude/agents/risk-reviewer.md`, any command, headless script or `CLAUDE.md`. It does not share its reasoning with the formal Checker. The formal `/review` path stays separate and authoritative.
+- No web browsing, live model/API call from a script, source fetching, or synthetic "evidence" generation. The skill operates only over the existing local deal record and a current draft if one exists; only synthetic examples may be included in repository tests and documentation.
+
+**Permitted inputs.** The named deal's current dated `state.json`, existing saved-source manifest and the current draft if one exists and is identified unambiguously. Use the same company/proposal validation and exact latest `<proposal>_YYYY-MM-DD` folder rule as the other analyst aids. Do not read an arbitrary source file as if it were verified merely because it exists in the checkout. Trace a factual assertion to the specific recorded field or manifest/source identifier where that evidence is available. Distinguish sourced facts, analyst-supplied facts, model narrative, and absent/unverifiable evidence.
+
+**Required observation format.** Each substantive challenge uses the same fields, in order:
+
+1. **Challenge / question** — the exact assumption, inference, inconsistency or missing support worth testing, phrased as a question rather than a verdict.
+2. **Recorded evidence** — the state key, draft passage, recorded value or source-manifest identifier that grounds it. Quote the relevant content or identify the exact path/key; do not invent citations.
+3. **Potential impact** — conditional and explicit about the chain of reasoning; distinguish a plausible risk from a fact proved by the record.
+4. **Current mitigant** — the evidence in the record that answers or reduces the challenge, or “none recorded in the material reviewed”. Do not manufacture a mitigant.
+5. **Residual uncertainty** — what still cannot be concluded from available evidence.
+6. **Information gap / next question** — the specific question or evidence request that would resolve the uncertainty, or “no further question identified from this observation”.
+
+If no material challenge is identified, state only that no challenge was identified **in the material reviewed** and list the sources inspected. Never imply that absence of a finding proves the deal is sound or the review is complete.
+
+**Prohibited output and claims.**
+
+- No overall decision or verdict words as the skill's own conclusion: no `APPROVED`, `REJECTED`, `PASS` or `FAIL`. Do not produce a borrower score/rating, risk grade, lend/decline recommendation or claim to “clear” a deal.
+- It is not the Checker, not a replacement for `/review`, and not a re-run of the deterministic policy engine. If a policy result is relevant, it can point to or clearly attribute the existing recorded output; it must not restate the result as its own judgement or calculate a replacement.
+- No formula, covenant headroom, financial ratio, probability, severity score or exposure amount is recalculated. Quote recorded figures without deriving new ones.
+- Do not convert missing data to a negative finding; distinguish “not present in the record” from “does not exist”. Do not generate an objection just to fill all output fields, and do not suppress a challenge because a source is analyst-supplied.
+- Narrative is not a deterministic gate. Any exception/waiver or credit judgement belongs to an authorised human process and is neither decided nor written by this skill.
+
+**Overlap boundaries.**
+
+- `policy-fit` explains the actual deterministic policy output, covenant statuses and formal CP/CS/security/downside records. `credit-challenge` may ask a question about those recorded items but must not reproduce a second policy report or change their meaning.
+- `credit-risk`, if separately designed later, would organise the risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
+- `/review` runs the separate Checker and deterministic draft compliance path. `credit-challenge` does not issue a review verdict, alter a draft or pass its own output into the Checker.
+
+**Implementation acceptance gates for the later PR.**
+
+- Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, no command/prompt/headless wiring, and the tool boundary. The write tools, `Bash`, `WebFetch` and `WebSearch` are removed with `disallowed-tools` (the one thing the tool settings enforce); the pre-approval is `Read`, `Glob` and `Grep` and nothing else. "No shell, no script, no browsing" is therefore enforced for those tools; for anything else (an MCP tool, for example) it is a rule, and that tool stays under the user's permission settings.
+- **Scenario coverage is behavioural, not a text search.** A skill is a prompt, so no test can show that a model obeys it, and no test here makes a model call. What can be tested is the contract a report must meet, applied to synthetic deals. The implementation PR therefore carries (a) a small set of synthetic deal records, one per scenario below, built with the real state schema and the real dated-folder layout, (b) for each, a hand-written expected report in the required six-field format, and (c) one validator that reads a report and the record it is about and returns the problems it finds. Each expected report must validate clean and a deliberately broken variant of it must be caught, so the validator is shown to catch what it claims to. The validator checks that: the six fields appear in order for every challenge; every quoted value occurs in the record or the named source; every number in the report occurs in the record (no figure is derived); a fact is labelled sourced or analyst-supplied as the record says; no `APPROVED`, `REJECTED`, `PASS`, `FAIL`, grade, score or lend/decline wording appears as the report's own conclusion; and the closing caveat is present. These tests establish that the contract is checkable and that the skill text asks for each property; they do not prove a model will obey the prompt.
+- The scenarios, each a synthetic record with the property its expected report must show:
+
+  | Scenario | Property the expected report must show |
+  | :--- | :--- |
+  | Sourced and analyst-supplied facts side by side | Each is labelled as the record labels it; an analyst-supplied figure is not presented as sourced |
+  | A narrative claim with no support in the record | Raised as a question, with "not present in the material reviewed", not as a finding that it is false |
+  | Two recorded values that contradict each other | Both values quoted side by side with their paths; no third figure computed |
+  | A mitigant that genuinely answers the challenge | Quoted under Current mitigant, and the challenge is not overstated |
+  | A claim with a manifest entry but no saved file, or no manifest | Reported as missing provenance, with the manifest's limits stated; an empty manifest is not read as proof |
+  | No draft | The report says no draft was available and reviews the record only; it does not guess a draft |
+  | Nothing to challenge | Says "No challenge identified in the material reviewed" and lists what was inspected; claims neither soundness nor completeness |
+  | A refused name, an ambiguous or capped lookup, an unsafe draft path | Refusal or stop with the reason, no report |
+
+- The ordinary skill quality gates apply: path/link and confidentiality checks, full test suite, Ruff/Bandit, an accurate test-count badge, and exact-head CI.
+- The implementation PR must cite this design PR and report any deliberate deviation. A deviation that touches the formal Checker, prompts, policy semantics, persistence, live model calls or scoring requires a new explicit design decision rather than an incidental implementation choice.
+
 
 ## Phased delivery
 

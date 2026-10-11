@@ -22,7 +22,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
   gates, the policy check or `/review`, and it never approves, rates or recommends.
 - **Interactive only.** The headless pipeline (`orchestrator.py`, `calibrate.py`) cannot load a skill and has no
   equivalent, so using one never makes a deal that the headless pipeline could not reproduce.
-- **Quote, do not compute.** Every number is copied from `state.json` or a script's output.
+- **Quote, do not compute.** Every number is copied from the record, saved source, identified draft or deterministic script output; no skill calculates a new figure.
 
 | Skill | Run | Use it to | Runs (all read-only) |
 | :--- | :--- | :--- | :--- |

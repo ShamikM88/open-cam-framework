@@ -26,6 +26,8 @@ import pytest
 
 from orchestrator import (
     MAX_REVIEW_ITERATIONS,
+    MISSING_CREDENTIALS_MESSAGE,
+    MissingCredentialsError,
     REQUIRED_RISK_TAXONOMY,
     _apply_deterministic_policy_checks,
     _build_grounding_context,
@@ -34,6 +36,7 @@ from orchestrator import (
     _completion_kwargs,
     _compute_collateral_cover_pct,
     _content_hash,
+    _default_client,
     _ground_truth_figures,
     _load_multi_period_financials,
     _normalize_category,
@@ -1823,3 +1826,93 @@ def test_the_headless_checker_call_is_a_fresh_single_message_with_no_maker_promp
     assert "# Revised draft" in checker_second["messages"][0]["content"]
     for call in (maker_first, maker_revision):
         assert len(call["messages"]) == 1 and "CHECKER PROMPT" not in call["messages"][0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Authentication is checked before anything else (issue #187); no request is ever made
+# ---------------------------------------------------------------------------
+
+HOME_VARIABLES = ("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME")
+
+
+@pytest.fixture
+def no_credentials(tmp_path, monkeypatch):
+    """No Anthropic variable and an empty home, so neither the environment nor an on-disk SDK credentials profile on
+    the machine running the tests can authenticate the client."""
+    for name in list(os.environ):
+        if name.upper().startswith("ANTHROPIC"):
+            monkeypatch.delenv(name)
+    home = tmp_path / "empty-home"
+    home.mkdir()
+    for name in HOME_VARIABLES:
+        monkeypatch.setenv(name, str(home))
+
+
+def test_the_default_client_without_credentials_raises_the_one_clear_error(no_credentials):
+    with pytest.raises(MissingCredentialsError) as caught:
+        _default_client()
+    message = str(caught.value)
+    assert message == MISSING_CREDENTIALS_MESSAGE and message.count("\n") == 0
+    assert "ANTHROPIC_API_KEY" in message and "slash commands" in message and "docs/configuration.md#credentials" in message
+
+
+@pytest.mark.parametrize("variable, value", [
+    ("ANTHROPIC_API_KEY", "synthetic-key"),
+    ("ANTHROPIC_AUTH_TOKEN", "synthetic-token"),
+    ("ANTHROPIC_CUSTOM_HEADERS", "X-Api-Key: synthetic-key"),
+    ("ANTHROPIC_CUSTOM_HEADERS", "Authorization: Bearer synthetic-token"),
+])
+def test_every_supported_way_to_authenticate_is_accepted(no_credentials, monkeypatch, variable, value):
+    monkeypatch.setenv(variable, value)
+    assert _default_client() is not None
+
+
+@pytest.mark.parametrize("variable, value", [
+    ("ANTHROPIC_API_KEY", ""), ("ANTHROPIC_API_KEY", "   "), ("ANTHROPIC_AUTH_TOKEN", ""),
+    ("ANTHROPIC_CUSTOM_HEADERS", "X-Other: value"), ("ANTHROPIC_CUSTOM_HEADERS", "X-Api-Key:"),
+])
+def test_a_blank_or_unrelated_setting_is_not_a_credential(no_credentials, monkeypatch, variable, value):
+    monkeypatch.setenv(variable, value)
+    with pytest.raises(MissingCredentialsError):
+        _default_client()
+
+
+def test_a_token_still_works_when_the_api_key_variable_is_present_but_empty(no_credentials, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "synthetic-token")
+    assert _default_client() is not None
+
+
+def test_a_credentials_provider_counts(no_credentials, monkeypatch):
+    """A client whose authentication is supplied per request (a credentials profile) has no static header."""
+    import orchestrator
+
+    class Provider:
+        custom_auth = object()
+        default_headers = {"Accept": "application/json"}
+
+    monkeypatch.setattr(orchestrator, "Anthropic", lambda **kwargs: Provider())
+    assert isinstance(_default_client(), Provider)
+
+
+def test_the_pipeline_checks_credentials_before_it_reads_or_writes_anything(no_credentials, project_root):
+    with pytest.raises(MissingCredentialsError):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit")
+    assert not (project_root / "deals").exists(), "no deal folder or checkpoint was created"
+
+
+def test_an_injected_client_is_used_without_the_credential_check(no_credentials, project_root):
+    """Tests and any caller that supplies a client are not asked for credentials."""
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+
+
+def test_other_failures_while_building_the_client_are_not_reported_as_missing_credentials(no_credentials, monkeypatch):
+    import orchestrator
+
+    def broken(**kwargs):
+        raise RuntimeError("synthetic SDK failure")
+
+    monkeypatch.setattr(orchestrator, "Anthropic", broken)
+    with pytest.raises(RuntimeError, match="synthetic SDK failure"):
+        _default_client()

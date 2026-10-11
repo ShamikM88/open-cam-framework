@@ -604,3 +604,139 @@ def test_the_fallback_still_stops_at_no_samples_without_writing_anything(project
     assert AUTO_MOCK_NOTICE in out and "No sample PDFs found" in out
     assert not (project_root / "config" / "style_guide.md").exists()
     assert not (project_root / "templates").exists()
+
+
+# ---------------------------------------------------------------------------
+# _split_into_chunks and _merge_parts: the cut-off rules, pinned one at a time (issue #184)
+#
+# Each test builds the smallest input where exactly one rule decides the result, so a chunk that is cut in the wrong place
+# (which sends the model a different part, or one more or fewer than the user was told) cannot pass unnoticed.
+# ---------------------------------------------------------------------------
+
+def _assert_lossless(text, chunks, limit):
+    assert "".join(chunks) == text
+    assert all(len(chunk) <= limit for chunk in chunks)
+
+
+def test_a_final_piece_that_fits_is_never_split_again():
+    """Only a piece that was cut short of the end of the text looks for a boundary. The last piece already ends the text, so a
+    newline in it past the halfway mark must not split it: that would cost one more API call for no reason."""
+    text = "a" * 10 + "bbbbbb\nbb"
+    chunks = calibrate._split_into_chunks(text, limit=10)
+    assert chunks == ["a" * 10, "bbbbbb\nbb"]
+    _assert_lossless(text, chunks, 10)
+
+
+def test_a_paragraph_break_is_preferred_to_a_later_line_break():
+    text = "x" * 12 + "\n\n" + "yyy" + "\n" + "yy" + "z" * 8                    # \n\n at 12, a single \n later at 17
+    first, *rest = calibrate._split_into_chunks(text, limit=20)
+    assert first == "x" * 12 + "\n\n"
+    _assert_lossless(text, [first, *rest], 20)
+
+
+def test_a_line_break_is_preferred_to_a_later_space():
+    text = "x" * 12 + "\n" + "yyy" + " " + "yyy" + "z" * 8                       # \n at 12, a space later at 16
+    first, *rest = calibrate._split_into_chunks(text, limit=20)
+    assert first == "x" * 12 + "\n"
+    _assert_lossless(text, [first, *rest], 20)
+
+
+def test_a_space_is_used_when_there_is_no_line_break_instead_of_a_cut_mid_word():
+    text = "x" * 12 + " " + "y" * 7 + "z" * 8                                  # no newline anywhere
+    first, *rest = calibrate._split_into_chunks(text, limit=20)
+    assert first == "x" * 12 + " "
+    _assert_lossless(text, [first, *rest], 20)
+
+
+def test_a_boundary_exactly_at_half_the_limit_is_accepted_and_one_before_it_is_not():
+    """The rule is `idx >= limit // 2`: a boundary at index 10 of 20 is taken, one at index 9 is too early, so the piece is
+    cut at the limit. (The comment calls it "past" the halfway mark; the code includes the mark itself, and this pins that.)"""
+    at_half = "x" * 10 + "\n" + "y" * 20
+    assert calibrate._split_into_chunks(at_half, limit=20)[0] == "x" * 10 + "\n"
+    just_early = "x" * 9 + "\n" + "y" * 20
+    assert calibrate._split_into_chunks(just_early, limit=20)[0] == just_early[:20]
+    for text in (at_half, just_early):
+        _assert_lossless(text, calibrate._split_into_chunks(text, limit=20), 20)
+
+
+def test_no_boundary_at_all_cuts_at_the_limit_and_the_pieces_rejoin():
+    text = "x" * 45
+    chunks = calibrate._split_into_chunks(text, limit=20)
+    assert [len(c) for c in chunks] == [20, 20, 5]
+    _assert_lossless(text, chunks, 20)
+
+
+class _MergeRecorder:
+    """Replaces calibrate._complete: records each merge prompt and the output budget it was given."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, model, prompt, max_tokens=3000):
+        self.calls.append({"model": model, "prompt": prompt, "max_tokens": max_tokens})
+        return f"merged{len(self.calls)}"
+
+
+@pytest.fixture
+def merge_calls(monkeypatch):
+    recorder = _MergeRecorder()
+    monkeypatch.setattr(calibrate, "_complete", recorder)
+    return recorder
+
+
+def test_one_part_needs_no_merge_call(merge_calls, capsys):
+    assert calibrate._merge_parts(["only"], "{text}", "model-x", "style") == "only"
+    assert merge_calls.calls == [] and capsys.readouterr().out == ""
+
+
+def test_a_group_that_exactly_fills_the_budget_is_one_merge_call(merge_calls, monkeypatch):
+    """The budget is a maximum: parts totalling exactly MERGE_CHAR_BUDGET characters stay in one group."""
+    monkeypatch.setattr(calibrate, "MERGE_CHAR_BUDGET", 10)
+    assert calibrate._merge_parts(["aaaa", "bbbb", "cc"], "{text}", "model-x", "style") == "merged1"
+    assert len(merge_calls.calls) == 1
+    assert all(part in merge_calls.calls[0]["prompt"] for part in ("aaaa", "bbbb", "cc"))
+
+
+def test_one_character_over_the_budget_starts_a_new_group(merge_calls, monkeypatch):
+    monkeypatch.setattr(calibrate, "MERGE_CHAR_BUDGET", 10)
+    calibrate._merge_parts(["aaaa", "bbbb", "ccc"], "{text}", "model-x", "style")        # 4 + 4 + 3 = 11
+    first, second = merge_calls.calls[0]["prompt"], merge_calls.calls[1]["prompt"]
+    assert "aaaa" in first and "bbbb" in first and "ccc" not in first                  # the pair is merged, ccc carried on
+    assert "merged1" in second and "ccc" in second                                      # then merged with that result
+
+
+def test_the_budget_is_counted_afresh_for_each_group(merge_calls, monkeypatch):
+    """After a group closes its running size restarts at zero, so a second group that totals exactly the budget is one group."""
+    monkeypatch.setattr(calibrate, "MERGE_CHAR_BUDGET", 10)
+    calibrate._merge_parts(["aaaaaa", "bbbbbb", "cccc", "ddd", "eee"], "{text}", "model-x", "style")
+    assert len(merge_calls.calls) == 3                                                  # two groups, then their two results
+    second_group = merge_calls.calls[1]["prompt"]
+    assert "cccc" in second_group and "ddd" in second_group and "eee" in second_group   # 4 + 3 + 3 = 10 exactly
+
+
+def test_a_group_is_at_least_two_parts_even_when_one_part_exceeds_the_budget(merge_calls, monkeypatch):
+    """Without this every round would make no progress: a single part bigger than the budget still pairs with the next."""
+    monkeypatch.setattr(calibrate, "MERGE_CHAR_BUDGET", 5)
+    assert calibrate._merge_parts(["a" * 20, "b" * 20], "{text}", "model-x", "style") == "merged1"
+    assert len(merge_calls.calls) == 1
+
+
+def test_the_merge_prompt_numbers_the_parts_from_one_and_separates_them_with_a_rule(merge_calls):
+    calibrate._merge_parts(["alpha", "beta", "gamma"], "MERGE:\n{text}", "model-x", "style")
+    assert merge_calls.calls[0]["prompt"] == "MERGE:\nPart 1:\nalpha\n\n---\n\nPart 2:\nbeta\n\n---\n\nPart 3:\ngamma"
+
+
+def test_a_merge_call_uses_the_given_model_and_the_larger_merge_output_budget(merge_calls):
+    calibrate._merge_parts(["alpha", "beta"], "{text}", "model-x", "style")
+    (call,) = merge_calls.calls
+    assert call["model"] == "model-x" and call["max_tokens"] == calibrate.MERGE_MAX_TOKENS
+    assert calibrate.MERGE_MAX_TOKENS > 3000, "a merged result may need more room than any single part"
+
+
+def test_the_progress_line_states_the_parts_and_groups_that_the_round_then_makes(merge_calls, monkeypatch, capsys):
+    """The count shown to the user is the number of merge calls made in that round, so it must not be able to drift."""
+    monkeypatch.setattr(calibrate, "MERGE_CHAR_BUDGET", 10)
+    calibrate._merge_parts(["aaaaaa", "bbbbbb", "cccc", "ddd", "eee"], "{text}", "model-x", "style")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines == ["  merging 5 style part(s) in 2 group(s)...", "  merging 2 style part(s) in 1 group(s)..."]
+    assert len(merge_calls.calls) == 3

@@ -336,7 +336,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-assurance` | Deferred, evidence-gated | Its rules (deterministic enforcement is authoritative, fail closed) are already in `CLAUDE.md`, D2 and D5 to D7 and enforced by tests; a path-scoped skill would restate them. Built only if a governance regression gets past those, and then as a change-impact map, not a copy of the rules. |
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
-| `credit-challenge` | Design proposed in stacked PR #229; implementation is gated on a human review/merge decision for the design-only PR | Analyst-invoked adversarial challenge report; must not become or imitate the formal Checker, emit an overall verdict, score the borrower or write to the deal. See the design contract below. |
+| `credit-challenge` | Design proposed in stacked PR #229; the implementation PR is stacked on it and merges only after it | Analyst-invoked adversarial challenge report; must not become or imitate the formal Checker, emit an overall verdict, score the borrower or write to the deal. See the design contract below. |
 | `credit-risk` | Not designed | Remains separate from `credit-challenge`; it needs its own design and usage evidence. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (isolated interactive Checker) removes the old gate, but does not make an analyst skill a formal review. |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
@@ -347,7 +347,7 @@ contextual, and a model-invocable description would sit in every session's conte
 
 ### `credit-challenge` — design proposal (implementation is a separate gate)
 
-**Decision recorded here:** design and implementation are separate deliverables. This change defines an analyst-facing contract only. No executable credit-challenge skill file or registry row is created by the design PR. Do not implement the executable skill until this design PR has been reviewed and merged.
+**Decision recorded here:** design and implementation are separate deliverables. This change defines an analyst-facing contract only. No executable credit-challenge skill file or registry row is created by the design PR. The implementation may be drafted and validated on a branch stacked on this design, so the design review does not hold up that work, but the design PR is merged first and the implementation merges only after it: the review and merge of this design is the final gate, not a prerequisite for writing the code.
 
 **Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
 
@@ -387,10 +387,22 @@ If no material challenge is identified, state only that no challenge was identif
 
 **Implementation acceptance gates for the later PR.**
 
-- Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, write-tool removal, and no command/prompt/headless wiring.
-- Synthetic fixtures cover sourced versus analyst-supplied statements, unsupported narrative claims, contradictory recorded values, mitigants that genuinely answer a challenge, missing source provenance, absence of a draft, and the “no challenge found in reviewed material” case.
-- Tests assert output structure and that prohibited verdict/rating/recommendation labels are not emitted as the skill's own conclusion. These tests establish that the contract text and fixtures are present; they do not prove that a model will obey the prompt.
-- The ordinary skill quality gates apply: path/link and confidentiality checks, full test suite, Ruff/Bandit, accurate test-count badge, and exact-head CI.
+- Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, no command/prompt/headless wiring, and the tool boundary. The write tools, `Bash`, `WebFetch` and `WebSearch` are removed with `disallowed-tools` (the one thing the tool settings enforce); the pre-approval is `Read`, `Glob` and `Grep` and nothing else. "No shell, no script, no browsing" is therefore enforced for those tools; for anything else (an MCP tool, for example) it is a rule, and that tool stays under the user's permission settings.
+- **Scenario coverage is behavioural, not a text search.** A skill is a prompt, so no test can show that a model obeys it, and no test here makes a model call. What can be tested is the contract a report must meet, applied to synthetic deals. The implementation PR therefore carries (a) a small set of synthetic deal records, one per scenario below, built with the real state schema and the real dated-folder layout, (b) for each, a hand-written expected report in the required six-field format, and (c) one validator that reads a report and the record it is about and returns the problems it finds. Each expected report must validate clean and a deliberately broken variant of it must be caught, so the validator is shown to catch what it claims to. The validator checks that: the six fields appear in order for every challenge; every quoted value occurs in the record or the named source; every number in the report occurs in the record (no figure is derived); a fact is labelled sourced or analyst-supplied as the record says; no `APPROVED`, `REJECTED`, `PASS`, `FAIL`, grade, score or lend/decline wording appears as the report's own conclusion; and the closing caveat is present. These tests establish that the contract is checkable and that the skill text asks for each property; they do not prove a model will obey the prompt.
+- The scenarios, each a synthetic record with the property its expected report must show:
+
+  | Scenario | Property the expected report must show |
+  | :--- | :--- |
+  | Sourced and analyst-supplied facts side by side | Each is labelled as the record labels it; an analyst-supplied figure is not presented as sourced |
+  | A narrative claim with no support in the record | Raised as a question, with "not present in the material reviewed", not as a finding that it is false |
+  | Two recorded values that contradict each other | Both values quoted side by side with their paths; no third figure computed |
+  | A mitigant that genuinely answers the challenge | Quoted under Current mitigant, and the challenge is not overstated |
+  | A claim with a manifest entry but no saved file, or no manifest | Reported as missing provenance, with the manifest's limits stated; an empty manifest is not read as proof |
+  | No draft | The report says no draft was available and reviews the record only; it does not guess a draft |
+  | Nothing to challenge | Says "No challenge identified in the material reviewed" and lists what was inspected; claims neither soundness nor completeness |
+  | A refused name, an ambiguous or capped lookup, an unsafe draft path | Refusal or stop with the reason, no report |
+
+- The ordinary skill quality gates apply: path/link and confidentiality checks, full test suite, Ruff/Bandit, an accurate test-count badge, and exact-head CI.
 - The implementation PR must cite this design PR and report any deliberate deviation. A deviation that touches the formal Checker, prompts, policy semantics, persistence, live model calls or scoring requires a new explicit design decision rather than an incidental implementation choice.
 
 

@@ -2,16 +2,12 @@ name: CI Parallelism Benchmark
 
 # Manual-only experiment for issue #212. Never adds work to ordinary PR/push CI.
 on:
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
 
 permissions: {}
 
 jobs:
   benchmark:
-    # Execute automatically only for this issue's benchmark PR; manual dispatch remains available later.
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'perf/212-ci-timing-baseline'
     name: benchmark-${{ matrix.os }}-workers-${{ matrix.workers }}-repeat-${{ matrix.repeat }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -23,9 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         workers: [1, 2, 4]
-        # PR #211 merged while the first benchmark was running, changing the suite from 2,328 to 2,423 tests.
-        # Repeats 2 and 3 use the post-merge baseline; run repeat 4 to complete three comparable samples.
-        repeat: [4]
+        repeat: [1, 2, 3]
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -44,10 +38,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-
-      - name: Install pytest-xdist for parallel trials
-        if: matrix.workers != 1
-        run: python -m pip install pytest-xdist
 
       - name: Run serial suite with coverage
         if: runner.os == 'Linux' && matrix.workers == 1

@@ -69,13 +69,16 @@ guarantees to condition on; don't treat its absence as a missing step.
    it must actually be present and accurate, not a formality.
 5. Save that draft (Markdown *and* its trailing structured JSON block together, exactly as
    written) to `deals/<company>/<proposal>_draft.md` (create the folder if it doesn't exist).
-6. **Run `/review --company "<company>" --proposal "<proposal>"`** against that draft. If the
+6. **Run `/review --company "<company>" --proposal "<proposal>" --draft "deals/<company>/<proposal>_draft.md"`**
+   against that saved draft. `/review` reviews only the file on disk, never this conversation, and hands the
+   qualitative audit to a fresh Risk Reviewer sub-agent that has not seen this conversation (issue #204). If the
    verdict is REJECTED, revise the draft per the notes (which may include code-enforced reasons
    from `policy_check.py` alongside the Reviewer's own qualitative feedback), **overwrite**
    `deals/<company>/<proposal>_draft.md` with the revised Markdown and structured JSON block
-   (never leave the stale, rejected version on disk), and run `/review` again — repeat until
-   APPROVED. `/review`'s own file-reuse step only skips a rewrite when the on-disk file already
-   matches the draft being reviewed; a revision always changed it, so always overwrite here.
+   (never leave the stale, rejected version on disk; `/review` does not write the draft, so a stale file would be
+   reviewed again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
+   reports that it could not run the check or that no valid verdict came back, stop: that is neither an approval
+   nor a rejection, so do not export; tell the user.
 7. **Export it.** Once approved, run:
    ```
    python scripts/deal_export.py --company "<company>" --proposal "<proposal>" --type <type> --draft "deals/<company>/<proposal>_draft.md"

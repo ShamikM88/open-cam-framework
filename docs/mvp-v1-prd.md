@@ -85,7 +85,9 @@ of scope for this document.
   They never import each other or share the Maker's reasoning. This was true from the start of MVP v1; the
   ability to configure the two to run on different underlying models came later and in two steps - see the
   [Evidence appendix](#evidence-appendix) for the dates. Before that second step, independence meant separate
-  prompts, not yet separate models; the Checker's value comes from auditing cold either way.
+  prompts, not yet separate models; the Checker's value comes from auditing cold either way. The interactive `/review`
+  met the "never shares the Maker's reasoning" half later still: until [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) it ran in the draft's own
+  conversation, and since the 2026-10-10 decision it starts a fresh, read-only sub-agent for every review (D1, R3).
 - **Anything that can be computed is computed by code, and enforced by code**
   ([D2](decisions.md#d2-anything-that-can-be-computed-is-computed-by-code-and-enforced-by-code)). Ratios and
   covenant results come from deterministic calculation code, never from the model. A code-enforced rejection
@@ -120,8 +122,8 @@ product's own controls, not an implementation detail:
 3. The Maker drafts the narrative from that computed data, declaring every figure it used in a structured
    `reported_figures` block in its output (R4).
 4. The Checker reviews the draft - given the same computed ground truth and policy state as the Maker - and
-   returns its own qualitative APPROVED/REJECTED verdict, on a separate model call with no shared reasoning
-   context with the Maker (R3).
+   returns its own qualitative APPROVED/REJECTED verdict, on a separate model call (headless) or in a fresh,
+   read-only sub-agent (an interactive `/review`), with no shared reasoning context with the Maker (R3).
 5. A code-enforced overlay (`_apply_deterministic_policy_checks()`) then re-checks the draft deterministically:
    every figure declared in `reported_figures`, within 0.5% of its computed value; covenant, security, CP and
    credit-policy compliance. It can only move the verdict from APPROVED to REJECTED, never the reverse - this is
@@ -178,10 +180,15 @@ zero debt service, DSCR resolves to N/A and its covenant resolves to UNRESOLVABL
 [PR #20](https://github.com/ShamikM88/open-cam-framework/pull/20) fixed exactly this case and added regression
 coverage.
 
-**R3 - Independent review.** The Checker audits the Maker's draft on a separate model call, without inheriting
-its reasoning context. *Acceptance:* given a Maker-drafted CAM, the Checker reviews it with no shared reasoning
-context with the Maker - and, since 2026-09-17, on a genuinely different underlying model (D1,
-[Evidence appendix](#evidence-appendix)). The issue #31 reopening is evidence for that specific dimension of
+**R3 - Independent review.** The Checker audits the Maker's draft without inheriting its reasoning context, on both
+interfaces. *Acceptance, headless:* given a Maker-drafted CAM, the Checker reviews it on a separate model call with no
+shared reasoning context with the Maker - and, since 2026-09-17, on a genuinely different underlying model (D1,
+[Evidence appendix](#evidence-appendix)). *Acceptance, interactive* ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204), D1): `/review` audits a
+draft saved on disk, never the conversation, by starting a new read-only `risk-reviewer` sub-agent for every review; the
+draft, the deal record, the saved sources and the policy reach it as paths, and the deterministic checks, the rejection
+rule and the review trail stay with `/review`. It runs on the session's model, so it is isolated in context and not a
+different model, and this acceptance is checked by contract tests of the command and agent files, not by a live run. The
+issue #31 reopening is evidence for that specific dimension of
 independence (same model vs. different model); it does not by itself establish the Checker's error-detection
 rate, which remains unmeasured (see [Success measures](#success-measures-and-validation-status)).
 

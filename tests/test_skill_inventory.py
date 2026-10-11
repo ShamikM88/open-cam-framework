@@ -63,13 +63,18 @@ def frontmatter(text):
     lines = text.replace("\r\n", "\n").split("\n")
     if not lines or lines[0].strip() != "---":
         return {}
-    fields = {}
+    fields, last = {}, None
     for line in lines[1:]:
         if line.strip() == "---":
             break
+        item = re.match(r"\s+-\s+(.*\S)\s*$", line)
+        if item and last is not None:                  # an item of a YAML list value, joined by spaces
+            fields[last] = f"{fields[last]} {item[1].strip(chr(34) + chr(39))}".strip()
+            continue
         key, sep, value = line.partition(":")
         if sep and key and not key.startswith((" ", "\t")):
-            fields[key.strip()] = value.strip().strip("\"'")
+            last = key.strip()
+            fields[last] = value.strip().strip("\"'")
     return fields
 
 
@@ -207,7 +212,8 @@ def test_the_parsers_read_what_the_registry_actually_uses():
 
 # The instructions a session or a model is given: the Maker's and the Checker's prompts, the commands that run in
 # their sessions, and CLAUDE.md, which every session loads (a recommendation there reaches all of them).
-PIPELINE_TEXT = (*sorted((REPO / "agents").glob("*.md")), *sorted((REPO / ".claude" / "commands").glob("*.md")),
+PIPELINE_TEXT = (*sorted((REPO / "agents").glob("*.md")), *sorted((REPO / ".claude" / "agents").glob("*.md")),
+                 *sorted((REPO / ".claude" / "commands").glob("*.md")),
                  REPO / "CLAUDE.md")
 # The scripts that call a model themselves (the headless pipeline and its evaluation harness).
 HEADLESS_ENTRY_POINTS = ("orchestrator", "calibrate", "run_evals",

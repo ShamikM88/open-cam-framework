@@ -31,6 +31,7 @@ OPTION_LINE_RE = re.compile(r"^ {2}(?:-\w(?: \S+)?, )?(--[\w-]+)", re.M)
 def documents():
     """The Markdown files that may tell someone to run a script."""
     paths = sorted((REPO_ROOT / ".claude" / "commands").glob("*.md"))
+    paths.extend(sorted((REPO_ROOT / ".claude" / "skills").glob("*/SKILL.md")))
     for name in ("README.md", "CLAUDE.md"):
         paths.append(REPO_ROOT / name)
     for pattern in ("docs/*.md", "evals/*.md", "templates/*.md", "config/*.md", "agents/*.md"):

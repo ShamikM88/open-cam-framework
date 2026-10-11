@@ -2,7 +2,8 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on and implements none of them. **No skill exists yet.** The inventory of commands and skills is
+build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); the maintainer
+procedures of Phase 3 are not. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -18,8 +19,8 @@ build on and implements none of them. **No skill exists yet.** The inventory of 
   loads one on its own, and no command or prompt names one.
 - The registry file is **evolved in place** into the one inventory, not renamed and not duplicated.
 - `annual-review` cannot be built over today's primitives ([#203](https://github.com/ShamikM88/open-cam-framework/issues/203)),
-  and the independence of `/review` on the slash-command path has to be settled before an analyst-facing challenge
-  skill is introduced ([#204](https://github.com/ShamikM88/open-cam-framework/issues/204)).
+  and the independence of `/review` on the slash-command path was settled by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204): the interactive Checker
+  is a fresh, read-only sub-agent, so an analyst-facing challenge skill is no longer waiting on it (it still needs its own design).
 
 ## What Claude Code does that this design depends on
 
@@ -32,7 +33,7 @@ registry test cannot see a change in the platform.
 | A command file and a skill create the same `/name`, and **the skill wins** on a clash | Names are unique across both kinds, enforced by a test. A skill called `triage` would silently disable `/triage`. |
 | `disable-model-invocation: true` keeps a skill's description out of the model's context and lets only a person invoke it | The invocation of every first-tranche skill. It also means `/assemble`'s review loop cannot reach one. |
 | `paths` limits automatic activation to matching files; command files do not support it | Reserved for a later, path-scoped maintainer skill. None in the first tranche. |
-| An invoked skill's text **stays in the conversation** and is re-attached after compaction | Anything loaded stays visible to every later step in the session, `/assemble` and `/review` included. This is why an aid is forked (next row) and why this page does not claim isolation. |
+| An invoked skill's text **stays in the conversation** and is re-attached after compaction | Anything loaded stays visible to every later step in the session, `/assemble` included. Since #204 the Reviewer that `/review` starts is not one of those steps: it is a fresh sub-agent that reads files, not the conversation. This is why an aid is forked (next row), and why this page claims no more than that. |
 | `context: fork` runs the skill in a subagent that **does not see the conversation**; only its result comes back | The aid skills fork: their instructions never join the conversation, and they read the deal from `state.json` as the rehydration rule already says. |
 | `allowed-tools` **pre-approves** tools for the turn; it does not restrict them. `disallowed-tools` removes tools while the skill is active | Read-only is expressed with `disallowed-tools` as well as a short `allowed-tools`, and reviewed like a workflow change: a checked-in skill can grant itself broad tool access. |
 | The description is capped (1,536 characters with `when_to_use`) and sits in context for every model-invocable skill | Another reason to keep the first tranche user-only: no always-on descriptions. |
@@ -68,11 +69,12 @@ provenance exists, the skill is hashed into it and into the baseline, and a main
 either. The slash-command path records no provenance, so for an interactive skill option (b) in the issue does not
 exist yet.
 
-**What this does not claim.** A report skill's *output* appears in the conversation, and a later `/assemble` or
-`/review` in the same session can read it, exactly as it can read anything the analyst types. The forking keeps the
-skill's instructions out of the session, and the skill's output is labelled as an aid and written nowhere. That
-narrows the exposure; it is not isolation. Run the aids before drafting, or in another session, when the independence
-of the audit matters.
+**What this does not claim.** A report skill's *output* appears in the conversation, and a later `/assemble` in the
+same session can read it, exactly as it can read anything the analyst types. The forking keeps the skill's instructions
+out of the session, and the skill's output is labelled as an aid and written nowhere. Since [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) the
+Risk Reviewer that `/review` starts does not see the conversation, so that output does not reach it: it is given paths,
+and a skill writes no file. That holds because `/review` passes only paths, which is a command instruction (contract-tested,
+not enforced at run time); the session that orchestrates it can still read the output.
 
 **Held by.** The `Role in the pipeline` column (a skill row must say `None (aid)`), and the test that no agent prompt
 or command names a skill, points at the skills folder or lets a session run one.
@@ -97,13 +99,14 @@ Each skill's own tests (Phase 2 and 3) check that it can run only read-only scri
 typed by a person, forked, named nowhere in `agents/` or a command, write nothing to `review_trail`, and never print a
 verdict word. They are not a substitute for `/review`.
 
-**Why the gate.** On the slash-command path `/review` runs in the *same conversation* as the draft: `review.md` loads
-the role "for the rest of this task" and reviews "the most recently drafted content earlier in this conversation", and
-`/assemble` runs it inline. The Checker's independence there is a separate role prompt plus the deterministic checks,
-not a separate context; the headless pipeline makes a separate Checker call. So "never in the Checker's context"
-cannot be promised for anything that has been in the session. That is a property of the existing design, not of
-skills, and it is tracked in [#204](https://github.com/ShamikM88/open-cam-framework/issues/204). The adversarial
-skills wait for that decision.
+**Why the gate, and what changed.** `/review` used to run in the *same conversation* as the draft: it loaded the role
+"for the rest of this task" and reviewed "the most recently drafted content earlier in this conversation", so "never in
+the Checker's context" could not be promised for anything that had been in the session. [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) settled
+that: every interactive `/review` now delegates the audit to a fresh, read-only `risk-reviewer` sub-agent that reads the
+saved draft and the deal's files, not the conversation ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
+The adversarial skills are therefore no longer waiting on that decision. They stay out of the first tranche because they
+need their own design, which must keep them outside the Reviewer's inputs (they write nothing, so nothing of theirs is on
+disk for it) and must not present their output as the Checker's verdict.
 
 **Held by.** The same wiring test as constraint 1: `agents/*.md` and the commands may not name a skill, so nothing
 loads one into either role by design.
@@ -126,7 +129,7 @@ rate, a margin) the figure is not produced.
 
 | Job | The deterministic piece it uses | What is missing |
 | :--- | :--- | :--- |
-| Missing steps, missing sources, required conditions, UNRESOLVABLE results | `state_manager.py --check-steps`, `source_manifest.py --check-sources`, `policy_check.py` (without `--draft`) | Nothing |
+| Missing steps, whether declared citations were saved at all, required conditions, UNRESOLVABLE results | `state_manager.py --check-steps`, `source_manifest.py --check-sources`, `policy_check.py` (without `--draft`) | A per-citation audit: `--check-sources` is a deal-level floor over `triage` and `commercial` citations only, and fails with one `error:` line on a malformed manifest ([#207](https://github.com/ShamikM88/open-cam-framework/issues/207)); the skills still read the manifest themselves as defence in depth and report any script failure as a tool error |
 | Interpreting recorded figures | `state.json`, `policy_check.py`, [the financial model](financial-model.md) | Period-over-period movement. `financial-analysis` states direction between two recorded figures and quotes both; a movement helper would be a separate, tested script, decided separately |
 | Verifying a change | The commands in [Operations](operations.md#verify-a-change-the-full-suite) and the five documentation test files | A script that classifies a diff against the sensitive paths. `git diff --name-only` and the documented list serve until it is shown to be needed |
 
@@ -219,15 +222,17 @@ contextual, and a model-invocable description would sit in every session's conte
   "Source material persistence". The standard is the Underwriter's Guideline 1, which it points to and does not restate.
 - **Side effects.** None.
 - **Limits.** It can show that a document is saved, not that it supports the claim; it marks those for a person and
-  never says "verified". The catalogue's "keep analysis grounded" is built as an on-demand audit, not as an always-on
+  never says "verified". `--check-sources` says only that nothing was saved despite a declared `triage` or `commercial`
+  citation; the matching of citations to entries is the skill's own reading. The catalogue's "keep analysis grounded" is built as an on-demand audit, not as an always-on
   reminder: a persistent reminder is a Practice skill and would duplicate Guideline 1.
 - **Versus commands.** `/review` challenges a draft's assertions as the Checker; this audits the deal's records before
   drafting and is not a Checker.
 
 ### `financial-analysis` (Phase 2)
 
-- **Purpose.** Explain the recorded figures to the analyst: levels and direction across periods, why a ratio is N/A,
-  what a covenant result means as recorded (including the downside and the disclosure-only forward results), and the
+- **Purpose.** Explain the recorded figures to the analyst: levels and direction across periods, what a `null` ratio means
+  (a zero or negative denominator in a framework-computed deal; recorded as given, with no reason held, in an
+  analyst-supplied one), what a covenant result means as recorded (including the downside and the disclosure-only forward results), and the
   framework-computed against analyst-supplied distinction and what a reader may rely on in each case.
 - **Reads / delegates to.** `state.json` (`financials`, `ratios`, `financials_source`, `financials_source_note`,
   `downside_case`), `policy_check.py`, and [the financial model](financial-model.md) for every definition. It does not run
@@ -274,7 +279,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-assurance` | Deferred, evidence-gated | Its rules (deterministic enforcement is authoritative, fail closed) are already in `CLAUDE.md`, D2 and D5 to D7 and enforced by tests; a path-scoped skill would restate them. Built only if a governance regression gets past those, and then as a change-impact map, not a copy of the rules. |
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Phase 4 candidate | Explains PASS / FAIL / UNRESOLVABLE and the disclosure-only results, which [the financial model](financial-model.md) and [troubleshooting](troubleshooting.md) already do; it must never read as an override of a code-enforced rejection. Decide after the Phase 2 reports show the pattern. |
-| `credit-risk`, `credit-challenge` | Gated by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) | Close to the Checker's job (constraint 3). |
+| `credit-risk`, `credit-challenge` | Not designed. The [#204](https://github.com/ShamikM88/open-cam-framework/issues/204) decision (an isolated interactive Checker) removes the gate; they still need their own design | Close to the Checker's job (constraint 3). |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `prompt-change-gate`, `mutation-triage`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. |
@@ -284,8 +289,8 @@ contextual, and a model-invocable description would sit in every session's conte
 
 1. **Design (this change).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
    `tests/test_skill_inventory.py`. No skill.
-2. **Analyst aids:** `information-gaps`, `evidence-discipline`, `financial-analysis`, with a user-facing skill
-   reference page and the skills' own tests.
+2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
+   [Skills](skills.md) page and `tests/test_skills.py`.
 3. **Maintainer procedures:** `cam-change-verification`, `docs-maintenance`.
 4. **From evidence:** the best of the deferred list, one pull request each.
 
@@ -307,5 +312,9 @@ examples only; the registry row flips to implemented in the same change; and the
 | This page's tranche table is the inventory's skill rows | the same |
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 
-Not tested, because nothing exists to test: a skill's behaviour. Each skill's pull request adds tests of the scripts
-it runs and of its own frontmatter, as the other command-line surfaces have.
+Each skill's own contract is tested in `tests/test_skills.py`: its frontmatter (typed by a person, forked, the write tools
+removed, only read-only scripts pre-approved; `allowed-tools` pre-approves and is not an allowlist, so this is a procedure plus
+permission settings, not a sandbox, and the frontmatter is checked by a strict parser for the small YAML subset it uses), that the scripts it runs leave a deal byte-for-byte unchanged, that every path it
+cites exists and every flag it passes is real, and that the files carry no real name or figure. What a model does with the
+instructions is not tested here, and no test can say a skill's prose is a good procedure; it is a prompt expectation, like
+a command's (see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).

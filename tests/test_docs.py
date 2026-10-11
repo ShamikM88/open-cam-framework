@@ -32,7 +32,8 @@ CITED_LABELS = ("**Promoting a local override upstream:**", "**Mutation testing*
 
 
 def doc_files():
-    return [REPO / name for name in DOC_FILES] + sorted((REPO / "docs").glob("*.md"))
+    return ([REPO / name for name in DOC_FILES] + sorted((REPO / "docs").glob("*.md"))
+            + sorted((REPO / ".claude" / "skills").glob("*/SKILL.md")))
 
 
 def strip_fences(text):

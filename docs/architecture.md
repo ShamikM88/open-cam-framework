@@ -8,7 +8,7 @@ checked. For the commands and scripts themselves, see the reference pages linked
 ## The idea in one paragraph
 
 A **Maker** (the Underwriter agent) drafts a Credit Assessment Memorandum (CAM) from source documents and
-user-supplied risk inputs; an independent **Checker** (the Risk Reviewer agent) audits the draft and returns
+user-supplied risk inputs; a **Checker** (the Risk Reviewer agent, in a context that holds none of the Maker's reasoning) audits the draft and returns
 `APPROVED` or `REJECTED` with revision notes. Everything that can be computed deterministically (ratios,
 covenant results, required conditions, security gaps) is computed by code, handed to both agents as ground
 truth, and enforced by code on the draft, so the agents narrate and judge rather than calculate. Every step
@@ -108,9 +108,13 @@ the narrative is sound.
 - **Agents** (`agents/underwriter_agent.md`, `agents/risk_reviewer_agent.md`): the two role prompts, kept
   independent on purpose (see [Decisions](decisions.md)). `config/system_instructions.md` is a short statement of
   the framework's principles; no script or command loads it.
+- **The interactive Checker** (`.claude/agents/risk-reviewer.md`): a read-only sub-agent (Read, Glob, Grep) that
+  `/review` starts afresh for every review. It applies the `agents/risk_reviewer_agent.md` role to a draft saved on disk
+  and the deal's saved evidence, and returns a verdict; `/review` keeps the deterministic checks and writes the record
+  ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
 - **Slash commands** (`.claude/commands/`): the interactive implementation of each step, described by
-  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; none is implemented
-  yet and none is ever input to the Maker or the Checker, see [Skill design](skill-design.md)). They run the deterministic scripts through Bash steps and hand the model's
+  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; three analyst aids are implemented, see [Skills](skills.md),
+  and none is ever input to the Maker or the Checker, see [Skill design](skill-design.md)). They run the deterministic scripts through Bash steps and hand the model's
   drafting work back to the session.
 - **Scripts** (`scripts/`): the deterministic core and the headless entry points. Most have no `anthropic`
   dependency so they can run from a slash command's Bash step and be tested without a model.
@@ -126,10 +130,11 @@ the narrative is sound.
 | Agent | File | Role |
 | :--- | :--- | :--- |
 | Underwriter ("Maker") | [`agents/underwriter_agent.md`](../agents/underwriter_agent.md) | Drafts the CAM: calculates TNW, EBITDA, DSCR, Gross Leverage, Working Capital Days; cites sources for every qualitative claim; never invents figures; discloses when spreading was analyst-supplied rather than independently recomputed; drafts with awareness of a calibrated credit policy and any persisted deal learnings once they exist. |
-| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Independently audits the draft: re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
+| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Audits the draft in a context that holds none of the Maker's reasoning (a separate call headless; in a session a fresh read-only sub-agent started by `/review`, see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)): re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
 
 The two prompts are kept deliberately independent — the Reviewer's value comes from auditing
-the Maker's work cold, not from sharing its reasoning.
+the Maker's work cold, not from sharing its reasoning. What is shared on purpose is the evidence: both work from the
+same computed figures, saved sources and policy, and the Reviewer reads the saved draft and the deal's files itself.
 
 ### Grounding rule
 
@@ -145,7 +150,8 @@ to have scored the risk itself.
 ## Slash commands and the agents
 
 `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, and `/project` each load
-[`agents/underwriter_agent.md`](../agents/underwriter_agent.md)'s role; `/review` loads
+[`agents/underwriter_agent.md`](../agents/underwriter_agent.md)'s role; `/review` runs the checks and
+hands the audit to a fresh `risk-reviewer` sub-agent, which loads
 [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md)'s. `/assemble` resolves the
 right CAM template (local override, else shipped default), drafts into it, loops `/review` until
 `APPROVED`, then calls [`scripts/deal_export.py`](../scripts/deal_export.py) — the folder-creation
@@ -161,6 +167,7 @@ keeps a short file map for orientation.
 
 ```
 open-cam-framework/
+├── .claude/agents/               The interactive Checker sub-agent (risk-reviewer), started by /review in a fresh, read-only context
 ├── .claude/commands/             Slash-command interface (primary) -- see "Slash commands" in `CLAUDE.md`
 │   ├── calibrate.md, calibrate-policy.md
 │   ├── triage.md, research.md, spread.md, commercial.md, collateral.md, project.md

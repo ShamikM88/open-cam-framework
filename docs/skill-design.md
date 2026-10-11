@@ -99,7 +99,7 @@ Each skill's own tests (Phase 2 and 3) check that it can run only read-only scri
 **Decision.** `credit-challenge` is a Phase 4 analyst report, typed by a person and forked. It reads only the named deal's
 record, the saved-source manifest and an unambiguously identified current draft. It is named nowhere in `agents/` or a
 command, writes nothing to `review_trail`, and never emits an overall verdict, rating or recommendation. It is not a
-substitute for `/review`. `credit-risk` remains a separate, not-yet-designed skill.
+substitute for `/review`. `credit-risk` remains a separate analyst aid with its own design contract below.
 
 **Why the gate, and what changed.** `/review` used to run in the *same conversation* as the draft: it loaded the role
 "for the rest of this task" and reviewed "the most recently drafted content earlier in this conversation", so "never in

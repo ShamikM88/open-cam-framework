@@ -8,7 +8,11 @@ This is deliberately a heuristic, not a guarantee: it catches the obvious,
 mechanically-detectable cases (an unbracketed currency figure, an email
 address, a Companies House-style registration number, a "Something
 Limited"-shaped company name, a real-looking date) that a human skimming a
-long template can plausibly miss. It cannot verify a template is *fully*
+long template can plausibly miss. The patterns are UK-shaped first, with a
+short list of other common company suffixes, international and North American
+phone formats and the US EIN added (issue #111); it is not an international
+PII detector, and a clean result says nothing about, for example, a German
+register number, a national ID or a street address. It cannot verify a template is *fully*
 scrubbed -- that still requires a human review, per the existing
 promotion rule. False positives are expected and fine (a flagged line that
 turns out to be a genuinely generic example is a two-second check); false
@@ -34,6 +38,17 @@ CURRENCY_AMOUNT_RE = re.compile(r"[£$€]\s?\d[\d,]*(?:\.\d+)?")
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 UK_COMPANIES_HOUSE_NUMBER_RE = re.compile(r"\b\d{8}\b")
 UK_PHONE_RE = re.compile(r"\b(?:0|\+44\s?)\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4}\b")
+# Two more phone shapes (issue #111), narrow on purpose so a figure or a date is not read as a number: an international
+# number needs its leading "+" and no word character before it. That makes it exclusive with UK_PHONE_RE's "+44" branch,
+# whose leading \b needs a word character before the "+": that branch never matches "call +44 20 ..." (after a space), so
+# a +44 number is reported here, and exactly once. A North American one needs the area code in brackets or every group
+# separated, and no digit or "+" touching it (so the tail of a longer UK number is not reported a second time).
+INTERNATIONAL_PHONE_RE = re.compile(
+    r"(?<!\w)\+\d{1,3}[\s.-]?\(?\d{1,4}\)?(?:[\s.-]?\d{2,4}){2,4}(?!\d)"
+)
+NORTH_AMERICAN_PHONE_RE = re.compile(r"(?<![\d+])(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?!\d)")
+# A US employer identification number (NN-NNNNNNN); the UK has no counterpart of this shape.
+US_EIN_RE = re.compile(r"(?<![\d-])\d{2}-\d{7}(?![\d-])")
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 LONG_DATE_RE = re.compile(
     r"\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|"
@@ -41,7 +56,10 @@ LONG_DATE_RE = re.compile(
 )
 COMPANY_NAME_RE = re.compile(
     r"\b[A-Z][A-Za-z0-9&,.'()-]*(?:\s+[A-Z(][A-Za-z0-9&,.'()-]*)*\s+"
-    r"(?:Limited|Ltd\.?|PLC|Plc|LLP|Inc\.?)\b"
+    r"(?:Limited|Ltd\.?|PLC|Plc|LLP|Inc\.?"
+    # Common suffixes elsewhere (issue #111). Only forms that are rarely an ordinary word are listed: "Co", "SA" and "SAS"
+    # are left out because they would flag far too much unrelated text.
+    r"|LLC|L\.L\.C\.?|Corp\.?|Corporation|GmbH|AG|S\.A\.?|S\.p\.A\.?|B\.V\.?|BV|N\.V\.?|NV|SARL|Pty|Pte)\b"
 )
 
 # (pattern, human-readable reason) -- order doesn't matter, every pattern is
@@ -51,9 +69,12 @@ CHECKS = [
     (EMAIL_RE, "looks like a real email address"),
     (UK_COMPANIES_HOUSE_NUMBER_RE, "looks like a real 8-digit Companies House registration number"),
     (UK_PHONE_RE, "looks like a real phone number"),
+    (INTERNATIONAL_PHONE_RE, "looks like a real international phone number"),
+    (NORTH_AMERICAN_PHONE_RE, "looks like a real North American phone number"),
+    (US_EIN_RE, "looks like a real US employer identification number (EIN)"),
     (ISO_DATE_RE, "looks like a real ISO date, not a [placeholder]"),
     (LONG_DATE_RE, "looks like a real date, not a [placeholder]"),
-    (COMPANY_NAME_RE, "looks like a real company name (Limited/Ltd/PLC/LLP/Inc), not a [placeholder]"),
+    (COMPANY_NAME_RE, "looks like a real company name (Limited/Ltd/PLC/LLP/Inc/LLC/Corp/GmbH/AG/S.A. ...), not a [placeholder]"),
 ]
 
 

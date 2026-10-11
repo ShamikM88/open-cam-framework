@@ -108,9 +108,11 @@ back: open a PR to add it under `templates/cam/` as a new shared default.
 
 ## PII scan
 
-**`scripts/pii_scan.py`** — no `anthropic` dependency. Heuristic (currently UK-shaped: Companies
+**`scripts/pii_scan.py`** — no `anthropic` dependency. Heuristic (UK-shaped first: Companies
 House-style registration numbers, UK phone formats, `Limited`/`Ltd`/`PLC`/`LLP`/`Inc` company
-suffixes) pattern scan for likely-real currency figures, emails, phone numbers, dates, and
+suffixes; with a short list of other company suffixes -- `LLC`, `Corp`, `Corporation`, `GmbH`, `AG`, `S.A.`,
+`S.p.A.`, `B.V.`, `N.V.`, `SARL`, `Pty`, `Pte` -- international (`+` prefix) and North American phone formats and the
+US EIN added for issue #111) pattern scan for likely-real currency figures, emails, phone numbers, dates, and
 company names left over in a calibrated `templates/local/cam/*.md` override -- the second line
 of defense (after a by-hand review) before promoting one upstream to the shared `templates/cam/`
 defaults; see the "Promoting a local override upstream" rule in `CLAUDE.md`'s confidentiality section.

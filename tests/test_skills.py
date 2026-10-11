@@ -147,6 +147,8 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
         "Never run a shell command or script, browse the web, fetch a source, make a live model/API call",
         "not proof that a source substantiates a claim",
         "Do not fill categories with generic risks",
+        "financial; commercial/business model; management and execution; ownership, guarantees and support; collateral/security; facility and structural terms; sector/market; forecast/downside; and conduct",
+
     ):
         assert phrase in risk_body, phrase
     risk_contract = risk_body.partition("## 5. Report each material risk in this exact order")[2].partition("## 6. Boundaries")[0]

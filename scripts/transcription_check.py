@@ -702,7 +702,10 @@ def _why(exc):
 
 
 def _read_bytes(path):
-    """A file's bytes, None if there is no such file, or UNKNOWN if it cannot be read."""
+    """A file's bytes, None if there is no such file, or UNKNOWN if it cannot be read (a link whose target is gone is
+    something that cannot be read, not a file that does not exist)."""
+    if os.path.lexists(path) and not os.path.exists(path):
+        return UNKNOWN
     try:
         with open(path, "rb") as f:
             return f.read()

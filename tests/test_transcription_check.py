@@ -1349,7 +1349,9 @@ def state_file_dir(root):
     ("before_anything", "no new file in sources/", "sources/manifest.json is unchanged"),
     ("lock_timeout", "no new file in sources/", "sources/manifest.json is unchanged"),
     ("before_manifest_replace", "new file(s) in sources/:", "sources/manifest.json is unchanged"),
-    ("unreadable_manifest", "new file(s) in sources/:", "sources/manifest.json changed"),
+    # Since #210 save_source() validates the manifest before it copies anything, so a manifest another session
+    # corrupted mid-way leaves no copied image: the only new file is the manifest that session wrote.
+    ("unreadable_manifest", "new file(s) in sources/: ['manifest.json']", "sources/manifest.json changed"),
 ])
 def test_a_failure_in_save_source_reports_what_it_left_and_records_no_figures(deal, monkeypatch, behaviour, new_files,
                                                                               manifest):
@@ -1364,11 +1366,14 @@ def test_a_failure_in_save_source_reports_what_it_left_and_records_no_figures(de
     if behaviour != "unreadable_manifest":
         assert error.__cause__ is failure
     assert state_file(deal).read_bytes() == state_before
-    if behaviour in ("before_manifest_replace", "unreadable_manifest"):
-        left = sorted(p.name for p in (state_file_dir(deal) / "sources").iterdir())
+    folder = state_file_dir(deal) / "sources"
+    left = sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
+    if behaviour == "before_manifest_replace":
         assert any(name.endswith(".png") for name in left), "the copied image is left behind"
-        assert behaviour == "unreadable_manifest" or any(name.endswith(".tmp") for name in left)
+        assert any(name.endswith(".tmp") for name in left)
         assert all(name in message for name in left), "the message names every file that was left"
+    if behaviour == "unreadable_manifest":
+        assert left == ["manifest.json"], "the unusable manifest was refused before any image was copied"
 
 
 def test_the_command_line_shows_one_error_line_for_a_save_failure_and_a_copy_failure(deal, monkeypatch):
@@ -1537,3 +1542,31 @@ def test_a_scratch_folder_that_cannot_be_cleaned_up_does_not_fail_a_commit_whose
     run_commit(staged_data(deal))
     assert seen == [{"ignore_cleanup_errors": True}]
     assert read_state("Synthetic Co", "Fleet Loan")["steps_completed"] == ["spread"]
+
+
+# ---------------------------------------------------------------------------
+# A manifest that is a link to nothing is unusable, not absent (found integrating #210)
+# ---------------------------------------------------------------------------
+
+def test_a_dangling_link_manifest_is_refused_before_the_image_is_copied(deal, tmp_path):
+    from test_source_manifest import dangling_link
+    write_state("Synthetic Co", "Fleet Loan", inputs={})
+    sources = state_file(deal).parent / "sources"
+    sources.mkdir()
+    dangling_link(sources / "manifest.json", tmp_path / "nowhere")
+    state_before = state_file(deal).read_bytes()
+    with pytest.raises(tc.TranscriptionError, match="sources/manifest.json .*nothing was saved"):
+        run_commit(staged_data(deal))
+    assert state_file(deal).read_bytes() == state_before, "state.json is untouched"
+    assert [p.name for p in sources.iterdir()] == ["manifest.json"], "no image was copied and the link was not replaced"
+    assert os.path.lexists(sources / "manifest.json") and not os.path.exists(sources / "manifest.json")
+
+
+def test_a_dangling_link_is_not_reported_as_a_file_that_does_not_exist(tmp_path):
+    """_read_bytes feeds the message about what a failed save left behind; a link that cannot be followed is not
+    'no such file', it is something that could not be inspected."""
+    from test_source_manifest import dangling_link
+    link = tmp_path / "manifest.json"
+    dangling_link(link, tmp_path / "nowhere")
+    assert tc._read_bytes(str(link)) is tc.UNKNOWN
+    assert tc._read_bytes(str(tmp_path / "absent.json")) is None

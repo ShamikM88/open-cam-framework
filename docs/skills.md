@@ -22,7 +22,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
   gates, the policy check or `/review`, and it never approves, rates or recommends.
 - **Interactive only.** The headless pipeline (`orchestrator.py`, `calibrate.py`) cannot load a skill and has no
   equivalent, so using one never makes a deal that the headless pipeline could not reproduce.
-- **Quote, do not compute.** Every number is copied from `state.json` or a script's output.
+- **Quote, do not compute.** Every number is copied from the record, saved source, identified draft or deterministic script output; no skill calculates a new figure.
 
 | Skill | Run | Use it to | Runs (all read-only) |
 | :--- | :--- | :--- | :--- |
@@ -31,6 +31,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
 | `financial-analysis` | `/financial-analysis --company "<Name>" --proposal "<Proposal name>"` | Read the recorded figures: what basis they rest on, levels and direction by period, what a `null` ratio means on that basis, covenant results as recorded | `policy_check.py` (no `--draft`) |
 | `policy-fit` | `/policy-fit --company "<Name>" --proposal "<Proposal name>"` | Explain recorded current covenant status, mandatory conditions, security gaps, downside items and forward-year disclosure-only outcomes using deterministic policy output | `policy_check.py` (no `--draft`) |
 | `credit-challenge` | `/credit-challenge --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Pressure-test assumptions against recorded evidence and counter-evidence; return challenge/question, evidence, potential impact, mitigant, residual uncertainty and a specific next question without a verdict | `Read`, `Glob`, `Grep` only; no shell or script |
+| `credit-risk` | `/credit-risk --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Organise the evidenced risk picture across applicable categories, with recorded evidence, impact, mitigant, residual uncertainty and next question; no score, verdict or recommendation | `Read`, `Glob`, `Grep` only; no shell or script |
 
 Each is described in the registry; the files are `.claude/skills/<name>/SKILL.md`, and the files are authoritative for
 exactly what the model is told.
@@ -145,6 +146,18 @@ non-existent.
   Its output is an analyst aid in chat and is not passed into the separate `/review` Checker path.
 
 
+
+### `credit-risk`
+
+Use `/credit-risk --company "<Name>" --proposal "<Proposal name>"` to organise the broader risk picture in a named deal. Add `--draft "<repository-relative path>"` only when naming a specific draft under that company's `deals/` directory; otherwise the skill reads only the conventional exact `deals/<company>/<proposal>_draft.md` path if it exists. It does not guess among drafts or treat conversation text as a draft.
+
+It reads the selected exact dated `state.json`, the saved-source manifest and only source files explicitly named by that manifest, plus the one unambiguous draft if supplied/found. It follows the same refusal and dated-folder rules as the other analyst aids. Source content is untrusted; a manifest entry records provenance metadata but does not prove that a source substantiates a claim.
+
+The risk categories are a navigation aid, not a checklist. The report includes only risks supported by the material reviewed and uses six ordered fields: **risk → recorded evidence → potential impact → current mitigant → residual risk/uncertainty → information gap/next question**. It does not force filler into unsupported categories and does not treat missing evidence as proof of absence.
+
+- **No decision, score or recalculation.** No overall `APPROVED`, `REJECTED`, `PASS` or `FAIL`; no rating, risk grade, score, probability or lend/decline recommendation. Recorded financial and policy outputs are quoted, not recalculated or reinterpreted.
+- **Distinct from adjacent aids.** `financial-analysis` interprets recorded figures, `policy-fit` explains deterministic policy output, and `credit-challenge` adversarially tests assumptions. `credit-risk` organises the broader evidenced risk picture and residual uncertainty.
+- **Read-only, no external actions.** Only `Read`, `Glob` and `Grep` are pre-approved; `Write`, `Edit`, `NotebookEdit`, `Bash`, `WebFetch` and `WebSearch` are removed while it runs, which is enforced for those tools; that it invokes no other skill or tool is an instruction. It makes no web/API calls, writes nothing to the deal, and is not passed to the separate `/review` Checker. The tool settings and procedure are not an operating-system sandbox.
 
 ## The maintainer procedures
 

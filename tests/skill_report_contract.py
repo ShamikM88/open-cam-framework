@@ -27,6 +27,7 @@ class ReportSpec:
     labels: tuple           # the fields of an item, in order
     nothing_phrase: str     # what the report says when it identifies no item
     caveat: str             # the closing caveat's opening words
+    required_lines: tuple = ()   # lines the report must carry besides Material reviewed, e.g. "**Categories reviewed:**"
 
 
 VERDICT_RE = re.compile(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|PASSED|FAIL|FAILED)(?![A-Za-z])")
@@ -74,6 +75,9 @@ def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     recorded = record_text(deal_folder)
     if not text.startswith("**Material reviewed:**"):
         problems.append("the report must open with a Material reviewed line")
+    for line in spec.required_lines:
+        if line not in text:
+            problems.append(f"the report must carry a {line} line")
     if not text.splitlines()[-1].lstrip("> ").startswith(spec.caveat):
         problems.append("the closing caveat is missing")
     if items is not None and len(has_items) != items:

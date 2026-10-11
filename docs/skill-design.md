@@ -99,7 +99,7 @@ Each skill's own tests (Phase 2 and 3) check that it can run only read-only scri
 **Decision.** `credit-challenge` is a Phase 4 analyst report, typed by a person and forked. It reads only the named deal's
 record, the saved-source manifest and an unambiguously identified current draft. It is named nowhere in `agents/` or a
 command, writes nothing to `review_trail`, and never emits an overall verdict, rating or recommendation. It is not a
-substitute for `/review`. `credit-risk` remains a separate, not-yet-designed skill.
+substitute for `/review`. `credit-risk` remains a separate analyst aid with its own design contract below.
 
 **Why the gate, and what changed.** `/review` used to run in the *same conversation* as the draft: it loaded the role
 "for the rest of this task" and reviewed "the most recently drafted content earlier in this conversation", so "never in
@@ -199,6 +199,7 @@ scripts that exist today; the procedures wrap documented sequences for change ve
 | `prompt-change-gate` | 4 | maintainer | user | Procedure | Not a deal skill |
 | `policy-fit` | 4 | analyst | user | Report | Yes, no record |
 | `credit-challenge` | 4 | analyst | user | Report | Yes, no record |
+| `credit-risk` | 4 | analyst | user | Report | Yes, no record |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -339,7 +340,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `security-and-confidentiality` | Folded into `cam-change-verification` | Its procedure is the security review in Contributing and `pii_scan.py`; its rules are in `CLAUDE.md` and `test_confidential_paths.py`. |
 | `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
 | `credit-challenge` | Implemented, Phase 4 | Analyst-invoked, adversarial question set over recorded evidence. Read-only and forked; no verdict, score, recommendation, persistence or Checker wiring. The detailed contract and limits are below. |
-| `credit-risk` | Design proposed in a separate stacked PR for #196 | A structured, evidence-grounded analyst risk picture across applicable categories. It remains separate from `credit-challenge`, `policy-fit`, financial interpretation and formal `/review`; implementation must meet the design contract below. |
+| `credit-risk` | Implemented, Phase 4 | A structured, evidence-grounded analyst risk picture across applicable categories. It remains separate from `credit-challenge`, `policy-fit`, financial interpretation and formal `/review`; see the design contract and implementation in the stacked #196 PRs. |
 | `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
@@ -384,7 +385,7 @@ If no material challenge is identified, state only that no challenge was identif
 **Overlap boundaries.**
 
 - `policy-fit` explains the actual deterministic policy output, covenant statuses and formal CP/CS/security/downside records. `credit-challenge` may ask a question about those recorded items but must not reproduce a second policy report or change their meaning.
-- `credit-risk`, if separately designed later, would organise the risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
+- `credit-risk` organises the broader evidenced risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
 - `/review` runs the separate Checker and deterministic draft compliance path. `credit-challenge` does not issue a review verdict, alter a draft or pass its own output into the Checker.
 
 **Implementation acceptance gates.**
@@ -408,7 +409,7 @@ If no material challenge is identified, state only that no challenge was identif
 - The implementation PR must cite this design PR and report any deliberate deviation. A deviation that touches the formal Checker, prompts, policy semantics, persistence, live model calls or scoring requires a new explicit design decision rather than an incidental implementation choice.
 
 
-### `credit-risk` — design proposal (implementation is a separate PR)
+### `credit-risk` — design contract (implemented in Phase 4)
 
 **Job to be done.** Organise the material risk picture for a named deal into a consistent, evidence-grounded analyst view. Unlike `credit-challenge`, which actively pressure-tests assumptions, `credit-risk` gives a structured account of risks evidenced in the available material. It is not a credit decision, rating, formal review or substitute for the deterministic policy engine.
 
@@ -490,8 +491,10 @@ Lead with a **Material reviewed:** line (the `state.json` read, whether the mani
    (`tests/test_mutation_triage_skill.py`), chosen because open triage issues (#182 to #184, #219) and an existing report
    show the need; `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
    documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful; and
-   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit), and
-   `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker).
+   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit),
+   `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker),
+   and `credit-risk` (organises the evidenced risk picture by category, with mitigants and residual uncertainty, without
+   duplicating `financial-analysis`, `policy-fit`, `credit-challenge` or the formal Checker).
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its

@@ -40,6 +40,7 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | Path | What it is | Detail |
 | :--- | :--- | :--- |
 | `agents/` | The two agent prompts: Underwriter (Maker) and Risk Reviewer (Checker) | [architecture](docs/architecture.md) |
+| `.claude/agents/` | The interactive Checker: the read-only `risk-reviewer` sub-agent that `/review` delegates the qualitative audit to (issue #204) | [architecture](docs/architecture.md#maker-checker-agents) |
 | `.claude/commands/` | The slash commands (the interactive interface); a skill is `.claude/skills/<name>/SKILL.md` | `config/skills_registry.md` (the one inventory), [skill design](docs/skill-design.md) |
 | `config/` | `settings.json`, `system_instructions.md` (reference text that nothing loads), the command and skill registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
 | `scripts/` | The deterministic core (state, spreading, policy engine and checks, export, source manifest, conventions, text I/O), the headless entry points (`calibrate.py`, `orchestrator.py`) and the test-tooling scripts (`check_*`, `mutation_report.py`, `run_evals.py` and its `eval_*` modules) | [cli reference](docs/cli-reference.md), [data model](docs/data-model.md), [financial model](docs/financial-model.md) |
@@ -74,10 +75,20 @@ Two independent agent prompts drive every deal, invoked in sequence by `scripts/
 Keep these two prompts independent — the Checker's value comes from auditing the Maker without
 sharing its reasoning, so avoid merging them or having one import the other's context.
 
+On the interactive interface the Checker runs as the `risk-reviewer` sub-agent
+([.claude/agents/risk-reviewer.md](.claude/agents/risk-reviewer.md)) that `/review` starts in a fresh context for every
+review (issue #204); headless, `orchestrator.py` makes it a separate call. Neither shares the Maker's conversation.
+
 ## Editing the agent prompts and commands
 
 - **Keep the two agent prompts independent.** Do not merge them or have one import the other's context (see
   [docs/decisions.md](docs/decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
+- **The interactive Checker is a fresh, read-only sub-agent, and `/review` is its orchestrator (issue #204).** `/review` reviews
+  a draft saved on disk, never "the most recent draft in the conversation"; it names `risk-reviewer` explicitly (never a
+  fork, never an omitted type, never a resumed agent), passes paths and the `policy_check.py` output and no draft text or
+  Maker reasoning, runs the deterministic checks itself, fails closed on a missing or invalid verdict, and is the only
+  writer of `review_trail`. The sub-agent's tools stay `Read, Glob, Grep`: no write, shell, agent-spawning or memory.
+  `tests/test_interactive_checker.py` pins this; it is a contract test, not proof of a live run.
 - **A prompt edit is a deliberate act of its own.** A deal records a content hash of each agent prompt in its
   `model_provenance`, and an evaluation baseline records the prompt hashes it measured, so editing
   `agents/*.md` makes earlier comparisons stale. Do not change a prompt as a side effect of other work.
@@ -300,8 +311,9 @@ must not break:
   they reproduce the supplied figures; otherwise the downside is the
   analyst's own scenario or is recorded under `downside_case["unavailable"]`, which the policy engine reports as an
   UNRESOLVABLE downside breach (never silently absent, never a pass).
-- `/review` loads the Risk Reviewer role and returns `APPROVED` or `REJECTED`; a code-enforced reason makes
-  `REJECTED` mandatory.
+- `/review` reviews a saved draft only (never the conversation): it runs the deterministic check, delegates the
+  qualitative audit to a fresh `risk-reviewer` sub-agent (issue #204), and returns `APPROVED` or `REJECTED`; a
+  code-enforced reason makes `REJECTED` mandatory, and no valid verdict from the Reviewer is neither.
 - `/calibrate-policy` and `/research` have no headless equivalent.
 
 **Gotcha when editing these files:** there is no `@path/to/file` inline file-inclusion syntax in

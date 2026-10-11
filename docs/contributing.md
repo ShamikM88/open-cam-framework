@@ -6,11 +6,11 @@ Practical guidance for changing this repository: what to treat as true, what mus
 
 ```bash
 python -m venv venv                    # then activate it (venv\Scriptsctivate on Windows)
-pip install -r requirements-dev.txt    # runtime requirements + pytest, ruff, bandit, coverage and diff tools
+pip install -r requirements-dev.txt    # runtime requirements + pytest, pytest-xdist, ruff, bandit and coverage tools
 pytest                                 # the whole suite; no API key and no network needed
 ```
 
-CI runs Python 3.11 on Ubuntu and on Windows; Windows is the primary development platform, so a change must work with a cp1252 console, backslash paths and CRLF line endings. `pytest` rejects its own options until `requirements-dev.txt` is installed.
+CI runs Python 3.11 on Ubuntu and on Windows; Windows is the primary development platform, so a change must work with a cp1252 console, backslash paths and CRLF line endings. The basic `pytest` command above is serial. To match CI's test profile, Ubuntu runs `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage and Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` supplies `-n`, `--dist=loadfile` keeps each test file on one worker, and `--durations=30` records the slowest tests.
 
 ## What is true when sources disagree
 
@@ -76,7 +76,7 @@ A pull request is ready when all of these pass locally, because CI will run them
 ```bash
 ruff check .                      # rules live in pyproject.toml
 bandit -r scripts/ -ll
-pytest --cov --cov-report=json --cov-report=xml
+pytest tests/ -n 4 --dist=loadfile --durations=30 --cov --cov-report=term --cov-report=json --cov-report=xml
 python scripts/check_coverage.py coverage.json
 ```
 
@@ -133,6 +133,7 @@ Before asking for review, check the change against this list. Each item is a pla
 - **Keep the prompts independent.** Do not merge them or have one import the other's context ([D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)).
 - **Numbered references are guarded.** Inserting a Guideline or Audit Checklist item mid-list re-points every later reference; `tests/test_prompt_consistency.py` resolves each one, so renumber deliberately and update `EXPECTED_SUBJECTS` in the same change.
 - **Documentation does not depend on the prompts' layout,** and the prompts currently reference neither `README.md` nor `CLAUDE.md`; keep it that way, so moving documentation never forces a prompt edit.
+- **The interactive Checker is a file too.** `.claude/agents/risk-reviewer.md` sets the Reviewer's tools (Read, Glob and Grep only) and how it applies the role; widening them, or letting `/review` give it the draft text, resume it or fork it, undoes [D1](decisions.md#d1-the-maker-and-the-checker-are-independent-prompts)'s isolation and fails `tests/test_interactive_checker.py`.
 - **Command files are not prompts but behave like them.** A `.claude/commands/*.md` edit changes what a session does; treat it with the same care, and keep the plain-prose way of including a file ("Read `agents/underwriter_agent.md`"); there is no `@path` inclusion.
 - **A skill is not a prompt change and must not become one.** Skills follow [Skill design](skill-design.md): no agent
   prompt or command names or loads one, a skill never writes a deal's records, it never shares a command's name, and its
@@ -146,7 +147,7 @@ Before asking for review, check the change against this list. Each item is a pla
 - If your change adds or removes passing tests, update the file **in the same pull request**, from a complete green run of the whole suite:
 
   ```bash
-  pytest tests/ | tee pytest_output.txt
+  pytest tests/ -n 4 --dist=loadfile --durations=30 | tee pytest_output.txt
   python scripts/check_test_count.py pytest_output.txt --write
   ```
 

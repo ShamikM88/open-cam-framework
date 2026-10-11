@@ -19,8 +19,11 @@ worked examples are in [Workflows](workflows.md).
   with `scripts/source_manifest.py`, so a claim can be checked against the exact material later. Scratch artefacts are
   not saved.
 - **Roles.** `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`, `/project` and `/assemble` act as the
-  Underwriter (`agents/underwriter_agent.md`); `/review` acts as the independent Risk Reviewer
-  (`agents/risk_reviewer_agent.md`).
+  Underwriter (`agents/underwriter_agent.md`). `/review` does not play the Risk Reviewer in your conversation: it runs
+  the deterministic checks and hands the audit to a fresh, read-only `risk-reviewer` sub-agent
+  (`.claude/agents/risk-reviewer.md`) that applies `agents/risk_reviewer_agent.md` to the saved draft and the deal's
+  files, without your conversation. See [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters) for what that
+  does and does not guarantee.
 - **Cost and authentication.** All of them run on your Claude Code login, with no `ANTHROPIC_API_KEY`. The
   deterministic scripts they call run locally with no network. Whatever the session reads or you type is sent to the
   model that serves your Claude Code session, and `/triage`, `/research` and `/commercial` may also fetch public web
@@ -86,7 +89,7 @@ worked examples are in [Workflows](workflows.md).
 - **Use when:** you need a screen and company research now, or ever, without a full CAM.
 - **Inputs:** everything `/triage` and `/commercial` ask for.
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
-  template side effects), after an independent review (`/review --research-brief`) loops to `APPROVED`.
+  template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
@@ -195,17 +198,29 @@ worked examples are in [Workflows](workflows.md).
 
 ### /review
 
-- **What:** the Risk Reviewer audits a draft (or, with `--research-brief`, a `/research` brief) and returns
-  `APPROVED` or `REJECTED` with revision notes.
-- **Inputs:** `--company`, `--proposal`, optionally `--research-brief`; the draft (pasted, or the latest in the
-  conversation).
-- **Steps:** for a CAM with a deal identity it first runs the code-enforced check (`policy_check.py --draft`), whose
-  reasons make `REJECTED` mandatory and must be quoted verbatim in the notes; then the qualitative checklist. With
-  `--research-brief` the code check is skipped and credit-policy and risk-mitigant items do not apply. With no deal
-  identity it falls back to full manual verification of whatever figures were supplied.
-- **State:** appends one entry to `review_trail` (never replaces it), sets `review_verdict`, adds `review` to
-  `steps_completed`. It may offer to persist a policy-interpretation correction, only on an explicit yes.
-- **Can go wrong:** a stale draft file (it must be overwritten before re-checking, or the previous draft is re-checked).
+- **What:** audits a saved draft (or, with `--research-brief`, a saved `/research` brief) and returns `APPROVED` or
+  `REJECTED` with revision notes. `/review` is the orchestrator; the qualitative audit is done by a fresh, read-only
+  `risk-reviewer` sub-agent.
+- **Inputs:** `--company`, `--proposal`, optionally `--research-brief` and `--draft "<path>"`. The draft is a file on
+  disk: by default `deals/<company>/<proposal>_draft.md` (a CAM) or `..._brief.md` (a brief), which `/assemble` and
+  `/research` save before calling it. `/review` never reviews "the latest draft in the conversation" and does not take
+  pasted draft text: with no file it stops and says so.
+- **Steps:** for a CAM with a deal identity it first runs the code-enforced check (`policy_check.py --draft`; a failure
+  stops the review, it is not a pass). It then starts a **new** `risk-reviewer` for every review (a re-review of a revised
+  draft is a new one, never a resumed one) and sends it paths, not text: the draft, the deal's `state.json`, the source
+  manifest, which policy files exist, and the `policy_check.py` output. The Reviewer reads the evidence itself, audits
+  first, and only then reads the deal's earlier `review_trail`. `/review` checks that a valid verdict came back (if not,
+  it stops and records nothing), makes the result `REJECTED` with every code-enforced reason quoted verbatim whenever
+  there is one, and records the result. With `--research-brief` the code check is skipped and credit-policy and
+  risk-mitigant items do not apply. A standalone review with `--draft` and no deal identity has no state and no code
+  check, so the Reviewer verifies whatever it can by hand.
+- **State:** only `/review` writes: it appends one entry to `review_trail` (never replaces it), sets `review_verdict`, adds
+  `review` to `steps_completed`. The Reviewer writes nothing. It may offer to persist a policy-interpretation
+  correction, only on an explicit yes.
+- **Can go wrong:** no saved draft (it stops; save the draft and pass `--draft`); a stale draft file (the caller must
+  overwrite it before re-reviewing, since `/review` does not write the draft); the sub-agent cannot be started, or it
+  returns no valid verdict (the review stops, and an unapproved draft is never exported); a saved source the Reviewer
+  cannot open (it reports that as an evidence gap rather than verifying the claim).
 
 ## Implementation notes
 
@@ -246,10 +261,10 @@ files and `CLAUDE.md`'s "Slash commands" section remain the authority for how th
   then exports a standalone brief via
   `python scripts/research_export.py --company ... --proposal ... --brief ...` as its Bash step.
 
-- **`/review`** — loads the Risk Reviewer role (`agents/risk_reviewer_agent.md`) and audits a
-  draft, returning `APPROVED`/`REJECTED`. This is the Checker half of Maker-Checker actually
-  made runnable as a command for the first time (the registry documented it; nothing wired it up
-  before this).
+- **`/review`** — the orchestrator of the Checker half of Maker-Checker. It resolves the saved draft, runs
+  `policy_check.py`, delegates the audit to a fresh `risk-reviewer` sub-agent (`.claude/agents/risk-reviewer.md`, which
+  applies the role in `agents/risk_reviewer_agent.md`), validates the verdict, applies the code-enforced reasons and
+  appends the result to the `review_trail` (issue #204).
 
 - **`/assemble`** — resolves the CAM template via `template_resolver` logic (local override,
   else shipped default), drafts into it from the prior steps' output, loops `/review` until

@@ -381,7 +381,6 @@ def deal_with_manifest(workdir, content):
 
 
 @pytest.mark.parametrize("content", ["{ not json", "{}", "null", '{"a": 1}', '"text"'])
-@pytest.mark.xfail(strict=True, reason="#207: a malformed manifest is a traceback or a false 'nothing saved'")
 def test_check_sources_reports_an_unusable_manifest_as_one_error_line(workdir, content):
     deal_with_manifest(workdir, content)
     result = run_script("source_manifest", "--check-sources", "--company", COMPANY, "--proposal", PROPOSAL, cwd=workdir)

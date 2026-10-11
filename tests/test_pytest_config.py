@@ -12,6 +12,7 @@ repository's pyproject.toml, against a deliberately bad snippet and expecting it
 - CI uses the config-driven ruff command and bandit at `-ll`.
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -39,10 +40,16 @@ def _run_pytest_on(tmp_path, source, *extra):
     """Run a real, separate pytest on one throwaway test file using THIS repository's configuration."""
     test_file = tmp_path / "test_probe.py"
     test_file.write_text(textwrap.dedent(source), encoding="utf-8")
+    # Give this child pytest a private temp root. Other xdist workers may create and remove entries
+    # in the process-wide temp root while pytest scans it for old temp directories.
+    child_temp = tmp_path / "child-temp"
+    child_temp.mkdir()
+    child_env = os.environ.copy()
+    child_env.update({"TMP": str(child_temp), "TEMP": str(child_temp), "TMPDIR": str(child_temp)})
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-c", str(PYPROJECT), "--rootdir", str(tmp_path), "-p", "no:cacheprovider",
          str(test_file), *extra],
-        capture_output=True, text=True, cwd=tmp_path, timeout=120)
+        capture_output=True, text=True, cwd=tmp_path, timeout=120, env=child_env)
 
 
 def _ruff(snippet, filename):
@@ -66,7 +73,12 @@ def _codes(result):
 def test_the_probe_runner_passes_a_clean_test(tmp_path):
     """Control: the harness below does not fail everything, so a failure further down means something."""
     result = _run_pytest_on(tmp_path, """
+        import os
+        import tempfile
+        from pathlib import Path
+
         def test_fine():
+            assert Path(tempfile.gettempdir()).resolve() == Path(os.environ["TEMP"]).resolve()
             assert 1 + 1 == 2
         """)
     assert result.returncode == 0, result.stdout + result.stderr

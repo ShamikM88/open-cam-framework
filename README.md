@@ -62,7 +62,8 @@ synthetic data. More: [architecture](docs/architecture.md#two-ways-to-run-it) an
    Code), or run `scripts/orchestrator.py` (headless) with the
    borrower/company details. Either way, the **Underwriter Agent** drafts the CAM, grounded only
    in supplied source documents and user-provided risk inputs (never fabricated figures), and
-   the **Risk Reviewer Agent** independently audits that draft — re-checking the ratio math,
+   the **Risk Reviewer Agent** audits that draft in a context of its own (a fresh sub-agent that has not seen the drafting
+   conversation) — re-checking the ratio math,
    flagging unsourced claims, challenging weak risk mitigants, and (when a credit policy has been
    calibrated) flagging any violation of house lending criteria — before it's exported. Along the
    way, an analyst-confirmed spreading convention or credit-policy interpretation can be persisted
@@ -101,7 +102,10 @@ An **Underwriter** agent drafts the CAM, grounded only in supplied source docume
 `REJECTED` with revision notes. The two prompts, [`agents/underwriter_agent.md`](agents/underwriter_agent.md) and
 [`agents/risk_reviewer_agent.md`](agents/risk_reviewer_agent.md), are kept deliberately independent, and everything
 that can be computed (ratios, covenant results, required conditions) is computed and enforced by code rather than
-left to either model. Details, including the grounding rule: [architecture](docs/architecture.md).
+left to either model. The Reviewer's context holds none of the Maker's reasoning on either interface: headless it is a
+separate model call; in a Claude Code session `/review` hands the audit to a fresh, read-only sub-agent that reads the
+saved draft and the deal's evidence from disk. That is not a different model and not a guarantee that it is right; the
+analyst makes the credit decision. Details, including the grounding rule: [architecture](docs/architecture.md).
 
 ## Skills / slash commands
 
@@ -120,7 +124,7 @@ Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#ge
 | `/collateral` | Asset description, valuation, LGD/RV/PD grades | Gross/Net Exposure, RV Exposure, Collateral Coverage %, Net Uncovered Risk |
 | `/project` (optional) | Forward-year P&L/Balance Sheet forecasts, stress-test assumptions, covenants, guarantees | Forward-year ratios, a deterministic downside (stressed) case, and covenant/guarantee records for `/assemble`'s code-enforced policy checks |
 | `/assemble` | Outputs of the steps above | The final CAM, audited via `/review`, exported to `.docx`/`.xlsx` |
-| `/review` | A drafted CAM (usually called automatically by `/assemble`), or a `/research` brief with `--research-brief` | `APPROVED`/`REJECTED` verdict + revision notes — the Risk Reviewer agent |
+| `/review` | A saved CAM draft (usually saved and reviewed automatically by `/assemble`; any file via `--draft`), or a saved `/research` brief with `--research-brief` | `APPROVED`/`REJECTED` verdict + revision notes — from the Risk Reviewer, run as a fresh read-only sub-agent |
 
 ## Templates
 
@@ -161,8 +165,8 @@ Open this repo in Claude Code (or the desktop app's Code tab) — the commands u
    /project <forward-year forecasts, stress assumptions, covenants, guarantees>   # optional
    /assemble --company "Acme Corp" --proposal "Fleet Loan" --type asset_finance --pd "0.20%" --lgd "LGD 3 (15%)"
    ```
-   `/assemble` drafts the CAM into the resolved template, runs `/review` (the Risk Reviewer
-   agent) until it's `APPROVED`, then exports it. Output lands in
+   `/assemble` drafts the CAM into the resolved template, runs `/review` (a fresh Risk Reviewer
+   sub-agent each time) until it's `APPROVED`, then exports it. Output lands in
    `deals/Acme Corp/Fleet Loan_<date>/`.
 
    Just need research, not a full CAM yet? Skip straight to:

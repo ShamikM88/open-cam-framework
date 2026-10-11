@@ -45,6 +45,7 @@ Some tests do not test behaviour; they pin a relationship between two files that
 | Documents and the source of truth | `test_docs_contracts` | The slash commands in `.claude/commands/` equal those on the commands page, in the registry and on the repository map; the settings documented as read or inert are the ones the code reads (and each inert key is named in `CLAUDE.md`); the CI jobs the pages name are the jobs in `ci.yml`; every repository path the pages cite as inline code exists (git-ignored locations excepted); the schema version the data-model page shows equals `SCHEMA_VERSION` |
 | Commands, skills and what a skill may be | `test_skill_inventory` | The inventory in `config/skills_registry.md` equals the command files and skill folders (names unique, invocation equal to the frontmatter); a skill is an aid with no headless equivalent; no agent prompt, command or `CLAUDE.md` names, points at or allows a skill; no production script (so no headless helper) builds a path into `.claude/`; the design page's tranche is the inventory's skills |
 | What each shipped skill may do | `test_skills` | A skill is typed by a person, forked, has no write tool and pre-approves only read-only scripts; those scripts leave a deal byte-for-byte unchanged; every path it cites exists and every flag it passes is real; the files carry no real name or figure |
+| The interactive Checker | `test_interactive_checker` | `.claude/agents/risk-reviewer.md` has a fresh, read-only tool set (Read, Glob, Grep; no write, shell, agent-spawning, memory, skills or hooks); `/review` delegates to it by name with paths and the policy output, with no draft text, no conversation fallback, no fork or resume, a fail-closed verdict check, the deterministic overlay and the append-only trail; `/assemble` and `/research` pass the exact saved file and mode. These read the command and agent files: they are contract tests, not a live run |
 | The CLI inventory | `test_cli_subprocess` | The list of scripts equals the scripts that have a `__main__` block |
 | CI's structure and security rules | `test_ci_workflow` | Required job names, SHA-pinned actions, least privilege, no `pull_request_target`, the coverage and diff-cover steps, the advisory-ignore rule, the weekly mutation workflow |
 | What may be tracked | `test_confidential_paths` | No protected path is tracked or loses its ignore rule; every ignore line is classified |
@@ -60,8 +61,12 @@ pytest
 ```
 
 The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
-`anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking, and CI itself runs `pytest
-tests/` with no key set at all. Dedicated test files cover the dependency-free modules directly
+`anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking. CI runs that same full suite
+without a key: Ubuntu uses `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, and
+Windows uses `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` (included in
+`requirements-dev.txt`) supplies `-n`; `--dist=loadfile` keeps each test file on one worker, and
+`--durations=30` reports the 30 slowest tests. The plain `pytest` command above remains a useful
+serial local run. Dedicated test files cover the dependency-free modules directly
 (`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
 `deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
 `pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
@@ -113,7 +118,7 @@ it itself the same way it tracks everything else: code-enforced, not hand-mainta
 `pytest`'s own summary line and fails the build if it doesn't match this file -- it never
 auto-corrects the value itself (that would mean a bot committing to `main`), so bumping the test
 count means updating `badges/test-count.json` in the same PR. That is one command from your own
-checkout: `pytest tests/ | tee pytest_output.txt` then
+checkout: `pytest tests/ -n 4 --dist=loadfile --durations=30 | tee pytest_output.txt` then
 `python scripts/check_test_count.py pytest_output.txt --write` (CI only ever runs the plain check).
 Run it on a complete green run of the whole suite: `--write` looks at pytest's summary line and refuses
 one that reports failed, errored or deselected tests (the refusal quotes what matched), and a run that halted
@@ -204,9 +209,10 @@ change; a reference to a number that is not pinned also fails, so every referenc
 ### CI
 
 **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test`
-(Ubuntu; the ruleset's required check -- keep the name) runs ruff, bandit, the suite with coverage, the
-test-count check, the coverage floors and diff coverage, and uploads `coverage.xml`/`coverage.json`/the
-pytest output/`pip freeze` as a 30-day artifact. `test-windows` runs the same suite on Windows (the
+(Ubuntu; the ruleset's required check -- keep the name) runs Ruff and Bandit, then
+`pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, followed by the test-count, coverage-floor
+and diff-coverage checks; it uploads `coverage.xml`/`coverage.json`/the pytest output/`pip freeze` as a
+30-day artifact. `test-windows` runs `pytest tests/ -n 2 --dist=loadfile --durations=30` on Windows (the
 primary development platform: cp1252 console, backslash paths, CRLF). `runtime-smoke` installs **only**
 `requirements.txt` and runs `tests/runtime_smoke.py --expect-clean`: no development package importable,
 every module imports, every CLI prints usage, a deal exports end to end -- what a fresh clone gets.

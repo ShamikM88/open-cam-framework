@@ -416,7 +416,8 @@ python scripts/orchestrator.py --company "Synthetic Co" --proposal "Synthetic Fl
    | `downside_breaches_acknowledged` left empty | `Undisclosed Downside Breach DOWNSIDE-FY-1-GROSS-LEVERAGE: gross_leverage breaches threshold in FY+1 under stress but is not addressed in the draft.` |
    | no structured block at all | one `Missing Required CP`/`Condition Subsequent` line per item, `Missing or malformed Risk Category` for each of the seven categories, the undisclosed downside breach, and `Missing Narrative Sources` |
 
-2. **The Risk Reviewer's judgement (model)** covers what code cannot: unsourced claims, weak mitigants, whether the
+2. **The Risk Reviewer's judgement (model)**, run by a fresh sub-agent that has not seen your session and reads the saved
+   draft and the deal's files itself, covers what code cannot: unsourced claims, weak mitigants, whether the
    narrative is substantive, and (when you have calibrated one) credit-policy violations. A code-enforced reason
    cannot be overridden by it.
 

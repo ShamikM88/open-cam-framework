@@ -91,8 +91,9 @@ The slash commands use your Claude Code login and need no key.
   keys; a `.env` file and `*.key` files are git-ignored as a safety net, but nothing in the framework reads a
   `.env` file); a deal folder; a prompt, command or issue; an AI assistant's chat, where it ends up in transcripts
   and logs; a CI workflow file (CI runs the tests with no key at all).
-- **Without a key:** `calibrate.py` falls back to `--mock` and says so; `orchestrator.py` fails at its first model
-  call with a missing-credentials error and sends nothing; the test suite never needs one.
+- **Without a key:** `calibrate.py` falls back to `--mock` and says so; `orchestrator.py` stops before it reads or
+  writes anything, with one `error: no Anthropic credentials were found` line and exit status 1, and sends nothing; the test
+  suite never needs one.
 - **What costs money:** any headless run that reaches the API, including `python scripts/run_evals.py --live`,
   which prints its plan and refuses to go over `--max-calls` before it reads the key. The slash commands are
   covered by your Claude Code plan.

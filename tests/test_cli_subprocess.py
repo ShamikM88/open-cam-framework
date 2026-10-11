@@ -505,10 +505,11 @@ def test_run_evals_refuses_conflicting_modes_and_an_unaffordable_plan(cli, tmp_p
     assert not (tmp_path / "unused").exists()
 
 
-def test_orchestrator_without_credentials_stops_after_parsing_and_never_succeeds(tmp_path):
-    """The one script that cannot be run end to end without a model. In a copy of just the files it reads, with
-    every Anthropic variable removed, it must parse its arguments, start the pipeline, and then fail non-zero
-    (it never gets as far as a request) -- not silently succeed or hang."""
+def test_orchestrator_without_credentials_is_one_clear_error_before_anything_happens(tmp_path):
+    """The one script that cannot be run end to end without a model (issue #187). In a copy of just the files it reads,
+    with every Anthropic variable removed and no route to a credentials profile, it must exit 1 with one `error:` line
+    and no traceback, before it prints a progress line, reads a deal or checkpoints anything: it never gets as far as a
+    request, and it neither succeeds silently nor hangs."""
     env = child_env()
     assert not any(k.upper().startswith("ANTHROPIC") for k in env)
     for variable in HOME_VARIABLES:      # no route to a credentials profile in the real home/config directory
@@ -521,8 +522,12 @@ def test_orchestrator_without_credentials_stops_after_parsing_and_never_succeeds
     result = subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "Acme", "--proposal", "Loan"],
         cwd=work, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120, stdin=subprocess.DEVNULL)
-    assert result.returncode != 0
-    assert "Underwriter Agent drafting CAM for Acme" in result.stdout
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr and "TypeError" not in result.stderr
+    assert result.stderr.startswith("error: no Anthropic credentials were found") and len(result.stderr.splitlines()) == 1
+    assert "ANTHROPIC_API_KEY" in result.stderr and "docs/configuration.md#credentials" in result.stderr
+    assert result.stdout == "", "stopped before the pipeline printed or did anything"
+    assert not (work / "deals").exists(), "no deal folder or checkpoint was created"
 
 
 def test_orchestrator_on_a_missing_input_file_fails_before_starting(tmp_path):
@@ -631,9 +636,13 @@ def test_the_orchestrator_reports_a_malformed_state_cleanly_before_any_model_cal
     (work / "config").mkdir()
     shutil.copy(REPO_ROOT / "config" / "settings.json", work / "config" / "settings.json")
     _write_state(work, {"steps_completed": "triage"})
+    # The credential check comes first (issue #187), so give the child a placeholder key and an address nothing listens
+    # on: the run must stop on the state before it makes any request, and if it ever did, the request could go nowhere.
+    env = child_env()
+    env.update(ANTHROPIC_API_KEY="synthetic-placeholder", ANTHROPIC_BASE_URL="http://127.0.0.1:9")
     result = subprocess.run(
         [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "Acme", "--proposal", "Loan"],
-        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120,
+        cwd=work, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120,
         stdin=subprocess.DEVNULL)
     assert result.returncode == 1 and "Traceback" not in result.stderr
     assert result.stderr.startswith("error: ") and '"steps_completed" must be a list' in result.stderr

@@ -386,7 +386,7 @@ If no material challenge is identified, state only that no challenge was identif
 - `credit-risk`, if separately designed later, would organise the risk picture (risk/evidence/impact/mitigant/residual risk/information gap). `credit-challenge` is narrower and adversarial: it actively tests assumptions and counter-evidence, and may conclude no challenge was found in the material reviewed; it does not deliver the full risk taxonomy.
 - `/review` runs the separate Checker and deterministic draft compliance path. `credit-challenge` does not issue a review verdict, alter a draft or pass its own output into the Checker.
 
-**Implementation acceptance gates for the later PR.**
+**Implementation acceptance gates.**
 
 - Contract tests establish frontmatter/inventory consistency, user-only invocation, forked context, write-tool removal, and no command/prompt/headless wiring.
 - Synthetic fixtures cover sourced versus analyst-supplied statements, unsupported narrative claims, contradictory recorded values, mitigants that genuinely answer a challenge, missing source provenance, absence of a draft, and the “no challenge found in reviewed material” case.
@@ -397,8 +397,8 @@ If no material challenge is identified, state only that no challenge was identif
 
 ## Phased delivery
 
-1. **Design (this change).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
-   `tests/test_skill_inventory.py`. No skill.
+1. **Foundational design (completed).** This page, the evolved registry, the decision [D15](decisions.md#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker), one rule in `CLAUDE.md`, and
+   `tests/test_skill_inventory.py`. No executable skill was added in that original phase.
 2. **Analyst aids (done):** `information-gaps`, `evidence-discipline`, `financial-analysis`, with the user-facing
    [Skills](skills.md) page and `tests/test_skills.py`.
 3. **Maintainer procedures (done):** `cam-change-verification` (`tests/test_maintainer_skills.py`) and `docs-maintenance`
@@ -407,7 +407,7 @@ If no material challenge is identified, state only that no challenge was identif
    (`tests/test_mutation_triage_skill.py`), chosen because open triage issues (#182 to #184, #219) and an existing report
    show the need; `prompt-change-gate` (contract-checked in `tests/test_skill_inventory.py`), chosen because the
    documented prompt-change process and gated #150/#151/#197 work make safe sequencing immediately useful; and
-   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit); and
+   `policy-fit` (uses the existing structural policy CLI and makes its draftless limitations explicit), and
    `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker).
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:

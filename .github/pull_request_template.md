@@ -1,43 +1,51 @@
 <!--
-Default template for all PRs, regardless of whether a person, ChatGPT, Claude Code, or another tool drafts it.
-When opening a PR through the API or CLI, copy this structure manually; GitHub only inserts it automatically in supported UI flows.
-Do not leave placeholders. Keep the AI assistance disclosure as the final section.
+Shared template for every PR, regardless of whether a person, ChatGPT, Claude Code, or another tool drafts it.
+For API/CLI-created PRs, copy this structure manually. Do not leave placeholders.
+Keep the AI assistance disclosure as the final section. Be concise for small changes; for complex changes,
+include traceable acceptance criteria, design trade-offs, docs, and assurance evidence.
 -->
 
 ## Summary
-<!-- What changes for users or maintainers? -->
+<!-- What changed for users or maintainers? Keep to a few lines. -->
 
-## Why
-<!-- Link the issue and explain the problem being solved. -->
+## Problem and acceptance criteria
+<!-- Link the issue/design/incident. For issue-driven or complex work, map each material acceptance criterion to its implementation or validation evidence. For a trivial change, state the immediate goal and keep this short. -->
 
-## Changes
-<!-- List the meaningful code, tests, docs, and workflow changes. Note important exclusions. -->
+## Implementation and design decisions
+<!-- Summarize meaningful code, tests, and workflow changes. For non-trivial work, explain the key approach, important alternatives/trade-offs, invariants preserved, and any deliberately deferred scope. For straightforward edits, one concise paragraph is enough. -->
 
-## Validation
-<!-- Report the latest results for this exact PR head, not an earlier commit or an outdated main run. Link CI runs and record material local checks. -->
-- **Tests:**
-- **Coverage / assurance gates:** 
-- **Other checks:**
-- **CI run(s):**
+## Documentation changes
+<!-- Explicitly describe documentation work; do not make reviewers infer it from the code diff. Name changed pages/files and any examples, CLI help, configuration, workflow, prompt, or skill guidance updated. If no docs changed, say "None" and why documentation was not needed. -->
+- **Updated:** 
+- **Not updated / reason:** 
 
-## Safety and scope
-<!-- State whether production behavior, public interfaces, required checks, security controls, coverage floors, and mutation scope changed. Do not claim unchanged areas unless verified from the diff. -->
-- **Behavior / compatibility:**
-- **Assurance controls:**
-- **Scope boundary:**
+## Validation and evidence
+<!-- All results must correspond to the current PR head. Link actual CI runs, commands, artifacts, benchmarks, or review evidence. Never imply an unrun check passed. -->
+- **Tests and regression coverage:** 
+- **Coverage / security / assurance gates:** 
+- **Mutation testing (when relevant):** 
+- **Performance / benchmark evidence (when relevant):** 
+- **CI run(s) for current head:** 
+
+## Safety, compatibility, and scope
+<!-- Say what changes in user-visible behavior, API/CLI, persisted state/schema, generated artifacts, or operational procedures. State whether required checks, coverage floors, security controls, and mutation scope changed. Only claim something is unchanged after checking the diff. -->
+- **Behavior / compatibility / migration:** 
+- **Assurance controls:** 
+- **Scope boundary:** 
 
 ## Risks and follow-up
-<!-- Record known limitations, remaining work, and separately tracked follow-ups. Write "None known" only after checking. -->
+<!-- Known limitations, rollback/recovery concerns, unresolved review points, and separately tracked follow-ups. Use "None known" only after checking. -->
 
 ## Review checklist
-- [ ] Branch is based on current `main`; results above correspond to the current head.
+- [ ] Branch is based on current `main`; the reported results correspond to the current PR head.
+- [ ] Issue goals / acceptance criteria are addressed or explicitly deferred with reasons.
+- [ ] Documentation changes are listed above, including an explicit reason when no documentation changed.
 - [ ] Tests and checks are reported accurately; no green result is inferred or promised before it exists.
-- [ ] Documentation and examples were updated where needed.
-- [ ] No assurance gate or scope was weakened without explicit review.
+- [ ] Compatibility, security, and assurance implications have been considered; no gate was weakened without explicit review.
 - [ ] Known limitations and follow-ups are stated.
 
 ## AI assistance disclosure
-<!-- REQUIRED and must remain the final section. Identify each AI product/tool and the exact model/version known to have contributed. If the model identifier is not exposed or cannot be verified, say so rather than guessing. Distinguish implementation/authorship from review or advice. If no AI contributed, say "None". -->
-- **Assistant(s) and model(s):** [e.g. ChatGPT (GPT-6), Claude Code (Claude <exact model>), or None]
-- **Contribution scope:** [what each did: planning, code, tests, documentation, or review; be specific and don't overstate authorship]
+<!-- REQUIRED and must remain the final section. Identify each AI product/tool and exact model/version known to have contributed. If not exposed or verified, say so; never guess. Distinguish implementation/authorship from planning, documentation, or review. If no AI contributed, say "None". -->
+- **Assistant(s) and model(s):** [e.g. ChatGPT (GPT-6), Claude Code (exact model if known), or None]
+- **Contribution scope:** [what each did—planning, implementation, tests, documentation, review; be specific and don't overstate authorship]
 - **Human review:** [Pending / Reviewed by <maintainer>]. The human maintainer owns the final decision to merge.

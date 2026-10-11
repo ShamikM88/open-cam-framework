@@ -74,3 +74,7 @@ If no material risk is identified, say only “No material risk identified in th
 - Never edit the draft, update `state.json`, change the source manifest, append to `review_trail`, or create a learning/evidence file.
 - Never run a shell command or script, browse the web, fetch a source, make a live model/API call, or invoke another skill.
 - The report is an interactive analyst aid only. It is not persisted, is not provenance/evaluation input and is not passed into the formal Checker. Tests pin this contract text and tool surface; they do not prove that a model will always obey it.
+
+## Authoritative sources
+
+The deal's selected `state.json`, saved-source manifest and any unambiguously identified current draft are the deal-specific material. For schema and financial definitions, follow [Data model](../../../docs/data-model.md), [Financial model](../../../docs/financial-model.md), and [Skill design](../../../docs/skill-design.md). The user-facing limits of the skill layer are in [Skills](../../../docs/skills.md). These references remain authoritative; this skill adds no new financial or policy definition.

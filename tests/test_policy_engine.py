@@ -12,6 +12,7 @@ import pytest
 from policy_engine import (
     STANDARD_CONDITIONS_PRECEDENT,
     STANDARD_CONDITIONS_SUBSEQUENT,
+    _evaluate_downside_covenants,
     evaluate_deal_policy,
 )
 
@@ -797,3 +798,20 @@ def test_cp_and_cs_id_namespaces_never_collide():
     }
     result = evaluate_deal_policy(state)
     assert set(_cp_ids(result)).isdisjoint(set(_cs_ids(result)))
+
+
+# ---------------------------------------------------------------------------
+# Downside breaches: which years are compared (issue #219)
+# ---------------------------------------------------------------------------
+
+def test_a_downside_year_with_no_base_case_ratios_is_not_compared_and_cannot_crash_the_check():
+    """A breach is a base PASS that fails under stress, so a stressed year with no base-case ratios has nothing to
+    compare with: it is skipped, never a breach and never a KeyError, while a year that has both is still compared."""
+    covenants = [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}]
+    base = {"FY+1": {"gross_leverage": 2.0}}
+    downside = {"FY+1": {"gross_leverage": 5.0}, "FY+2": {"gross_leverage": 5.0}}      # FY+2 has no base case
+    breaches = _evaluate_downside_covenants(covenants, base, downside)
+    assert [(b["year"], b["metric"], b["downside_status"], b["breach_id"]) for b in breaches] == [
+        ("FY+1", "gross_leverage", "FAIL", "DOWNSIDE-FY-1-GROSS-LEVERAGE")]
+    assert _evaluate_downside_covenants(covenants, {}, downside) == []
+    assert _evaluate_downside_covenants(covenants, None, downside) == []

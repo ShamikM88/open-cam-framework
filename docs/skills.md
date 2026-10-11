@@ -108,6 +108,10 @@ existence alone is not an automatic rejection.
 - **Narrative policy and exceptions remain human decisions.** The command does not evaluate every sentence of the institutional
   policy document, and its JSON does not authorise an exception or waiver. The skill does not make a lending recommendation; the
   deterministic checks and `/review` retain their respective roles.
+- **"Draftless" is a rule, not an enforced limit.** The pre-approval is `Bash(python scripts/policy_check.py *)`, the same
+  pattern `financial-analysis` and `information-gaps` use; a pre-approval cannot exclude one flag, so it would also cover a
+  call with `--draft`. The skill is told never to pass it, and `tests/test_skills.py` checks that the skill's own command does
+  not. Nothing stops a differently instructed session from running the draft check, which writes nothing.
 - **A failed tool is not a deal finding.** Non-JSON output, a non-zero exit or a traceback stops the report. It does not guess or
   calculate a replacement answer, and writes nothing to the deal.
 
@@ -234,6 +238,11 @@ hash; those are not interchangeable.
 - **No edits or live calls.** It does not edit prompts, commands, `EXPECTED_SUBJECTS`, provenance records or baselines;
   does not run `gh`, fetch, commit, push or merge; and makes no live model/API call. The allowed commands are exact
   read-only Git inspection and the prompt-consistency test. The user must still make the explicit maintainer decision.
+- **What is enforced and what is a rule.** Only two things are enforced by the tool settings: `Write`, `Edit` and
+  `NotebookEdit` are removed, and the listed commands are pre-approved. `Bash` is not removed, so any other command is
+  not blocked: it asks for the maintainer's permission like any other command. "Never commits, never runs `gh`" is
+  therefore an instruction the skill follows, not a sandbox, and the contract test checks the file's wording and its exact
+  pre-approval list, not a live run.
 
 ### `mutation-triage`
 

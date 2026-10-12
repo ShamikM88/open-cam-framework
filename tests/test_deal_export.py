@@ -322,7 +322,7 @@ def test_cli_rejects_an_unsafe_company_before_touching_the_deals_tree(tmp_path, 
     assert not (tmp_path / "deals").exists()
 
 
-@pytest.mark.parametrize("bad", ["foo", "2026-1-5", "2026-01-05-extra", ""])
+@pytest.mark.parametrize("bad", ["foo", "2026-1-5", "2026-01-05-extra", "", "2026-02-31"])
 def test_cli_rejects_a_malformed_date_str(tmp_path, monkeypatch, bad):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit):

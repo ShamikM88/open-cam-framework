@@ -34,9 +34,9 @@ class ReportSpec:
 # need subject/context: otherwise legitimate evidence such as "if the supplier failed" is a false positive.
 VERDICT_RE = re.compile(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|PASSED|FAIL|FAILED)(?![A-Za-z])")
 VERDICT_CONCLUSION_RE = re.compile(
-    r"(?i)\\b(?:(?:overall\\s+)?(?:the\\s+)?(?:deal|facility|proposal|loan|borrower|application|decision|result|verdict)"
-    r"\\s+(?:is|was|has\\s+been)\\s+|(?:overall\\s+)?(?:decision|result|verdict)\\s*[:=]\\s*)"
-    r"(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)\\b"
+    r"(?i)\b(?:(?:overall\s+)?(?:the\s+)?(?:deal|facility|proposal|loan|borrower|application|decision|result|verdict)"
+    r"\s+(?:is|was|has\s+been)\s+|(?:overall\s+)?(?:decision|result|verdict)\s*[:=]\s*)"
+    r"(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)\b"
 )
 CONCLUSION_RE = re.compile(
     r"(?i)\b(?:we|i)\s+recommend|\brecommend(?:ed|ation)?\b[^.\n]{0,20}\b(?:lend|lending|declin\w*|approv\w*)"

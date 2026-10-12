@@ -253,18 +253,21 @@ def _deals_root(base_dir):
 
 
 def _existing_date_str(company, proposal, base_dir=None):
-    """Date suffix of the most recent existing deals/<company>/<proposal>_<date>/
+    """Date suffix of the most recent state-bearing deals/<company>/<proposal>_<date>/
     folder for this company/proposal, or None if there isn't one yet.
 
     Date suffixes are ISO-8601 (YYYY-MM-DD), so sorting them as plain
     strings also sorts them chronologically -- the lexicographic max is
     the most recent.
 
-    Only a folder whose remainder after `<proposal>_` is exactly a date
-    counts: otherwise a proposal named "Fleet" would also claim a different
-    deal's "Fleet_Q2_2026-05-01" folder (its "date" would be
-    "Q2_2026-05-01", which sorts above any real one). The company and
-    proposal are glob-escaped so a "[" or "]" in a name matches literally
+    Only a folder whose remainder after `<proposal>_` is exactly a date and
+    that contains `state.json` counts. Export-only folders created by
+    `deal_export --date-str` are not deal state and must not make the deal
+    appear empty. A malformed but present `state.json` remains eligible so
+    read_state() can raise its existing clear corruption error instead of
+    silently skipping or overwriting it. Otherwise a proposal named "Fleet"
+    would also claim a different deal's "Fleet_Q2_2026-05-01" folder. The
+    company and proposal are glob-escaped so "[" or "]" matches literally
     instead of as a character class.
     """
     prefix = f"{proposal}_"
@@ -273,7 +276,8 @@ def _existing_date_str(company, proposal, base_dir=None):
     dates = []
     for p in glob.glob(pattern):
         name = os.path.basename(p)
-        if os.path.isdir(p) and name.startswith(prefix) and _ISO_DATE_RE.fullmatch(name[len(prefix):]):
+        if (os.path.isdir(p) and os.path.isfile(os.path.join(p, "state.json"))
+                and name.startswith(prefix) and _ISO_DATE_RE.fullmatch(name[len(prefix):])):
             dates.append(name[len(prefix):])
     return max(dates) if dates else None
 

@@ -121,7 +121,8 @@ def test_run_calibration_rejects_no_visible_text_and_keeps_outputs_untouched(pro
         run_calibration("corporate_credit")
 
     assert (project_root / "config" / "style_guide.md").read_text(encoding="utf-8") == "existing style"
-    assert open(template, encoding="utf-8").read() == "existing template"
+    with open(template, encoding="utf-8") as f:
+        assert f.read() == "existing template"
     assert len(client.calls) == 1
 
 # ---------------------------------------------------------------------------

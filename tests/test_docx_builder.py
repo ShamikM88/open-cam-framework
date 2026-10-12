@@ -52,6 +52,28 @@ def test_plain_paragraph(tmp_path):
     assert doc.paragraphs[0].text == "Just a sentence."
 
 
+def test_xml_invalid_controls_are_replaced_in_prose_tables_and_link_targets(tmp_path, capsys):
+    markdown = (
+        "Revenue\x0c grew.\n\n"
+        "| Metric | Value |\n"
+        "| --- | --- |\n"
+        "| Loss\x00 marker | 1.5x |\n\n"
+        "See [source](https://synthetic.invalid/path\x0b).\n"
+    )
+    doc = _build(tmp_path, markdown)
+
+    assert doc.paragraphs[0].text == "Revenue\uFFFD grew."
+    assert [cell.text for cell in doc.tables[0].rows[1].cells] == ["Loss\uFFFD marker", "1.5x"]
+    rel_targets = [
+        rel.target_ref for rel in doc.part.rels.values()
+        if rel.reltype.endswith("/hyperlink")
+    ]
+    assert len(rel_targets) == 1
+    assert "\uFFFD" in rel_targets[0]
+    warning = capsys.readouterr().err
+    assert "Replaced 3 XML-invalid character(s)" in warning
+
+
 def test_blank_lines_are_skipped(tmp_path):
     doc = _build(tmp_path, "First.\n\n\nSecond.\n")
     assert [p.text for p in doc.paragraphs] == ["First.", "Second."]

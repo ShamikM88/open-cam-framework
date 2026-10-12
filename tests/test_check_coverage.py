@@ -175,7 +175,17 @@ def test_every_critical_module_exists_in_scripts():
 def test_the_changed_lines_floor_is_configured_for_diff_cover():
     tomllib = pytest.importorskip("tomllib")
     table = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["diff_cover"]
-    assert table["fail_under"] >= 90 and table["compare_branch"] == "origin/main"
+    assert table["fail_under"] >= 95 and table["compare_branch"] == "origin/main"
+
+
+def test_the_stricter_changed_lines_tier_covers_exactly_the_governance_modules():
+    """diff-cover takes one threshold per configuration, so the governance modules have a second one. Its include list is
+    a copy of `critical_modules`; this keeps the two from drifting."""
+    tomllib = pytest.importorskip("tomllib")
+    table = tomllib.loads((REPO_ROOT / "diff_cover_critical.toml").read_text(encoding="utf-8"))["tool"]["diff_cover"]
+    assert table["fail_under"] >= 98 and table["compare_branch"] == "origin/main"
+    modules = check_coverage.load_thresholds()["critical_modules"]
+    assert sorted(table["include"]) == sorted(f"scripts/{m}.py" for m in modules)
 
 
 def test_the_checker_runs_against_a_real_coverage_report(tmp_path):

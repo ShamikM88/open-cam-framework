@@ -50,7 +50,7 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | `badges/test-count.json` | The checked-in passing-test count, kept honest by CI | [testing](docs/testing.md) |
 | `deals/` | Generated output, one folder per `[Company]/[Proposal]_[Date]` with `state.json` and `sources/` (git-ignored) | [data model](docs/data-model.md) |
 | `inputs/` | Calibration samples and credit policy documents (git-ignored) | [security](docs/security.md) |
-| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`) and the weekly `mutation.yml` | [testing](docs/testing.md) |
+| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`), the weekly `mutation.yml` and the manual-only `ci-parallelism-benchmark.yml` | [testing](docs/testing.md), [operations](docs/operations.md#re-tuning-test-parallelism) |
 | `pyproject.toml` | The one place for tool settings: ruff, pytest, coverage floors, mutation scope | [testing](docs/testing.md) |
 
 The complete annotated tree is in [docs/architecture.md](docs/architecture.md#repository-map).
@@ -501,8 +501,9 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   options.
 - **Coverage.** Line + branch over `scripts/`. CI enforces a 95% overall floor, a 97% floor on each of eight
   governance modules (`policy_engine`, `policy_checks`, `policy_check`, `spreading_builder`, `spreading_check`,
-  `state_manager`, `deal_export`, `docx_builder`) and 90% on the lines a pull request changes
-  (`diff-cover ... --config-file pyproject.toml`; without `--config-file` the floor is silently 0).
+  `state_manager`, `deal_export`, `docx_builder`) and 95% on the lines a pull request changes, 98% where it changes one
+  of those modules (`diff-cover ... --config-file pyproject.toml` and `--config-file diff_cover_critical.toml`; without
+  `--config-file` the floor is silently 0).
   `# pragma: no cover` needs a reason on the same line; code that only runs on Windows needs one. Lowering a floor
   or dropping a module is a reviewed decision.
 - **The command-line surface is tested as a user meets it.** Every script with a `__main__` block is run as a real
@@ -516,7 +517,8 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   anchors resolve, every page under `docs/` is linked from the index, and the headings that code and commands cite
   by name still exist.
 - **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test` (Ubuntu)
-  is the ruleset's required check -- keep the name. Workflow rules, all tested: every third-party action is pinned
+  is one of the three ruleset-required checks (`test`, `test-windows`, `runtime-smoke`, each pinned to the GitHub
+  Actions app) -- keep all three names; `security` and the weekly `mutation` run are not required. Workflow rules, all tested: every third-party action is pinned
   to a full commit SHA with a `# vX.Y.Z` comment; `permissions: {}` at the top and `contents: read` per job;
   `persist-credentials: false` on every checkout; no `pull_request_target`; CI never passes `--write` or
   `--update-snapshots`.

@@ -94,6 +94,19 @@ When `tests/test_golden_outputs.py` fails, decide first whether the change was i
 
 **Purpose.** The deterministic core has few dependencies, and the audit exists to find out when one becomes unsafe.
 
+### Reproducible dependency set
+
+`requirements*.txt` retain minimum compatibility floors. `constraints.txt` pins the exact versions used by the repository's Python 3.11 runtime, dev-test, security and mutation profiles, including transitive packages. Each CI installation uses `-c constraints.txt`; the security audit resolves all four requirements files against the same constraints. The constraints file does not install packages on its own.
+
+**Refreshing the pins is a deliberate dependency change**, not an automatic consequence of changing a floor:
+
+1. In clean Python 3.11 environments, install each profile from its requirements files without the existing constraints, then capture `pip freeze`. Runtime uses `requirements.txt`; tests use `requirements-dev.txt`; security adds `requirements-security.txt`; mutation adds `requirements-mutation.txt` on top of dev.
+2. Combine those environment records into one sorted pin set. Each normalized package name must occur once. Resolve profile differences intentionally; if one global version cannot satisfy every profile, stop and revise the lock design instead of silently taking one environment's value.
+3. Update `constraints.txt` with the observed direct and transitive versions, then rerun the matching full workflows with the candidate lock. Keep the requirements floors, constraints and the audited dependency set in the same reviewed change.
+4. Use the uploaded `pip-freeze.txt`, `pip-freeze-runtime.txt`, `pip-freeze-security.txt` and `pip-freeze-mutation.txt` records as the evidence for their respective profiles. Do not infer transitive versions from minimums or regenerate from only the dev-test environment.
+5. Weekly Dependabot PRs remain a signal to review upstream versions, not proof that the multi-profile constraints set has been refreshed. Make sure the affected constraints are reviewed and CI-tested in the same dependency-update PR; if the constraint file is not changed by the bot, refresh it using this procedure.
+
+
 - **Dependabot** opens weekly pull requests for Python requirements and for GitHub Actions (including `requirements-security.txt`'s tools). Merge one only with CI green; a version bump that changes the badge or a snapshot is a finding to understand, not to patch around. Several bumps open together are merged one at a time so each failure has a single cause.
 - **Actions stay pinned.** A Dependabot action update keeps the full commit SHA and the `# vX.Y.Z` comment; a test fails on a tag or branch reference.
 - **A `security` job failure** is handled in this order: pin a fixed version; if none exists and the advisory has been reviewed as not exploitable here, a reviewed pull request adds `--ignore-vuln <ID>` with the required reason-and-revisit-date comment ([the procedure](testing.md#ci)); remove the ignore in the pull request that pins the fix, and dismiss the same advisory in GitHub's Dependabot alerts with a reason that links it.

@@ -15,7 +15,7 @@ from datetime import datetime
 from docx_builder import export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import (
-    StateError, read_state, resolve_date_str, resolve_export_date_str, sanitize_path_component,
+    StateError, read_state, resolve_export_date_str, sanitize_path_component,
 )
 from template_resolver import cam_template_path, local_cam_template_path
 

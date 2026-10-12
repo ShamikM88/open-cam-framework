@@ -462,7 +462,7 @@ def test_cli_rejects_an_unsafe_proposal_before_the_deals_tree_is_searched_as_it_
     def must_not_resolve(*args, **kwargs):
         pytest.fail("resolve_export_date_str() (the deals/ glob) ran before the proposal was sanitized")
 
-    monkeypatch.setattr(deal_export, "resolve_date_str", must_not_resolve)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", must_not_resolve)
     with pytest.raises(ValueError):
         main(["--company", "Acme Corp", "--proposal", "../evil", "--draft", _cli_draft(tmp_path)])
     assert not (tmp_path / "deals").exists()

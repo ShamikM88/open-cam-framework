@@ -595,24 +595,24 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # into recorded raw data, then recompute only the periods touched this run.
         # A shallow state write would otherwise replace the history that was not
         # repeated in this invocation (issue #246).
-        planned_fields = plan_fields(
-            existing_state, multi_period_financials, update_financials_source=False,
-        )
-        # A fresh framework recomputation supersedes an analyst-supplied forecast.
-        # Preserve the issue #246 merge for periods actually being updated, but do
-        # not carry forward old analyst-supplied years that this new computation
-        # did not replace. Otherwise clearing forecast_source below would leave
-        # stale supplied figures looking framework-computed.
-        if (
-            existing_state.get("forecast_source") == "analyst-supplied"
-            and not set(multi_period_financials).intersection(FORWARD_PERIOD_KEYS)
-        ):
+        # A fresh framework recomputation supersedes any previously analyst-supplied
+        # forecast. Remove those forward periods from the planning input first so
+        # plan_fields does not reject the fresh figures as an attempt to overwrite
+        # analyst data, and so stale supplied forward years cannot survive a
+        # historical-only recomputation while the source flag is cleared below.
+        planning_state = existing_state
+        if existing_state.get("forecast_source") == "analyst-supplied":
+            planning_state = dict(existing_state)
+            planning_state["forecast_source"] = None
             for field in ("multi_period_financials", "financials", "ratios"):
-                planned_fields[field] = {
+                planning_state[field] = {
                     period: value
-                    for period, value in planned_fields[field].items()
+                    for period, value in (existing_state.get(field) or {}).items()
                     if period not in FORWARD_PERIOD_KEYS
                 }
+        planned_fields = plan_fields(
+            planning_state, multi_period_financials, update_financials_source=False,
+        )
         financials = planned_fields["financials"]
         ratios = planned_fields["ratios"]
         multi_period_financials = planned_fields["multi_period_financials"]

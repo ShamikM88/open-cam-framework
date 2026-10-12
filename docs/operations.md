@@ -32,7 +32,7 @@ A green local run is not the same as a green CI run, because CI also runs on Win
 
 ## Diagnose a red CI run
 
-CI has four jobs (`test`, `test-windows`, `runtime-smoke`, `security`) and a separate weekly mutation workflow. Only `test` is a required check on `main`; the others are still expected to be green, and a red one is a finding, not noise. Start by reading which step failed.
+CI has four jobs (`test`, `test-windows`, `runtime-smoke`, `security`) and a separate weekly mutation workflow. `test`, `test-windows` and `runtime-smoke` are required checks on `main` (each pinned to the GitHub Actions app, and the branch must be up to date); `security` is deliberately not required, because a newly published advisory can turn it red on an unrelated pull request, but it is still expected to be green and a red one is a finding, not noise. Start by reading which step failed.
 
 | Red job and step | Usually means | First move |
 | :--- | :--- | :--- |

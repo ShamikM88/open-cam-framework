@@ -216,7 +216,7 @@ change; a reference to a number that is not pinned also fails, so every referenc
 ### CI
 
 **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test`
-(Ubuntu; the ruleset's required check -- keep the name) runs Ruff and Bandit, then
+(Ubuntu; one of the ruleset's three required checks, with `test-windows` and `runtime-smoke` -- keep the names) runs Ruff and Bandit, then
 `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, followed by the test-count, coverage-floor
 and diff-coverage checks; it uploads `coverage.xml`/`coverage.json`/the pytest output/`pip freeze` as a
 30-day artifact. `test-windows` runs `pytest tests/ -n 2 --dist=loadfile --durations=30` on Windows (the

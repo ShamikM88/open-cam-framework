@@ -661,6 +661,7 @@ def apply_stress_shocks(base_case_raw, stress_assumptions):
     shocked["interest_paid"] = base_interest_paid + (
         total_interest_bearing_debt * interest_rate_bump_bps / 10000
     )
+    validate_finite_numbers(shocked, path="stressed financial inputs")
 
     return shocked
 

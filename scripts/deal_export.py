@@ -14,7 +14,9 @@ from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
-from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
+from state_manager import (
+    StateError, read_state, resolve_date_str, sanitize_path_component, validate_iso_date_str,
+)
 from template_resolver import cam_template_path, local_cam_template_path
 
 # The state.json keys export_deal() reads, with the kind each is held to. Deliberately looser than STATE_SHAPES for
@@ -230,10 +232,11 @@ def main(argv=None):
              "else today's date for a brand-new deal.",
     )
     args = parser.parse_args(argv)
-    if args.date_str is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date_str):
-        # A free-form value would create a folder like "Fleet Loan_foo" that
-        # state_manager's date discovery (correctly) ignores forever after.
-        parser.error(f"--date-str {args.date_str!r} must be a YYYY-MM-DD date")
+    if args.date_str is not None:
+        try:
+            validate_iso_date_str(args.date_str, field_name="--date-str")
+        except ValueError as exc:
+            parser.error(str(exc))
 
     with open(args.draft, encoding="utf-8") as f:
         draft_markdown = f.read()

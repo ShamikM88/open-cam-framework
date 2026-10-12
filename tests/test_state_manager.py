@@ -841,11 +841,32 @@ def test_write_state_leaves_no_stray_temp_file_behind(tmp_path):
 
 def test_date_discovery_ignores_a_prefix_sharing_proposals_folder(tmp_path):
     base = str(tmp_path)
-    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_2026-01-10"))
-    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_Q2_2026-05-01"))
+    write_state("Acme", "Fleet", date_str="2026-01-10", base_dir=base, note="fleet")
+    write_state("Acme", "Fleet_Q2", date_str="2026-05-01", base_dir=base, note="quarterly")
 
     assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-01-10"
     assert resolve_date_str("Acme", "Fleet_Q2", base_dir=base) == "2026-05-01"
+
+
+def test_date_discovery_skips_newer_export_only_folder_and_surfaces_malformed_state(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme", "Fleet", date_str="2026-01-10", base_dir=base, note="source state")
+    export_only = os.path.join(base, "deals", "Acme", "Fleet_2026-03-01")
+    os.makedirs(export_only)
+    with open(os.path.join(export_only, "Acme_Fleet_CAM.docx"), "w", encoding="utf-8") as f:
+        f.write("synthetic exported document")
+
+    assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-01-10"
+    assert read_state("Acme", "Fleet", base_dir=base)["note"] == "source state"
+
+    # A present but malformed state must not be skipped as though it were export-only.
+    malformed = os.path.join(base, "deals", "Acme", "Fleet_2026-04-01")
+    os.makedirs(malformed)
+    with open(os.path.join(malformed, "state.json"), "w", encoding="utf-8") as f:
+        f.write("{")
+    assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-04-01"
+    with pytest.raises(ValueError, match="corrupted"):
+        read_state("Acme", "Fleet", base_dir=base)
 
 
 def test_date_discovery_ignores_non_date_suffixes_and_files(tmp_path):
@@ -860,10 +881,10 @@ def test_date_discovery_ignores_non_date_suffixes_and_files(tmp_path):
 
 def test_date_discovery_matches_bracketed_names_literally(tmp_path):
     base = str(tmp_path)
-    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_2026-01-10"))
+    write_state("Acme", "Fleet", date_str="2026-01-10", base_dir=base, note="acme")
 
     today = datetime.now().strftime("%Y-%m-%d")
     # "[A]cme" is a glob character class for "Acme" -- it must not match it.
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == today
-    os.makedirs(os.path.join(base, "deals", "[A]cme", "Fleet_2026-02-02"))
+    write_state("[A]cme", "Fleet", date_str="2026-02-02", base_dir=base, note="bracketed")
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == "2026-02-02"

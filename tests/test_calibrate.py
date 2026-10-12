@@ -16,6 +16,7 @@ import pytest
 
 import calibrate
 from calibrate import _resolve_calibrate_model, run_calibration
+from response_utils import EmptyModelResponseError
 
 
 @pytest.fixture
@@ -37,8 +38,10 @@ class MockClient:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        text = self.responses.pop(0)
-        return SimpleNamespace(content=[SimpleNamespace(text=text)])
+        response = self.responses.pop(0)
+        if hasattr(response, "content"):
+            return response
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=response)])
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +101,28 @@ def test_run_calibration_uses_the_configured_model_in_both_api_calls(project_roo
     assert mock_client.calls[0]["model"] == "claude-configured-model"
     assert mock_client.calls[1]["model"] == "claude-configured-model"
     assert os.path.isfile(project_root / "config" / "style_guide.md")
+
+
+
+def test_run_calibration_rejects_no_visible_text_and_keeps_outputs_untouched(project_root, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate, "_read_sample_text", lambda: "Sample CAM text content.")
+    (project_root / "config" / "style_guide.md").write_text("existing style", encoding="utf-8")
+    template = calibrate.local_cam_template_path("corporate_credit")
+    os.makedirs(os.path.dirname(template), exist_ok=True)
+    with open(template, "w", encoding="utf-8") as f:
+        f.write("existing template")
+    client = MockClient([SimpleNamespace(content=[
+        SimpleNamespace(type="thinking", thinking="hidden only"),
+    ])])
+    monkeypatch.setattr(calibrate, "client", client)
+
+    with pytest.raises(EmptyModelResponseError, match="Calibration response contained no text block"):
+        run_calibration("corporate_credit")
+
+    assert (project_root / "config" / "style_guide.md").read_text(encoding="utf-8") == "existing style"
+    assert open(template, encoding="utf-8").read() == "existing template"
+    assert len(client.calls) == 1
 
 # ---------------------------------------------------------------------------
 # Sample-length overflow (issue #109): samples beyond the per-call limit are

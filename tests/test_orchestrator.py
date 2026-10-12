@@ -1179,7 +1179,7 @@ def test_run_pipeline_merges_forward_only_input_with_recorded_history_and_resolv
 
     run_pipeline(
         "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-        multi_period_financials=forward, client=MockClient([_compliant_draft(), _approved_json()]),
+        multi_period_financials=forward, client=MockClient([_compliant_draft(cs_ids=[*STANDARD_CS_IDS, "CS-COVENANT-COMPLIANCE"]), _approved_json()]),
     )
 
     state = read_state("Acme Corp", "Fleet Loan")

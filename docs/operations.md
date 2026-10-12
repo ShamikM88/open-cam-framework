@@ -16,7 +16,7 @@ python scripts/check_test_count.py pytest_output.txt
 python scripts/check_coverage.py coverage.json
 ```
 
-That is what CI's Ubuntu `test` job runs, in that order; on a pull request it also runs `diff-cover coverage.xml --config-file pyproject.toml` (the `--config-file` matters: without it the floor is silently zero). Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30` without coverage. `pytest-xdist` (in `requirements-dev.txt`) supplies the bounded workers; `--dist=loadfile` keeps one test file on a worker, and `--durations=30` records the 30 slowest tests. The suite needs no key and no network; a test over its 120-second limit fails by itself.
+That is what CI's Ubuntu `test` job runs, in that order; on a pull request it also runs `diff-cover coverage.xml --config-file pyproject.toml` and `diff-cover coverage.xml --config-file diff_cover_critical.toml` (the `--config-file` matters: without it the floor is silently zero). Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30` without coverage. `pytest-xdist` (in `requirements-dev.txt`) supplies the bounded workers; `--dist=loadfile` keeps one test file on a worker, and `--durations=30` records the 30 slowest tests. The suite needs no key and no network; a test over its 120-second limit fails by itself.
 
 A green local run is not the same as a green CI run, because CI also runs on Windows and in a clean environment with only `requirements.txt` (below). It is the right thing to have before you push.
 
@@ -32,7 +32,7 @@ A green local run is not the same as a green CI run, because CI also runs on Win
 
 ## Diagnose a red CI run
 
-CI has four jobs (`test`, `test-windows`, `runtime-smoke`, `security`) and a separate weekly mutation workflow. Only `test` is a required check on `main`; the others are still expected to be green, and a red one is a finding, not noise. Start by reading which step failed.
+CI has four jobs (`test`, `test-windows`, `runtime-smoke`, `security`) and a separate weekly mutation workflow. `test`, `test-windows` and `runtime-smoke` are required checks on `main` (each pinned to the GitHub Actions app, and the branch must be up to date); `security` is deliberately not required, because a newly published advisory can turn it red on an unrelated pull request, but it is still expected to be green and a red one is a finding, not noise. Start by reading which step failed.
 
 | Red job and step | Usually means | First move |
 | :--- | :--- | :--- |
@@ -40,8 +40,8 @@ CI has four jobs (`test`, `test-windows`, `runtime-smoke`, `security`) and a sep
 | `test` / Security scan with Bandit | A medium-or-higher finding in `scripts/` | Fix it, or `# noqa` with the reason; never lower the level on the command line |
 | `test` / Run test suite | A real failure, a warning (they fail the run), a network attempt (`--disable-socket`) or a test over 120 s | Read the first failure, not the last; reproduce with `pytest path::test -x` |
 | `test` / Verify checked-in test count | The badge does not match the run | Update it from a complete green run ([above](#the-test-count-badge)); if the count looks wrong, find the test that did not run |
-| `test` / Enforce coverage floors | A governance module fell below 90% or the total below 85% | `python scripts/check_coverage.py coverage.json --report-only` for the table; add the missing test; do not lower a floor to pass (a lower floor is a reviewed decision) |
-| `test` / Enforce coverage of the lines this pull request changes | Changed lines are under 90% covered | `diff-cover coverage.xml --config-file pyproject.toml` lists the lines; code that only runs on Windows needs `# pragma: no cover - <reason>` |
+| `test` / Enforce coverage floors | A governance module fell below 97% or the total below 95% | `python scripts/check_coverage.py coverage.json --report-only` for the table; add the missing test; do not lower a floor to pass (a lower floor is a reviewed decision) |
+| `test` / Enforce coverage of the lines this pull request changes (and, in the governance modules) | Changed lines are under 95% covered, or under 98% in one of the eight governance modules | `diff-cover coverage.xml --config-file pyproject.toml` (or `--config-file diff_cover_critical.toml`) lists the lines; code that only runs on Windows needs `# pragma: no cover - <reason>` |
 | `test-windows` | A platform bug: cp1252 console, backslash paths, CRLF, an `open()` without `encoding=` | Reproduce on Windows; the fix is usually an explicit encoding or `pathlib`, not a skip |
 | `runtime-smoke` | A script imports a development-only package, or `requirements.txt` is missing a runtime dependency a dev package happened to supply | Run `tests/runtime_smoke.py --expect-clean` in a venv built from `requirements.txt` alone |
 | `security` / pip-audit | A dependency has a published advisory (this can turn red on an unrelated pull request, which is the point) | Pin a fixed version; only if none exists, follow the reviewed ignore procedure in [Testing and CI](testing.md#ci) |
@@ -89,6 +89,35 @@ To run it by hand (Linux or macOS only; mutmut forks): `pip install -r requireme
 **Purpose.** Snapshots catch an unintended change in what a client receives (the `.docx` and `.xlsx` text), including one caused by a library upgrade.
 
 When `tests/test_golden_outputs.py` fails, decide first whether the change was intended. If a dependency bump caused it, check that the difference is cosmetic (a serialisation detail) before regenerating. If it was intended, run `pytest tests/test_golden_outputs.py --update-snapshots`, read the diff like code, and commit the snapshots with the change. A missing snapshot fails instead of being created, and CI never regenerates.
+
+## Re-tuning test parallelism
+
+**Purpose.** CI runs the suite with a fixed number of pytest-xdist workers (`-n 4` on Ubuntu, `-n 2` on Windows), chosen by measurement in issue #212. As the suite grows those counts can stop being the best choice, and the only reliable way to choose again is to measure again. `.github/workflows/ci-parallelism-benchmark.yml` does the measuring. It runs only when started by hand and is never a gate.
+
+**When.** When the suite step of ordinary CI runs has become clearly slower than the last measured baseline (its link is at the top of the workflow file), over several runs rather than one: hosted runners vary.
+
+**Run it.**
+
+1. Use `main`, or a branch whose CI is green and whose `badges/test-count.json` is current. The Linux jobs also run the test-count, coverage-floor and changed-line checks, and a failure there says nothing about speed.
+2. Start it from the Actions tab (CI Parallelism Benchmark, Run workflow) or with `gh workflow run ci-parallelism-benchmark.yml --ref main`. One dispatch is 18 jobs (two operating systems, three worker counts, three repeats), at most six at a time, so start it when nothing else is waiting for runners.
+3. Each job writes a one-row table to its summary on the run page: operating system, workers, repeat, pytest's elapsed time, the coverage total (Ubuntu only) and pytest's result line. The full `pytest_output.txt`, and on Ubuntu the coverage files, are kept as artifacts for 30 days (`gh run download <run id>`).
+
+**Read it.**
+
+- Use pytest's elapsed time, not the job's duration, which includes queueing and setup.
+- For each operating system and worker count, take the median of the three repeats. Never compare single runs: in #212 the fastest and slowest of three runs of one configuration differed by up to 45%.
+- Every job must report the same passed and xfailed counts, and every Ubuntu job the same coverage total. If they differ, the runs did not run the same tests and their timings are not comparable.
+
+**Decide.** Prefer the smallest worker count whose median is within a few per cent of the best one; more workers add start-up cost and contention for little gain. Keep a fixed count rather than `-n auto`, whose value depends on the runner.
+
+**Apply.** If the choice changes, change these in one pull request:
+
+- the `-n` value in `.github/workflows/ci.yml`;
+- the same command in [the full-suite section](#verify-a-change-the-full-suite) above and in [Testing and CI](testing.md);
+- the strings `tests/test_ci_workflow.py` pins (it pins the benchmark's commands as well, so keep the two workflows in step);
+- the baseline link at the top of the benchmark workflow.
+
+Put the table of medians on the pull request or its issue so the next tuning has a baseline. This page does not hold results.
 
 ## Dependencies and advisories
 

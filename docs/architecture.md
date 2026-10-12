@@ -232,6 +232,7 @@ open-cam-framework/
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eight governance modules (diagnostic report, never a merge gate)
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`
+├── .github/workflows/ci-parallelism-benchmark.yml  Manual-only timing of the suite with 1, 2 and 4 workers, for re-choosing CI's worker counts (never a gate; see the operations runbook)
 └── README.md
 ```
 

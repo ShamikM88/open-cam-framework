@@ -501,8 +501,9 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   options.
 - **Coverage.** Line + branch over `scripts/`. CI enforces a 95% overall floor, a 97% floor on each of eight
   governance modules (`policy_engine`, `policy_checks`, `policy_check`, `spreading_builder`, `spreading_check`,
-  `state_manager`, `deal_export`, `docx_builder`) and 90% on the lines a pull request changes
-  (`diff-cover ... --config-file pyproject.toml`; without `--config-file` the floor is silently 0).
+  `state_manager`, `deal_export`, `docx_builder`) and 95% on the lines a pull request changes, 98% where it changes one
+  of those modules (`diff-cover ... --config-file pyproject.toml` and `--config-file diff_cover_critical.toml`; without
+  `--config-file` the floor is silently 0).
   `# pragma: no cover` needs a reason on the same line; code that only runs on Windows needs one. Lowering a floor
   or dropping a module is a reviewed decision.
 - **The command-line surface is tested as a user meets it.** Every script with a `__main__` block is run as a real

@@ -19,7 +19,7 @@ from policy_checks import (
     check_reported_figures as _check_reported_figures,
 )
 from policy_engine import evaluate_deal_policy
-from spreading_builder import evaluate_downside_case, evaluate_financial_model
+from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
 from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
@@ -598,6 +598,21 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         planned_fields = plan_fields(
             existing_state, multi_period_financials, update_financials_source=False,
         )
+        # A fresh framework recomputation supersedes an analyst-supplied forecast.
+        # Preserve the issue #246 merge for periods actually being updated, but do
+        # not carry forward old analyst-supplied years that this new computation
+        # did not replace. Otherwise clearing forecast_source below would leave
+        # stale supplied figures looking framework-computed.
+        if (
+            existing_state.get("forecast_source") == "analyst-supplied"
+            and not set(multi_period_financials).intersection(FORWARD_PERIOD_KEYS)
+        ):
+            for field in ("multi_period_financials", "financials", "ratios"):
+                planned_fields[field] = {
+                    period: value
+                    for period, value in planned_fields[field].items()
+                    if period not in FORWARD_PERIOD_KEYS
+                }
         financials = planned_fields["financials"]
         ratios = planned_fields["ratios"]
         multi_period_financials = planned_fields["multi_period_financials"]

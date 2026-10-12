@@ -14,7 +14,7 @@ Security here is a few layers, and they are not equally visible. Know which ones
 | **Keep the pipeline small and local** | Deterministic scripts with no network use; model calls only in the three scripts that need a key | `scripts/`, `--disable-socket` in the tests | Tests and review |
 | **Keep CI least-privilege** | Read-only token, SHA-pinned actions, no `pull_request_target`, no credential left in the checkout | `.github/workflows/`, `tests/test_ci_workflow.py` | A test, and `zizmor` in the `security` job |
 | **Know the dependencies** | Weekly Dependabot pull requests; `pip-audit` on every requirements file | `.github/dependabot.yml`, the `security` job | CI |
-| **Review every change** | A pull request, the `test` check passing and up to date, no force-push or deletion on `main` | GitHub repository ruleset | GitHub, not a file |
+| **Review every change** | A pull request, the `test`, `test-windows` and `runtime-smoke` checks passing and up to date, no force-push or deletion on `main` | GitHub repository ruleset | GitHub, not a file |
 | **Catch secrets and known bug patterns** | Secret scanning with push protection; CodeQL code scanning for Python and for the workflows; Dependabot alerts | GitHub repository settings | GitHub, not a file |
 
 The last two rows are **settings on GitHub, not files in the repository**. No test can see them and a pull request cannot change them. They are the maintainer's to configure and to re-check from time to time; a fork starts without them and should turn on the equivalents.

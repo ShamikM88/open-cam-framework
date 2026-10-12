@@ -3,6 +3,8 @@ import re
 import openpyxl
 from openpyxl.styles import Font
 
+from numeric_validation import validate_finite_numbers
+
 # Forward periods used both here (workbook columns) and by
 # evaluate_downside_case() below -- defined once, at the top, so the two
 # never drift apart.
@@ -441,6 +443,8 @@ def evaluate_financial_model(multi_period_data):
 
     Returns {"financials": {period: {...raw, ...subtotals}}, "ratios": {period: {...}}}.
     """
+    validate_finite_numbers(multi_period_data, path="financial inputs")
+
     financials = {}
     ratios = {}
 
@@ -629,6 +633,8 @@ def apply_stress_shocks(base_case_raw, stress_assumptions):
 
     Returns a new dict; `base_case_raw` is never mutated.
     """
+    validate_finite_numbers(base_case_raw, path="financial inputs")
+    validate_finite_numbers(stress_assumptions, path="stress assumptions")
     stress_assumptions = stress_assumptions or {}
     revenue_haircut_pct = stress_assumptions.get("revenue_haircut_pct") or 0
     opex_increase_pct = stress_assumptions.get("opex_increase_pct") or 0
@@ -674,6 +680,8 @@ def evaluate_downside_case(multi_period_data, stress_assumptions, forward_period
     Returns the same shape as evaluate_financial_model():
     {"financials": {period: {...}}, "ratios": {period: {...}}}.
     """
+    validate_finite_numbers(multi_period_data, path="financial inputs")
+    validate_finite_numbers(stress_assumptions, path="stress assumptions")
     multi_period_data = multi_period_data or {}
     shocked_inputs = {
         period: apply_stress_shocks(multi_period_data[period], stress_assumptions)

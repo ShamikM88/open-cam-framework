@@ -46,7 +46,7 @@ def unexpected_c0_controls(text):
 
 
 def test_control_character_detector_catches_bell():
-    assert unexpected_c0_controls("before\\x07after") == [(6, 7)]
+    assert unexpected_c0_controls("before\x07after") == [(6, 7)]
 
 
 def test_human_facing_docs_contain_no_unexpected_c0_controls():

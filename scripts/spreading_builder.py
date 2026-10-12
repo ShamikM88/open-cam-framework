@@ -603,7 +603,9 @@ def evaluate_financial_model(multi_period_data):
             "EBITDA/Interest": ebitda_interest_cover,
         }
 
-    return {"financials": financials, "ratios": ratios}
+    result = {"financials": financials, "ratios": ratios}
+    validate_finite_numbers(result, path="computed financial results")
+    return result
 
 
 def apply_stress_shocks(base_case_raw, stress_assumptions):

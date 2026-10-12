@@ -319,9 +319,9 @@ def test_cli_rejects_an_unsafe_company_before_touching_the_deals_tree(tmp_path, 
     monkeypatch.chdir(tmp_path)
 
     def must_not_resolve(*args, **kwargs):
-        pytest.fail("resolve_date_str() (the deals/ glob) ran before sanitization")
+        pytest.fail("resolve_export_date_str() (the deals/ glob) ran before sanitization")
 
-    monkeypatch.setattr(deal_export, "resolve_date_str", must_not_resolve)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", must_not_resolve)
     with pytest.raises(ValueError):
         main(["--company", "../evil", "--proposal", "Fleet Loan", "--type", "asset_finance",
               "--draft", _cli_draft(tmp_path)])
@@ -460,7 +460,7 @@ def test_cli_rejects_an_unsafe_proposal_before_the_deals_tree_is_searched_as_it_
     monkeypatch.chdir(tmp_path)
 
     def must_not_resolve(*args, **kwargs):
-        pytest.fail("resolve_date_str() (the deals/ glob) ran before the proposal was sanitized")
+        pytest.fail("resolve_export_date_str() (the deals/ glob) ran before the proposal was sanitized")
 
     monkeypatch.setattr(deal_export, "resolve_date_str", must_not_resolve)
     with pytest.raises(ValueError):

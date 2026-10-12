@@ -368,7 +368,7 @@ def test_cli_rejects_an_unsafe_company_before_touching_the_deals_tree(tmp_path, 
         pytest.fail("resolve_date_str() (the deals/ glob) ran before sanitization")
 
     monkeypatch.setattr(deal_export, "resolve_date_str", must_not_resolve)
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit, match="error: company"):
         main(["--company", "../evil", "--proposal", "Fleet Loan", "--type", "asset_finance",
               "--draft", _cli_draft(tmp_path)])
     assert not (tmp_path / "deals").exists()
@@ -471,7 +471,7 @@ def test_cli_exports_the_draft_it_was_given_read_as_utf8(tmp_path, monkeypatch, 
 
 def test_cli_with_a_missing_draft_fails_before_creating_a_deal_folder(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(SystemExit, match="error: "):
         main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--draft", str(tmp_path / "nope.md")])
     assert not (tmp_path / "deals").exists() and not (tmp_path / "templates").exists()
 
@@ -509,7 +509,7 @@ def test_cli_rejects_an_unsafe_proposal_before_the_deals_tree_is_searched_as_it_
         pytest.fail("resolve_date_str() (the deals/ glob) ran before the proposal was sanitized")
 
     monkeypatch.setattr(deal_export, "resolve_date_str", must_not_resolve)
-    with pytest.raises(ValueError):
+    with pytest.raises(SystemExit, match="error: proposal"):
         main(["--company", "Acme Corp", "--proposal", "../evil", "--draft", _cli_draft(tmp_path)])
     assert not (tmp_path / "deals").exists()
 

@@ -145,7 +145,10 @@ def _add_inline_runs(paragraph, text, base_bold=False):
             run.bold = base_bold
             run.font.name = "Consolas"
         else:
-            scheme = urlsplit(link_url.strip()).scheme.lower()
+            try:
+                scheme = urlsplit(link_url.strip()).scheme.lower()
+            except ValueError:
+                scheme = ""
             if scheme in ALLOWED_HYPERLINK_SCHEMES:
                 _add_hyperlink_run(paragraph, link_url, link_text, bold=base_bold)
             else:

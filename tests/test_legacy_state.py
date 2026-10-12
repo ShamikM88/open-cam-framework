@@ -217,7 +217,7 @@ def test_an_analyst_supplied_state_with_the_raw_store_fills_the_workbook_from_th
     install(tmp_path, monkeypatch, state)
     revenue = revenue_cells(next(export(tmp_path).glob("*_Spreading.xlsx")))
     capsys.readouterr()
-    assert revenue["FY-Current"] == 4321      # read from analyst_supplied_financials, never from the other store
+    assert revenue["FY-Current (analyst-supplied)"] == 4321      # recorded historical column is explicitly labelled
 
 
 def test_the_downside_columns_are_filled_only_when_the_state_has_a_downside_case(tmp_path, monkeypatch, capsys):

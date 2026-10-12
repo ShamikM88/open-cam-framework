@@ -26,6 +26,9 @@ however many days the work took. Exporting never changes `state.json`'s figures;
 
 ## The CAM document (`.docx`)
 
+The exporter replaces characters forbidden by XML 1.0 (for example NUL, form feed and vertical tab) with the visible replacement character U+FFFD before rendering. It emits one aggregate warning to standard error and continues, rather than losing the whole export.
+
+
 The draft is Markdown; `scripts/docx_builder.py` turns it into a Word document you can edit. The rendering rules are
 the ones that surprise authors:
 

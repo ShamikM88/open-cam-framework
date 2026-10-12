@@ -369,7 +369,9 @@ extracts the Underwriter's trailing structured JSON block (`cp_ids_included`,
 `risk_categories_covered`, `reported_figures`, `sources`, `financials_source_disclosed`,
 `credit_policy_considered`, etc. -- see `agents/underwriter_agent.md`'s Structured Output
 guideline); `ground_truth_figures(financials, ratios, collateral, downside_case)` flattens the
-deal's actual computed figures into one lookup dict; `check_draft_compliance(draft_text,
+deal's actual computed figures into one lookup dict. FY-Current retains plain metric keys (for example,
+`ebitda` and `dscr`); every other base-case period uses `{metric}_{period}` (for example,
+`ebitda_FY-1` and `dscr_FY+1`). Downside keys retain their distinct `{metric}_{period}_downside` suffix; `check_draft_compliance(draft_text,
 policy_state, ground_truth_figures_dict, financials_source=None, credit_policy_present=None)` is
 the single source of truth for "why would this draft be code-enforced-REJECTED" -- covenant/
 security/CP/CS completeness, risk-taxonomy coverage (`REQUIRED_RISK_TAXONOMY`), narrative-vs-

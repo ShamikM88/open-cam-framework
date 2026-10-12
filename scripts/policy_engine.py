@@ -588,7 +588,13 @@ def evaluate_deal_policy(state_dict):
                                       "headroom_pct", "reason"}, ...],
     }
     """
-    validate_finite_numbers(state_dict, path="policy state")
+    if state_dict:
+        for key in (
+            "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
+            "stress_assumptions", "downside_case", "covenants",
+        ):
+            if key in state_dict:
+                validate_finite_numbers(state_dict[key], path=f"policy state[{key!r}]")
     state_dict = state_dict or {}
     all_ratios = state_dict.get("ratios") or {}
     ratios = all_ratios.get("FY-Current") or {}

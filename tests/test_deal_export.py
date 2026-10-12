@@ -12,6 +12,7 @@ from deal_export import (
     export_deal,
     main,
 )
+from state_manager import resolve_date_str, write_state
 
 
 def _write(path, content="content"):
@@ -287,14 +288,19 @@ def test_cli_picks_the_most_recent_of_several_existing_dated_folders(tmp_path, m
     assert not (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2025-01-10" / "Acme Corp_Fleet Loan_CAM.docx").exists()
 
 
-def test_cli_date_str_flag_overrides_discovery(tmp_path, monkeypatch):
+def test_cli_date_str_flag_creates_export_only_folder_without_hijacking_state_discovery(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10").mkdir(parents=True)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", note="existing deal state")
 
     main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
           "--draft", _cli_draft(tmp_path), "--date-str", "2026-03-01"])
 
-    assert (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-03-01" / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    old_state = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json"
+    export_dir = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-03-01"
+    assert (export_dir / "Acme Corp_Fleet Loan_CAM.docx").exists()
+    assert not (export_dir / "state.json").exists()
+    assert resolve_date_str("Acme Corp", "Fleet Loan") == "2026-01-10"
+    assert json.loads(old_state.read_text(encoding="utf-8"))["note"] == "existing deal state"
 
 
 def test_cli_brand_new_deal_gets_a_folder_dated_today(tmp_path, monkeypatch):

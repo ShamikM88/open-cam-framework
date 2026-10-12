@@ -36,6 +36,29 @@ def doc_files():
             + sorted((REPO / ".claude" / "skills").glob("*/SKILL.md")))
 
 
+def unexpected_c0_controls(text):
+    """Return (offset, code point) for XML/C0 controls other than tab and newline."""
+    return [
+        (offset, ord(char))
+        for offset, char in enumerate(text)
+        if ord(char) < 0x20 and char not in ("\\t", "\\n")
+    ]
+
+
+def test_control_character_detector_catches_bell():
+    assert unexpected_c0_controls("before\\x07after") == [(6, 7)]
+
+
+def test_human_facing_docs_contain_no_unexpected_c0_controls():
+    paths = [REPO / "README.md", REPO / "CLAUDE.md", *sorted((REPO / "docs").glob("*.md"))]
+    problems = []
+    for path in paths:
+        controls = unexpected_c0_controls(path.read_text(encoding="utf-8"))
+        if controls:
+            problems.append(f"{path.relative_to(REPO)}: {controls[:5]}")
+    assert not problems, "\\n".join(problems)
+
+
 def strip_fences(text):
     """Text without fenced code blocks."""
     out, in_fence = [], False

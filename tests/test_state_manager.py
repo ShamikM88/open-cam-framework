@@ -874,8 +874,6 @@ def test_date_discovery_matches_bracketed_names_literally(tmp_path):
 # (issue #244). Invalid updates fail before replacing an existing file.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
-                         ids=["nan", "positive-infinity", "negative-infinity"])
 def test_write_state_wraps_non_finite_validator_error_before_writing(tmp_path, monkeypatch):
     base = str(tmp_path)
 
@@ -888,6 +886,8 @@ def test_write_state_wraps_non_finite_validator_error_before_writing(tmp_path, m
     assert not os.path.exists(os.path.join(base, "deals"))
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
 def test_write_state_rejects_non_finite_new_values_before_creating_a_deal(tmp_path, value):
     with pytest.raises(ValueError, match="non-finite numeric value"):
         write_state("Acme Corp", "Fleet Loan", base_dir=str(tmp_path),

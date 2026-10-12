@@ -769,3 +769,39 @@ def test_source_manifest_save_refuses_a_dangling_link_manifest_and_copies_nothin
                  "legal identity", "--file", source)
     _assert_a_clean_state_error(result, "manifest.json", "target does not exist", "the file was not modified")
     assert [p.name for p in sources.iterdir()] == ["manifest.json"], "no copy of the document was left behind"
+
+
+def test_spreading_check_default_mode_refuses_analyst_supplied_deal_without_writing(cli):
+    deal_dir = cli.workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    deal_dir.mkdir(parents=True)
+    state_path = deal_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "company": "Acme",
+        "proposal": "Loan",
+        "date": "2026-01-01",
+        "schema_version": "1.1.0",
+        "financials_source": "analyst-supplied",
+        "financials_source_note": "Synthetic institution convention.",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000, "cost_of_sales": 3000},
+        },
+        "financials": {
+            "FY-Current": {"raw": {"revenue": 5000, "cost_of_sales": 3000}},
+        },
+    }), encoding="utf-8")
+    before = state_path.read_bytes()
+    financials = cli.workdir / "fin.json"
+    financials.write_text(json.dumps({
+        "FY-Current": {"revenue": 5100, "cost_of_sales": 3050, "admin_expenses": 1000},
+    }), encoding="utf-8")
+
+    result = cli(
+        "spreading_check", "--company", "Acme", "--proposal", "Loan", "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert result.stderr.count("\\n") == 1
+    assert "one deal never mixes the two modes" in result.stderr
+    assert state_path.read_bytes() == before

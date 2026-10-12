@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 
 from docx_builder import export_to_docx
-from spreading_builder import HISTORICAL_PERIOD_KEYS, FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
+from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
@@ -77,8 +77,10 @@ def _downside_financial_data_from_state(state):
 
 
 def _supplied_row_values(*period_dicts):
-    """{workbook row label: value} for the subtotals and ratios in these period dicts that have a workbook row. A
-    ratio recorded as null is N/A, written as the workbook writes it; a non-number elsewhere is left blank."""
+    """{workbook row label: value} for recorded subtotals and ratios that have a workbook row.
+
+    A recorded null ratio is N/A; non-numeric values elsewhere are left blank.
+    """
     values = {}
     for period_dict in period_dicts:
         for key, value in (period_dict if isinstance(period_dict, dict) else {}).items():
@@ -88,13 +90,16 @@ def _supplied_row_values(*period_dicts):
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 values[label] = value
             elif value is None and key in SUPPLIED_RATIOS:
-                values[label] = "Ndef _analyst_forecast_columns(state):
-    """Return recorded values for every analyst-supplied base-case period, plus the forward-downside annotations.
+                values[label] = "N/A"
+    return values
 
-    Historical values are supplied when financials_source is analyst-supplied (issue #252); forward values are
-    supplied only when forecast_source says the forecast itself was analyst-supplied (issue #124). Computed rows in
-    a supplied column must show the recorded value, or blank/N/A when none was recorded, never an Excel formula
-    that silently recalculates from raw lines that were not the basis of that value.
+
+def _analyst_forecast_columns(state):
+    """Return recorded analyst-supplied values and any forward-downside annotations.
+
+    Historical periods use recorded values when financials_source is analyst-supplied;
+    forward periods use recorded values when forecast_source is analyst-supplied.
+    Supplied columns must not recalculate subtotals or ratios from incomplete raw lines.
     """
     historical_supplied = state.get("financials_source") == "analyst-supplied"
     forecast_supplied = state.get("forecast_source") == "analyst-supplied"
@@ -142,8 +147,6 @@ def _supplied_row_values(*period_dicts):
         if how != "analyst-supplied" and period in FORWARD_PERIOD_KEYS and period not in unavailable
     }
     return supplied or None, supplied_downside or None, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
-D_PERIOD_KEYS}, derived
-
 
 def _collateral_data_from_state(state):
     """state.json's `collateral` is expected to be the flat list of asset

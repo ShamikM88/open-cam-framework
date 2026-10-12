@@ -41,7 +41,7 @@ def unexpected_c0_controls(text):
     return [
         (offset, ord(char))
         for offset, char in enumerate(text)
-        if ord(char) < 0x20 and char not in ("\\t", "\\n")
+        if ord(char) < 0x20 and char not in ("\t", "\n")
     ]
 
 

@@ -30,7 +30,7 @@ class ReportSpec:
     required_lines: tuple = ()   # lines the report must carry besides Material reviewed, e.g. "**Categories reviewed:**"
 
 
-VERDICT_RE = re.compile(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|PASSED|FAIL|FAILED)(?![A-Za-z])")
+VERDICT_RE = re.compile(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|PASSED|FAIL|FAILED)(?![A-Za-z])", re.IGNORECASE)
 CONCLUSION_RE = re.compile(
     r"(?i)\b(?:we|i)\s+recommend|\brecommend(?:ed|ation)?\b[^.\n]{0,20}\b(?:lend|lending|declin\w*|approv\w*)"
     r"|\bshould\s+(?:be\s+)?(?:lent|lend|declin\w*|approv\w*)|\b(?:borrower|credit|risk)\s+(?:rating|grade|score)\b"

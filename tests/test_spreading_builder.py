@@ -538,6 +538,36 @@ def test_evaluate_financial_model_handles_empty_input():
     assert evaluate_financial_model(None) == {"financials": {}, "ratios": {}}
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_evaluate_financial_model_rejects_non_finite_raw_line_items(value):
+    with pytest.raises(ValueError, match="FY-Current.*revenue"):
+        evaluate_financial_model({"FY-Current": {"revenue": value}})
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_evaluate_downside_case_rejects_non_finite_stress_assumptions(value):
+    with pytest.raises(ValueError, match="stress assumptions.*revenue_haircut_pct"):
+        evaluate_downside_case(
+            {"FY+1": {"revenue": 100, "interest_paid": 10}},
+            {"revenue_haircut_pct": value},
+        )
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_apply_stress_shocks_rejects_non_finite_raw_figures(value):
+    with pytest.raises(ValueError, match="financial inputs.*revenue"):
+        apply_stress_shocks({"revenue": value}, {})
+
+
+def test_evaluate_financial_model_rejects_non_finite_calculated_results():
+    # Finite but extreme inputs must not overflow into a persisted numeric output.
+    with pytest.raises(ValueError, match="computed financial results.*gross_profit"):
+        evaluate_financial_model({"FY-Current": {"revenue": 1.7e308, "cost_of_sales": -1.7e308}})
+
+
 def test_evaluate_financial_model_defaults_missing_fields_to_zero():
     result = evaluate_financial_model({"FY-Current": {"revenue": 100}})
     financials = result["financials"]["FY-Current"]

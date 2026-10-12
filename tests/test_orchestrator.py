@@ -1157,6 +1157,62 @@ def test_run_pipeline_preserves_existing_financials_when_rerun_without_new_data(
     assert state_after_second["financials"]["FY-Current"]["gross_profit"] == 600
 
 
+def test_run_pipeline_merges_forward_only_input_with_recorded_history_and_resolves_covenant(project_root):
+    from spreading_check import compute
+
+    history = {
+        "FY-1": {"revenue": 2000, "cost_of_sales": 1000, "admin_expenses": 200,
+                 "interest_paid": 40, "scheduled_principal_repayment": 100, "long_term_debt": 500},
+        "FY-Current": {"revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
+                       "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 600},
+    }
+    compute("Acme Corp", "Fleet Loan", multi_period_financials=history)
+    write_state("Acme Corp", "Fleet Loan", covenants=[
+        {"metric": "dscr", "type": "minimum", "threshold": 1.2},
+    ])
+    forward = {
+        "FY+1": {"revenue": 2600, "cost_of_sales": 1300, "admin_expenses": 270,
+                 "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 620},
+        "FY+2": {"revenue": 2750, "cost_of_sales": 1350, "admin_expenses": 280,
+                 "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 610},
+    }
+
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials=forward, client=MockClient([_compliant_draft(), _approved_json()]),
+    )
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    expected_periods = {"FY-1", "FY-Current", "FY+1", "FY+2"}
+    assert set(state["multi_period_financials"]) == expected_periods
+    assert set(state["financials"]) == expected_periods
+    assert set(state["ratios"]) == expected_periods
+    assert state["multi_period_financials"]["FY-Current"] == history["FY-Current"]
+    result = next(item for item in state["policy_state"]["covenant_results"] if item["metric"] == "dscr")
+    assert result["status"] == "PASS"
+    assert result["actual"] is not None and result["actual"] >= 1.2
+
+
+def test_run_pipeline_merges_partial_historical_correction_field_by_field(project_root):
+    from spreading_check import compute
+
+    recorded = {
+        "revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
+        "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 600,
+    }
+    compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": recorded})
+
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials={"FY-Current": {"revenue": 2600}},
+        client=MockClient([_compliant_draft(), _approved_json()]),
+    )
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["multi_period_financials"]["FY-Current"] == {**recorded, "revenue": 2600}
+    assert state["financials"]["FY-Current"]["gross_profit"] == 1400
+
+
 def test_run_pipeline_preserves_existing_collateral_when_rerun_without_new_data(project_root):
     collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
                          "perfection_status": "Registered"}]

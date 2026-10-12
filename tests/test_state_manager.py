@@ -778,7 +778,7 @@ def test_state_path_and_write_state_reject_impossible_explicit_calendar_dates(tm
 def test_valid_leap_day_and_month_end_dates_are_accepted(tmp_path, date_str):
     base = str(tmp_path)
     path = state_path("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)
-    assert path.endswith(f"Fleet Loan_{date_str}/state.json")
+    assert path == os.path.join(base, "deals", "Acme Corp", f"Fleet Loan_{date_str}", "state.json")
     written = write_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base, note=date_str)
     assert written["date"] == date_str
     assert read_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)["note"] == date_str

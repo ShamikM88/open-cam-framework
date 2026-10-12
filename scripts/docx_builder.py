@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+from urllib.parse import urlsplit
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -17,6 +18,7 @@ FENCE_OPEN_RE = re.compile(r"^\s*```(\S*)")
 IMAGE_RE = re.compile(r"^\s*!\[([^\]]*)\]\((.+?)\)\s*$")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+ALLOWED_HYPERLINK_SCHEMES = {"http", "https", "mailto"}
 HEADING_RE = re.compile(r"^(#{1,6}) ")
 BULLET_RE = re.compile(r"^- ")
 NUMBERED_RE = re.compile(r"^\d+\.\s")
@@ -143,7 +145,16 @@ def _add_inline_runs(paragraph, text, base_bold=False):
             run.bold = base_bold
             run.font.name = "Consolas"
         else:
-            _add_hyperlink_run(paragraph, link_url, link_text, bold=base_bold)
+            scheme = urlsplit(link_url.strip()).scheme.lower()
+            if scheme in ALLOWED_HYPERLINK_SCHEMES:
+                _add_hyperlink_run(paragraph, link_url, link_text, bold=base_bold)
+            else:
+                print(
+                    f"[docx_builder] Unsupported hyperlink target rendered as text: {link_url}",
+                    file=sys.stderr,
+                )
+                run = paragraph.add_run(f"{link_text} ({link_url})")
+                run.bold = base_bold
         pos = match.end()
     if pos < len(text):
         run = paragraph.add_run(text[pos:])

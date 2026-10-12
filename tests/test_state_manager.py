@@ -867,3 +867,58 @@ def test_date_discovery_matches_bracketed_names_literally(tmp_path):
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == today
     os.makedirs(os.path.join(base, "deals", "[A]cme", "Fleet_2026-02-02"))
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == "2026-02-02"
+
+
+# ---------------------------------------------------------------------------
+# Non-finite numeric values must never enter or survive persisted deal state
+# (issue #244). Invalid updates fail before replacing an existing file.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_write_state_rejects_non_finite_new_values_before_creating_a_deal(tmp_path, value):
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        write_state("Acme Corp", "Fleet Loan", base_dir=str(tmp_path),
+                    financials={"FY-Current": {"revenue": value}})
+    assert not os.path.exists(os.path.join(str(tmp_path), "deals"))
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_write_state_rejects_non_finite_update_without_changing_existing_state(tmp_path, value):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", base_dir=base, note="keep")
+    path = state_path("Acme Corp", "Fleet Loan", base_dir=base)
+    with open(path, "rb") as f:
+        before = f.read()
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        write_state("Acme Corp", "Fleet Loan", base_dir=base,
+                    financials={"FY-Current": {"revenue": value}})
+
+    with open(path, "rb") as f:
+        assert f.read() == before
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_read_state_refuses_existing_non_finite_json_without_modifying_it(tmp_path, value):
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", base_dir=base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    invalid = {
+        "company": "Acme Corp",
+        "proposal": "Fleet Loan",
+        "date": "2026-01-15",
+        "financials": {"FY-Current": {"revenue": value}},
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(invalid, f, allow_nan=True)
+    with open(path, "rb") as f:
+        before = f.read()
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+
+    with open(path, "rb") as f:
+        assert f.read() == before

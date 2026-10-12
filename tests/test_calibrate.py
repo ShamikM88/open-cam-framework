@@ -52,6 +52,17 @@ class MockClient:
 # setup step, not drafting a real credit memo.
 # ---------------------------------------------------------------------------
 
+def test_main_reports_an_empty_model_response_as_a_single_cli_error(monkeypatch, capsys):
+    def empty_response(*args, **kwargs):
+        raise EmptyModelResponseError("the model returned no visible text")
+
+    monkeypatch.setattr(calibrate, "run_calibration", empty_response)
+    with pytest.raises(SystemExit) as caught:
+        calibrate.main(["--type", "corporate_credit"])
+    assert str(caught.value.code) == "error: the model returned no visible text"
+    assert capsys.readouterr().out == ""
+
+
 def test_resolve_calibrate_model_defaults_when_no_config_file(project_root):
     assert _resolve_calibrate_model() == calibrate._DEFAULT_MODEL
 

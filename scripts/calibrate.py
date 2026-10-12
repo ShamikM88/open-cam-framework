@@ -357,9 +357,8 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
           f"shipped default for '{deal_type}' deals until you remove it.")
 
 
-if __name__ == "__main__":
-    from textio import configure_stdio
-    configure_stdio()
+def main(argv=None):
+    """CLI entry point, separated from process startup so error contracts can be tested."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--type", default="corporate_credit",
@@ -379,8 +378,14 @@ if __name__ == "__main__":
              "'ignore' uses only the first part and discards the rest; 'ask' (default) "
              "prompts on a terminal and falls back to 'split' when there is none.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         run_calibration(args.type, mock=args.mock, on_overflow=args.on_overflow)
     except EmptyModelResponseError as exc:
         sys.exit(f"error: {exc}")
+
+
+if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
+    main()

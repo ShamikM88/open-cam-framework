@@ -5,7 +5,7 @@ Practical guidance for changing this repository: what to treat as true, what mus
 ## Set up
 
 ```bash
-python -m venv venv                    # then activate it (venv\Scriptsctivate on Windows)
+python -m venv venv                    # then activate it (venv\Scripts\activate on Windows)
 pip install -r requirements-dev.txt    # runtime requirements + pytest, pytest-xdist, ruff, bandit and coverage tools
 pytest                                 # the whole suite; no API key and no network needed
 ```

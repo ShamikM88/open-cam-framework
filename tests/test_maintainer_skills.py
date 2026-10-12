@@ -44,6 +44,7 @@ APPROVED_BASH = {
     "python scripts/check_test_count.py pytest_output.txt",
     "python scripts/check_coverage.py coverage.json",
     "diff-cover coverage.xml --config-file pyproject.toml",
+    "diff-cover coverage.xml --config-file diff_cover_critical.toml",
     "python scripts/pii_scan.py *",
 }
 # Anything in a pre-approval that changes a repository, a branch, a remote, an environment or a snapshot.

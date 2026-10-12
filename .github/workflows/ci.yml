@@ -71,6 +71,13 @@ jobs:
         # A change that touches no measured line (tests, docs, workflows only) passes; there is nothing to cover.
         run: diff-cover coverage.xml --config-file pyproject.toml
 
+      - name: Enforce coverage of the lines this pull request changes in the governance modules
+        if: github.event_name == 'pull_request'
+        # The stricter tier: diff_cover_critical.toml holds the lines changed in the eight governance modules to 98%
+        # (the step above holds every changed line to 95%). Same rule about --config-file: without it the floor is
+        # silently 0. tests/test_ci_workflow.py runs this exact command against an uncovered change.
+        run: diff-cover coverage.xml --config-file diff_cover_critical.toml
+
       - name: Record the resolved dependency versions
         if: always()
         run: pip freeze > pip-freeze.txt

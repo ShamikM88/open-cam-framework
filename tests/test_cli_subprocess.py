@@ -802,6 +802,6 @@ def test_spreading_check_default_mode_refuses_analyst_supplied_deal_without_writ
     assert result.returncode == 1
     assert result.stdout == ""
     assert result.stderr.startswith("error: ")
-    assert result.stderr.count("\\n") == 1
+    assert result.stderr.count("\n") == 1
     assert "one deal never mixes the two modes" in result.stderr
     assert state_path.read_bytes() == before

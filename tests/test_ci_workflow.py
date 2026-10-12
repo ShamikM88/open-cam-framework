@@ -348,7 +348,7 @@ def test_the_security_job_audits_every_requirements_file_and_the_workflows():
 
 
 def test_the_environment_and_coverage_records_are_uploaded_even_when_a_step_fails():
-    for job_id in ("test", "runtime-smoke", "security")
+    for job_id in ("test", "runtime-smoke", "security"):
         body = split_jobs(workflow_text())[job_id]
         assert "pip freeze >" in body
         step = next(s for s in body.split("\n      - name: ") if "actions/upload-artifact@" in s)

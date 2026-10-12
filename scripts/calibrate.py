@@ -6,6 +6,7 @@ import argparse
 from anthropic import Anthropic
 from pypdf import PdfReader
 from template_resolver import local_cam_template_path
+from response_utils import EmptyModelResponseError, require_response_text
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -242,7 +243,7 @@ def _complete(model, prompt, max_tokens=3000):
         # guards against: a cut-off result flowing on without a word.
         print(f"[WARN] A response was cut off at the {max_tokens}-token output limit; "
               "the style guide/template may be incomplete.")
-    return response.content[0].text
+    return require_response_text(response, "Calibration")
 
 
 def _merge_parts(parts, merge_prompt, model, label):
@@ -379,4 +380,7 @@ if __name__ == "__main__":
              "prompts on a terminal and falls back to 'split' when there is none.",
     )
     args = parser.parse_args()
-    run_calibration(args.type, mock=args.mock, on_overflow=args.on_overflow)
+    try:
+        run_calibration(args.type, mock=args.mock, on_overflow=args.on_overflow)
+    except EmptyModelResponseError as exc:
+        sys.exit(f"error: {exc}")

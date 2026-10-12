@@ -1955,3 +1955,28 @@ def test_run_pipeline_rejects_non_finite_stress_assumptions_before_model_call(pr
 
     assert client.call_count == 0
     assert _deal_files() == before
+
+
+def test_run_pipeline_rejects_non_finite_persisted_raw_state_before_model_call(project_root):
+    path = state_path("Synthetic Co", "Synthetic Facility", date_str="2026-01-01")
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({
+            "company": "Synthetic Co",
+            "proposal": "Synthetic Facility",
+            "date": "2026-01-01",
+            "multi_period_financials": {"FY-Current": {"revenue": float("inf")}},
+            "financials": {},
+            "ratios": {},
+        }, f, allow_nan=True)
+    before = _deal_files()
+    client = MockClient([])
+
+    with pytest.raises(ValueError, match="non-finite numeric value.*multi_period_financials"):
+        run_pipeline(
+            "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            client=client,
+        )
+
+    assert client.call_count == 0
+    assert _deal_files() == before

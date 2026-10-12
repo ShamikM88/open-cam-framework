@@ -83,7 +83,7 @@ python scripts/check_coverage.py coverage.json
 What the rules ask of you, in short (the full description is in [Testing and CI](testing.md)):
 
 - **Test the change.** New behaviour comes with tests that fail without it; a bug fix comes with a test that reproduces it. The tests that guard a rule also demonstrate they *can* fail (see how `tests/test_docs_contracts.py` runs each check on deliberately wrong input).
-- **Respect the floors.** 95% overall, 97% for each of eight governance modules, and 90% for the lines your pull request changes. Code that only runs on Windows needs `# pragma: no cover - <reason>`.
+- **Respect the floors.** 95% overall, 97% for each of eight governance modules, and, for the lines your pull request changes, 95% (98% in a governance module). Code that only runs on Windows needs `# pragma: no cover - <reason>`.
 - **No warning, network or hang.** Warnings fail the run, `pytest-socket` forbids network access, and a test that runs over 120 seconds fails.
 - **Encoding.** Every `open()` of a text file passes `encoding=` (the UTF-8 policy; ruff enforces it), and every script's `__main__` block starts with `from textio import configure_stdio` then `configure_stdio()`.
 - **A new CLI** is added to the list in `tests/test_cli_subprocess.py`; a finding in `scripts/` is fixed or carries a `# noqa: <code>` with the reason beside it.

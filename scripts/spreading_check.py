@@ -207,10 +207,9 @@ def main(argv=None):
         with open(args.stress_assumptions, encoding="utf-8") as f:
             stress_assumptions = json.load(f)
 
-    validate_finite_numbers(multi_period_financials, path="financial inputs")
-    validate_finite_numbers(stress_assumptions, path="stress assumptions")
-
     try:
+        validate_finite_numbers(multi_period_financials, path="financial inputs")
+        validate_finite_numbers(stress_assumptions, path="stress assumptions")
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
                          update_financials_source=args.update_financials_source)
     except (StateError, NonFiniteNumberError) as exc:

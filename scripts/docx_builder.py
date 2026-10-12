@@ -300,6 +300,31 @@ def _is_block_boundary(line):
     )
 
 
+def _sanitize_xml_invalid_characters(text):
+    """Replace characters forbidden by XML 1.0 and report one aggregate warning."""
+    safe = []
+    replaced = 0
+    for char in text:
+        codepoint = ord(char)
+        allowed = (
+            codepoint in (0x09, 0x0A, 0x0D)
+            or 0x20 <= codepoint <= 0xD7FF
+            or 0xE000 <= codepoint <= 0xFFFD
+            or 0x10000 <= codepoint <= 0x10FFFF
+        )
+        if allowed:
+            safe.append(char)
+        else:
+            safe.append("\\uFFFD")
+            replaced += 1
+    if replaced:
+        print(
+            f"[docx_builder] Replaced {replaced} XML-invalid character(s) with U+FFFD before export.",
+            file=sys.stderr,
+        )
+    return "".join(safe)
+
+
 def export_to_docx(markdown_text, output_path):
     """Render `markdown_text` as a .docx at `output_path`.
 
@@ -315,6 +340,7 @@ def export_to_docx(markdown_text, output_path):
     bullet list or genuinely blank-line-separated paragraphs for anything
     meant to read as distinct lines/fields.
     """
+    markdown_text = _sanitize_xml_invalid_characters(markdown_text)
     doc = docx.Document()
     lines = markdown_text.split("\n")
     i, n = 0, len(lines)

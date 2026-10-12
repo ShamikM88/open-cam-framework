@@ -825,5 +825,5 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError) as exc:
+    except (StateError, MissingCredentialsError, NonFiniteNumberError) as exc:
         sys.exit(f"error: {exc}")

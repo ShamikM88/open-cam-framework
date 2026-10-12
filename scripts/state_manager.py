@@ -85,6 +85,21 @@ STATE_SHAPES = {
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
 FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
+# State fields whose numeric contents participate in framework-computed financial or policy decisions.
+FINITE_NUMERIC_STATE_KEYS = (
+    "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
+    "stress_assumptions", "downside_case", "covenants",
+)
+
+
+def validate_finite_state_numbers(state, path="state.json"):
+    """Reject non-finite numbers in financial/policy data, without inspecting unrelated state keys."""
+    for key in FINITE_NUMERIC_STATE_KEYS:
+        if key in state:
+            validate_finite_numbers(state[key], path=f"{path}[{key!r}]")
+    return state
+
+
 _SHAPE_DESCRIPTIONS = {
     "object": "an object ({...})",
     "periods": 'an object keyed by period whose values are objects (e.g. {"FY-Current": {...}})',
@@ -387,7 +402,7 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
                 "from a backup or fix it by hand before continuing."
             ) from e
     try:
-        validate_finite_numbers(state, path=path)
+        validate_finite_state_numbers(state, path=path)
     except NonFiniteNumberError as exc:
         raise StateShapeError(
             f"state.json at {path} contains {exc}. Fix it by hand or restore it from a backup; nothing was changed."
@@ -423,7 +438,7 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
     """
     # Reject invalid numeric values before path creation or state mutation.
     try:
-        validate_finite_numbers(fields, path="state update")
+        validate_finite_state_numbers(fields, path="state update")
     except NonFiniteNumberError as exc:
         raise StateShapeError(
             f"Refusing to write state.json: {exc}. No state was changed."
@@ -481,7 +496,7 @@ def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
     try:
-        validate_finite_numbers(state, path=path)
+        validate_finite_state_numbers(state, path=path)
     except NonFiniteNumberError as exc:
         raise StateShapeError(
             f"Refusing to write state.json: {exc}. No state was changed."

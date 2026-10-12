@@ -5,14 +5,6 @@ class NonFiniteNumberError(ValueError):
     """A financial input or computed value contains NaN or infinity."""
 
 
-def is_finite_number(value):
-    if isinstance(value, bool):
-        return False
-    if isinstance(value, int):
-        return True
-    return isinstance(value, float) and math.isfinite(value)
-
-
 def validate_finite_numbers(value, path="input"):
     if isinstance(value, float):
         if not math.isfinite(value):

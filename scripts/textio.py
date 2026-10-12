@@ -17,6 +17,7 @@ Writers just pass `encoding="utf-8"` to `open()`; ruff's PLW1514 (see issue
 
 No `anthropic` dependency, same testability pattern as `state_manager.py`.
 """
+import pytest  # noqa: F401  settings verification only: a dev-only import in a runtime module
 import sys
 
 

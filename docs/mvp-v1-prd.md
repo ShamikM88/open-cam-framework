@@ -204,9 +204,10 @@ Checker's own review (R3's `_apply_deterministic_policy_checks()`), not before t
 mismatch forces REJECTED regardless of what the Checker itself concluded. This is narrower than "every number in
 the narrative": a figure that appears in the drafted prose but was never captured in the Maker's structured
 declaration is not guaranteed to be checked by this mechanism - the implementation does not currently detect
-undeclared numeric figures. Analyst-supplied figures are outside this check by definition - the framework has no
-independently computed value to check them against - and carry their own explicit caveat instead (D4,
-[Evidence appendix](#evidence-appendix)). *Acceptance:* for every metric the Maker declares in
+undeclared numeric figures. For an analyst-supplied deal, the ground-truth figure source is the recorded
+analyst-supplied value, so this check verifies that the Maker's declared figure agrees with what was recorded.
+It does not independently verify that the analyst-supplied value itself is accurate; that value still carries its
+own explicit caveat (D4, [Evidence appendix](#evidence-appendix)). *Acceptance:* for every metric the Maker declares in
 `reported_figures`, the declared value is within 0.5% of that metric's computed ground truth; a mismatch forces
 REJECTED via the code-enforced overlay regardless of the Checker's own verdict - tested by
 `tests/test_orchestrator.py`'s `test_apply_deterministic_policy_checks_rejects_a_mismatched_reported_figure`.

@@ -210,6 +210,8 @@ def main(argv=None):
                 stress_assumptions = json.load(f)
     except json.JSONDecodeError as exc:
         sys.exit(f"error: invalid JSON in {input_path}: {exc}")
+    except OSError as exc:
+        sys.exit(f"error: cannot read {input_path}: {exc}")
 
     try:
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,

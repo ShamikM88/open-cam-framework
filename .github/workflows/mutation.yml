@@ -88,6 +88,10 @@ jobs:
             echo "The per-module report could not be produced; see mutation-all.txt." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Record the resolved mutation dependency versions
+        if: always()
+        run: pip freeze > pip-freeze-mutation.txt
+
       - name: Upload the report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -95,6 +99,7 @@ jobs:
           name: mutation-report
           path: |
             mutmut-run.log
+            pip-freeze-mutation.txt
             mutation-survivors.txt
             mutation-all.txt
             mutation-report.json

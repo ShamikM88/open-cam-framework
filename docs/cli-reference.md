@@ -135,10 +135,12 @@ the git-tracked `templates/cam/` -- see the confidentiality rule in `CLAUDE.md`)
 `date_str` isn't given (a bare library call has nothing else to go on), so every caller that
 has a deal in progress must resolve the date itself: `orchestrator.py` passes the `date_str`
 it already resolved at the start of its run, and the CLI takes an optional `--date-str` that
-otherwise falls back to `state_manager.resolve_date_str()`'s auto-discovery (the deal's
-existing dated folder, most recent wins, else today for a brand-new deal; only a folder named
-exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims another deal's
-`Fleet_Q2_2026-05-01`, and `--date-str` must itself be a `YYYY-MM-DD` date). Without this a deal
+otherwise falls back to `state_manager.resolve_date_str()`'s auto-discovery (the most recent dated
+folder containing `state.json`, else today for a brand-new deal; an output-only folder created by
+an explicit `--date-str` is ignored, but a present malformed `state.json` remains selected so its
+existing corruption error is surfaced. Only a folder named exactly `<proposal>_<YYYY-MM-DD>`
+counts, so proposal `Fleet` never claims another deal's `Fleet_Q2_2026-05-01`, and `--date-str`
+must itself be a `YYYY-MM-DD` date). Without this a deal
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
 patch to re-home `state.json`.

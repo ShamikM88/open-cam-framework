@@ -94,6 +94,8 @@ FINITE_NUMERIC_STATE_KEYS = (
 
 def validate_finite_state_numbers(state, path="state.json"):
     """Reject non-finite numbers in financial/policy data, without inspecting unrelated state keys."""
+    if not isinstance(state, dict):
+        return state  # validate_state() reports the existing top-level shape error
     for key in FINITE_NUMERIC_STATE_KEYS:
         if key in state:
             validate_finite_numbers(state[key], path=f"{path}[{key!r}]")

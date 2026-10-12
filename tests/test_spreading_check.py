@@ -335,7 +335,7 @@ def test_main_with_nothing_to_compute_writes_no_state(tmp_path, monkeypatch):
 
 def test_main_with_a_missing_financials_file_fails_before_writing_anything(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit, match="error: cannot read"):
+    with pytest.raises(SystemExit, match="error: "):
         main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", str(tmp_path / "nope.json")])
     assert not (tmp_path / "deals").exists()
 

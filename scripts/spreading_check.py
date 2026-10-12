@@ -23,6 +23,7 @@ import sys
 
 from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
 from state_manager import StateError, read_state, write_state
+from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
@@ -206,10 +207,13 @@ def main(argv=None):
         with open(args.stress_assumptions, encoding="utf-8") as f:
             stress_assumptions = json.load(f)
 
+    validate_finite_numbers(multi_period_financials, path="financial inputs")
+    validate_finite_numbers(stress_assumptions, path="stress assumptions")
+
     try:
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
                          update_financials_source=args.update_financials_source)
-    except StateError as exc:
+    except (StateError, NonFiniteNumberError) as exc:
         sys.exit(f"error: {exc}")
     print(json.dumps({
         "financials": state.get("financials"),

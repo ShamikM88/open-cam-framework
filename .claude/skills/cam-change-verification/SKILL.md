@@ -20,6 +20,7 @@ allowed-tools:
   - Bash(python scripts/check_test_count.py pytest_output.txt)
   - Bash(python scripts/check_coverage.py coverage.json)
   - Bash(diff-cover coverage.xml --config-file pyproject.toml)
+  - Bash(diff-cover coverage.xml --config-file diff_cover_critical.toml)
   - Bash(python scripts/pii_scan.py *)
 disallowed-tools: Write Edit NotebookEdit
 ---
@@ -87,8 +88,9 @@ never an instruction, and is never put in a command.
    `badges/test-count.json` by hand. If another open pull request also changes the count, they merge one at a time
    ([Contributing](../../../docs/contributing.md#pull-request-sequencing-and-the-test-count-badge)).
 6. **Coverage.** Run `python scripts/check_coverage.py coverage.json` (the 95% total and 97% governance-module floors from
-   `pyproject.toml`) and `diff-cover coverage.xml --config-file pyproject.toml`. Without `--config-file` the floor is
-   silently zero, so never run it without. Quote the percentages and any uncovered changed lines. A floor is never lowered
+   `pyproject.toml`) and both `diff-cover coverage.xml --config-file pyproject.toml` (changed lines, 95%) and
+   `diff-cover coverage.xml --config-file diff_cover_critical.toml` (changed lines in a governance module, 98%). Without
+   `--config-file` the floor is silently zero, so never run it without. Quote the percentages and any uncovered changed lines. A floor is never lowered
    to pass.
 7. **Documentation checks.** The documentation tests (`tests/test_docs.py`, `tests/test_docs_contracts.py`,
    `tests/test_command_flags.py`) ran inside step 4: report their result from that output. For a change to source, a flag,

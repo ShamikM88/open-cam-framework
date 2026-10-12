@@ -12,6 +12,7 @@ pytest                                 # the whole suite; no API key and no netw
 
 `requirements*.txt` retain the project's minimum supported versions. `constraints.txt` pins the exact package versions observed in the green Python 3.11 CI/runtime/security/mutation profiles, including transitive dependencies. Use it for normal installs so a fresh checkout starts from the tested set; do not treat updating a minimum in a requirements file as a complete dependency bump.
 
+
 CI runs Python 3.11 on Ubuntu and on Windows; Windows is the primary development platform, so a change must work with a cp1252 console, backslash paths and CRLF line endings. The basic `pytest` command above is serial. To match CI's test profile, Ubuntu runs `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage and Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` supplies `-n`, `--dist=loadfile` keeps each test file on one worker, and `--durations=30` records the slowest tests.
 
 ## What is true when sources disagree
@@ -36,7 +37,7 @@ The full table, including flags, settings and security controls, is in the [docu
 3. **Change the source first**, then the page that explains it, in the same pull request (next section).
 4. **Run the checks** in [Testing and static analysis](#testing-and-static-analysis) before you push.
 5. **Open a pull request** using [the shared PR template](../.github/pull_request_template.md), whether the PR is drafted in GitHub, via an API, or by an AI coding assistant. Keep the description concise for simple edits and more explicit for complex work: map acceptance criteria to evidence, explain material design choices/trade-offs, state behavior or compatibility changes, and list known limitations. Use the dedicated **Documentation changes** section to name updated docs/examples/CLI help/configuration/workflow/prompt/skill guidance; if none changed, say so and explain why. Put scope-boundary claims in "Safety, compatibility, and scope," where a reviewer can check them against the diff. Keep the **AI assistance disclosure as the final section**: identify every AI tool/product and exact model that contributed, describe each contribution (planning, implementation, tests, docs, or review), and say `None` if no AI contributed. Do not guess a model identifier or describe a review-only contribution as generated code. A tool's own attribution footer may follow the disclosure but does not replace it. Keep validation results tied to the current PR head and refresh them after rebases or new commits.
-6. **Merge through the ruleset.** `main` takes changes through a pull request with the `test` check passing and up to date; the maintainer merges. Do not push to `main`.
+6. **Merge through the ruleset.** `main` takes changes through a pull request with the `test`, `test-windows` and `runtime-smoke` checks passing and the branch up to date; the maintainer merges. Do not push to `main`.
 
 ## Keeping the documentation in step
 
@@ -85,7 +86,7 @@ python scripts/check_coverage.py coverage.json
 What the rules ask of you, in short (the full description is in [Testing and CI](testing.md)):
 
 - **Test the change.** New behaviour comes with tests that fail without it; a bug fix comes with a test that reproduces it. The tests that guard a rule also demonstrate they *can* fail (see how `tests/test_docs_contracts.py` runs each check on deliberately wrong input).
-- **Respect the floors.** 95% overall, 97% for each of eight governance modules, and 90% for the lines your pull request changes. Code that only runs on Windows needs `# pragma: no cover - <reason>`.
+- **Respect the floors.** 95% overall, 97% for each of eight governance modules, and, for the lines your pull request changes, 95% (98% in a governance module). Code that only runs on Windows needs `# pragma: no cover - <reason>`.
 - **No warning, network or hang.** Warnings fail the run, `pytest-socket` forbids network access, and a test that runs over 120 seconds fails.
 - **Encoding.** Every `open()` of a text file passes `encoding=` (the UTF-8 policy; ruff enforces it), and every script's `__main__` block starts with `from textio import configure_stdio` then `configure_stdio()`.
 - **A new CLI** is added to the list in `tests/test_cli_subprocess.py`; a finding in `scripts/` is fixed or carries a `# noqa: <code>` with the reason beside it.

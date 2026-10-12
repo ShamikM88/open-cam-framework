@@ -27,6 +27,7 @@ cheap to unit test and safe to run standalone.
 import argparse
 import json
 import re
+import sys
 
 # A bracketed [placeholder] is the templates' own convention for "not real
 # data" (see templates/cam/*.md) -- every pattern below is checked against
@@ -126,7 +127,11 @@ if __name__ == "__main__":
     parser.add_argument("path", help="Path to the template file to scan")
     args = parser.parse_args()
 
-    with open(args.path, encoding="utf-8") as f:
-        content = f.read()
+    try:
+        with open(args.path, encoding="utf-8") as f:
+            content = f.read()
+        findings = scan_for_likely_real_data(content)
+    except OSError as exc:
+        sys.exit(f"error: {exc}")
 
-    print(json.dumps({"findings": scan_for_likely_real_data(content)}, indent=2))
+    print(json.dumps({"findings": findings}, indent=2))

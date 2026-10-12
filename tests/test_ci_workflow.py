@@ -286,7 +286,7 @@ def test_the_windows_job_runs_the_suite_on_windows():
 
 def test_the_runtime_job_installs_only_the_runtime_requirements():
     body = split_jobs(workflow_text())["runtime-smoke"]
-    installs = [line.strip() for line in body.splitlines() if re.search(r"^\\s*pip install ", line)]
+    installs = [line.strip() for line in body.splitlines() if re.search(r"^\s*pip install ", line)]
     assert installs == ["pip install -c constraints.txt -r requirements.txt"]
     assert "tests/runtime_smoke.py --expect-clean" in body
 
@@ -294,7 +294,7 @@ def test_the_runtime_job_installs_only_the_runtime_requirements():
 def test_every_python_install_profile_uses_the_shared_constraints_file():
     for job_id in REQUIRED_JOBS:
         body = split_jobs(workflow_text())[job_id]
-        install_lines = [line for line in body.splitlines() if re.search(r"\\bpip install\\b", line)]
+        install_lines = [line for line in body.splitlines() if re.search(r"\bpip install\b", line)]
         assert install_lines, job_id
         assert all("-c constraints.txt" in line for line in install_lines), (job_id, install_lines)
         assert "constraints.txt" in body, f"{job_id} cache must include the constraints file"
@@ -317,7 +317,7 @@ def test_constraints_file_uniquely_pins_every_declared_requirement():
         line = raw_line.partition("#")[0].strip()
         if not line:
             continue
-        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^\\s;]+)", line)
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^\s;]+)", line)
         assert match, f"constraints.txt entries must be exact pins: {raw_line!r}"
         name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
         assert name not in pins, f"duplicate normalized constraint: {name}"
@@ -330,7 +330,7 @@ def test_constraints_file_uniquely_pins_every_declared_requirement():
             line = raw_line.partition("#")[0].strip()
             if not line or line.startswith("-"):
                 continue
-            match = re.match(r"^([A-Za-z0-9_.-]+)(?:\\[[^]]+\\])?\\s*(?:===|==|~=|!=|<=|>=|<|>)", line)
+            match = re.match(r"^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(?:===|==|~=|!=|<=|>=|<|>)", line)
             assert match, f"unrecognised requirement syntax in {filename}: {raw_line!r}"
             name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
             assert name in pins, f"{filename} dependency {name} has no exact constraint pin"

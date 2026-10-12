@@ -218,7 +218,7 @@ def test_plan_fields_takes_historical_raw_years_on_an_analyst_supplied_forecast_
     assert "financials_source" not in fields, "the basis label is not rewritten"
     assert fields["financials"]["FY-Current"]["raw"]["revenue"] == 1000
     assert fields["multi_period_financials"] == historical
-    with pytest.raises(ValueError, match="one deal never mixes the two modes"):
+    with pytest.raises(ValueError, match="would stamp the whole deal framework-computed"):
         plan_fields(existing, historical, update_financials_source=True)
     assert existing == {"forecast_source": "analyst-supplied", "financials_source": "analyst-supplied"}, "input untouched"
 

@@ -110,6 +110,10 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
 - `--financials` is a JSON file of raw line items per period (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`,
   any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
   own forecast, never derived by the tool.
+  Periods are merged into the deal's recorded `multi_period_financials` rather than replacing the whole
+  history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
+  `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
+  matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
 - `--collateral` is a JSON file holding a flat list of asset objects.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,

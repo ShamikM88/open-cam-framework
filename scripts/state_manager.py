@@ -177,10 +177,17 @@ _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def validate_iso_date_str(value, field_name="date_str"):
-    """Require an exact ISO date that exists on the calendar."""
+def validate_iso_date_str(value, field_name="date_str", require_shape=True):
+    """Validate ISO-shaped dates against the calendar.
+
+    The CLI requires the exact YYYY-MM-DD shape. The state-manager API preserves its
+    historical acceptance of non-ISO date suffixes (which discovery deliberately ignores),
+    but refuses impossible real-calendar dates such as 2026-02-31.
+    """
     if not isinstance(value, str) or not _ISO_DATE_RE.fullmatch(value):
-        raise ValueError(f"{field_name} {value!r} must be a valid YYYY-MM-DD calendar date")
+        if require_shape:
+            raise ValueError(f"{field_name} {value!r} must be a YYYY-MM-DD date")
+        return value
     try:
         date.fromisoformat(value)
     except ValueError as exc:
@@ -300,7 +307,9 @@ def _existing_date_str(company, proposal, base_dir=None):
 
 def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
     if date_str:
-        return validate_iso_date_str(date_str)
+        # Preserve the legacy state-manager API for non-ISO suffixes, which discovery
+        # ignores, while refusing ISO-shaped impossible calendar dates at the boundary.
+        return validate_iso_date_str(date_str, require_shape=False)
     if new_review:
         # Force today's date rather than resuming the most recent existing
         # folder -- e.g. a new annual review for the same company/proposal

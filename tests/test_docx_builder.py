@@ -1,6 +1,7 @@
 import struct
 import zlib
 
+import pytest
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn

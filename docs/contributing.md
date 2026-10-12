@@ -6,9 +6,11 @@ Practical guidance for changing this repository: what to treat as true, what mus
 
 ```bash
 python -m venv venv                    # then activate it (venv\Scripts\activate on Windows)
-pip install -r requirements-dev.txt    # runtime requirements + pytest, pytest-xdist, ruff, bandit and coverage tools
+pip install -c constraints.txt -r requirements-dev.txt    # install the reviewed, pinned CI dependency set
 pytest                                 # the whole suite; no API key and no network needed
 ```
+
+`requirements*.txt` retain the project's minimum supported versions. `constraints.txt` pins the exact package versions observed in the green Python 3.11 CI/runtime/security/mutation profiles, including transitive dependencies. Use it for normal installs so a fresh checkout starts from the tested set; do not treat updating a minimum in a requirements file as a complete dependency bump.
 
 CI runs Python 3.11 on Ubuntu and on Windows; Windows is the primary development platform, so a change must work with a cp1252 console, backslash paths and CRLF line endings. The basic `pytest` command above is serial. To match CI's test profile, Ubuntu runs `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage and Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` supplies `-n`, `--dist=loadfile` keeps each test file on one worker, and `--durations=30` records the slowest tests.
 

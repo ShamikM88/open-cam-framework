@@ -253,7 +253,7 @@ def test_lowercase_and_mixed_case_verdicts_are_rejected(sentence, tmp_path):
     name = "unsupported_narrative_claim"
     folder = folder_for(tmp_path, name)
     report = SCENARIOS[name][1]
-    broken = report.replace("\\n> Analyst aid", f"\\n{sentence}\\n\\n> Analyst aid")
+    broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
     assert any("verdict word" in problem for problem in report_problems(broken, folder, SPEC, items=1)), sentence
 
 

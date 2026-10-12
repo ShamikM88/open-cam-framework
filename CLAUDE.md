@@ -499,7 +499,7 @@ must meet; the full description of each (what it checks, how it is tested, why) 
 - **Pytest.** `filterwarnings = ["error"]`, `--disable-socket` (no test opens a network connection) and a
   120-second per-test timeout. Install `requirements-dev.txt` before running `pytest`, or pytest rejects the
   options.
-- **Coverage.** Line + branch over `scripts/`. CI enforces an 85% overall floor, a 90% floor on each of eight
+- **Coverage.** Line + branch over `scripts/`. CI enforces a 95% overall floor, a 97% floor on each of eight
   governance modules (`policy_engine`, `policy_checks`, `policy_check`, `spreading_builder`, `spreading_check`,
   `state_manager`, `deal_export`, `docx_builder`) and 90% on the lines a pull request changes
   (`diff-cover ... --config-file pyproject.toml`; without `--config-file` the floor is silently 0).

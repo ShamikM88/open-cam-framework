@@ -90,7 +90,7 @@ bandit -r scripts/ -ll
 run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
 hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
 before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`). CI
-enforces an 85% overall floor, a 90% floor on each of eight governance modules, and 90% on the lines a
+enforces a 95% overall floor, a 97% floor on each of eight governance modules, and 90% on the lines a
 pull request changes; the numbers and the module list live in `pyproject.toml`. To check locally:
 ```bash
 pytest --cov --cov-report=json
@@ -158,7 +158,7 @@ running `pytest`, or pytest rejects the options.
 **Coverage**: `pytest --cov` measures line + branch coverage of `scripts/`. `# pragma: no cover` is allowed
 only with a reason on the same line (`# pragma: no cover - why`; `tests/test_repo_conventions.py`).
 CI enforces the floors in `pyproject.toml`: `[tool.opencam.coverage]` (read by `scripts/check_coverage.py`)
-sets an **overall floor of 85%** and a **90% floor for each of eight governance modules** on its own --
+sets an **overall floor of 95%** and a **97% floor for each of eight governance modules** on its own --
 `policy_engine`, `policy_checks`, `policy_check` (covenant/security/CP evaluation and the draft audit),
 `spreading_builder`, `spreading_check` (every ratio the CAM reports), `state_manager`, `deal_export`,
 `docx_builder` (persisted state and the exported documents) -- because one overall number would let a

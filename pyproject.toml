@@ -51,8 +51,8 @@ exclude_also = []
 # get a higher floor of their own. Raising a floor is a one-line change here; LOWERING one is a decision that needs
 # its reason in the PR (tests/test_check_coverage.py pins the minimum values and the module list).
 [tool.opencam.coverage]
-overall = 85
-critical = 90
+overall = 95
+critical = 97
 critical_modules = [
     "policy_engine", "policy_checks", "policy_check",   # covenant / security / CP evaluation and the draft audit
     "spreading_builder", "spreading_check",             # every ratio and subtotal the CAM reports

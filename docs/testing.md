@@ -91,8 +91,9 @@ bandit -r scripts/ -ll
 run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
 hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
 before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`). CI
-enforces a 95% overall floor, a 97% floor on each of eight governance modules, and 90% on the lines a
-pull request changes; the numbers and the module list live in `pyproject.toml`. To check locally:
+enforces a 95% overall floor, a 97% floor on each of eight governance modules, and 95% on the lines a
+pull request changes (98% where it changes a governance module); the numbers and the module list live in
+`pyproject.toml` and `diff_cover_critical.toml`. To check locally:
 ```bash
 pytest --cov --cov-report=json
 python scripts/check_coverage.py coverage.json
@@ -163,9 +164,11 @@ sets an **overall floor of 95%** and a **97% floor for each of eight governance 
 `policy_engine`, `policy_checks`, `policy_check` (covenant/security/CP evaluation and the draft audit),
 `spreading_builder`, `spreading_check` (every ratio the CAM reports), `state_manager`, `deal_export`,
 `docx_builder` (persisted state and the exported documents) -- because one overall number would let a
-well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **90% floor for the lines
+well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **95% floor for the lines
 a pull request changes** (`diff-cover coverage.xml --config-file pyproject.toml`, pull requests only; a
-change that touches no measured line passes). diff-cover reads `pyproject.toml` **only** with
+change that touches no measured line passes), and `diff_cover_critical.toml` holds the lines changed in one of the eight
+governance modules to **98%** (a second run, because diff-cover takes one threshold per configuration; a test keeps its
+`include` list equal to `critical_modules`). diff-cover reads `pyproject.toml` **only** with
 `--config-file`; without it the floor is silently 0 -- `tests/test_ci_workflow.py` runs CI's exact command
 against an uncovered change to prove it fails. Code that only runs on Windows looks uncovered on the Linux
 job and needs `# pragma: no cover - reason`; this applies to later pull requests that touch `scripts/`.

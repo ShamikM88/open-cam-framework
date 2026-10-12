@@ -136,15 +136,23 @@ def test_the_test_job_measures_and_enforces_coverage_from_the_pyproject_floors()
     assert diff_step and "github.event_name == 'pull_request'" in diff_step.group(1)
     assert re.search(r"run: diff-cover coverage\.xml --config-file pyproject\.toml\s*$", diff_step.group(1), re.M), \
         "the floor and base come from [tool.diff_cover]; diff-cover reads it only with --config-file"
+    critical_step = re.search(
+        r"- name: Enforce coverage of the lines this pull request changes in the governance modules\n(.*?)\n\n", body, re.S)
+    assert critical_step and "github.event_name == 'pull_request'" in critical_step.group(1)
+    assert re.search(r"run: diff-cover coverage\.xml --config-file diff_cover_critical\.toml\s*$", critical_step.group(1),
+                     re.M), "the stricter tier is its own configuration file, and diff-cover reads it only with --config-file"
     assert "fetch-depth: 0" in body, "diff-cover needs the base branch"
     for flag in ("--fail-under", "--cov-fail-under", "--update-snapshots", "--report-only"):
         assert flag not in body, f"{flag} would bypass or duplicate the pyproject.toml configuration"
 
 
-def ci_diff_cover_command():
-    step = re.search(r"- name: Enforce coverage of the lines this pull request changes\n(.*?)\n\n",
-                     split_jobs(workflow_text())["test"], re.S).group(1)
+def ci_diff_cover_command(step_name="Enforce coverage of the lines this pull request changes"):
+    step = re.search(rf"- name: {re.escape(step_name)}\n(.*?)\n\n", split_jobs(workflow_text())["test"], re.S).group(1)
     return shlex.split(re.search(r"run: (diff-cover .+)$", step, re.M).group(1))
+
+
+def ci_critical_diff_cover_command():
+    return ci_diff_cover_command("Enforce coverage of the lines this pull request changes in the governance modules")
 
 
 def _git(cwd, *args):
@@ -193,6 +201,53 @@ def test_the_diff_cover_step_really_fails_on_an_uncovered_change_and_passes_on_a
     without_config = subprocess.run([sys.executable, "-m", "diff_cover.diff_cover_tool", "coverage.xml"],
                                     cwd=tmp_path, capture_output=True, text=True, timeout=60)
     assert without_config.returncode == 0       # documents why --config-file is needed: no flag, no floor
+
+
+def _tiered_repo(tmp_path, module):
+    """A repository whose `scripts/<module>.py` changes 41 measured lines, one of which (97.6%) no test runs."""
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / f"{module}.py").write_text("X = 0\n", encoding="utf-8")
+    (tmp_path / "run.py").write_text(f"import sys\nsys.path.insert(0, 'scripts')\nimport {module}\n", encoding="utf-8")
+    (tmp_path / "cov.rc").write_text("", encoding="utf-8")
+    for name in ("pyproject.toml", "diff_cover_critical.toml"):
+        shutil.copy(REPO_ROOT / name, tmp_path / name)                           # the real floors
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-q", "-m", "base")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+    lines = [f"V{i} = {i}" for i in range(39)] + ["def g():", "    return 2"]
+    (tmp_path / "scripts" / f"{module}.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _measure(tmp_path, "run.py")                                                 # g is never called
+
+
+def _run_tier(tmp_path, command):
+    return subprocess.run([sys.executable, "-m", "diff_cover.diff_cover_tool", *command[1:]], cwd=tmp_path,
+                          capture_output=True, text=True, timeout=60)
+
+
+def test_a_changed_governance_module_is_held_to_98_percent_and_any_other_file_to_95(tmp_path):
+    """The two commands CI runs, executed for real against 97.6% coverage of the changed lines: the 95% tier passes
+    it; the 98% tier fails it for a governance module and does not look at any other file."""
+    general, critical = ci_diff_cover_command(), ci_critical_diff_cover_command()
+    assert critical[:1] == ["diff-cover"] and "diff_cover_critical.toml" in critical
+
+    governance = tmp_path / "governance"
+    governance.mkdir()
+    _tiered_repo(governance, "policy_engine")
+    assert _run_tier(governance, general).returncode == 0, "97.6% clears the 95% tier"
+    failed = _run_tier(governance, critical)
+    assert failed.returncode != 0 and "Failure" in failed.stderr, failed.stdout + failed.stderr
+
+    other = tmp_path / "other"
+    other.mkdir()
+    _tiered_repo(other, "some_helper")
+    assert _run_tier(other, general).returncode == 0
+    assert _run_tier(other, critical).returncode == 0, "the 98% tier ignores a file that is not a governance module"
+
+    (governance / "run.py").write_text(
+        "import sys\nsys.path.insert(0, 'scripts')\nimport policy_engine\npolicy_engine.g()\n", encoding="utf-8")
+    _measure(governance, "run.py")
+    assert _run_tier(governance, critical).returncode == 0, "fully covered changed lines pass"
 
 
 def test_runs_that_pipe_into_tee_fail_when_the_first_command_fails():

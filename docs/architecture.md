@@ -225,6 +225,7 @@ open-cam-framework/
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json and a sources/ subfolder (see "Source material persistence" in `CLAUDE.md`); a company also optionally holds a `_conventions.json` and a `_learnings.md` one level up, above its dated proposal folders (see "Persisted conventions" in `CLAUDE.md`)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
+├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the eight governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`
 ├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" in `CLAUDE.md`
 ├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job

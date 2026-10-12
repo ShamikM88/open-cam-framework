@@ -24,6 +24,11 @@ import sys
 from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
 from state_manager import StateError, read_state, write_state
 
+
+class FinancialSourceModeError(ValueError):
+    """The requested calculation would relabel analyst-supplied figures as framework-computed."""
+
+
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
 
@@ -36,6 +41,12 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
     does anything irreversible (for example saving a source file first) calls this first. Raises
     ValueError when there is nothing to compute, and whatever the formulas raise for a malformed value.
     Does not modify `existing_state`."""
+    if update_financials_source and existing_state.get("financials_source") == "analyst-supplied":
+        raise FinancialSourceModeError(
+            "This deal is analyst-supplied; one deal never mixes the two modes. "
+            "Use /spread's analyst-supplied mode to record financial figures."
+        )
+
     existing_multi_period = existing_state.get("multi_period_financials") or {}
     if existing_state.get("forecast_source") == "analyst-supplied":
         # The forecast on file was supplied by the analyst (issue #124, scripts/supplied_forecast.py) and is not built
@@ -209,7 +220,7 @@ def main(argv=None):
     try:
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
                          update_financials_source=args.update_financials_source)
-    except StateError as exc:
+    except (StateError, FinancialSourceModeError) as exc:
         sys.exit(f"error: {exc}")
     print(json.dumps({
         "financials": state.get("financials"),

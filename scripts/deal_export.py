@@ -13,7 +13,7 @@ import sys
 from datetime import datetime
 
 from docx_builder import export_to_docx
-from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
+from spreading_builder import HISTORICAL_PERIOD_KEYS, FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
 from template_resolver import cam_template_path, local_cam_template_path
 
@@ -88,26 +88,41 @@ def _supplied_row_values(*period_dicts):
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 values[label] = value
             elif value is None and key in SUPPLIED_RATIOS:
-                values[label] = "N/A"
-    return values
+                values[label] = "Ndef _analyst_forecast_columns(state):
+    """Return recorded values for every analyst-supplied base-case period, plus the forward-downside annotations.
 
-
-def _analyst_forecast_columns(state):
-    """(supplied base-case values, supplied downside values, forward years whose downside is unavailable, the raw
-    lines behind each framework-derived downside year) for a deal whose forecast was supplied by the analyst
-    (`forecast_source`, issue #124), else (None, None, None, None) -- which leaves the workbook exactly as it is for
-    every other deal. Those columns must show what was supplied, never a figure the workbook formulas would compute
-    from raw cells that were not the basis of the supplied numbers, and a derived downside row is shown only if every
-    line it reads was supplied."""
-    if state.get("forecast_source") != "analyst-supplied":
+    Historical values are supplied when financials_source is analyst-supplied (issue #252); forward values are
+    supplied only when forecast_source says the forecast itself was analyst-supplied (issue #124). Computed rows in
+    a supplied column must show the recorded value, or blank/N/A when none was recorded, never an Excel formula
+    that silently recalculates from raw lines that were not the basis of that value.
+    """
+    historical_supplied = state.get("financials_source") == "analyst-supplied"
+    forecast_supplied = state.get("forecast_source") == "analyst-supplied"
+    if not historical_supplied and not forecast_supplied:
         return None, None, None, None
-    financials, ratios = state.get("financials"), state.get("ratios")
+
+    financials = state.get("financials")
+    financials = financials if isinstance(financials, dict) else {}
+    ratios = state.get("ratios")
+    ratios = ratios if isinstance(ratios, dict) else {}
     supplied = {}
-    for period in FORWARD_PERIOD_KEYS:
-        period_financials = financials.get(period) if isinstance(financials, dict) else None
-        period_ratios = ratios.get(period) if isinstance(ratios, dict) else None
-        if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
-            supplied[period] = _supplied_row_values(period_financials, period_ratios)
+
+    if historical_supplied:
+        for period in HISTORICAL_PERIOD_KEYS:
+            period_financials = financials.get(period)
+            period_ratios = ratios.get(period)
+            if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
+                supplied[period] = _supplied_row_values(period_financials, period_ratios)
+
+    if forecast_supplied:
+        for period in FORWARD_PERIOD_KEYS:
+            period_financials = financials.get(period)
+            period_ratios = ratios.get(period)
+            if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
+                supplied[period] = _supplied_row_values(period_financials, period_ratios)
+    else:
+        return supplied or None, None, None, None
+
     downside = state.get("downside_case")
     downside = downside if isinstance(downside, dict) else {}
     basis = downside.get("basis") if isinstance(downside.get("basis"), dict) else {}
@@ -126,7 +141,8 @@ def _analyst_forecast_columns(state):
         for period, how in basis.items()
         if how != "analyst-supplied" and period in FORWARD_PERIOD_KEYS and period not in unavailable
     }
-    return supplied, supplied_downside, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
+    return supplied or None, supplied_downside or None, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
+D_PERIOD_KEYS}, derived
 
 
 def _collateral_data_from_state(state):

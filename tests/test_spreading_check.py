@@ -371,3 +371,28 @@ def test_main_rejects_an_unknown_flag_and_help_lists_every_flag(capsys):
     text = capsys.readouterr().out
     for flag in ("--company", "--proposal", "--financials", "--stress-assumptions", "--no-update-financials-source"):
         assert flag in text, flag
+
+
+def test_compute_refuses_framework_mode_for_analyst_supplied_financials_without_writing_state(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials_source_note="Synthetic institution convention.",
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+        financials={"FY-Current": {"raw": {"revenue": 5000, "cost_of_sales": 3000}}},
+    )
+    state_path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match="one deal never mixes the two modes"):
+        compute(
+            "Acme Corp", "Fleet Loan",
+            multi_period_financials={
+                "FY-Current": {"revenue": 5100, "cost_of_sales": 3050, "admin_expenses": 1000},
+            },
+        )
+
+    assert state_path.read_bytes() == before

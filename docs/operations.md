@@ -90,6 +90,35 @@ To run it by hand (Linux or macOS only; mutmut forks): `pip install -r requireme
 
 When `tests/test_golden_outputs.py` fails, decide first whether the change was intended. If a dependency bump caused it, check that the difference is cosmetic (a serialisation detail) before regenerating. If it was intended, run `pytest tests/test_golden_outputs.py --update-snapshots`, read the diff like code, and commit the snapshots with the change. A missing snapshot fails instead of being created, and CI never regenerates.
 
+## Re-tuning test parallelism
+
+**Purpose.** CI runs the suite with a fixed number of pytest-xdist workers (`-n 4` on Ubuntu, `-n 2` on Windows), chosen by measurement in issue #212. As the suite grows those counts can stop being the best choice, and the only reliable way to choose again is to measure again. `.github/workflows/ci-parallelism-benchmark.yml` does the measuring. It runs only when started by hand and is never a gate.
+
+**When.** When the suite step of ordinary CI runs has become clearly slower than the last measured baseline (its link is at the top of the workflow file), over several runs rather than one: hosted runners vary.
+
+**Run it.**
+
+1. Use `main`, or a branch whose CI is green and whose `badges/test-count.json` is current. The Linux jobs also run the test-count, coverage-floor and changed-line checks, and a failure there says nothing about speed.
+2. Start it from the Actions tab (CI Parallelism Benchmark, Run workflow) or with `gh workflow run ci-parallelism-benchmark.yml --ref main`. One dispatch is 18 jobs (two operating systems, three worker counts, three repeats), at most six at a time, so start it when nothing else is waiting for runners.
+3. Each job writes a one-row table to its summary on the run page: operating system, workers, repeat, pytest's elapsed time, the coverage total (Ubuntu only) and pytest's result line. The full `pytest_output.txt`, and on Ubuntu the coverage files, are kept as artifacts for 30 days (`gh run download <run id>`).
+
+**Read it.**
+
+- Use pytest's elapsed time, not the job's duration, which includes queueing and setup.
+- For each operating system and worker count, take the median of the three repeats. Never compare single runs: in #212 the fastest and slowest of three runs of one configuration differed by up to 45%.
+- Every job must report the same passed and xfailed counts, and every Ubuntu job the same coverage total. If they differ, the runs did not run the same tests and their timings are not comparable.
+
+**Decide.** Prefer the smallest worker count whose median is within a few per cent of the best one; more workers add start-up cost and contention for little gain. Keep a fixed count rather than `-n auto`, whose value depends on the runner.
+
+**Apply.** If the choice changes, change these in one pull request:
+
+- the `-n` value in `.github/workflows/ci.yml`;
+- the same command in [the full-suite section](#verify-a-change-the-full-suite) above and in [Testing and CI](testing.md);
+- the strings `tests/test_ci_workflow.py` pins (it pins the benchmark's commands as well, so keep the two workflows in step);
+- the baseline link at the top of the benchmark workflow.
+
+Put the table of medians on the pull request or its issue so the next tuning has a baseline. This page does not hold results.
+
 ## Dependencies and advisories
 
 **Purpose.** The deterministic core has few dependencies, and the audit exists to find out when one becomes unsafe.

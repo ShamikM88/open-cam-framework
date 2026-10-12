@@ -68,9 +68,10 @@ The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every modul
 without a key: Ubuntu uses `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, and
 Windows uses `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` (included in
 `requirements-dev.txt`) supplies `-n`; `--dist=loadfile` keeps each test file on one worker, and
-`--durations=30` reports the 30 slowest tests. The plain `pytest` command above remains a useful
-serial local run. Dedicated test files cover the dependency-free modules directly
-(`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
+`--durations=30` reports the 30 slowest tests. The worker counts were chosen by measurement (issue #212);
+[re-tuning test parallelism](operations.md#re-tuning-test-parallelism) says how to measure again as the suite
+grows. The plain `pytest` command above remains a useful serial local run. Dedicated test files cover the
+dependency-free modules directly (`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
 `deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
 `pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
 `check_test_count.py`, `check_coverage.py`) plus a

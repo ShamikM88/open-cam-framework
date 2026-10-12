@@ -50,7 +50,7 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | `badges/test-count.json` | The checked-in passing-test count, kept honest by CI | [testing](docs/testing.md) |
 | `deals/` | Generated output, one folder per `[Company]/[Proposal]_[Date]` with `state.json` and `sources/` (git-ignored) | [data model](docs/data-model.md) |
 | `inputs/` | Calibration samples and credit policy documents (git-ignored) | [security](docs/security.md) |
-| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`) and the weekly `mutation.yml` | [testing](docs/testing.md) |
+| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`), the weekly `mutation.yml` and the manual-only `ci-parallelism-benchmark.yml` | [testing](docs/testing.md), [operations](docs/operations.md#re-tuning-test-parallelism) |
 | `pyproject.toml` | The one place for tool settings: ruff, pytest, coverage floors, mutation scope | [testing](docs/testing.md) |
 
 The complete annotated tree is in [docs/architecture.md](docs/architecture.md#repository-map).

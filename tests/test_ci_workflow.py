@@ -363,6 +363,101 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
     assert "diff-cover coverage.xml --config-file pyproject.toml" in benchmark
 
 
+# ---------------------------------------------------------------------------
+# The parallelism benchmark kept for the next tuning pass (issue #269)
+# ---------------------------------------------------------------------------
+
+BENCHMARK_WORKFLOW = WORKFLOW.parent / "ci-parallelism-benchmark.yml"
+SUMMARY_STEP = "Write the timing to the job summary"
+
+
+def benchmark_summary_step():
+    """(the summary step's YAML before `run:`, the Python it runs). The step uses `shell: python`, so its script is
+    read out of the workflow and run by the tests exactly as the runner would run it."""
+    text = BENCHMARK_WORKFLOW.read_text(encoding="utf-8")
+    (step,) = [s for s in text.split("\n      - name: ") if s.startswith(SUMMARY_STEP)]
+    head, _, body = step.partition("\n        run: |\n")
+    lines = []
+    for line in body.splitlines():
+        if line.strip() and not line.startswith("          "):
+            break
+        lines.append(line)
+    return head, textwrap.dedent("\n".join(lines))
+
+
+def run_benchmark_summary(tmp_path, log_bytes, os_name, workers, repeat):
+    """Run the step's script in `tmp_path` with the environment the runner gives it; return the summary's lines."""
+    if log_bytes is not None:
+        (tmp_path / "pytest_output.txt").write_bytes(log_bytes)
+    summary = tmp_path / "step_summary.md"
+    summary.write_text("an earlier step's summary\n", encoding="utf-8")
+    env = {**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "BENCHMARK_OS": os_name,
+           "BENCHMARK_WORKERS": workers, "BENCHMARK_REPEAT": repeat}
+    _, script = benchmark_summary_step()
+    subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env, check=True, capture_output=True,
+                   timeout=60)
+    return summary.read_text(encoding="utf-8").splitlines()
+
+
+def test_the_benchmark_header_carries_its_instructions_and_points_at_the_runbook():
+    """The workflow is kept for a later tuning pass, so it says how to use it where a maintainer will find it: never a
+    gate, what it costs, what branch to run it on, medians not single runs, and where the last baseline is."""
+    header = BENCHMARK_WORKFLOW.read_text(encoding="utf-8").split("\non:\n", 1)[0]
+    for phrase in ("Never a gate", "18 jobs", "badges/test-count.json", "median of the three repeats",
+                   "issues/212#issuecomment-", '"Re-tuning test parallelism"'):
+        assert phrase in header, phrase
+    runbook = (REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8")
+    assert "\n## Re-tuning test parallelism\n" in runbook, "the header names a runbook section that must exist"
+
+
+def test_the_benchmark_summary_step_runs_last_on_every_job_and_takes_the_matrix_from_the_environment():
+    """`if: always()`: a job whose gate failed still reports its timing. The matrix values reach the script through
+    `env:`, never through an expression inside `run:` (the injection test above checks every workflow)."""
+    head, script = benchmark_summary_step()
+    assert "if: always()" in head and "shell: python" in head
+    for variable, key in (("BENCHMARK_OS", "os"), ("BENCHMARK_WORKERS", "workers"), ("BENCHMARK_REPEAT", "repeat")):
+        assert f"{variable}: ${{{{ matrix.{key} }}}}" in head
+        assert f'os.environ["{variable}"]' in script
+    text = BENCHMARK_WORKFLOW.read_text(encoding="utf-8")
+    assert text.index(f"- name: {SUMMARY_STEP}") > text.rindex("pytest tests/"), "after every suite run"
+
+
+LINUX_LOG = (
+    "============================= test session starts ==============================\n"
+    "Name                              Stmts   Miss Branch BrPart  Cover   Missing\n"
+    "TOTAL                              4439     45   1600     44    98%\n"
+    "================= 2850 passed, 5 xfailed in 86.41s (0:01:26) =================\n")
+WINDOWS_LOG = "============ 2850 passed, 5 xfailed in 57.20s ============\n"
+FAILED_LOG = "== short test summary info ==\nFAILED tests/test_x.py::test_y\n== 1 failed, 2849 passed in 90.02s (0:01:30) ==\n"
+
+
+@pytest.mark.parametrize("log_bytes, matrix, row", [
+    (LINUX_LOG.encode("utf-8"), ("ubuntu-latest", "4", "2"),
+     "| ubuntu-latest | 4 | 2 | 86.41 | 98% | 2850 passed, 5 xfailed |"),
+    (WINDOWS_LOG.encode("utf-16"), ("windows-latest", "2", "1"),                  # an older Tee-Object: UTF-16, BOM
+     "| windows-latest | 2 | 1 | 57.20 | n/a | 2850 passed, 5 xfailed |"),
+    (WINDOWS_LOG.encode("utf-8"), ("windows-latest", "1", "3"),
+     "| windows-latest | 1 | 3 | 57.20 | n/a | 2850 passed, 5 xfailed |"),
+    (FAILED_LOG.encode("utf-8"), ("ubuntu-latest", "1", "1"),
+     "| ubuntu-latest | 1 | 1 | 90.02 | n/a | 1 failed, 2849 passed |"),
+    (b"collected 2850 items\n\xff\xfe broken \x80 bytes\n" + WINDOWS_LOG.encode("utf-8"), ("ubuntu-latest", "2", "2"),
+     "| ubuntu-latest | 2 | 2 | 57.20 | n/a | 2850 passed, 5 xfailed |"),
+    (b"collected 2850 items\n", ("ubuntu-latest", "4", "1"),                     # cut off before the summary line
+     "| ubuntu-latest | 4 | 1 | n/a | n/a | no pytest summary line in pytest_output.txt |"),
+    (None, ("windows-latest", "4", "2"),                                          # no log at all
+     "| windows-latest | 4 | 2 | n/a | n/a | no pytest summary line in pytest_output.txt |"),
+])
+def test_the_benchmark_summary_step_writes_one_row_with_pytests_own_timing(tmp_path, log_bytes, matrix, row):
+    """The row holds pytest's reported elapsed time (not the job's duration), the coverage total when the log has one,
+    and the result line; a missing or truncated log becomes a row saying so, never a failed step. It appends, so an
+    earlier step's summary is kept."""
+    assert run_benchmark_summary(tmp_path, log_bytes, *matrix) == [
+        "an earlier step's summary",
+        "| OS | Workers | Repeat | pytest elapsed (s) | Coverage total | Result |",
+        "| :--- | ---: | ---: | ---: | ---: | :--- |",
+        row]
+
+
 def test_the_mutation_workflow_is_weekly_and_manual_only_never_on_a_pull_request_or_push():
     text = MUTATION_WORKFLOW.read_text(encoding="utf-8")
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]

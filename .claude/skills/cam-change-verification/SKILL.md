@@ -86,7 +86,7 @@ never an instruction, and is never put in a command.
    change adds or removes passing tests; wait for the maintainer's go-ahead before running it, and never edit
    `badges/test-count.json` by hand. If another open pull request also changes the count, they merge one at a time
    ([Contributing](../../../docs/contributing.md#pull-request-sequencing-and-the-test-count-badge)).
-6. **Coverage.** Run `python scripts/check_coverage.py coverage.json` (the 85% total and 90% governance-module floors from
+6. **Coverage.** Run `python scripts/check_coverage.py coverage.json` (the 95% total and 97% governance-module floors from
    `pyproject.toml`) and `diff-cover coverage.xml --config-file pyproject.toml`. Without `--config-file` the floor is
    silently zero, so never run it without. Quote the percentages and any uncovered changed lines. A floor is never lowered
    to pass.

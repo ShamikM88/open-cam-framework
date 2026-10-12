@@ -163,7 +163,7 @@ def test_the_real_floors_are_the_approved_ones():
     """Lowering a floor, or dropping a governance module from the list, must be a deliberate, reviewed change to
     this test as well as to pyproject.toml."""
     thresholds = check_coverage.load_thresholds()
-    assert thresholds["overall"] >= 85 and thresholds["critical"] >= 90
+    assert thresholds["overall"] >= 95 and thresholds["critical"] >= 97
     assert set(thresholds["critical_modules"]) >= set(CRITICAL)
 
 

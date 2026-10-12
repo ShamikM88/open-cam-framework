@@ -42,7 +42,7 @@ Body rows wider than the header are preserved by widening the table and emit a w
 | a pipe table | a Word table; the header row is bold and `:---:` / `---:` alignment markers are honoured |
 | `A \\| B` within a table cell | a literal `|` inside one cell |
 | `**bold**`, `*italic*`, `` `code` `` | bold, italic, and monospace text |
-| `[text](url)` | a real hyperlink |
+| `[text](url)` | a real hyperlink only for `http`, `https` or `mailto`; other targets remain visible as plain text with a warning |
 | a fenced block (no tag, or any tag except `json`) | monospace lines, whitespace kept exactly (the ownership-tree diagram uses this) |
 | a fenced block tagged `json` | **removed**: it is reserved for the Underwriter's structured-output block, never shown to a client |
 | `![caption](path.png)` on its own line | an embedded image, scaled down (never up) to the page's text width, with the caption in italics; see below |

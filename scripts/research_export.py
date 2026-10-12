@@ -14,6 +14,7 @@ Bash step, since Claude has already produced the brief itself by that point
 and just needs it turned into a deal output file.
 """
 import os
+import sys
 
 from docx_builder import export_to_docx
 from state_manager import resolve_date_str, sanitize_path_component
@@ -63,8 +64,10 @@ if __name__ == "__main__":
     parser.add_argument("--brief", required=True, help="Path to the drafted research brief Markdown file")
     args = parser.parse_args()
 
-    with open(args.brief, encoding="utf-8") as f:
-        brief_markdown = f.read()
-
-    output_path = export_research_brief(args.company, args.proposal, brief_markdown)
+    try:
+        with open(args.brief, encoding="utf-8") as f:
+            brief_markdown = f.read()
+        output_path = export_research_brief(args.company, args.proposal, brief_markdown)
+    except (OSError, ValueError) as exc:
+        sys.exit(f"error: {exc}")
     print(f"Done! Research brief exported to {output_path}")

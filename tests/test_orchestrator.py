@@ -1916,3 +1916,42 @@ def test_other_failures_while_building_the_client_are_not_reported_as_missing_cr
     monkeypatch.setattr(orchestrator, "Anthropic", broken)
     with pytest.raises(RuntimeError, match="synthetic SDK failure"):
         _default_client()
+
+
+# ---------------------------------------------------------------------------
+# The headless entry point must reject invalid financial/stress inputs before
+# creating state or making any model call (issue #244).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_run_pipeline_rejects_non_finite_raw_financials_before_model_call(project_root, value):
+    client = MockClient([])
+    before = _deal_files()
+
+    with pytest.raises(ValueError, match="financial inputs.*revenue"):
+        run_pipeline(
+            "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            multi_period_financials={"FY-Current": {"revenue": value}},
+            client=client,
+        )
+
+    assert client.call_count == 0
+    assert _deal_files() == before
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_run_pipeline_rejects_non_finite_stress_assumptions_before_model_call(project_root, value):
+    client = MockClient([])
+    before = _deal_files()
+
+    with pytest.raises(ValueError, match="stress assumptions.*revenue_haircut_pct"):
+        run_pipeline(
+            "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            stress_assumptions={"revenue_haircut_pct": value},
+            client=client,
+        )
+
+    assert client.call_count == 0
+    assert _deal_files() == before

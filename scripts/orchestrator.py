@@ -20,6 +20,7 @@ from policy_checks import (
 )
 from policy_engine import evaluate_deal_policy
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
+from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -590,8 +591,16 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 f"--stress-assumptions; nothing was written.")
 
     if multi_period_financials:
-        model_data = evaluate_financial_model(multi_period_financials)
-        financials, ratios = model_data["financials"], model_data["ratios"]
+        # Match the interactive /spread path: merge the supplied period/field deltas
+        # into recorded raw data, then recompute only the periods touched this run.
+        # A shallow state write would otherwise replace the history that was not
+        # repeated in this invocation (issue #246).
+        planned_fields = plan_fields(
+            existing_state, multi_period_financials, update_financials_source=False,
+        )
+        financials = planned_fields["financials"]
+        ratios = planned_fields["ratios"]
+        multi_period_financials = planned_fields["multi_period_financials"]
         steps_completed = _add_step(steps_completed, "spread")
         # This call just independently recomputed every ratio from raw
         # line items -- "analyst-supplied" (see #55's /spread alternative

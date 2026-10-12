@@ -1162,9 +1162,9 @@ def test_run_pipeline_merges_forward_only_input_with_recorded_history_and_resolv
 
     history = {
         "FY-1": {"revenue": 2000, "cost_of_sales": 1000, "admin_expenses": 200,
-                 "interest_paid": 40, "scheduled_principal_repayment": 100, "long_term_debt": 500},
+                 "interest_paid": 40, "scheduled_principal": 100, "long_term_debt": 500},
         "FY-Current": {"revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
-                       "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 600},
+                       "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 600},
     }
     compute("Acme Corp", "Fleet Loan", multi_period_financials=history)
     write_state("Acme Corp", "Fleet Loan", covenants=[
@@ -1172,9 +1172,9 @@ def test_run_pipeline_merges_forward_only_input_with_recorded_history_and_resolv
     ])
     forward = {
         "FY+1": {"revenue": 2600, "cost_of_sales": 1300, "admin_expenses": 270,
-                 "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 620},
+                 "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 620},
         "FY+2": {"revenue": 2750, "cost_of_sales": 1350, "admin_expenses": 280,
-                 "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 610},
+                 "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 610},
     }
 
     run_pipeline(

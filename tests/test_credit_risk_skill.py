@@ -209,6 +209,22 @@ def test_each_breakage_of_a_clean_report_is_caught(label, breakage, expected, tm
     assert any(expected in p for p in report_problems(broken, folder, SPEC, items=1)), (label, report_problems(broken, folder, SPEC))
 
 
+@pytest.mark.parametrize("sentence", [
+    "The deal is approved.",
+    "The facility is rejected.",
+    "Overall decision: pass.",
+    "Overall decision: PaSsEd.",
+    "Overall decision: fail.",
+    "Overall decision: fAiLeD.",
+])
+def test_lowercase_and_mixed_case_verdicts_are_rejected(sentence, tmp_path):
+    name = "contradictory_evidence"
+    folder = build(tmp_path, name)
+    report = SCENARIOS[name][1]
+    broken = report.replace("\\n> Analyst aid", f"\\n{sentence}\\n\\n> Analyst aid")
+    assert any("verdict word" in problem for problem in report_problems(broken, folder, SPEC, items=1)), sentence
+
+
 def test_a_quotation_from_a_draft_like_file_that_was_not_chosen_is_caught(tmp_path):
     name = "several_draft_like_files_and_no_conventional_one"
     folder = build(tmp_path, name)

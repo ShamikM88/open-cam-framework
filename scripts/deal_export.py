@@ -14,7 +14,9 @@ from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
-from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
+from state_manager import (
+    StateError, read_state, resolve_date_str, resolve_export_date_str, sanitize_path_component,
+)
 from template_resolver import cam_template_path, local_cam_template_path
 
 # The state.json keys export_deal() reads, with the kind each is held to. Deliberately looser than STATE_SHAPES for
@@ -245,7 +247,7 @@ def main(argv=None):
     # _existing_date_str() glob-escapes).
     company = sanitize_path_component(args.company, "company")
     proposal = sanitize_path_component(args.proposal, "proposal")
-    date_str = resolve_date_str(company, proposal, date_str=args.date_str)
+    date_str = resolve_export_date_str(company, proposal, date_str=args.date_str)
 
     try:
         output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)

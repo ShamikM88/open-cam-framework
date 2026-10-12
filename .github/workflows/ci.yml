@@ -197,7 +197,7 @@ jobs:
           pip install -c constraints.txt -r requirements-security.txt
 
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit -c constraints.txt -r requirements.txt -r requirements-dev.txt -r requirements-security.txt -r requirements-mutation.txt
+        run: pip-audit -r requirements.txt -r requirements-dev.txt -r requirements-security.txt -r requirements-mutation.txt -r constraints.txt
 
       - name: Audit workflows
         env:

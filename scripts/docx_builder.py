@@ -315,7 +315,7 @@ def _sanitize_xml_invalid_characters(text):
         if allowed:
             safe.append(char)
         else:
-            safe.append("\\uFFFD")
+            safe.append("\uFFFD")
             replaced += 1
     if replaced:
         print(

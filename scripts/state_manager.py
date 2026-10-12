@@ -33,6 +33,8 @@ import tempfile
 import time
 from datetime import datetime
 
+from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+
 DEALS_DIR = "deals"
 
 # Bumped whenever state.json's schema gains a new top-level shape a reader
@@ -384,6 +386,12 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
                 "It may have been left partial by an interrupted write. Restore it "
                 "from a backup or fix it by hand before continuing."
             ) from e
+    try:
+        validate_finite_numbers(state, path=path)
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"state.json at {path} contains {exc}. Fix it by hand or restore it from a backup; nothing was changed."
+        ) from exc
     validate_state(state, keys=keys, path=path)
     state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
     return state
@@ -413,6 +421,14 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
 
     Returns the full state dict that was written.
     """
+    # Reject invalid numeric values before path creation or state mutation.
+    try:
+        validate_finite_numbers(fields, path="state update")
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"Refusing to write state.json: {exc}. No state was changed."
+        ) from exc
+
     # Sanitize before the first direct use below (_resolve_date_str's own
     # os.path.join) -- state_path() sanitizes again for its own join, but
     # that's just a redundant, harmless re-validation of the same strings.
@@ -464,6 +480,12 @@ def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     state["date"] = date_str
     state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
+    try:
+        validate_finite_numbers(state, path=path)
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"Refusing to write state.json: {exc}. No state was changed."
+        ) from exc
 
     # Atomic: write to a temp file in the same directory (so os.replace() is
     # a same-filesystem rename, not a cross-device copy) and swap it into

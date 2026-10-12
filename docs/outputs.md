@@ -73,17 +73,21 @@ returns `N/A` when its denominator is not positive, matching `state.json`'s `nul
 Status`, filled from the deal's `collateral` list.
 
 For an analyst-supplied deal the raw-input cells are filled from `analyst_supplied_financials` for whichever labels
-match (the subtotals still come from the workbook's own formulas). The forward years are the exception when the analyst
-supplied the forecast (`forecast_source`, issue #124): those columns hold the **supplied** subtotals and ratios as values,
-blank where none was given, never a formula that would recompute them from raw cells that were not their basis, and the
-header says `FY+1 (analyst-supplied)`. A downside the analyst supplied is labelled `FY+1 (Downside, analyst-supplied)`; one
-that is unavailable is blank and labelled `FY+1 (Downside, unavailable)`; one the framework derived from reconciled
-lines keeps its ordinary header and its formulas, except that a computed row that reads a raw line the analyst did not
-supply (following the formulas through other computed rows) is left blank, never calculated from an empty cell, matching the
-figures `state.json` omits for it (no profit before tax without exceptional costs, no total assets without the fixed-asset
-lines). `total_debt` has no workbook row. Every other deal's workbook is unchanged; the CAM carries the caveat that the figures were
-not independently recomputed. `templates/spreading/default_spreading_template.xlsx` is a blank, formula-only reference
-copy of the layout.
+match. When `financials_source` is `analyst-supplied`, recorded historical subtotals and ratios are also written as
+values, not recomputed by workbook formulas from potentially incomplete raw lines; the header is labelled
+`FY-Current (analyst-supplied)`. A computed row whose figure was not recorded stays blank, while a recorded null ratio
+is `N/A`. This preserves the figures in `state.json` and avoids a formula producing a different-looking value.
+
+Separately, the forward years are the exception when the analyst supplied the forecast (`forecast_source`, issue #124):
+those columns hold the **supplied** subtotals and ratios as values, blank where none was given, never a formula that
+would recompute them from raw cells that were not their basis, and the header says `FY+1 (analyst-supplied)`. A downside
+the analyst supplied is labelled `FY+1 (Downside, analyst-supplied)`; one that is unavailable is blank and labelled
+`FY+1 (Downside, unavailable)`; one the framework derived from reconciled lines keeps its ordinary header and its
+formulas, except that a computed row that reads a raw line the analyst did not supply (following the formulas through
+other computed rows) is left blank, never calculated from an empty cell, matching the figures `state.json` omits for it
+(no profit before tax without exceptional costs, no total assets without the fixed-asset lines). `total_debt` has no
+workbook row. Every other deal's workbook is unchanged; the CAM carries the caveat that the figures were not independently
+recomputed. `templates/spreading/default_spreading_template.xlsx` is a blank, formula-only reference copy of the layout.
 
 ## The research brief
 

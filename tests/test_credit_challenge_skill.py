@@ -241,6 +241,22 @@ def test_a_report_that_finds_nothing_but_lists_an_item_is_caught_and_so_is_the_r
     assert any("does not say none was identified" in p for p in report_problems(neither, folder, SPEC))
 
 
+@pytest.mark.parametrize("sentence", [
+    "The deal is approved.",
+    "The facility is rejected.",
+    "Overall decision: pass.",
+    "Overall decision: PaSsEd.",
+    "Overall decision: fail.",
+    "Overall decision: fAiLeD.",
+])
+def test_lowercase_and_mixed_case_verdicts_are_rejected(sentence, tmp_path):
+    name = "unsupported_narrative_claim"
+    folder = folder_for(tmp_path, name)
+    report = SCENARIOS[name][1]
+    broken = report.replace("\\n> Analyst aid", f"\\n{sentence}\\n\\n> Analyst aid")
+    assert any("verdict word" in problem for problem in report_problems(broken, folder, SPEC, items=1)), sentence
+
+
 def test_a_recorded_verdict_word_may_be_quoted_but_not_asserted(tmp_path):
     folder = make_deal(tmp_path, state={**BASE_STATE, "policy_note": "PASS"})
     quoted = material("not present", NO_DRAFT) + "\n" + item(

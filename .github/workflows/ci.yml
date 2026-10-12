@@ -20,7 +20,9 @@ concurrency:
 jobs:
   test:
     name: test
-    # Required status check "test" (ruleset "Main Branch Protection") -- keep this job's name.
+    # Required status check (ruleset "Main Branch Protection", pinned to the GitHub Actions app) -- the job names
+    # `test`, `test-windows` and `runtime-smoke` are that contract: renaming one blocks every merge until the
+    # ruleset is changed to match. `security` is deliberately not required.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

@@ -904,7 +904,7 @@ def test_write_state_rejects_non_finite_update_without_changing_existing_state(t
                          ids=["nan", "positive-infinity", "negative-infinity"])
 def test_read_state_refuses_existing_non_finite_json_without_modifying_it(tmp_path, value):
     base = str(tmp_path)
-    path = state_path("Acme Corp", "Fleet Loan", base_dir=base)
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     invalid = {
         "company": "Acme Corp",

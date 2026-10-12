@@ -143,7 +143,7 @@ def test_pii_scan_reports_findings_as_json(cli):
 
 def test_pii_scan_on_a_missing_file_fails(cli):
     result = cli("pii_scan", "no-such-file.md")
-    assert result.returncode != 0 and "no-such-file.md" in result.stderr
+    _assert_a_clean_state_error(result, "no-such-file.md")
 
 
 def test_state_manager_check_steps_reports_missing_steps_and_always_exits_zero(cli):
@@ -221,7 +221,7 @@ def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     bad_date = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", draft, "--date-str", "foo")
     assert bad_date.returncode == 2 and "YYYY-MM-DD" in bad_date.stderr
     missing = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", "nope.md")
-    assert missing.returncode != 0 and "nope.md" in missing.stderr
+    _assert_a_clean_state_error(missing, "nope.md")
     assert not (cli.workdir / "deals").exists()  # nothing was created for either failure
 
 
@@ -234,9 +234,9 @@ def test_research_export_writes_the_brief_docx(cli):
     assert list(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
 
 
-def test_research_export_on_a_missing_brief_fails(cli):
+def test_research_export_on_a_missing_brief_fails_cleanly(cli):
     result = cli("research_export", "--company", "A", "--proposal", "P", "--brief", "nope.md")
-    assert result.returncode != 0 and "nope.md" in result.stderr
+    _assert_a_clean_state_error(result, "nope.md")
 
 
 def test_spreading_check_recomputes_and_checkpoints_the_figures(cli):
@@ -261,9 +261,60 @@ def test_spreading_check_no_update_financials_source_leaves_the_flag_alone(cli):
     assert json.loads(result.stdout)["financials_source"] is None
 
 
-def test_spreading_check_on_a_missing_input_fails(cli):
+def test_spreading_check_on_a_missing_input_fails_cleanly(cli):
     result = cli("spreading_check", "--company", "A", "--proposal", "P", "--financials", "nope.json")
-    assert result.returncode != 0 and "nope.json" in result.stderr
+    _assert_a_clean_state_error(result, "nope.json")
+
+
+@pytest.mark.parametrize("name", ["a/b", "..", "a\\b"])
+def test_deal_export_reports_unsafe_names_as_one_error_line(cli, name):
+    draft = cli.workdir / "draft.md"
+    draft.write_text("# Draft\n", encoding="utf-8")
+    for flag in ("--company", "--proposal"):
+        args = ["--company", "Acme", "--proposal", "Loan", "--draft", draft]
+        args[args.index(flag) + 1] = name
+        result = cli("deal_export", *args)
+        _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_research_export_reports_unsafe_names_as_one_error_line(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Research brief\n", encoding="utf-8")
+    result = cli("research_export", "--company", "a/b", "--proposal", "Brief", "--brief", brief)
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_policy_check_reports_missing_draft_as_one_error_line(cli):
+    result = cli("policy_check", "--company", "Acme", "--proposal", "Loan", "--draft", "nope.md")
+    _assert_a_clean_state_error(result, "nope.md")
+
+
+def test_policy_check_reports_unsafe_names_as_one_error_line(cli):
+    result = cli("policy_check", "--company", "a/b", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_state_manager_reports_unsafe_names_as_one_error_line(cli):
+    for flag, name in (("--company", "a/b"), ("--proposal", "a/b")):
+        result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan",
+                     "--required", "spread", flag, name)
+        _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_conventions_reports_unsafe_company_as_one_error_line(cli):
+    result = cli("conventions", "--company", "a/b", "--read")
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_spreading_check_reports_unsafe_names_as_one_error_line(cli):
+    result = cli("spreading_check", "--company", "a/b", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
 
 
 def _staged_transcription(cli, revenue="1,000"):

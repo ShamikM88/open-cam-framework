@@ -20,6 +20,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+BENCHMARK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci-parallelism-benchmark.yml"
+CONSTRAINTS_FILE = REPO_ROOT / "constraints.txt"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 USES_RE = re.compile(r"^\s*-?\s*uses:\s*(\S+)(?:\s+#\s*(\S+))?\s*$")
 REQUIRED_JOBS = ("test", "test-windows", "runtime-smoke", "security")
@@ -230,18 +232,65 @@ def test_the_windows_job_runs_the_suite_on_windows():
 
 def test_the_runtime_job_installs_only_the_runtime_requirements():
     body = split_jobs(workflow_text())["runtime-smoke"]
-    installs = [i for i in re.findall(r"pip install (.+)", body) if i != "--upgrade pip"]
-    assert installs == ["-r requirements.txt"]
+    installs = [line.strip() for line in body.splitlines() if re.search(r"^\\s*pip install ", line)]
+    assert installs == ["pip install -c constraints.txt -r requirements.txt"]
     assert "tests/runtime_smoke.py --expect-clean" in body
+
+
+def test_every_python_install_profile_uses_the_shared_constraints_file():
+    for job_id in REQUIRED_JOBS:
+        body = split_jobs(workflow_text())[job_id]
+        install_lines = [line for line in body.splitlines() if re.search(r"\\bpip install\\b", line)]
+        assert install_lines, job_id
+        assert all("-c constraints.txt" in line for line in install_lines), (job_id, install_lines)
+        assert "constraints.txt" in body, f"{job_id} cache must include the constraints file"
+
+    mutation = MUTATION_WORKFLOW.read_text(encoding="utf-8")
+    mutation_job = split_jobs(mutation)["mutation"]
+    assert "pip install -c constraints.txt -r requirements-dev.txt -r requirements-mutation.txt" in mutation_job
+    assert "pip freeze > pip-freeze-mutation.txt" in mutation_job
+    assert "pip-freeze-mutation.txt" in mutation_job
+
+    benchmark = BENCHMARK_WORKFLOW.read_text(encoding="utf-8")
+    benchmark_job = split_jobs(benchmark)["benchmark"]
+    assert "pip install -c constraints.txt -r requirements-dev.txt" in benchmark_job
+    assert "constraints.txt" in benchmark_job
+
+
+def test_constraints_file_uniquely_pins_every_declared_requirement():
+    pins = {}
+    for raw_line in CONSTRAINTS_FILE.read_text(encoding="utf-8").splitlines():
+        line = raw_line.partition("#")[0].strip()
+        if not line:
+            continue
+        match = re.fullmatch(r"([A-Za-z0-9_.-]+)==([^\\s;]+)", line)
+        assert match, f"constraints.txt entries must be exact pins: {raw_line!r}"
+        name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+        assert name not in pins, f"duplicate normalized constraint: {name}"
+        pins[name] = match.group(2)
+
+    for filename in ("requirements.txt", "requirements-dev.txt", "requirements-security.txt",
+                     "requirements-mutation.txt"):
+        path = REPO_ROOT / filename
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.partition("#")[0].strip()
+            if not line or line.startswith("-"):
+                continue
+            match = re.match(r"^([A-Za-z0-9_.-]+)(?:\\[[^]]+\\])?\\s*(?:===|==|~=|!=|<=|>=|<|>)", line)
+            assert match, f"unrecognised requirement syntax in {filename}: {raw_line!r}"
+            name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+            assert name in pins, f"{filename} dependency {name} has no exact constraint pin"
 
 
 def test_the_security_job_audits_every_requirements_file_and_the_workflows():
     body = split_jobs(workflow_text())["security"]
+    audit_line = next(line.strip() for line in body.splitlines() if line.strip().startswith("run: pip-audit"))
+    assert "-c constraints.txt" in audit_line
     for requirements in ("requirements.txt", "requirements-dev.txt", "requirements-security.txt",
                          "requirements-mutation.txt"):
-        assert f"-r {requirements}" in body.split("pip-audit", 1)[1].splitlines()[0]
+        assert f"-r {requirements}" in audit_line
     assert "zizmor .github/workflows" in body
-    assert "-r requirements-security.txt" in body.split("pip-audit", 1)[0]
+    assert "pip install -c constraints.txt -r requirements-security.txt" in body
 
 
 def test_the_environment_and_coverage_records_are_uploaded_even_when_a_step_fails():

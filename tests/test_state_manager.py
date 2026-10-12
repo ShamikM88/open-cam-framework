@@ -874,15 +874,18 @@ def test_date_discovery_matches_bracketed_names_literally(tmp_path):
 # (issue #244). Invalid updates fail before replacing an existing file.
 # ---------------------------------------------------------------------------
 
-def test_write_state_wraps_non_finite_validator_error_before_writing(tmp_path, monkeypatch):
+def test_merge_and_write_wraps_non_finite_validator_error_before_writing(tmp_path, monkeypatch):
     base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
 
     def reject_state(_state, path=None):
         raise state_manager.NonFiniteNumberError(f"non-finite numeric value at {path}")
 
     monkeypatch.setattr(state_manager, "validate_finite_state_numbers", reject_state)
     with pytest.raises(state_manager.StateShapeError, match="Refusing to write state.json: non-finite"):
-        write_state("Acme Corp", "Fleet Loan", base_dir=base, note="test")
+        state_manager._merge_and_write(
+            path, "Acme Corp", "Fleet Loan", "2026-01-15", base, {"note": "test"},
+        )
     assert not os.path.exists(os.path.join(base, "deals"))
 
 

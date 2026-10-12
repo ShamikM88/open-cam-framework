@@ -20,7 +20,7 @@ from policy_checks import (
 )
 from policy_engine import evaluate_deal_policy
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
-from numeric_validation import validate_finite_numbers
+from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,

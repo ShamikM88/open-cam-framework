@@ -546,6 +546,7 @@ def test_bare_export_still_uses_auto_discovered_state(tmp_path):
         base_dir=base,
     )
 
-    assert os.path.basename(output_dir) != "Credit Facility_2026-01-10"
-    assert 9999 in _exported_revenue(base, os.path.basename(output_dir))
-    assert 1000 not in _exported_revenue(base, os.path.basename(output_dir))
+    folder_date = os.path.basename(output_dir).removeprefix("Credit Facility_")
+    assert folder_date != "2026-01-10"
+    assert 9999 in _exported_revenue(base, folder_date)
+    assert 1000 not in _exported_revenue(base, folder_date)

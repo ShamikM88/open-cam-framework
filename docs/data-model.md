@@ -57,6 +57,10 @@ shortened):
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
 
+The `financials_source` value describes the whole deal, not one period. If it is `"analyst-supplied"`, the
+default framework-computed `spreading_check.py` path refuses to overwrite the label or recompute figures in the other
+mode. Continue using `/spread`'s analyst-supplied mode for updates; one deal never mixes the two modes.
+
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
 

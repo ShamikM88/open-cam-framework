@@ -562,6 +562,14 @@ def test_apply_stress_shocks_rejects_non_finite_raw_figures(value):
         apply_stress_shocks({"revenue": value}, {})
 
 
+def test_apply_stress_shocks_rejects_finite_inputs_that_overflow():
+    with pytest.raises(ValueError, match="stressed financial inputs.*revenue"):
+        apply_stress_shocks(
+            {"revenue": 1.7e308},
+            {"revenue_haircut_pct": -1.7e308},
+        )
+
+
 def test_evaluate_financial_model_rejects_non_finite_calculated_results():
     # Finite but extreme inputs must not overflow into a persisted numeric output.
     with pytest.raises(ValueError, match="computed financial results.*gross_profit"):

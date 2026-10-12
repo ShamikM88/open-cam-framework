@@ -285,7 +285,7 @@ def test_constraints_file_uniquely_pins_every_declared_requirement():
 def test_the_security_job_audits_every_requirements_file_and_the_workflows():
     body = split_jobs(workflow_text())["security"]
     audit_line = next(line.strip() for line in body.splitlines() if line.strip().startswith("run: pip-audit"))
-    assert "-c constraints.txt" in audit_line
+    assert "-r constraints.txt" in audit_line
     for requirements in ("requirements.txt", "requirements-dev.txt", "requirements-security.txt",
                          "requirements-mutation.txt"):
         assert f"-r {requirements}" in audit_line

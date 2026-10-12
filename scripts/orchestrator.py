@@ -20,6 +20,7 @@ from policy_checks import (
 )
 from policy_engine import evaluate_deal_policy
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
+from numeric_validation import validate_finite_numbers
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -493,6 +494,8 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
+    validate_finite_numbers(multi_period_financials, path="financial inputs")
+    validate_finite_numbers(stress_assumptions, path="stress assumptions")
     client = client or _default_client()
 
     # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly
@@ -822,5 +825,5 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError) as exc:
+    except (StateError, MissingCredentialsError, NonFiniteNumberError) as exc:
         sys.exit(f"error: {exc}")

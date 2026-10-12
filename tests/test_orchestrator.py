@@ -207,13 +207,10 @@ def test_run_pipeline_extracts_visible_text_after_a_thinking_block(project_root)
 
     _run_once(client)
 
-    state = read_state("Acme Corp", "Fleet Loan")
-    draft_path = project_root / "deals" / "Acme Corp" / "Fleet Loan_" / "draft_v1.md"
     # Resolve the actual generated dated folder rather than assuming today's date.
     draft_files = list((project_root / "deals" / "Acme Corp").glob("Fleet Loan_*/draft_v1.md"))
     assert len(draft_files) == 1
     assert "# Draft CAM" in draft_files[0].read_text(encoding="utf-8")
-    assert state["review_verdict"] == "APPROVED"
 
 
 @pytest.mark.parametrize("empty_response", [

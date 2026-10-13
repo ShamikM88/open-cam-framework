@@ -1807,6 +1807,61 @@ def test_without_the_analyst_flag_the_same_state_gets_the_ordinary_recomputation
     assert read_state("Acme Corp", "Fleet Loan")["downside_case"] == {"financials": {}, "ratios": {}}
 
 
+def test_partial_recompute_refuses_to_relabel_preserved_analyst_history_without_raw_inputs(project_root):
+    """A deal-level source flag cannot be cleared while an untouched historical period has no raw lines to recompute."""
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials_source_note="FY-1 was supplied by the analyst",
+        financials={"FY-1": {"ebitda": 777}},
+        ratios={"FY-1": {"dscr": 9.99}},
+        steps_completed=["spread"],
+    )
+    before = _deal_files()
+    client = MockClient([])
+
+    with pytest.raises(StateError) as refused:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            multi_period_financials={"FY-Current": {"revenue": 2000, "cost_of_sales": 1000}},
+            client=client,
+        )
+
+    message = str(refused.value)
+    assert "analyst-supplied" in message and "FY-1" in message and "nothing was written" in message
+    assert client.call_count == 0, "the provenance check runs before any model call"
+    assert _deal_files() == before, "state and every other file remain byte-identical"
+
+
+def test_partial_recompute_recomputes_all_preserved_analyst_periods_when_raw_inputs_exist(project_root):
+    """A safe recomputation includes every preserved historical period with available raw lines, not just the fresh delta."""
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials_source_note="FY-1 was supplied by the analyst",
+        multi_period_financials={"FY-1": {"revenue": 1000, "cost_of_sales": 600}},
+        financials={"FY-1": {"ebitda": 777}},
+        ratios={"FY-1": {"dscr": 9.99}},
+        steps_completed=["spread"],
+    )
+    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials={"FY-Current": {"revenue": 2000, "cost_of_sales": 1000}},
+        client=client,
+    )
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials_source"] == "framework-computed"
+    assert state["financials_source_note"] == ""
+    assert state["financials"]["FY-1"]["gross_profit"] == 400
+    assert state["financials"]["FY-1"]["ebitda"] == 400
+    assert "dscr" not in state["ratios"]["FY-1"], "the stale supplied ratio was replaced by a fresh computation"
+    assert state["financials"]["FY-Current"]["gross_profit"] == 1000
+    assert set(state["financials"]) == {"FY-1", "FY-Current"}
+
+
 def test_a_fresh_recomputation_replaces_the_forward_years_and_clears_the_analyst_forecast_flag(project_root):
     _analyst_forecast_state(forecast_source="analyst-supplied")
     client = MockClient([_compliant_draft(), _approved_json()])

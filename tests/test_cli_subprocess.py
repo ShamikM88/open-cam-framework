@@ -745,6 +745,29 @@ def test_source_manifest_check_sources_behaves_exactly_as_before_for_valid_manif
     assert saved.stderr == ""
 
 
+
+def test_source_manifest_check_sources_reports_unknown_shape_for_a_completed_step(cli):
+    _write_state(cli.workdir, {
+        "steps_completed": ["triage"],
+        "triage": {"verdict": "Go", "rationale": "Synthetic rationale without a sources key"},
+    })
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 0 and result.stderr == ""
+    assert json.loads(result.stdout) == {
+        "missing_saved_sources": True,
+        "sources_declared": "unknown",
+    }
+
+
+def test_source_manifest_check_sources_reports_known_sources_shape_for_an_uncompleted_deal(cli):
+    _write_state(cli.workdir, {})
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 0 and result.stderr == ""
+    assert json.loads(result.stdout) == {
+        "missing_saved_sources": False,
+        "sources_declared": "not_declared",
+    }
+
 def _deal_with_a_dangling_manifest(cli):
     from test_source_manifest import dangling_link
     state_file = _write_state(cli.workdir, {"triage": {"sources": ["https://example.invalid/registry"]}})

@@ -95,8 +95,7 @@ Claude Code only.
    }
    ```
 
-2. `source_manifest.py --check-sources` reports whether anything was saved at all (`{"missing_saved_sources":
-   false}`); if citations were declared but nothing saved, the command stops and says so.
+2. `source_manifest.py --check-sources` reports whether anything was saved and whether the source-list shape is known (`{"missing_saved_sources": false, "sources_declared": "not_declared"}`); if citations were declared but nothing saved, the command stops and says so.
 3. Claude saves the brief to `deals/Synthetic Co/Synthetic Fleet Loan_brief.md` ([an example brief](examples/synthetic_co/brief.md)) and runs
    `/review ... --research-brief`: the Risk Reviewer checks grounding and narrative, not credit policy or mitigants,
    because nothing has been structured yet **(model)**. A `REJECTED` verdict means revise, overwrite the file and

@@ -242,6 +242,8 @@ REVIEW_REQUIRED = {
     "leaves the policy note to the analyst's yes": r"Only this command, after the analyst's yes, ever writes that file: the Reviewer cannot",
     "refuses unsafe names before running anything": r"Check the arguments before anything is run",
     "resolves the exact dated folder": r"a folder named exactly <proposal>_YYYY-MM-DD",
+    "stops when a named deal record is missing before the deterministic check":
+        r"If --company/--proposal were given and no matching dated state\.json exists, stop here, before step 3\. Do not run policy_check\.py, delegate to the Reviewer, or write anything; record nothing",
     "does not guess at a truncated lookup": r"the latest dated folder could not be established, and stop",
 }
 
@@ -251,6 +253,7 @@ REVIEW_BANNED = {
     "takes pasted draft text": r"paste the draft to review|or pasted directly",
     "plays the Reviewer in this conversation": r"act according to that role for the rest of this task",
     "writes the draft itself": r"Skip the write only when|file-reuse",
+    "creates a missing deal folder": r"If no state file existed yet, create|create deals/<company>/<proposal>_.*state\.json",
 }
 
 # The order the orchestrator must work in: the draft is found before the check, the check before the Reviewer, the
@@ -381,6 +384,13 @@ REVIEW_MUTATIONS = [
     ("a write tool pre-approved",
      lambda t: mutate(t, r"Agent\(risk-reviewer\)", "Agent(risk-reviewer), Write"),
      "pre-approves more than the Reviewer: Write"),
+    ("the named deal missing-record guard removed",
+     lambda t: mutate(t, r"stop here, before step 3", "carry on to step 3"),
+     "no longer stops when a named deal record is missing before the deterministic check"),
+    ("the state write can create a missing deal folder",
+     lambda t: mutate(t, r"If it is missing at write time, stop without writing; never create a deal folder",
+                      "If no state file existed yet, create a folder and state file."),
+     "again creates a missing deal folder"),
     ("the sections reordered",
      lambda t: t.replace("## 3. Deterministic check", "## 9. Deterministic check"),
      "sections are missing or out of order"),

@@ -28,7 +28,7 @@ NAME = "mutation-triage"
 SKILL = f".claude/skills/{NAME}/SKILL.md"
 
 READ_TOOLS = {"Read", "Glob", "Grep"}
-REMOVED_TOOLS = {"Write", "Edit", "NotebookEdit", "Bash"}
+REMOVED_TOOLS = {"Write", "Edit", "NotebookEdit", "Bash", "WebFetch", "WebSearch"}
 ALLOWED_KEYS = {"name", "description", "argument-hint", "disable-model-invocation", "context", "background",
                 "allowed-tools", "disallowed-tools"}
 
@@ -46,6 +46,20 @@ def skill_text():
 
 def tools(fields, key):
     return TOOL_TOKEN.findall(fields.get(key, ""))
+
+
+def remove_network_tool(text, tool):
+    """Start from valid frontmatter then remove one enforced network-tool deny."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("disallowed-tools:"):
+            tokens = line.partition(":")[2].split()
+            if not {"WebFetch", "WebSearch"} <= set(tokens):
+                tokens.extend(tool_name for tool_name in ("WebFetch", "WebSearch") if tool_name not in tokens)
+            tokens.remove(tool)
+            lines[index] = "disallowed-tools: " + " ".join(tokens)
+            return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    raise AssertionError("frontmatter has no disallowed-tools line")
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +128,8 @@ FRONTMATTER_MUTATIONS = [
      "does not remove ['Write']"),
     ("NotebookEdit not removed", lambda t: t.replace("Write Edit NotebookEdit Bash", "Write Edit Bash"),
      "does not remove ['NotebookEdit']"),
+    ("WebFetch not removed", lambda t: remove_network_tool(t, "WebFetch"), "does not remove ['WebFetch']"),
+    ("WebSearch not removed", lambda t: remove_network_tool(t, "WebSearch"), "does not remove ['WebSearch']"),
     ("no argument hint", lambda t: re.sub(r"argument-hint: .*\n", "", t, count=1), "argument-hint is missing"),
     ("unquoted colon", lambda t: t.replace('argument-hint: "', "argument-hint: path: ", 1).replace('"\n', "\n", 1),
      "not valid YAML"),

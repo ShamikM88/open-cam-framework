@@ -50,6 +50,7 @@ READ_ONLY_CALLS = {
 }
 READ_ONLY_TOOLS = {"Read", "Glob", "Grep"}
 WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
+NETWORK_TOOLS = {"WebFetch", "WebSearch"}
 ALLOWED_KEYS = {"name", "description", "argument-hint", "disable-model-invocation", "context", "background",
                 "allowed-tools", "disallowed-tools"}
 TOOL_TOKEN = re.compile(r"Bash\([^)]*\)|\S+")
@@ -174,8 +175,11 @@ def frontmatter_problems(name, text):
         problems.append("it does not run forked (context: fork)")
     if unknown := sorted(set(fields) - ALLOWED_KEYS):
         problems.append(f"unexpected frontmatter key(s) {unknown} (a hook, model or agent override changes what runs)")
-    if missing := sorted(WRITE_TOOLS - set(tools(fields, "disallowed-tools"))):
+    disallowed = set(tools(fields, "disallowed-tools"))
+    if missing := sorted(WRITE_TOOLS - disallowed):
         problems.append(f"disallowed-tools does not remove {missing}")
+    if missing := sorted(NETWORK_TOOLS - disallowed):
+        problems.append(f"disallowed-tools does not remove network tools {missing}")
     for token in tools(fields, "allowed-tools"):
         if token in READ_ONLY_TOOLS:
             continue
@@ -207,7 +211,7 @@ def test_a_report_skill_is_typed_forked_and_cannot_write(name):
 def test_the_frontmatter_check_reports_each_way_a_skill_could_stop_being_a_safe_aid():
     good = ("---\nname: x\ndescription: Does a thing.\nargument-hint: --company \"<Name>\"\n"
             "disable-model-invocation: true\ncontext: fork\nallowed-tools: Read Bash(python scripts/policy_check.py *)\n"
-            "disallowed-tools: Write Edit NotebookEdit\n---\nbody\n")
+            "disallowed-tools: Write Edit NotebookEdit WebFetch WebSearch\n---\nbody\n")
     assert frontmatter_problems("x", good) == []
 
     def broken(old, new):
@@ -232,6 +236,17 @@ def test_the_frontmatter_check_reports_each_way_a_skill_could_stop_being_a_safe_
     assert "argument-hint is missing" in broken("argument-hint: --company \"<Name>\"\n", "")
     assert "not valid YAML" in broken("Does a thing.", "Does a thing: for each deal.")
     assert frontmatter_problems("x", good.replace("Does a thing.", "\"Does a thing: for each deal.\"")) == []
+
+
+def test_the_frontmatter_check_rejects_each_network_tool_left_available():
+    good = ("---\nname: x\ndescription: Does a thing.\nargument-hint: --company \"<Name>\"\n"
+            "disable-model-invocation: true\ncontext: fork\nallowed-tools: Read Bash(python scripts/policy_check.py *)\n"
+            "disallowed-tools: Write Edit NotebookEdit WebFetch WebSearch\n---\nbody\n")
+    assert frontmatter_problems("x", good) == []
+    for tool in ("WebFetch", "WebSearch"):
+        broken = good.replace(" " + tool, "", 1)
+        assert broken != good, f"the mutation must remove {tool}"
+        assert f"disallowed-tools does not remove network tools ['{tool}']" in frontmatter_problems("x", broken)
 
 
 # ---------------------------------------------------------------------------

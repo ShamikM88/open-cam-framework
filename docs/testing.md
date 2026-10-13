@@ -68,9 +68,10 @@ The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every modul
 without a key: Ubuntu uses `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, and
 Windows uses `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` (included in
 `requirements-dev.txt`) supplies `-n`; `--dist=loadfile` keeps each test file on one worker, and
-`--durations=30` reports the 30 slowest tests. The plain `pytest` command above remains a useful
-serial local run. Dedicated test files cover the dependency-free modules directly
-(`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
+`--durations=30` reports the 30 slowest tests. The worker counts were chosen by measurement (issue #212);
+[re-tuning test parallelism](operations.md#re-tuning-test-parallelism) says how to measure again as the suite
+grows. The plain `pytest` command above remains a useful serial local run. Dedicated test files cover the
+dependency-free modules directly (`spreading_builder.py`, `spreading_check.py`, `docx_builder.py`, `template_resolver.py`,
 `deal_export.py`, `research_export.py`, `state_manager.py`, `source_manifest.py`, `conventions.py`,
 `pii_scan.py`, `textio.py`, `policy_engine.py`/`policy_checks.py`/`policy_check.py`,
 `check_test_count.py`, `check_coverage.py`) plus a
@@ -90,8 +91,9 @@ bandit -r scripts/ -ll
 run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
 hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
 before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`). CI
-enforces a 95% overall floor, a 97% floor on each of eight governance modules, and 90% on the lines a
-pull request changes; the numbers and the module list live in `pyproject.toml`. To check locally:
+enforces a 95% overall floor, a 97% floor on each of eight governance modules, and 95% on the lines a
+pull request changes (98% where it changes a governance module); the numbers and the module list live in
+`pyproject.toml` and `diff_cover_critical.toml`. To check locally:
 ```bash
 pytest --cov --cov-report=json
 python scripts/check_coverage.py coverage.json
@@ -162,9 +164,11 @@ sets an **overall floor of 95%** and a **97% floor for each of eight governance 
 `policy_engine`, `policy_checks`, `policy_check` (covenant/security/CP evaluation and the draft audit),
 `spreading_builder`, `spreading_check` (every ratio the CAM reports), `state_manager`, `deal_export`,
 `docx_builder` (persisted state and the exported documents) -- because one overall number would let a
-well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **90% floor for the lines
+well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **95% floor for the lines
 a pull request changes** (`diff-cover coverage.xml --config-file pyproject.toml`, pull requests only; a
-change that touches no measured line passes). diff-cover reads `pyproject.toml` **only** with
+change that touches no measured line passes), and `diff_cover_critical.toml` holds the lines changed in one of the eight
+governance modules to **98%** (a second run, because diff-cover takes one threshold per configuration; a test keeps its
+`include` list equal to `critical_modules`). diff-cover reads `pyproject.toml` **only** with
 `--config-file`; without it the floor is silently 0 -- `tests/test_ci_workflow.py` runs CI's exact command
 against an uncovered change to prove it fails. Code that only runs on Windows looks uncovered on the Linux
 job and needs `# pragma: no cover - reason`; this applies to later pull requests that touch `scripts/`.
@@ -212,7 +216,7 @@ change; a reference to a number that is not pinned also fails, so every referenc
 ### CI
 
 **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test`
-(Ubuntu; the ruleset's required check -- keep the name) runs Ruff and Bandit, then
+(Ubuntu; one of the ruleset's three required checks, with `test-windows` and `runtime-smoke` -- keep the names) runs Ruff and Bandit, then
 `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, followed by the test-count, coverage-floor
 and diff-coverage checks; it uploads `coverage.xml`/`coverage.json`/the pytest output/`pip freeze` as a
 30-day artifact. `test-windows` runs `pytest tests/ -n 2 --dist=loadfile --durations=30` on Windows (the

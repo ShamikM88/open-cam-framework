@@ -225,12 +225,14 @@ open-cam-framework/
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]`; a state-bearing deal folder holds `state.json` and `sources/` (see "Source material persistence" in `CLAUDE.md`), while an explicit `deal_export --date-str` may create an output-only folder ignored by state discovery. A company may also hold `_conventions.json` and `_learnings.md` one level up from its dated proposal folders (see "Persisted conventions" in `CLAUDE.md`)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
+├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the eight governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`
 ├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" in `CLAUDE.md`
 ├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eight governance modules (diagnostic report, never a merge gate)
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`
+├── .github/workflows/ci-parallelism-benchmark.yml  Manual-only timing of the suite with 1, 2 and 4 workers, for re-choosing CI's worker counts (never a gate; see the operations runbook)
 └── README.md
 ```
 

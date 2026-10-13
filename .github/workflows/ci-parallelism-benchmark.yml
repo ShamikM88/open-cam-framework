@@ -1,6 +1,26 @@
 name: CI Parallelism Benchmark
 
-# Manual-only experiment for issue #212. Never adds work to ordinary PR/push CI.
+# Manual-only measurement of how long the full test suite takes with 1, 2 and 4 pytest-xdist workers on Ubuntu
+# (with coverage) and Windows, so CI's worker counts can be chosen again as the suite grows. Issue #212 chose the
+# current ones (`-n 4` on Ubuntu, `-n 2` on Windows) from this workflow; the last baseline is its results comment:
+# https://github.com/ShamikM88/open-cam-framework/issues/212#issuecomment-6103574890
+#
+# - Never a gate: it runs only when started by hand (workflow_dispatch), never on a pull request or a push, and it
+#   is not a required check. Its result is evidence for a decision, not a pass or a fail.
+# - Cost: one dispatch is 18 jobs (2 operating systems x 3 worker counts x 3 repeats), at most 6 at a time.
+# - Run it on main, or on a branch whose CI is green and whose badges/test-count.json is current. The Linux jobs
+#   also run the test-count, coverage-floor and changed-line coverage checks; a failure there says nothing about
+#   speed.
+# - Read pytest's own elapsed time (each job's summary table, or the last line of its pytest_output.txt
+#   artifact), not the job's duration, which includes queueing and setup.
+# - Compare the median of the three repeats of each configuration, never single runs. In #212 the fastest and
+#   slowest of three runs of one configuration differed by up to 45%, because the jobs share hosted runners, so
+#   treat medians as directional.
+# - Every job should report the same passed and xfailed counts and, on Ubuntu, the same coverage total; if not,
+#   the runs did not run the same tests and their timings are not comparable.
+# - Keep the pytest commands in step with ci.yml (tests/test_ci_workflow.py pins both), and point the baseline
+#   link above at the new results when CI's worker counts change.
+# Procedure and decision rule: docs/operations.md, "Re-tuning test parallelism".
 on:
   workflow_dispatch:
 
@@ -110,3 +130,36 @@ jobs:
           path: pytest_output.txt
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Write the timing to the job summary
+        if: always()
+        shell: python
+        env:
+          BENCHMARK_OS: ${{ matrix.os }}
+          BENCHMARK_WORKERS: ${{ matrix.workers }}
+          BENCHMARK_REPEAT: ${{ matrix.repeat }}
+        run: |
+          # One table row per job on the run page, so the 18 results can be compared without downloading
+          # artifacts. A missing log or summary line is written into the row, never raised.
+          import os
+          import re
+          from pathlib import Path
+
+          log = Path("pytest_output.txt")
+          raw = log.read_bytes() if log.is_file() else b""
+          # tee and current pwsh write UTF-8; an older PowerShell Tee-Object writes UTF-16 with a BOM. Only the
+          # summary line's figures are read, so an undecodable byte elsewhere in the log may be replaced.
+          if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+              text = raw.decode("utf-16")
+          else:
+              text = raw.decode("utf-8", errors="replace")
+          results = re.findall(r"^=+ (.+?) in ([0-9.]+)s\b.*=+\s*$", text, re.M)
+          totals = re.findall(r"^TOTAL\s.*?(\d+(?:\.\d+)?%)\s*$", text, re.M)
+          result, seconds = results[-1] if results else ("no pytest summary line in pytest_output.txt", "n/a")
+          coverage = totals[-1] if totals else "n/a"
+          row = (os.environ["BENCHMARK_OS"], os.environ["BENCHMARK_WORKERS"], os.environ["BENCHMARK_REPEAT"],
+                 seconds, coverage, result)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("| OS | Workers | Repeat | pytest elapsed (s) | Coverage total | Result |\n")
+              summary.write("| :--- | ---: | ---: | ---: | ---: | :--- |\n")
+              summary.write("| " + " | ".join(row) + " |\n")

@@ -153,9 +153,10 @@ def _read_sample_text():
         for page in reader.pages:
             page_text = page.extract_text() or ""
             if page_text.strip():
-                pdf_parts.append(page_text)
+                # Preserve the historical trailing newline per text-bearing page.
+                pdf_parts.append(page_text + "\n")
 
-        pdf_text = "\n".join(pdf_parts)
+        pdf_text = "".join(pdf_parts)
         if not pdf_text.strip():
             print(
                 f"[WARN] {path}: no extractable text; it may be scanned. "
@@ -164,7 +165,7 @@ def _read_sample_text():
             continue
         text_parts.append(pdf_text)
 
-    return "\n".join(text_parts)
+    return "".join(text_parts)
 
 def _split_into_chunks(text, limit=CHUNK_CHAR_LIMIT):
     """Split `text` into consecutive pieces of at most `limit` characters,

@@ -1857,7 +1857,7 @@ def test_partial_recompute_recomputes_all_preserved_analyst_periods_when_raw_inp
     assert state["financials_source_note"] == ""
     assert state["financials"]["FY-1"]["gross_profit"] == 400
     assert state["financials"]["FY-1"]["ebitda"] == 400
-    assert "dscr" not in state["ratios"]["FY-1"], "the stale supplied ratio was replaced by a fresh computation"
+    assert state["ratios"]["FY-1"]["dscr"] is None, "the stale supplied ratio was replaced by a fresh computation"
     assert state["financials"]["FY-Current"]["gross_profit"] == 1000
     assert set(state["financials"]) == {"FY-1", "FY-Current"}
 

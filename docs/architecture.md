@@ -112,7 +112,7 @@ the narrative is sound.
   and the deal's saved evidence, and returns a verdict; `/review` keeps the deterministic checks and writes the record
   ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
 - **Slash commands** (`.claude/commands/`): the interactive implementation of each step, described by
-  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; three analyst aids are implemented, see [Skills](skills.md),
+  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; six analyst aids are implemented, see [Skills](skills.md),
   and none is ever input to the Maker or the Checker, see [Skill design](skill-design.md)). They run the deterministic scripts through Bash steps and hand the model's
   drafting work back to the session.
 - **Scripts** (`scripts/`): the deterministic core and the headless entry points. Most have no `anthropic`
@@ -172,6 +172,7 @@ open-cam-framework/
 │   ├── triage.md, research.md, spread.md, commercial.md, collateral.md, project.md
 │   ├── assemble.md
 │   └── review.md
+├── .claude/skills/               Person-invoked analyst and maintainer aids; see [Skills](skills.md) and the registry
 ├── agents/                      Maker-Checker agent prompts (see Maker-Checker agents above)
 │   ├── underwriter_agent.md
 │   └── risk_reviewer_agent.md

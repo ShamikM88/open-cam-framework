@@ -52,6 +52,8 @@ writing style/tone into `config/style_guide.md`; the other derives a genericized
 (explicitly instructed to strip all real data to `[placeholder]`s) written to
 `templates/local/cam/<deal_type>_cam.md`. `<deal_type>` defaults to `corporate_credit` and
 should match the value later passed to `orchestrator.py --type`.
+
+Each PDF is checked for extractable non-whitespace text. A PDF with none (often an image-only scan) is named in a warning and skipped; if no sample PDF contains extractable text, calibration exits with an error before any model call or output write. Use `/calibrate`, which reads PDFs natively, or OCR the scans first.
 ```
 python scripts/calibrate.py --type asset_finance
 ```

@@ -81,7 +81,7 @@ never drop a field another step already recorded):
   Go/No-Go verdict and rationale (exactly the shape `/triage` would write), a `commercial` key
   holding the drafted sections above (exactly the shape `/commercial` would write), and any
   bureau/registry figures under `inputs` (e.g. `inputs.experian_score`).
-- Set `triage.sources` and `commercial.sources` to lists of citation strings used by their respective sections
+- Set `triage.sources` and `commercial.sources` each to a list of citation strings used by their respective sections
   (use `[]` for a section with no citations); never omit either list.
 - Append `"triage"` and `"commercial"` to `steps_completed` if not already there. This makes the
   deal indistinguishable from one that ran `/triage` and `/commercial` individually, so it can

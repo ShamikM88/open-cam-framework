@@ -57,13 +57,16 @@ never drop a field another step already recorded):
   otherwise write back to the file you found.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), and a `commercial` key
   holding the drafted sections above (or at least their key conclusions and sources).
+- Set `commercial.sources` to a list of citation strings used by this step (use `[]` when none were used); never omit the list.
 - Append `"commercial"` to `steps_completed` if it isn't already there.
 
 Then run:
 ```
 python scripts/source_manifest.py --check-sources --company "<company>" --proposal "<proposal>"
 ```
-If `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
+If `sources_declared` is `"unknown"`, this completed step's saved state has no valid `sources` list. Restore the list
+of citation strings in state and rerun this check; do not assume no citations were used or continue silently.
+Otherwise, if `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
 of the material behind them (see issue #72) — go back and save at least one via the Source
 material step above before finishing, or tell the user explicitly that no source material was
 saved for this step and why (e.g. every source was unsaveable) rather than silently moving on.

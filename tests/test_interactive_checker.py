@@ -385,7 +385,10 @@ REVIEW_MUTATIONS = [
      lambda t: mutate(t, r"Agent\(risk-reviewer\)", "Agent(risk-reviewer), Write"),
      "pre-approves more than the Reviewer: Write"),
     ("the named deal missing-record guard removed",
-     lambda t: mutate(t, r"If there is none, there is no record: carry on without one only for a standalone review", "If there is none, carry on without one."),
+     lambda t: mutate(t,
+                      r"stop here, before step 3" if "stop here, before step 3" in t else
+                      r"If there is none, there is no record: carry on without one only for a standalone review",
+                      "carry on to step 3"),
      "no longer stops when a named deal record is missing before the deterministic check"),
     ("the state write can create a missing deal folder",
      lambda t: mutate(t, r"A standalone review writes nothing",

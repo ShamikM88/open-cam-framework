@@ -13,6 +13,7 @@ import os
 from types import SimpleNamespace
 
 import pytest
+from pypdf import PdfWriter
 
 import calibrate
 from calibrate import _resolve_calibrate_model, run_calibration
@@ -740,3 +741,65 @@ def test_the_progress_line_states_the_parts_and_groups_that_the_round_then_makes
     lines = capsys.readouterr().out.splitlines()
     assert lines == ["  merging 5 style part(s) in 2 group(s)...", "  merging 2 style part(s) in 1 group(s)..."]
     assert len(merge_calls.calls) == 3
+
+
+# Empty/scanned samples must be refused before calls or output writes (issue #255).
+def _write_blank_pdf(path):
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with path.open("wb") as handle:
+        writer.write(handle)
+
+
+@pytest.mark.parametrize("mock", [False, True])
+def test_pdfs_without_extractable_text_refuse_before_writing_outputs(
+    project_root, monkeypatch, capsys, mock,
+):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    samples = project_root / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    _write_blank_pdf(samples / "scanned.pdf")
+
+    style_guide = project_root / "config" / "style_guide.md"
+    original_style = b"existing style guide\r\n"
+    style_guide.write_bytes(original_style)
+    template = project_root / "templates" / "local" / "cam" / "corporate_credit_cam.md"
+    client = RecordingClient()
+    monkeypatch.setattr(calibrate, "client", client)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_calibration("corporate_credit", mock=mock)
+
+    assert exc_info.value.code == 1
+    assert client.calls == []
+    assert style_guide.read_bytes() == original_style
+    assert not template.exists()
+    output = capsys.readouterr().out
+    assert "scanned.pdf" in output
+    assert "no extractable text" in output.lower()
+    assert "/calibrate" in output
+    assert "OCR" in output
+
+
+def test_mixed_text_and_blank_pdfs_warns_and_processes_extractable_content(
+    project_root, monkeypatch, capsys,
+):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(False))
+    samples = project_root / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    _write_pdf(samples / "text-sample.pdf", "EXTRACTABLE", pages=1, lines_per_page=1)
+    _write_blank_pdf(samples / "blank-sample.pdf")
+
+    client = RecordingClient()
+    monkeypatch.setattr(calibrate, "client", client)
+
+    run_calibration("corporate_credit")
+
+    output = capsys.readouterr().out
+    assert "blank-sample.pdf" in output
+    assert "no extractable text" in output.lower()
+    assert len(client.calls) == 2
+    assert any("EXTRACTABLE" in prompt for prompt in client.prompts())
+    assert (project_root / "config" / "style_guide.md").exists()
+    assert (project_root / "templates" / "local" / "cam" / "corporate_credit_cam.md").exists()

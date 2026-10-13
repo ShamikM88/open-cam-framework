@@ -276,7 +276,7 @@ def test_saved_sources_and_conventions_print_what_the_workflow_page_shows(deal):
     assert {k: v for k, v in entry.items() if k != "fetched_date"} == {
         "filename": "example.invalid_registry.txt", "url": "https://example.invalid/registry", "step": "research",
         "claim": "Synthetic legal identity extract"}
-    assert deal.run("source_manifest", "--check-sources", *deal.deal_args()).stdout.strip() == '{\n  "missing_saved_sources": false\n}'
+    assert deal.run("source_manifest", "--check-sources", *deal.deal_args()).stdout.strip() == '{\n  "missing_saved_sources": false,\n  "sources_declared": "not_declared"\n}'
     wrote = deal.run("conventions", "--company", COMPANY, "--write", "--financials-source", "analyst-supplied", "--note",
                      "Depreciation embedded in Cost of Goods Sold", "--proposal", PROPOSAL, "--confirmed-date", "2026-01-15")
     convention = json.loads(wrote.stdout)

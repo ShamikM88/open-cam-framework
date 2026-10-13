@@ -323,6 +323,7 @@ widths: {'A': 22.0, 'B': 16.0, 'C': 16.0, 'D': 16.0, 'E': 16.0, 'F': 16.0, 'G': 
 A1: 'Asset Class'  [bold]
 B1: 'Exposure (Rental + RV)'  [bold]
 C1: 'Number of Units'  [bold]
+D1: 'Cap / Model Value'  [bold]
 E1: 'Non-Recovery'  [bold]
 F1: 'Costs'  [bold]
 G1: 'Collateral Value'  [bold]

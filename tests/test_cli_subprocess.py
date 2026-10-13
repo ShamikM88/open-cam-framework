@@ -157,7 +157,7 @@ def test_source_manifest_saves_a_source_then_reports_it(cli):
     source = cli.workdir / "filing.txt"
     source.write_text("the filing", encoding="utf-8")
     before = json.loads(cli("source_manifest", "--company", "Acme", "--proposal", "Loan", "--check-sources").stdout)
-    assert before == {"missing_saved_sources": False}   # nothing declared, nothing missing
+    assert before == {"missing_saved_sources": False, "sources_declared": "not_declared"}   # nothing declared, nothing missing
     saved = cli("source_manifest", "--company", "Acme", "--proposal", "Loan", "--step", "triage",
                 "--claim", "legal identity", "--file", source, "--url", "https://example.invalid/filing")
     assert saved.returncode == 0, saved.stderr
@@ -730,18 +730,18 @@ def test_source_manifest_save_reports_a_missing_file_as_one_error_line(cli):
     assert not (cli.workdir / "deals").exists()
 
 
-def test_source_manifest_check_sources_behaves_exactly_as_before_for_valid_manifests(cli):
+def test_source_manifest_check_sources_preserves_missing_flag_for_known_shapes(cli):
     _write_state(cli.workdir, {"triage": {"sources": ["https://example.invalid/registry"]}})
     absent = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
-    assert absent.returncode == 0 and json.loads(absent.stdout) == {"missing_saved_sources": True}
+    assert absent.returncode == 0 and json.loads(absent.stdout) == {"missing_saved_sources": True, "sources_declared": "declared"}
     sources = next(cli.workdir.glob("deals/Acme/Loan_*")) / "sources"
     sources.mkdir()
     (sources / "manifest.json").write_text("[]", encoding="utf-8")
     empty = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
-    assert empty.returncode == 0 and json.loads(empty.stdout) == {"missing_saved_sources": True}
+    assert empty.returncode == 0 and json.loads(empty.stdout) == {"missing_saved_sources": True, "sources_declared": "declared"}
     (sources / "manifest.json").write_text('[{"filename": "a.txt", "claim": "x"}]', encoding="utf-8")
     saved = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
-    assert saved.returncode == 0 and json.loads(saved.stdout) == {"missing_saved_sources": False}
+    assert saved.returncode == 0 and json.loads(saved.stdout) == {"missing_saved_sources": False, "sources_declared": "declared"}
     assert saved.stderr == ""
 
 

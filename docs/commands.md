@@ -186,11 +186,12 @@ worked examples are in [Workflows](workflows.md).
 - **Steps:** resolve the template (local override, else shipped default, else a new type); hard-check
   `state_manager.py --check-steps ... --required spread` and stop if it is not `ok`; get `policy_state` from
   `policy_check.py`; draft, ending with the structured JSON block; save and `/review`; revise and overwrite until
-  `APPROVED`; export with `deal_export.py`; report the folder and delete the temporary draft; optionally offer
+  `APPROVED`; export with `deal_export.py`; move the approved Markdown to the same dated folder as `draft_approved.md`,
+  record its repository-relative path in `state.json` as `approved_draft_path`, then report the folder; optionally offer
   end-of-deal learnings.
 - **Produces:** `<Company>_<Proposal>_CAM.docx` and `<Company>_<Proposal>_Spreading.xlsx` in the deal's dated folder; a
   new local template if the deal type had none.
-- **State:** `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path`, `policy_state`, `assemble` in `steps_completed`
+- **State:** `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path`, `approved_draft_path`, `policy_state`, `assemble` in `steps_completed`
   (`/review` writes `review_verdict` and `review_trail`).
 - **Can go wrong:** `spread` missing (it stops before drafting); a code-enforced rejection that the Reviewer cannot
   override (fix the draft, or the recorded structure if the reason is a security gap or covenant); a deal type with no

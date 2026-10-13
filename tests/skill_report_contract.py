@@ -36,7 +36,10 @@ VERDICT_RE = re.compile(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|PASSED|FAIL|FAI
 VERDICT_CONCLUSION_RE = re.compile(
     r"(?i)\b(?:(?:overall\s+)?(?:the\s+)?(?:deal|facility|proposal|loan|borrower|application|decision|result|verdict)"
     r"\s+(?:is|was|has\s+been)\s+|(?:overall\s+)?(?:decision|result|verdict)\s*[:=]\s*)"
-    r"(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)\b"
+    r"(?:\*\*|__)?(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)\b(?:\*\*|__)?"
+)
+VERDICT_STANDALONE_RE = re.compile(
+    r"(?im)^\s*(?:\*\*|__)?(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)(?:\*\*|__)?[.!]?\s*$"
 )
 CONCLUSION_RE = re.compile(
     r"(?i)\b(?:we|i)\s+recommend|\brecommend(?:ed|ation)?\b[^.\n]{0,20}\b(?:lend|lending|declin\w*|approv\w*)"
@@ -113,7 +116,7 @@ def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     for number in NUMBER_RE.findall(scan):
         if number.rstrip(".,") not in recorded and number.replace(",", "") not in recorded.replace(",", ""):
             problems.append(f"number not in the record: {number}")
-    if VERDICT_RE.search(prose) or VERDICT_CONCLUSION_RE.search(prose):
+    if VERDICT_RE.search(prose) or VERDICT_CONCLUSION_RE.search(prose) or VERDICT_STANDALONE_RE.search(prose):
         problems.append("a verdict word appears outside a quoted recorded value")
     if CONCLUSION_RE.search(prose):
         problems.append("a rating, score, recommendation or clearance appears")

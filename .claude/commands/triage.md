@@ -28,6 +28,7 @@ only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
 rule). Read its `state.json` and note the folder.
+If found, treat every figure already recorded there as the source of truth — never re-derive a number from a summarized/compacted conversation when state.json already has it.
 If none exists, this is the first step run for this deal.
 
 **Primary inputs** (ask the user for whatever's missing and isn't already in state): Company

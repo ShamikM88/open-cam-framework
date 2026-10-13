@@ -20,6 +20,7 @@ only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
 rule). Read its `state.json` and note the folder.
+If found, it may already hold the outputs of `/triage`, `/spread`, `/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous session, or from after a context compaction. Treat it as the source of truth for any figure it has recorded; never fall back to a summarized/compacted memory of a step when state.json already has that step's result.
 
 You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
 `/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier

@@ -269,11 +269,17 @@ python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposa
 `scripts/source_manifest.py --company ... --proposal ... --step <step> --claim <text> --file <path> [--url <url>]
 [--filename <name>]` copies an already-downloaded document into the deal's `sources/` folder and appends an entry
 (`filename`, `url`, `step`, `claim`, `fetched_date`) to `sources/manifest.json`; it never fetches anything. With
-`--check-sources` instead it prints `{"missing_saved_sources": true|false}`: true when the deal declared citations but
-saved no material. It exits `0` whatever the result. A `sources/manifest.json` that cannot be used (unreadable, a link whose target does not exist, not UTF-8,
-not JSON, not a list, or a list with an entry that is not an object), and a company or proposal that is not a safe folder
-name, are not results: each is one `error:` line, exit status `1`, no traceback and no JSON on stdout, and the file is never
-modified. Saving checks the manifest before it copies anything, so a refusal leaves no copied document behind.
+`--check-sources` instead prints `{"missing_saved_sources": true|false, "sources_declared": "declared"|"not_declared"|"unknown"}`.
+The existing `missing_saved_sources` key remains boolean: true when declared, non-empty citations have no saved material,
+or when a completed step's source-list shape is unknown. `sources_declared` is `"unknown"` when a step named in
+`steps_completed` has no section with a list-valued `sources` field, `"declared"` when at least one `triage.sources` or
+`commercial.sources` list exists and the completed relevant steps have valid lists, and `"not_declared"` when neither
+condition applies. A calling command must stop and request a corrected state shape on `"unknown"` rather than treating it
+as proof that no citations were used. The command exits `0` for any check result. A `sources/manifest.json` that cannot
+be used (unreadable, a link whose target does not exist, not UTF-8, not JSON, not a list, or a list with an entry that
+is not an object), and a company or proposal that is not a safe folder name, are errors: each is one `error:` line, exit
+status `1`, no traceback and no JSON on stdout, and the file is never modified. Saving checks the manifest before copying
+anything, so a refusal leaves no copied document behind.
 
 ```bash
 python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \

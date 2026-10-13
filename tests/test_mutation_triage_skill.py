@@ -72,6 +72,19 @@ def test_mutation_triage_is_an_implemented_maintainer_skill_of_phase_4():
         ("skill", "maintainer", "implemented: phase 4", "user", "None (aid)", "no")
 
 
+def skill_text_with_network_denies():
+    """Return a valid baseline for isolated mutation cases, even before the skill file is updated."""
+    text = skill_text()
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("disallowed-tools:"):
+            tokens = line.partition(":")[2].split()
+            tokens.extend(tool for tool in ("WebFetch", "WebSearch") if tool not in tokens)
+            lines[index] = "disallowed-tools: " + " ".join(tokens)
+            return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    raise AssertionError("frontmatter has no disallowed-tools line")
+
+
 def frontmatter_problems(text, name=NAME):
     fields = frontmatter(text)
     problems = []
@@ -122,11 +135,11 @@ FRONTMATTER_MUTATIONS = [
     ("a bare Bash pre-approved", lambda t: t.replace("  - Grep\n", "  - Grep\n  - Bash\n", 1), "no command"),
     ("an edit pre-approved", lambda t: t.replace("  - Grep\n", "  - Grep\n  - Edit\n", 1), "no command"),
     ("a read tool dropped", lambda t: t.replace("  - Glob\n", "", 1), "exactly Read, Glob and Grep"),
-    ("Bash not removed", lambda t: t.replace("disallowed-tools: Write Edit NotebookEdit Bash", "disallowed-tools: Write Edit NotebookEdit"),
+    ("Bash not removed", lambda t: t.replace("Write Edit NotebookEdit Bash WebFetch WebSearch", "Write Edit NotebookEdit WebFetch WebSearch"),
      "does not remove ['Bash']"),
-    ("Write not removed", lambda t: t.replace("disallowed-tools: Write Edit NotebookEdit Bash", "disallowed-tools: Edit NotebookEdit Bash"),
+    ("Write not removed", lambda t: t.replace("Write Edit NotebookEdit Bash WebFetch WebSearch", "Edit NotebookEdit Bash WebFetch WebSearch"),
      "does not remove ['Write']"),
-    ("NotebookEdit not removed", lambda t: t.replace("Write Edit NotebookEdit Bash", "Write Edit Bash"),
+    ("NotebookEdit not removed", lambda t: t.replace("Write Edit NotebookEdit Bash WebFetch WebSearch", "Write Edit Bash WebFetch WebSearch"),
      "does not remove ['NotebookEdit']"),
     ("WebFetch not removed", lambda t: remove_network_tool(t, "WebFetch"), "does not remove ['WebFetch']"),
     ("WebSearch not removed", lambda t: remove_network_tool(t, "WebSearch"), "does not remove ['WebSearch']"),
@@ -138,8 +151,9 @@ FRONTMATTER_MUTATIONS = [
 
 @pytest.mark.parametrize(("label", "change", "expected"), FRONTMATTER_MUTATIONS, ids=[m[0] for m in FRONTMATTER_MUTATIONS])
 def test_the_frontmatter_check_fails_for_each_way_the_report_could_stop_being_read_only(label, change, expected):
-    changed = change(skill_text())
-    assert changed != skill_text(), "the mutation changed nothing"
+    baseline = skill_text_with_network_denies()
+    changed = change(baseline)
+    assert changed != baseline, "the mutation changed nothing"
     assert any(expected in p for p in frontmatter_problems(changed)), frontmatter_problems(changed)
 
 

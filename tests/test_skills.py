@@ -225,7 +225,9 @@ def test_the_frontmatter_check_reports_each_way_a_skill_could_stop_being_a_safe_
     assert "unexpected frontmatter key" in broken("context: fork\n", "context: fork\nhooks: x\n")
     assert "unexpected frontmatter key" in broken("context: fork\n", "context: fork\nmodel: other\n")
     assert "does not remove ['Edit']" in broken("Write Edit NotebookEdit", "Write NotebookEdit")
-    assert "does not remove" in broken("disallowed-tools: Write Edit NotebookEdit\n", "")
+    assert "does not remove" in broken(
+        "disallowed-tools: Write Edit NotebookEdit WebFetch WebSearch\n",
+        "disallowed-tools: WebFetch WebSearch\n")
     assert "pre-approves Bash(python scripts/spreading_check.py *)" in broken(
         "Bash(python scripts/policy_check.py *)", "Bash(python scripts/spreading_check.py *)")
     assert "pre-approves Bash(python scripts/policy_check.py --draft x)" in broken(

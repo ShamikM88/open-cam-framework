@@ -339,7 +339,7 @@ def _source_write_contract_problems(command_text, fields):
     start = command_text.find("## State: write")
     if start == -1:
         return ["missing State: write section"]
-    end = command_text.find("\\n## ", start + len("## State: write"))
+    end = command_text.find("\n## ", start + len("## State: write"))
     section = command_text[start:] if end == -1 else command_text[start:end]
     problems = []
     for field in fields:

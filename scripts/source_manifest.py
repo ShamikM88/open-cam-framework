@@ -228,42 +228,60 @@ def read_manifest(company, proposal, date_str=None, base_dir=None):
     return _load_manifest(manifest_path)
 
 
-def missing_saved_sources(state, manifest):
-    """True when `state`'s `triage`/`commercial` sections declare at least
-    one non-empty citation but `manifest` (this deal's sources/manifest.json,
-    as read_manifest() returns it) has zero entries at all -- i.e. every
-    declared citation is a bare string with nothing on disk backing any of
-    them (see issue #72: the prompt instruction to save source material is
-    easy for a session to silently skip; this is the code-enforced check
-    that catches it).
+def sources_declared(state):
+    """Report the declaration shape for citation lists in completed steps.
 
-    Deliberately deal-level, not a strict per-step-name match against
-    `state`'s `triage`/`commercial` keys: /research's own combined step
-    tags its manifest entries `step="research"` rather than
-    `"triage"`/`"commercial"` (see research.md's own source_manifest.py
-    invocation), so requiring an exact section-name match would spuriously
-    flag a /research-only deal that in fact saved its sources correctly.
-
-    Also deliberately a floor-level check ("did *something* get saved for
-    *some* declared citation"), not an exhaustive 1:1 audit matching every
-    single citation to its own manifest entry -- a step legitimately can't
-    always save every source (e.g. a bot-blocked page) -- matching the same
-    "at least one, not exhaustive coverage" discipline
-    policy_checks.check_draft_compliance()'s existing "Missing Narrative
-    Sources" check already applies to the CAM draft's own declared sources.
-
-    A `triage`/`commercial` value that's present but the wrong type (e.g. a
-    list instead of an object -- malformed state.json) is treated as
-    "nothing declared" rather than raising, matching
-    policy_checks.parse_underwriter_output()'s identical degrade-safely
-    handling of a wrong-typed field elsewhere in this framework.
+    Returns "unknown" if a completed triage/commercial step has no section
+    object with a list-valued `sources` key. This is distinct from
+    "not_declared": callers cannot infer that no citations were used just
+    because the session omitted the required field. "declared" means at
+    least one relevant section contains a list-valued sources field.
     """
+    steps_completed = state.get("steps_completed", []) if isinstance(state, dict) else []
+    if not isinstance(steps_completed, list):
+        steps_completed = []
+
+    for section_name in ("triage", "commercial"):
+        if section_name in steps_completed:
+            section = state.get(section_name)
+            if not isinstance(section, dict) or not isinstance(section.get("sources"), list):
+                return "unknown"
+
+    if any(
+        isinstance(state.get(section_name), dict)
+        and isinstance(state[section_name].get("sources"), list)
+        for section_name in ("triage", "commercial")
+    ):
+        return "declared"
+    return "not_declared"
+
+
+def missing_saved_sources(state, manifest):
+    """True when sources are missing or their declaration shape is unknown.
+
+    When a step in `steps_completed` has no section with a list-valued
+    `sources` key, its citations cannot be checked. Return True rather than
+    silently treating that unknown shape as "nothing missing"; the CLI also
+    reports `sources_declared: "unknown"` so the caller can distinguish it
+    from a known declaration with no citations.
+
+    For known shapes, this remains a deal-level floor check: it reports True
+    when any non-empty citation is declared in `triage.sources` or
+    `commercial.sources` but the manifest has no entries. Manifest entries
+    are not matched 1:1 to each citation because some sources may be
+    unsaveable, and /research uses `step="research"` in its manifest entries.
+    """
+    if sources_declared(state) == "unknown":
+        return True
+
     citations = []
     for section_name in ("triage", "commercial"):
-        section = state.get(section_name)
+        section = state.get(section_name) if isinstance(state, dict) else None
         if isinstance(section, dict):
-            citations.extend(section.get("sources") or [])
-    declared = any(str(s).strip() for s in citations)
+            sources = section.get("sources")
+            if isinstance(sources, list):
+                citations.extend(sources)
+    declared = any(str(source).strip() for source in citations)
     return declared and not manifest
 
 
@@ -308,7 +326,10 @@ if __name__ == "__main__":
             manifest = read_manifest(args.company, args.proposal)       # a ManifestError is a StateError
         except StateError as exc:
             sys.exit(f"error: {' '.join(str(exc).split())}")
-        print(json.dumps({"missing_saved_sources": missing_saved_sources(state, manifest)}, indent=2))
+        print(json.dumps({
+            "missing_saved_sources": missing_saved_sources(state, manifest),
+            "sources_declared": sources_declared(state),
+        }, indent=2))
     else:
         missing = [name for name in ("step", "claim", "source_path") if not getattr(args, name)]
         if missing:

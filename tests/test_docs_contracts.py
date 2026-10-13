@@ -352,7 +352,7 @@ def dated_state_lookup_problems(text):
         "incomplete-list warning": "it may be incomplete",
         "exact-folder naming rule": "only a folder named exactly `<proposal>_YYYY-MM-DD`",
         "latest-by-date rule": "Take the latest of those by comparing the date text",
-        "same-file write-back rule": "otherwise write back to that same file",
+        "same-file write-back rule": "write back to that same file",
     }
     for label, phrase in required.items():
         if phrase not in body:
@@ -366,7 +366,12 @@ def test_state_reading_commands_use_the_exact_dated_folder_rule(path):
 
 
 def test_the_dated_state_lookup_guard_detects_a_deliberately_wrong_glob_rule():
-    correct = read(".claude/commands/triage.md")
+    correct = (
+        "Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files, newest-modified first, "
+        "which is not the same as latest by date; if the list reaches 100 files it may be incomplete. Otherwise "
+        "consider only a folder named exactly `<proposal>_YYYY-MM-DD`; ignore other folders. Take the latest of "
+        "those by comparing the date text. Read its `state.json` and write back to that same file."
+    )
     wrong = correct.replace(
         "only a folder named exactly `<proposal>_YYYY-MM-DD`",
         "any folder matching the proposal prefix",

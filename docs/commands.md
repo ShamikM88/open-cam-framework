@@ -14,7 +14,7 @@ worked examples are in [Workflows](workflows.md).
   `deals/<Company>/<Proposal>_<YYYY-MM-DD>/`.
 - **State.** A step starts by reading the deal's `state.json` (treating every figure already there as the source of
   truth) and ends by writing its results back, merged with what other steps recorded and appending its name to
-  `steps_completed`. Nothing important lives only in the conversation. See the [data model](data-model.md).
+  `steps_completed`. When looking up state, consider only an exact `<proposal>_YYYY-MM-DD` folder and choose the latest by comparing the date text; stop if the lookup reaches 100 files because the list may be incomplete. Nothing important lives only in the conversation. See the [data model](data-model.md).
 - **Sources.** A step that fetches or is given a document saves the document itself to the deal's `sources/` folder
   with `scripts/source_manifest.py`, so a claim can be checked against the exact material later. Scratch artefacts are
   not saved.

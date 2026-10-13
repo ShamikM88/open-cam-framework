@@ -13,12 +13,13 @@ $ARGUMENTS
 
 ## State: read
 
-Glob `deals/<company>/<proposal>_*/state.json` (there should be at most one, regardless of
-date). If found, read it first — it may already hold the outputs of `/triage`, `/spread`,
-`/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous
-session, or from after a context compaction. Treat it as the source of truth for any figure it
-has recorded; never fall back to a summarized/compacted memory of a step when state.json already
-has that step's result.
+Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files,
+newest-modified first, which is not the same as latest by date; if the list reaches 100 files (the tool also flags
+truncation) it may be incomplete: say that the latest dated folder could not be established, and stop. Otherwise consider
+only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
+two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
+latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
+rule). Read its `state.json` and note the folder.
 
 You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
 `/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier
@@ -135,4 +136,4 @@ state-management protocol, a code-enforced structural finding like a covenant br
 gap must exist as a disk artifact, not only in this conversation), and append `"assemble"` to
 `steps_completed` if it isn't already there. `/review` already checkpoints `review_verdict`
 itself. `state.json` already sits next to the exported `.docx`/`.xlsx` — step 7 exports into the
-deal's existing dated folder — so write it back wherever you read it from; no re-homing needed.
+deal's existing dated folder — so write back to that same file; no re-homing needed.

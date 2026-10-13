@@ -561,3 +561,40 @@ def test_the_decision_and_the_assurance_page_state_the_implemented_design_and_it
     for needle in ("The interactive Checker is a separate context", "A different model.", "Immunity to planted instructions.",
                    "A verified live run.", "A prompt instruction only", "contract-tested", "an evidence gap"):
         assert needle in assurance, needle
+
+
+# /assemble must retain the Markdown artifact whose contents were approved by /review.
+def assemble_approved_draft_problems(command_text):
+    """Return contract violations in step 8's approved-draft retention instructions."""
+    lines = command_text.splitlines()
+    step8 = next(
+        (i for i, line in enumerate(lines) if re.match(r"^\\s*8\\.\\s", line)),
+        None,
+    )
+    if step8 is None:
+        return ["step 8 is missing"]
+    step9 = next(
+        (i for i in range(step8 + 1, len(lines)) if re.match(r"^\\s*9\\.\\s", lines[i])),
+        len(lines),
+    )
+    step = flat("\\n".join(lines[step8:step9]))
+    problems = []
+    if "delete the temporary <proposal>_draft.md file" in step:
+        problems.append("step 8 still deletes the reviewed draft")
+    if "draft_approved.md" not in step:
+        problems.append("step 8 does not name the retained draft destination")
+    if "approved_draft_path" not in step:
+        problems.append("step 8 does not record the retained draft path in state.json")
+    return problems
+
+
+def test_assemble_retains_the_approved_draft_and_records_its_path():
+    # Deliberately broken text demonstrates that the contract detects the old behavior.
+    broken = (
+        "8. Report the output folder, then delete the temporary "
+        "`<proposal>_draft.md` file.\\n"
+        "9. Continue with optional learnings."
+    )
+    assert len(assemble_approved_draft_problems(broken)) == 3
+    assert "step 8 is missing" in assemble_approved_draft_problems("No numbered steps here.")
+    assert assemble_approved_draft_problems(read(ASSEMBLE)) == []

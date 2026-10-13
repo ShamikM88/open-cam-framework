@@ -610,6 +610,47 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                     for period, value in (existing_state.get(field) or {}).items()
                     if period not in FORWARD_PERIOD_KEYS
                 }
+
+        # financials_source is a whole-deal flag. Clearing an analyst-supplied
+        # flag is only defensible if every preserved period is recomputed from
+        # raw lines in this run. Refuse before any model call/write when a
+        # recorded period has no raw inputs; when raw history exists, recompute
+        # all of it rather than only the fresh delta so stale supplied outputs
+        # cannot be relabelled framework-computed (review finding on #297).
+        if existing_state.get("financials_source") == "analyst-supplied":
+            recorded_periods = {
+                period
+                for field in ("financials", "ratios")
+                for period, value in (planning_state.get(field) or {}).items()
+                if isinstance(value, dict) and value
+            }
+            existing_raw = planning_state.get("multi_period_financials") or {}
+            incoming_raw = multi_period_financials or {}
+            available_raw_periods = {
+                period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
+            } | {
+                period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
+            }
+            missing_raw_periods = sorted(recorded_periods - available_raw_periods)
+            if missing_raw_periods:
+                raise StateError(
+                    "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
+                    f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
+                    "line items for every preserved period so all figures can be recomputed, or keep the "
+                    "analyst-supplied state; nothing was written."
+                )
+
+            recompute_inputs = {
+                period: dict(raw)
+                for period, raw in existing_raw.items()
+                if isinstance(raw, dict) and raw
+            }
+            for period, raw in incoming_raw.items():
+                merged_period = dict(recompute_inputs.get(period) or {})
+                merged_period.update(raw or {})
+                recompute_inputs[period] = merged_period
+            multi_period_financials = recompute_inputs
+
         planned_fields = plan_fields(
             planning_state, multi_period_financials, update_financials_source=False,
         )

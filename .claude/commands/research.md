@@ -1,7 +1,7 @@
 ---
 description: Standalone research deliverable -- legal identity/Go-No-Go screen plus company/sector/competitive research, no financial spreading (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [registration number, credit bureau summary, charges register] [sector, management bios, customer/supplier notes]"
-allowed-tools: Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
+allowed-tools: AskUserQuestion, Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
 disable-model-invocation: true
 ---
 
@@ -122,6 +122,10 @@ paragraph instead of rendering as separate lines.
    again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
    reports that it could not run or that no valid verdict came back, stop: that is neither an approval
    nor a rejection, so do not export; tell the user.
+
+   **Analyst decision after repeated rejection (not a hard cap).** After the third consecutive REJECTED verdict and every subsequent REJECTED verdict, before starting another Reviewer, pause and inspect the deal's saved `state.json` on disk. Count the consecutive trailing REJECTED entries from the deal's `review_trail` on disk, never from conversation memory; an earlier rejection streak separated by a non-REJECTED entry does not count. Show the pass count and a short list of the latest findings. Ask the analyst with the structured `AskUserQuestion` tool (not free text for this decision), with exactly three options: `Run another review pass`; `Stop and export for manual review (unapproved, disclosed)`; `Stop without exporting`. This decision point appears again after every further consecutive REJECTED pass, before any new Reviewer starts; it is not a maximum-pass limit.
+
+   Silence, an ambiguous answer, or "carry on" is never consent to export. If the answer is silent or ambiguous, or says "carry on", ask the structured question again. `Run another review pass` means revise and overwrite the saved brief and review it with a new Reviewer. `Stop without exporting` means stop and tell the analyst that no DOCX was exported. Only an explicit selection of "Stop and export for manual review (unapproved, disclosed)" authorises a release: ask the analyst for a non-empty reason and then pass it as `--analyst-release-unapproved "<reason>"` to `scripts/research_export.py`. Never pass the flag on your own initiative. If the reason is blank or only whitespace, ask for a reason again; do not export until one is supplied. This flag discloses that the independent Risk Reviewer did not approve the brief and records the trailing REJECTED pass count, date and reason in `state.json`. The ordinary export still requires the Sources/References rules below (including separate explicit analyst authorisation if a no-sources override is needed).
 3. **Export it.** Once approved, run:
    ```
    python scripts/research_export.py --company "<company>" --proposal "<proposal>" --brief "deals/<company>/<proposal>_brief.md"

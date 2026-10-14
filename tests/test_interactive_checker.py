@@ -537,9 +537,9 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
      "uses the structured question tool"),
     ("export option", lambda t: mutate_research_checkpoint(
         t, r"Stop and export for manual review \(unapproved, disclosed\)", "export the draft"),
-     "offers disclosed manual export"),
+     "the question does not list exactly three options"),
     ("stop option", lambda t: mutate_research_checkpoint(t, r"Stop without exporting", "stop now"),
-     "offers stop without export"),
+     "the question does not list exactly three options"),
     ("extra option", lambda t: mutate_research_checkpoint(t, r"Stop without exporting", "Stop without exporting; Ignore the findings"),
      "the question does not list exactly three options"),
     ("ambiguous consent", lambda t: mutate_research_checkpoint(

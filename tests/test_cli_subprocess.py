@@ -150,6 +150,7 @@ def test_state_manager_check_steps_reports_missing_steps_and_always_exits_zero(c
     result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan",
                  "--required", "spread, collateral")
     assert result.returncode == 0
+    assert result.stdout == '{\n  "missing_steps": ["spread", "collateral"],\n  "ok": false\n}\n'
     assert json.loads(result.stdout) == {"missing_steps": ["spread", "collateral"], "ok": False}
 
 
@@ -608,6 +609,40 @@ def test_deal_export_reports_a_malformed_state_cleanly(cli):
     (cli.workdir / "draft.md").write_text("# Draft\n", encoding="utf-8")
     result = cli("deal_export", "--company", "Acme", "--proposal", "Loan", "--draft", "draft.md")
     _assert_a_clean_state_error(result, '"financials_source" must be "framework-computed" or "analyst-supplied"')
+
+
+
+
+
+def test_state_manager_exports_reviewer_view_with_a_real_cli_subprocess(cli):
+    source = _write_state(cli.workdir, {
+        "company": "Acme", "proposal": "Loan", "date": "2026-01-01", "schema_version": "1.1.0",
+        "steps_completed": ["triage"], "review_verdict": "REJECTED",
+        "review_trail": [{"iteration": 1, "verdict": "REJECTED", "notes": "synthetic finding",
+                          "timestamp": "2026-01-01T10:00:00"}],
+    })
+    before = source.read_bytes()
+    result = cli("state_manager", "--export-reviewer-view", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    assert set(paths) == {"state_for_review", "review_trail"}
+    assert paths["state_for_review"] == "deals/Acme/Loan_2026-01-01/review_view/state_for_review.json"
+    assert paths["review_trail"] == "deals/Acme/Loan_2026-01-01/review_view/review_trail.json"
+    record = json.loads((cli.workdir / paths["state_for_review"]).read_text(encoding="utf-8"))
+    trail = json.loads((cli.workdir / paths["review_trail"]).read_text(encoding="utf-8"))
+    assert "review_trail" not in record and "review_verdict" not in record
+    assert trail[0]["verdict"] == "REJECTED"
+    assert source.read_bytes() == before
+
+
+def test_state_manager_reviewer_view_refuses_bad_state_without_creating_view(cli):
+    source = _write_state(cli.workdir, {"schema_version": "9.9.9", "review_trail": ["malformed"]})
+    before = source.read_bytes()
+    result = cli("state_manager", "--export-reviewer-view", "--company", "Acme", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "9.9.9")
+    assert source.read_bytes() == before
+    assert not (source.parent / "review_view").exists()
+
 
 
 def test_state_manager_check_steps_reports_a_malformed_state_cleanly(cli):

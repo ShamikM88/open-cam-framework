@@ -92,8 +92,7 @@ worked examples are in [Workflows](workflows.md).
   template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
-- **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
-  `/triage`). It may afterwards offer end-of-deal learnings, written only on your explicit yes.
+- **Can go wrong:** a `REJECTED` review means revise, overwrite, and review again with a new Reviewer. After three consecutive `REJECTED` passes and each later rejection, `/research` asks a structured three-choice question before another pass: another review; stop and export for disclosed manual review; or stop without exporting. It reads the consecutive rejection count from the on-disk `review_trail`; silence and ambiguous replies are not permission to export. Only the explicit manual-review choice allows `--analyst-release-unapproved "<reason>"`, which inserts a status disclosure near the document top and records `review_stopped_by_analyst` in state. The exporter's missing/empty Sources section also blocks export unless the analyst explicitly authorises `--analyst-override-no-sources "<reason>"`, which leaves its footnote last. It may afterwards offer end-of-deal learnings, written only on your explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread

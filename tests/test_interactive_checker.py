@@ -491,7 +491,12 @@ def research_checkpoint_problems(text):
         "Stop and export for manual review (unapproved, disclosed)",
         "Stop without exporting",
     )
-    positions = [body.find(option) for option in ordered_options]
+    if "Analyst decision after repeated rejection" not in body or "3. Export it." not in body:
+        problems.append("the analyst checkpoint is not in the review/export step")
+        checkpoint = ""
+    else:
+        checkpoint = body.split("Analyst decision after repeated rejection", 1)[1].split("3. Export it.", 1)[0]
+    positions = [checkpoint.find(option) for option in ordered_options]
     if positions != sorted(positions) or any(position < 0 for position in positions):
         problems.append("the three analyst options are not present in the required order")
     exact_option_sequence = (
@@ -499,15 +504,15 @@ def research_checkpoint_problems(text):
         "Stop and export for manual review (unapproved, disclosed); Stop without exporting. "
         "This decision point"
     )
-    if exact_option_sequence not in body:
+    if exact_option_sequence not in checkpoint:
         problems.append("the question does not list exactly three options")
-    if "after the third consecutive REJECTED verdict and every subsequent REJECTED verdict" not in body:
+    if "After the third consecutive REJECTED verdict and every subsequent REJECTED verdict" not in checkpoint:
         problems.append("the checkpoint is not required after the third and every later rejection")
-    if "before starting another Reviewer" not in body:
+    if "before starting another Reviewer" not in checkpoint:
         problems.append("the checkpoint is not placed before another Reviewer starts")
-    if "If the answer is silent or ambiguous, or says \"carry on\", ask the structured question again" not in body:
+    if "If the answer is silent or ambiguous, or says \"carry on\", ask the structured question again" not in checkpoint:
         problems.append("silence, ambiguity or carry-on does not trigger a repeated question")
-    if "Only an explicit selection of \"Stop and export for manual review (unapproved, disclosed)\" authorises" not in body:
+    if "Only an explicit selection of \"Stop and export for manual review (unapproved, disclosed)\" authorises" not in checkpoint:
         problems.append("the release flag is not restricted to the explicit export choice")
     return problems
 
@@ -536,8 +541,10 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
     ("self-initiated flag", lambda t: mutate(
         t, r"Never pass the flag on your own initiative", "pass the flag whenever needed"),
         "never passes the release flag independently"),
-    ("checkpoint order", lambda t: mutate(t, r"before starting another Reviewer", "after a Reviewer starts"),
-        "the checkpoint is not placed before another Reviewer starts"),
+    ("checkpoint order", lambda t: mutate(
+        t, r"After the third consecutive REJECTED verdict and every subsequent REJECTED verdict, before starting another Reviewer",
+        "After repeated rejections, start another Reviewer before asking"),
+        "the checkpoint is not required after the third and every later rejection"),
 ]
 
 

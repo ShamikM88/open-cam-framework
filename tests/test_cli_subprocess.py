@@ -150,7 +150,7 @@ def test_state_manager_check_steps_reports_missing_steps_and_always_exits_zero(c
     result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan",
                  "--required", "spread, collateral")
     assert result.returncode == 0
-    assert result.stdout == '{\n  "missing_steps": ["spread", "collateral"],\n  "ok": false\n}\n'
+    assert result.stdout == '{\n  "missing_steps": [\n    "spread",\n    "collateral"\n  ],\n  "ok": false\n}\n'
     assert json.loads(result.stdout) == {"missing_steps": ["spread", "collateral"], "ok": False}
 
 

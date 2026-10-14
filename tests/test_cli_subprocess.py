@@ -626,8 +626,8 @@ def test_state_manager_exports_reviewer_view_with_a_real_cli_subprocess(cli):
     assert result.returncode == 0, result.stderr
     paths = json.loads(result.stdout)
     assert set(paths) == {"state_for_review", "review_trail"}
-    assert paths["state_for_review"].replace("\\\\", "/") == "deals/Acme/Loan_2026-01-01/review_view/state_for_review.json"
-    assert paths["review_trail"].replace("\\\\", "/") == "deals/Acme/Loan_2026-01-01/review_view/review_trail.json"
+    assert paths["state_for_review"].replace("\\", "/") == "deals/Acme/Loan_2026-01-01/review_view/state_for_review.json"
+    assert paths["review_trail"].replace("\\", "/") == "deals/Acme/Loan_2026-01-01/review_view/review_trail.json"
     record = json.loads((cli.workdir / paths["state_for_review"]).read_text(encoding="utf-8"))
     trail = json.loads((cli.workdir / paths["review_trail"]).read_text(encoding="utf-8"))
     assert "review_trail" not in record and "review_verdict" not in record

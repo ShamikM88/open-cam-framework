@@ -109,6 +109,20 @@ def test_the_risk_reviewer_subagent_is_fresh_read_only_and_told_how_to_audit_ind
     assert agent_problems(read(AGENT)) == []
 
 
+
+def test_risk_reviewer_role_prompt_checks_research_sources_and_override_disclosure():
+    """Contract test for issue #320; this pins the requested qualitative duties, not model behaviour."""
+    prompt = flat(read("agents/risk_reviewer_agent.md"))
+    assert "For a /research brief, also check the closing Sources section" in prompt
+    assert "lists the documents the brief's claims actually rest on" in prompt
+    assert 'every short-form reference used in the text (for example "WRG note 14") is defined by a citation key' in prompt
+    assert "no cited document is missing from the list" in prompt
+    assert "analyst-override footnote instead of a Sources section" in prompt
+    assert "the footnote names a reason and a date" in prompt
+    assert "An override is the analyst's authorised decision, so it is not itself a reason to reject" in prompt
+    assert "still flag every claim that cannot be traced to a source cited in the text" in prompt
+
+
 def test_the_registry_names_the_one_subagent_and_says_it_is_neither_a_command_nor_a_skill():
     registry = flat(read("config/skills_registry.md"))
     assert "Sub-agents are neither commands nor skills and have no row" in registry

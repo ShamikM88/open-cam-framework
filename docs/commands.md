@@ -220,7 +220,9 @@ worked examples are in [Workflows](workflows.md).
 - **Can go wrong:** no saved draft (it stops; save the draft and pass `--draft`); a stale draft file (the caller must
   overwrite it before re-reviewing, since `/review` does not write the draft); the sub-agent cannot be started, or it
   returns no valid verdict (the review stops, and an unapproved draft is never exported); a saved source the Reviewer
-  cannot open (it reports that as an evidence gap rather than verifying the claim).
+  cannot open (it reports that as an evidence gap rather than verifying the claim). For a `/research` brief, the Reviewer
+  also checks closing Sources-list completeness and citation-key definitions, or that an override footnote replacing
+  Sources has a reason and date. The authorised override is not itself a rejection reason; untraceable claims remain findings.
 
 ## Implementation notes
 

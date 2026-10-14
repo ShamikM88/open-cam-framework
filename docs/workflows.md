@@ -418,8 +418,11 @@ python scripts/orchestrator.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 2. **The Risk Reviewer's judgement (model)**, run by a fresh sub-agent that has not seen your session and reads the saved
    draft and the deal's files itself, covers what code cannot: unsourced claims, weak mitigants, whether the
-   narrative is substantive, and (when you have calibrated one) credit-policy violations. A code-enforced reason
-   cannot be overridden by it.
+   narrative is substantive, and (when you have calibrated one) credit-policy violations. For a `/research` brief,
+   it also checks that the closing Sources list is complete for the claims, that each in-text short-form reference has
+   a citation key, and that no cited document is absent from the list. If an analyst-override footnote replaces Sources,
+   the note must include a reason and date; the authorised override itself is not grounds to reject, but every claim
+   still has to trace to a source cited in the text. A code-enforced reason cannot be overridden by it.
 
 Each verdict is appended to the deal's `review_trail`, which is never replaced:
 

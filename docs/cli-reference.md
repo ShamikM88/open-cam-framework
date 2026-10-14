@@ -150,6 +150,10 @@ to `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder, reusin
 one. It is deliberately separate from `deal_export.py`, so a research-only deal never triggers a CAM's side effects
 (no workbook, no template auto-save). It has no Anthropic dependency.
 
+Two opt-in disclosure flags are available only after the analyst explicitly authorises the matching exception:
+- `--analyst-override-no-sources "<reason>"` permits a brief without a populated Sources/References section and adds the dated source-override footnote as the final DOCX paragraph.
+- `--analyst-release-unapproved "<reason>"` releases a brief for manual analyst review without an APPROVED verdict. It counts consecutive trailing `REJECTED` entries from the saved `review_trail`, inserts a visible `Review status: Not approved by the independent Risk Reviewer...` paragraph immediately after the first document heading, and records `review_stopped_by_analyst` (`passes`, `date`, `reason`) in `state.json` after the DOCX has been written. The reason must be non-empty and is collapsed to one line. It never runs automatically; an analyst's explicit selection of the disclosed manual-review option is required. When both flags are used, the review-status paragraph stays near the top and the sources footnote stays last.
+
 ```bash
 python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --brief "deals/Synthetic Co/Synthetic Fleet Loan_brief.md"

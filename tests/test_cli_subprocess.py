@@ -645,6 +645,13 @@ def test_state_manager_reviewer_view_refuses_bad_state_without_creating_view(cli
 
 
 
+def test_state_manager_check_steps_still_requires_required(cli):
+    result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "error: --required is required with --check-steps" in result.stderr
+
+
 def test_state_manager_check_steps_reports_a_malformed_state_cleanly(cli):
     _write_state(cli.workdir, {"steps_completed": "triage"})
     result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan", "--required", "spread")

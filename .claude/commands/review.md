@@ -1,7 +1,7 @@
 ---
 description: Audit a saved CAM draft or (with --research-brief) a saved /research brief by running the deterministic checks and delegating the qualitative review to a fresh, read-only Risk Reviewer ("Checker") sub-agent (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [--research-brief, if auditing a /research brief rather than a full CAM draft] [--draft \"<path to the saved draft>\"]"
-allowed-tools: Bash(python scripts/policy_check.py *), Agent(risk-reviewer)
+allowed-tools: Bash(python scripts/policy_check.py *), Bash(python scripts/state_manager.py *), Agent(risk-reviewer)
 ---
 
 ## Task: /review
@@ -46,9 +46,19 @@ truncation) it may be incomplete: say that the latest dated folder could not be 
 only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
-rule). Read its `state.json` (you need its `review_trail` and `steps_completed` to record the result), and note the folder:
-the Reviewer is told this exact path. If there is none, there is no record: carry on without one only for a standalone
-review (below), and say so.
+rule). Read its real `state.json` in this orchestrating context (you need its `review_trail` and `steps_completed` to
+record the result), and note the dated folder. Then run:
+
+```bash
+python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"
+```
+
+This must succeed and print one JSON object with the paths for `state_for_review` and `review_trail`. If it prints an
+`error:` line, exits non-zero, or does not print that JSON object, **stop** and report the error; delegate nothing.
+Use the paths it actually returned, and verify both are inside the dated folder found above. Do not pass the combined
+`state.json` path to the Reviewer. This command overwrites only the two derived files under `review_view/`; it does
+not change the real record. If there is no dated state file, do not create a reviewer view: a review with a deal identity
+cannot proceed without its record. A standalone review (below) has no deal state and does not run this command.
 
 A **standalone review** (`--draft` given with no `--company`/`--proposal`) has no deal: there is no `state.json`, no
 deterministic check and nothing to record. The Reviewer is told so and follows the role's full manual-verification path.
@@ -82,7 +92,8 @@ Call the Agent tool **once per review**, with `subagent_type` set to exactly `ri
   not fall back to reviewing in this conversation, and do not record a verdict.
 
 The message you send contains **only** the following, with the paths filled in, and no draft text, no summary of the draft
-or of this conversation, no Maker explanation, no analyst remark and no earlier review notes:
+or of this conversation, no Maker explanation, no analyst remark and no earlier review notes. Never send the combined
+`state.json` path to the Reviewer:
 
 ```
 Review one saved draft. Everything you need is on disk at the paths below; open it yourself.
@@ -90,7 +101,8 @@ Mode: <full CAM | /research brief (no CAM data, no deterministic check)>
 Company: <company>
 Proposal: <proposal>
 Draft: <path from step 1>
-Deal record: <the dated folder's state.json path, or "none (standalone review)">
+Record for first pass (without review history): <dated folder>/review_view/state_for_review.json
+Review history (read only at step 3): <dated folder>/review_view/review_trail.json
 Source manifest: <sources/manifest.json path in the dated folder, or "none">
 Credit policy: config/credit_policy.md (<exists | does not exist>)
 Policy interpretation notes: config/credit_policy_notes.md (<exists | does not exist>)

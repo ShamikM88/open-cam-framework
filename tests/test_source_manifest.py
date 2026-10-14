@@ -324,6 +324,65 @@ def test_sources_declared_reports_missing_or_malformed_completed_step_shapes(sta
     assert source_manifest.sources_declared(state) == expected
 
 
+MALFORMED_SOURCE_STATES = [
+    pytest.param({"steps_completed": value, "triage": {"verdict": "Go"}}, id=f"completion-{name}")
+    for name, value in (
+        ("string", "triage"), ("null", None), ("mapping", {"triage": True}),
+        ("number", 1), ("boolean", True), ("mixed-list", ["triage", None]),
+        ("nested-list", [["triage"]]),
+    )
+] + [
+    pytest.param(
+        {"steps_completed": [section], section: {"sources": value}},
+        id=f"{section}-{name}",
+    )
+    for section in ("triage", "commercial")
+    for name, value in (
+        ("null", None), ("mapping", {"url": "https://example.invalid/filing"}),
+        ("scalar", "https://example.invalid/filing"), ("number", 1), ("boolean", False),
+        ("null-entry", [None]), ("mapping-entry", [{"url": "https://example.invalid/filing"}]),
+        ("mixed-list", ["https://example.invalid/filing", 7]), ("nested-list", [[]]),
+    )
+] + [
+    pytest.param({"triage": {"sources": [None]}}, id="incomplete-invalid-declaration"),
+    pytest.param(
+        {"steps_completed": "triage", "triage": {"sources": []}},
+        id="valid-list-cannot-hide-invalid-completion",
+    ),
+]
+
+
+@pytest.mark.parametrize("state", MALFORMED_SOURCE_STATES)
+@pytest.mark.parametrize("manifest", [[], [{"step": "research", "filename": "saved.txt"}]])
+def test_malformed_consumed_source_metadata_is_unknown_even_with_saved_material(state, manifest):
+    assert source_manifest.sources_declared(state) == "unknown"
+    assert missing_saved_sources(state, manifest) is True
+
+
+VALID_SOURCE_STATES = [
+    pytest.param({}, "not_declared", False, id="new"),
+    pytest.param({"triage": {"verdict": "Go"}}, "not_declared", False, id="incomplete-legacy"),
+    pytest.param({"steps_completed": []}, "not_declared", False, id="no-completed-steps"),
+    pytest.param(
+        {"steps_completed": ["triage"], "triage": {"sources": []}},
+        "declared", False, id="explicit-empty",
+    ),
+    pytest.param(
+        {"steps_completed": ["triage", "commercial"],
+         "triage": {"sources": ["https://example.invalid/filing"]},
+         "commercial": {"sources": ["https://example.invalid/market"]}},
+        "declared", True, id="combined-research",
+    ),
+]
+
+
+@pytest.mark.parametrize("state, expected, has_citations", VALID_SOURCE_STATES)
+@pytest.mark.parametrize("manifest", [[], [{"step": "research", "filename": "saved.txt"}]])
+def test_valid_source_declarations_preserve_new_empty_and_combined_research(state, expected, has_citations, manifest):
+    assert source_manifest.sources_declared(state) == expected
+    assert missing_saved_sources(state, manifest) is (has_citations and not manifest)
+
+
 # ---------------------------------------------------------------------------
 # State: write command contracts for persisted source citations (issue #275)
 # ---------------------------------------------------------------------------

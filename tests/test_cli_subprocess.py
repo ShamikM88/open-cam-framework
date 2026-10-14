@@ -26,6 +26,8 @@ from pathlib import Path
 
 import pytest
 
+from test_source_manifest import MALFORMED_SOURCE_STATES, VALID_SOURCE_STATES
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 
@@ -767,6 +769,47 @@ def test_source_manifest_check_sources_reports_known_sources_shape_for_an_uncomp
         "missing_saved_sources": False,
         "sources_declared": "not_declared",
     }
+
+
+@pytest.mark.parametrize("state", MALFORMED_SOURCE_STATES)
+@pytest.mark.parametrize("saved", [False, True])
+def test_source_manifest_cli_fails_closed_for_malformed_consumed_metadata_without_writes(cli, state, saved):
+    state_file = _write_state(cli.workdir, state)
+    if saved:
+        sources = state_file.parent / "sources"
+        sources.mkdir()
+        (sources / "saved.txt").write_text("Synthetic saved material", encoding="utf-8")
+        (sources / "manifest.json").write_text(
+            '[{"step": "research", "filename": "saved.txt"}]', encoding="utf-8",
+        )
+    before = {p.relative_to(cli.workdir): p.read_bytes() for p in cli.workdir.rglob("*") if p.is_file()}
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 0 and result.stderr == ""
+    assert json.loads(result.stdout) == {"missing_saved_sources": True, "sources_declared": "unknown"}
+    assert {p.relative_to(cli.workdir): p.read_bytes() for p in cli.workdir.rglob("*") if p.is_file()} == before
+
+
+@pytest.mark.parametrize("state, expected, has_citations", VALID_SOURCE_STATES)
+@pytest.mark.parametrize("saved", [False, True])
+def test_source_manifest_cli_preserves_valid_empty_and_combined_research_without_writes(
+    cli, state, expected, has_citations, saved,
+):
+    state_file = _write_state(cli.workdir, state)
+    if saved:
+        source = cli.workdir / "synthetic.txt"
+        source.write_text("Synthetic research evidence", encoding="utf-8")
+        result = cli("source_manifest", "--company", "Acme", "--proposal", "Loan",
+                     "--step", "research", "--claim", "Synthetic filing and market context", "--file", source)
+        assert result.returncode == 0 and result.stderr == ""
+    before = {p.relative_to(cli.workdir): p.read_bytes() for p in cli.workdir.rglob("*") if p.is_file()}
+    result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 0 and result.stderr == ""
+    assert json.loads(result.stdout) == {
+        "missing_saved_sources": has_citations and not saved, "sources_declared": expected,
+    }
+    assert state_file.exists()
+    assert {p.relative_to(cli.workdir): p.read_bytes() for p in cli.workdir.rglob("*") if p.is_file()} == before
+
 
 def _deal_with_a_dangling_manifest(cli):
     from test_source_manifest import dangling_link

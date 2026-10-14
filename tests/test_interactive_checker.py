@@ -453,6 +453,61 @@ def test_assemble_and_research_review_the_exact_saved_artifact_in_the_right_mode
     assert caller_problems(read(RESEARCH), "brief") == []
 
 
+
+PRIMARY_DOCUMENT_PARAGRAPH = (
+    "For a borrower inside a group, read the primary documents, not only the registry summaries. "
+    "Open the full instrument for every outstanding charge: who the chargeholders are, what it secures "
+    "and how far any negative pledge reaches. Read the creditors and debtors notes, the key accounting "
+    "estimates and the going-concern note of the borrower's own accounts, and compare what the directors "
+    "say about borrowing with what the notes show. Read the parent's subsidiary and guarantee notes for "
+    "statutory parent guarantees and for which entity directly holds each subsidiary. Read the PSC history, "
+    "including ceased PSCs, and look for overlap with the board and the company secretary. Save each document "
+    "you rely on under the Source material step. Where a document cannot be opened, say so as a gap rather "
+    "than writing around it."
+)
+PRIMARY_DOCUMENT_REQUIREMENTS = {
+    "charge instruments": "full instrument for every outstanding charge",
+    "accounts notes": "creditors and debtors notes, the key accounting estimates and the going-concern note",
+    "parent guarantees and direct holders": "statutory parent guarantees and for which entity directly holds each subsidiary",
+    "PSC history": "PSC history, including ceased PSCs, and look for overlap with the board and the company secretary",
+}
+
+
+def primary_document_problems(text):
+    body = flat(text)
+    return [label for label, needle in PRIMARY_DOCUMENT_REQUIREMENTS.items() if needle not in body]
+
+
+def test_research_command_requires_primary_documents_for_group_borrowers():
+    command = read(RESEARCH)
+    assert flat(PRIMARY_DOCUMENT_PARAGRAPH) in flat(command)
+    assert primary_document_problems(command) == []
+    body = flat(command)
+    assert "Save each document you rely on under the Source material step" in body
+    assert "Where a document cannot be opened, say so as a gap" in body
+
+
+PRIMARY_DOCUMENT_MUTATIONS = [
+    ("charge instruments", lambda t: mutate(t, r"full instrument for every outstanding charge",
+                                             "registry summary only"), "charge instruments"),
+    ("accounts notes", lambda t: mutate(t, r"creditors and debtors notes, the key accounting estimates and the going-concern note",
+                                        "the annual report summary"), "accounts notes"),
+    ("parent guarantees and direct holders",
+     lambda t: mutate(t, r"statutory parent guarantees and for which entity directly holds each subsidiary",
+                      "parent support generally"), "parent guarantees and direct holders"),
+    ("PSC history",
+     lambda t: mutate(t, r"PSC history, including ceased PSCs, and look for overlap with the board and the company secretary",
+                      "current PSC only"), "PSC history"),
+]
+
+
+@pytest.mark.parametrize(("label", "change", "expected"), PRIMARY_DOCUMENT_MUTATIONS,
+                         ids=[m[0] for m in PRIMARY_DOCUMENT_MUTATIONS])
+def test_primary_document_contract_detects_each_weakened_check(label, change, expected):
+    changed = change(read(RESEARCH))
+    assert expected in primary_document_problems(changed), (label, primary_document_problems(changed))
+
+
 DRAFT_ARG = r' --draft "deals/<company>/<proposal>_draft.md"`\*\*'
 BRIEF_ARG = r' --draft "deals/<company>/<proposal>_brief.md"`\*\*'
 CALLER_MUTATIONS = [

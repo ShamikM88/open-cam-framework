@@ -582,5 +582,6 @@ def test_the_decision_and_the_assurance_page_state_the_implemented_design_and_it
                    "a different underlying model", "any defence against an instruction planted in a source document"):
         assert needle in decisions, needle
     for needle in ("The interactive Checker is a separate context", "A different model.", "Immunity to planted instructions.",
-                   "A verified live run.", "A prompt instruction only", "contract-tested", "an evidence gap"):
+                   "A verified live run.", "default path to the trail is removed",
+                   "a determined Reviewer could still Glob to and read the combined", "contract-tested", "an evidence gap"):
         assert needle in assurance, needle

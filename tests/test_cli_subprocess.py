@@ -228,12 +228,11 @@ def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
 def test_research_export_help_documents_the_analyst_override_flag(cli):
     result = cli("research_export", "--help")
     assert result.returncode == 0, result.stderr
-    assert "--analyst-override-no-sources" in result.stdout and "REASON" in result.stdout
+    assert "--analyst-override-no-sources REASON" in result.stdout
     assert "explicit analyst authorisation" in result.stdout
 
 
 def test_research_export_writes_the_brief_docx(cli):
-    brief = cli.workdir / "brief.md"
     brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n\n## Sources\n\n- Synthetic registry: https://example.invalid/registry\n", encoding="utf-8")
     result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
     assert result.returncode == 0, result.stderr

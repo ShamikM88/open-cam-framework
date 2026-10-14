@@ -1,5 +1,8 @@
-"""Standalone research-brief export, with sources and review-release disclosures."""
+"""Standalone research-brief export, with a sources-list acceptance gate.
 
+Kept separate from deal_export.py: a research-only deliverable must never
+trigger the full-CAM side effects (template auto-save and workbook export).
+"""
 import os
 import re
 import sys
@@ -8,6 +11,7 @@ from datetime import date
 from docx_builder import export_to_docx
 from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
+
 ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$")
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)\S")
@@ -15,12 +19,12 @@ HTTP_URL_RE = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 
 
 def _today_date():
-    """Return disclosure date; patchable so export tests are deterministic."""
+    """Return the override footnote date; patchable for deterministic tests."""
     return date.today().isoformat()
 
 
 def _markdown_structure(markdown):
-    """Return Markdown lines, their non-fenced mask and ATX headings outside fences."""
+    """Return source lines, their non-fenced mask, and ATX headings outside fences."""
     lines = markdown.splitlines()
     visible = [True] * len(lines)
     headings = []
@@ -35,45 +39,67 @@ def _markdown_structure(markdown):
                 fence_char = None
                 fence_length = 0
             continue
+
         fence_match = FENCE_OPEN_RE.match(line)
         if fence_match and not (fence_match.group(1)[0] == "`" and "`" in fence_match.group(2)):
             visible[index] = False
             fence_char = fence_match.group(1)[0]
             fence_length = len(fence_match.group(1))
             continue
+
         heading_match = ATX_HEADING_RE.match(line)
         if heading_match:
             raw_title = heading_match.group(2) or ""
             title = re.sub(r"#+[ \t]*$", "", raw_title).strip()
             headings.append((index, len(heading_match.group(1)), title))
+
     return lines, visible, headings
 
 
 def _has_populated_sources_section(markdown):
-    """Whether a Sources/References section outside fences contains a list item or URL."""
+    """Whether a Sources/References ATX section contains a list item or HTTP(S) URL.
+
+    Fenced code blocks neither introduce headings nor count as source-list entries.
+    A section ends at the next heading of the same or a higher level.
+    """
     lines, visible, headings = _markdown_structure(markdown)
     for heading_index, level, title in headings:
         if title.casefold() not in {"sources", "references"}:
             continue
+
         end = len(lines)
         for next_index, next_level, _ in headings:
             if next_index > heading_index and next_level <= level:
                 end = next_index
                 break
+
         for index in range(heading_index + 1, end):
-            if visible[index] and (LIST_ITEM_RE.match(lines[index]) or HTTP_URL_RE.search(lines[index])):
+            if not visible[index]:
+                continue
+            if LIST_ITEM_RE.match(lines[index]) or HTTP_URL_RE.search(lines[index]):
                 return True
     return False
 
 
-def _normalise_reason(reason, label):
+def _normalise_override_reason(reason):
     if reason is None:
         return None
     if not isinstance(reason, str):
-        raise ValueError(f"{label} must be text.")
+        raise ValueError("Analyst override reason must be text.")
     collapsed = " ".join(reason.split())
     if not collapsed:
-        raise ValueError(f"{label} must not be empty.")
+        raise ValueError("Analyst override reason must not be empty.")
+    return collapsed
+
+
+def _normalise_release_reason(reason):
+    if reason is None:
+        return None
+    if not isinstance(reason, str):
+        raise ValueError("Analyst release reason must be text.")
+    collapsed = " ".join(reason.split())
+    if not collapsed:
+        raise ValueError("Analyst release reason must not be empty.")
     return collapsed
 
 
@@ -97,38 +123,38 @@ def _insert_after_first_heading(markdown, paragraph):
 
 
 def export_research_brief(
-    company,
-    proposal,
-    brief_markdown,
-    date_str=None,
-    base_dir=None,
-    analyst_override_no_sources=None,
-    analyst_release_unapproved=None,
+    company, proposal, brief_markdown, date_str=None, base_dir=None,
+    analyst_override_no_sources=None, analyst_release_unapproved=None,
 ):
-    """Export the brief, optionally disclosing an authorised release without sources or approval.
+    """Export a research brief as DOCX, refusing an empty/missing sources section.
 
-    The analyst-release flag records the consecutive trailing REJECTED pass count and reason
-    in state.json, in one write after the DOCX has been written.
+    The override is a disclosed exception for cases where an analyst authorised
+    export without sources. Its reason is not persisted in state; it appears as
+    the final paragraph of the document.
     """
-    source_override_reason = _normalise_reason(
-        analyst_override_no_sources, "Analyst override reason"
-    )
-    release_reason = _normalise_reason(
-        analyst_release_unapproved, "Analyst release reason"
-    )
+    override_reason = _normalise_override_reason(analyst_override_no_sources)
+    release_reason = _normalise_release_reason(analyst_release_unapproved)
     has_sources = _has_populated_sources_section(brief_markdown)
-    if not has_sources and source_override_reason is None:
-        raise ValueError("Research brief must contain a populated Sources or References section.")
+    if not has_sources:
+        if override_reason is None:
+            raise ValueError("Research brief must contain a populated Sources or References section.")
+        footnote = (
+            f"Footnote: No sources list is included in this brief. Exported under analyst override "
+            f"on {_today_date()}: {override_reason}."
+        )
+        brief_markdown = brief_markdown.rstrip() + "\n\n" + footnote
 
+    # Validate the content before resolving paths or creating any output directory.
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
     if date_str:
         date_str = sanitize_path_component(date_str, "date_str")
 
     date_str = resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
-    release_date = _today_date() if release_reason is not None or not has_sources else None
+    release_date = None
     passes = None
     if release_reason is not None:
+        release_date = _today_date()
         state = read_state(
             company, proposal, date_str=date_str, base_dir=base_dir, keys=("review_trail",)
         ) or {}
@@ -139,20 +165,12 @@ def export_research_brief(
             f"at the analyst's request on {release_date}: {release_reason}."
         )
         brief_markdown = _insert_after_first_heading(brief_markdown, status)
-
-    if not has_sources:
-        footnote = (
-            "Footnote: No sources list is included in this brief. Exported under analyst override "
-            f"on {release_date or _today_date()}: {source_override_reason}."
-        )
-        brief_markdown = brief_markdown.rstrip() + "\n\n" + footnote
-
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
     os.makedirs(output_dir, exist_ok=True)
+
     output_path = os.path.join(output_dir, f"{company}_{proposal}_Research_Brief.docx")
     export_to_docx(brief_markdown, output_path)
-
     if release_reason is not None:
         write_state(
             company,
@@ -172,8 +190,8 @@ def main(argv=None):
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Export a standalone research brief to .docx after verifying its Sources section; "
-                    "explicit analyst-authorised disclosures can release a brief without sources or approval."
+        description="Export a standalone research brief to .docx after verifying that it has a populated "
+                    "Sources or References section; explicit analyst-authorised disclosures can release a brief without sources or approval."
     )
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
@@ -189,13 +207,12 @@ def main(argv=None):
              "the reason is disclosed near the top of the DOCX and in state.json.",
     )
     args = parser.parse_args(argv)
+
     try:
-        with open(args.brief, encoding="utf-8") as file:
-            brief_markdown = file.read()
+        with open(args.brief, encoding="utf-8") as f:
+            brief_markdown = f.read()
         output_path = export_research_brief(
-            args.company,
-            args.proposal,
-            brief_markdown,
+            args.company, args.proposal, brief_markdown,
             analyst_override_no_sources=args.analyst_override_no_sources,
             analyst_release_unapproved=args.analyst_release_unapproved,
         )

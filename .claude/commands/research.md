@@ -119,7 +119,7 @@ paragraph instead of rendering as separate lines.
    the verdict is REJECTED, revise the brief per the notes, **overwrite**
    `deals/<company>/<proposal>_brief.md` with the revised Markdown (never leave the stale,
    rejected version on disk; `/review` does not write the brief, so a stale file would be reviewed
-   again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
+   again), and run `/review` again — a new Reviewer each time — repeat until APPROVED, taking the analyst checkpoint below after the third and every later consecutive rejection before starting another Reviewer. If `/review`
    reports that it could not run or that no valid verdict came back, stop: that is neither an approval
    nor a rejection, so do not export; tell the user.
 

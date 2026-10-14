@@ -382,6 +382,7 @@ def test_the_advisory_ignore_procedure_is_documented_where_a_contributor_looks()
 # ---------------------------------------------------------------------------
 
 MUTATION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation.yml"
+MODEL_FRESHNESS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "model-freshness.yml"
 
 
 def all_workflows():
@@ -397,7 +398,9 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
         assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M), path.name
         assert "pull_request_target" not in text and "workflow_run" not in text, path.name
         for job_id, body in split_jobs(text).items():
-            assert job_permissions(body) == {"contents": "read"}, (path.name, job_id)
+            expected_permissions = ({"contents": "read", "issues": "write"}
+                                    if path.name == "model-freshness.yml" else {"contents": "read"})
+            assert job_permissions(body) == expected_permissions, (path.name, job_id)
             assert len(re.findall(r"persist-credentials:\s*false", body)) == body.count("actions/checkout@"), \
                 (path.name, job_id)
             assert "timeout-minutes:" in body, (path.name, job_id)
@@ -511,6 +514,31 @@ def test_the_benchmark_summary_step_writes_one_row_with_pytests_own_timing(tmp_p
         "| OS | Workers | Repeat | pytest elapsed (s) | Coverage total | Result |",
         "| :--- | ---: | ---: | ---: | ---: | :--- |",
         row]
+
+
+def test_model_freshness_workflow_is_weekly_and_manual_only_never_a_pull_request_check():
+    text = MODEL_FRESHNESS_WORKFLOW.read_text(encoding="utf-8")
+    triggers = text.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"schedule", "workflow_dispatch"}
+    assert re.search(r'cron: "\\d{1,2} \\d{1,2} \\* \\* [0-6]"', triggers)
+    assert "pull_request" not in triggers and "push:" not in triggers
+    assert "pull_request_target" not in text and "workflow_run" not in text
+    assert re.search(r"^permissions:\\s*\\{\\}\\s*$", text, re.M)
+    jobs = split_jobs(text)
+    assert list(jobs) == ["model_freshness"]
+    assert job_permissions(jobs["model_freshness"]) == {"contents": "read", "issues": "write"}
+    assert "GITHUB_TOKEN: ${{ github.token }}" in text
+    assert 'export GH_TOKEN="$GITHUB_TOKEN"' in text
+    assert "--state open" in text and "--json number,title" in text
+    assert 'select(.title == "Model freshness report")' in text
+    assert 'gh issue edit "$issue_number"' in text
+    assert 'gh issue create --repo "$GITHUB_REPOSITORY" --title "Model freshness report"' in text
+    assert "--add-label tech-debt" in text and "--label tech-debt" in text
+    assert "No model freshness findings; no issue created or updated." in text
+    assert "check_model_freshness.py --json model-freshness-report.json" in text
+    assert "contents: write" not in text and "issues: read" not in text
+    assert "config/settings.json" not in text.split("run:", 1)[-1]
+    assert "git push" not in text
 
 
 def test_the_mutation_workflow_is_weekly_and_manual_only_never_on_a_pull_request_or_push():

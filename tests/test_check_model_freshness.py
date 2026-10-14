@@ -6,7 +6,7 @@ from typing import Literal, Union
 
 import pytest
 
-from check_model_freshness import build_report, main, read_default_model, load_model_sources
+from check_model_freshness import build_report, main, read_default_model, load_model_sources, render_markdown
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -105,10 +105,12 @@ def test_missing_or_reshaped_sdk_tables_are_reported_without_guessing(model_type
     unavailable = [details for details in report["sdk_tables"].values() if details["status"] == "SDK table not found"]
     assert unavailable
     assert all(f["type"] == "sdk_table_not_found" for f in report["findings"][:len(unavailable)])
-    assert "SDK table not found" in report["freshness_note"] or unavailable
+    markdown = render_markdown(report)
+    assert markdown.count("SDK table not found") >= len(unavailable)
+    assert len(unavailable) == (1 if missing_table else 2)
     if missing_table:
-        assert report["sdk_tables"]["known_models" if missing_table == "anthropic.types.Model"
-                                   else "deprecated_models"]["status"] == "SDK table not found"
+        key = "known_models" if missing_table == "anthropic.types.Model" else "deprecated_models"
+        assert report["sdk_tables"][key]["status"] == "SDK table not found"
 
 
 def test_missing_deprecation_table_does_not_hide_newer_version_finding():

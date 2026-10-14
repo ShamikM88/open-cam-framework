@@ -145,14 +145,14 @@ patch to re-home `state.json`.
 
 ## Research export
 
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.\n\nAn explicitly authorised release of a brief the Reviewer did not approve uses `--analyst-release-unapproved "<reason>"`. The non-empty reason is collapsed to one line. The exporter counts consecutive trailing `REJECTED` entries in the saved `review_trail`, inserts a `Review status: Not approved by the independent Risk Reviewer...` paragraph immediately after the first document heading, and records `review_stopped_by_analyst` (`passes`, `date`, `reason`) in `state.json` after writing the DOCX. This is not an automatic fallback: the slash-command session may pass the flag only after the analyst explicitly chooses the disclosed manual-review option. When both release flags are used, the review status remains near the top and the missing-sources footnote remains last.
+
 `scripts/research_export.py --company ... --proposal ... --brief <path>` exports a drafted research brief (Markdown)
 to `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder, reusing the folder that exists or creating
 one. It is deliberately separate from `deal_export.py`, so a research-only deal never triggers a CAM's side effects
 (no workbook, no template auto-save). It has no Anthropic dependency.
-
-Two opt-in disclosure flags are available only after the analyst explicitly authorises the matching exception:
-- `--analyst-override-no-sources "<reason>"` permits a brief without a populated Sources/References section and adds the dated source-override footnote as the final DOCX paragraph.
-- `--analyst-release-unapproved "<reason>"` releases a brief for manual analyst review without an APPROVED verdict. It counts consecutive trailing `REJECTED` entries from the saved `review_trail`, inserts a visible `Review status: Not approved by the independent Risk Reviewer...` paragraph immediately after the first document heading, and records `review_stopped_by_analyst` (`passes`, `date`, `reason`) in `state.json` after the DOCX has been written. The reason must be non-empty and is collapsed to one line. It never runs automatically; an analyst's explicit selection of the disclosed manual-review option is required. When both flags are used, the review-status paragraph stays near the top and the sources footnote stays last.
 
 ```bash
 python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \

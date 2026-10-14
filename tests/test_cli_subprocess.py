@@ -822,8 +822,8 @@ def test_source_manifest_save_refuses_a_dangling_link_manifest_and_copies_nothin
 def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
     brief = cli.workdir / "brief.md"
     brief.write_text(
-        "# Synthetic research brief\\n\\n## Findings\\nSynthetic analyst notes.\\n\\n"
-        "## Sources\\n\\n- Synthetic source: https://example.invalid/research\\n",
+        "# Synthetic research brief\n\n## Findings\nSynthetic analyst notes.\n\n"
+        "## Sources\n\n- Synthetic source: https://example.invalid/research\n",
         encoding="utf-8",
     )
     state_dir = cli.workdir / "deals" / "Acme" / "Brief_2026-10-14"
@@ -857,7 +857,7 @@ def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
 def test_research_export_release_unapproved_cli_rejects_blank_reason_without_output(cli):
     brief = cli.workdir / "brief.md"
     brief.write_text(
-        "# Synthetic research brief\\n\\n## Sources\\n\\n- Synthetic source: https://example.invalid/source\\n",
+        "# Synthetic research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/source\n",
         encoding="utf-8",
     )
     result = cli(

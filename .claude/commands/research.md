@@ -133,6 +133,13 @@ paragraph instead of rendering as separate lines.
    `<Company>_<Proposal>_Research_Brief.docx`.
    The exporter refuses a missing or empty `Sources`/`References` section before it creates output. If the analyst explicitly authorises exporting without that section, in chat, and provides a reason, record that reason and pass `--analyst-override-no-sources "<reason>"` on this export. The resulting `.docx` includes a final footnote naming the override date and reason. If the analyst explicitly authorises the omission but has not provided a reason, ask for the reason; do not suggest the override as an option. Silence, an ambiguous answer, or “just export it” is not explicit authorisation. Never pass the flag on your own initiative. If a populated sources section exists, do not pass the flag; it has no effect on a valid brief. The reason is disclosed in the document and is not written to `state.json`.
 
+   When the analyst has explicitly authorised the omission and provided the reason, use this form of the command (substitute the analyst-provided reason; never invent one):
+
+   ```bash
+   python scripts/research_export.py --company "<company>" --proposal "<proposal>" \
+       --brief "deals/<company>/<proposal>_brief.md" --analyst-override-no-sources "<reason>"
+   ```
+
 4. Report the output path to the user, then delete the temporary `<proposal>_brief.md` file — the
    real output now lives in the dated folder.
 5. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's

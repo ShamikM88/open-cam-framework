@@ -762,6 +762,11 @@ def test_source_manifest_check_sources_reports_unknown_shape_for_a_completed_ste
 
 
 def test_source_manifest_check_sources_reports_known_sources_shape_for_an_uncompleted_deal(cli):
+    help_result = cli("source_manifest", "--help")
+    assert help_result.returncode == 0 and help_result.stderr == ""
+    assert all(text in help_result.stdout for text in (
+        "missing_saved_sources", "sources_declared", "list[str]", "Explicit [] is valid",
+    ))
     _write_state(cli.workdir, {})
     result = cli("source_manifest", "--check-sources", "--company", "Acme", "--proposal", "Loan")
     assert result.returncode == 0 and result.stderr == ""

@@ -271,10 +271,13 @@ python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposa
 (`filename`, `url`, `step`, `claim`, `fetched_date`) to `sources/manifest.json`; it never fetches anything. With
 `--check-sources` instead prints `{"missing_saved_sources": true|false, "sources_declared": "declared"|"not_declared"|"unknown"}`.
 The existing `missing_saved_sources` key remains boolean: true when declared, non-empty citations have no saved material,
-or when a completed step's source-list shape is unknown. `sources_declared` is `"unknown"` when a step named in
-`steps_completed` has no section with a list-valued `sources` field, `"declared"` when at least one `triage.sources` or
-`commercial.sources` list exists and the completed relevant steps have valid lists, and `"not_declared"` when neither
-condition applies. A calling command must stop and request a corrected state shape on `"unknown"` rather than treating it
+or when the consumed completion/declaration shape is unknown. `steps_completed`, when present, must be a list of strings;
+absence remains valid for new/incomplete historical states. `sources_declared` is `"unknown"` for malformed consumed
+completion metadata, any invalid declaration, or a completed source-bearing step without a `list[str]` declaration.
+Nulls, mappings, scalars and lists containing non-strings are invalid; a nonempty manifest cannot conceal them.
+It is `"declared"` when at least one valid `triage.sources` or `commercial.sources` list exists and the completed
+relevant steps have valid lists; explicit `[]` declares no citations. Otherwise it is `"not_declared"`.
+A calling command must stop and request a corrected state shape on `"unknown"` rather than treating it
 as proof that no citations were used. The command exits `0` for any check result. A `sources/manifest.json` that cannot
 be used (unreadable, a link whose target does not exist, not UTF-8, not JSON, not a list, or a list with an entry that
 is not an object), and a company or proposal that is not a safe folder name, are errors: each is one `error:` line, exit

@@ -231,20 +231,24 @@ def read_manifest(company, proposal, date_str=None, base_dir=None):
 def sources_declared(state):
     """Report the declaration shape for citation lists in completed steps.
 
-    Returns "unknown" if a completed triage/commercial step has no section
-    object with a list-valued `sources` key. This is distinct from
+    Returns "unknown" for malformed consumed completion metadata, any invalid
+    declaration, or a completed triage/commercial step without a list[str]
+    `sources` declaration, even when a manifest exists. This is distinct from
     "not_declared": callers cannot infer that no citations were used just
     because the session omitted the required field. "declared" means at
-    least one relevant section contains a list-valued sources field.
+    least one relevant section contains a valid sources list (including []).
+    Absent completion metadata remains valid for new/incomplete states.
     """
     steps_completed = state.get("steps_completed", []) if isinstance(state, dict) else []
-    if not isinstance(steps_completed, list):
-        steps_completed = []
+    if not isinstance(steps_completed, list) or any(not isinstance(step, str) for step in steps_completed):
+        return "unknown"
 
     for section_name in ("triage", "commercial"):
-        if section_name in steps_completed:
-            section = state.get(section_name)
-            if not isinstance(section, dict) or not isinstance(section.get("sources"), list):
+        section = state.get(section_name)
+        declared = isinstance(section, dict) and "sources" in section
+        if section_name in steps_completed or declared:
+            sources = section.get("sources") if isinstance(section, dict) else None
+            if not isinstance(sources, list) or any(not isinstance(source, str) for source in sources):
                 return "unknown"
 
     if any(
@@ -259,8 +263,9 @@ def sources_declared(state):
 def missing_saved_sources(state, manifest):
     """True when sources are missing or their declaration shape is unknown.
 
-    When a step in `steps_completed` has no section with a list-valued
-    `sources` key, its citations cannot be checked. Return True rather than
+    When consumed completion metadata or a source declaration is malformed,
+    or a completed source-bearing step lacks a declaration, citations cannot
+    be checked. Return True rather than
     silently treating that unknown shape as "nothing missing"; the CLI also
     reports `sources_declared: "unknown"` so the caller can distinguish it
     from a known declaration with no citations.
@@ -281,7 +286,7 @@ def missing_saved_sources(state, manifest):
             sources = section.get("sources")
             if isinstance(sources, list):
                 citations.extend(sources)
-    declared = any(str(source).strip() for source in citations)
+    declared = any(source.strip() for source in citations)
     return declared and not manifest
 
 
@@ -300,9 +305,13 @@ if __name__ == "__main__":
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--check-sources", action="store_true",
                          help="Check mode instead of saving: prints "
-                              '{"missing_saved_sources": true/false} and exits 0 whatever the result (a '
+                              '{"missing_saved_sources": true/false, '
+                              '"sources_declared": "declared"/"not_declared"/"unknown"} and exits 0. '
+                              'Unknown/true means malformed completion metadata or declarations '
+                              '(sources must be list[str]), or a completed source-bearing step without a declaration. '
+                              'Explicit [] is valid; known nonempty citations need at least one saved manifest entry. A '
                               "state.json or sources/manifest.json it cannot use is an error instead: one "
-                              "'error:' line, exit 1; so is a company or proposal that is not a safe folder name) -- the "
+                              "'error:' line, exit 1; so is a company or proposal that is not a safe folder name. The "
                               "caller (a slash command's own prose) decides whether to warn the "
                               "user. See missing_saved_sources()'s docstring for what this does "
                               "and deliberately does not check.")

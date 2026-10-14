@@ -97,9 +97,12 @@ recorded". The messages and fixes are in [Troubleshooting](troubleshooting.md#st
 
 `sources/manifest.json` is a list with one entry per saved document: `filename`, `url` (if it came from the web),
 `step`, `claim` (what it backs) and `fetched_date`. The document itself sits beside it. `triage.sources` and
-`commercial.sources` are lists of citation strings; use an empty list when a step used no citations rather than omitting
-the key. If a step named in `steps_completed` has no section with a list-valued `sources` field, the check reports
-`sources_declared: "unknown"` and `missing_saved_sources: true` instead of silently treating the shape as a clean result.
+`commercial.sources` are lists of citation strings (`list[str]`); use an empty list when a step used no citations rather
+than omitting the key. Nulls, mappings, scalars and lists containing non-strings are invalid declarations; arbitrary
+elements are never converted into citation strings. `steps_completed`, if present, must be a list of strings; an absent
+field remains valid for new/incomplete historical states. Malformed consumed completion metadata, any invalid source
+declaration, or a completed source-bearing step without a declaration reports `sources_declared: "unknown"` and
+`missing_saved_sources: true`, even with a nonempty manifest.
 
 ### Persisted conventions and learnings
 
@@ -191,10 +194,12 @@ python scripts/source_manifest.py --company "Acme Corp" --proposal "Fleet Loan" 
     --claim "Legal identity and PSC filing" --file /path/to/downloaded.pdf --url https://...
 ```
 `sources_declared(state)` reports the declaration shape as `"declared"`, `"not_declared"`, or `"unknown"`.
-A completed `triage` or `commercial` step whose section has no list-valued `sources` field is `"unknown"`;
-it is never treated as proof that no citations were used. `missing_saved_sources(state, manifest)` remains a boolean
-check: it returns true when any declared non-empty citation has no saved manifest material, and also when a completed
-step's source-list shape is unknown. It remains deal-level (not matched against an exact `triage`/`commercial`/`research`
+A completed `triage` or `commercial` step without a `list[str]` declaration is `"unknown"`, as is any malformed declared
+list or malformed consumed `steps_completed`; saved material cannot make that unknown shape valid. Absent completion
+metadata alone is not invalid, and an explicit empty list is a valid declaration of no citations.
+`missing_saved_sources(state, manifest)` remains a boolean check: it returns true when any declared non-empty citation
+has no saved manifest material, or when the consumed declaration/completion shape is unknown.
+It remains deal-level (not matched against an exact `triage`/`commercial`/`research`
 manifest step tag — `/research` tags its entries `"research"`) and floor-level (at least one source saved, not an
 exhaustive 1:1 match to every citation because some sources are legitimately unsaveable, e.g. a bot-blocked page).
 The `--check-sources` CLI prints both `missing_saved_sources` and `sources_declared` and exits 0 for a check result;

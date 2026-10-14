@@ -277,6 +277,20 @@ def test_saved_sources_and_conventions_print_what_the_workflow_page_shows(deal):
         "filename": "example.invalid_registry.txt", "url": "https://example.invalid/registry", "step": "research",
         "claim": "Synthetic legal identity extract"}
     assert deal.run("source_manifest", "--check-sources", *deal.deal_args()).stdout.strip() == '{\n  "missing_saved_sources": false,\n  "sources_declared": "not_declared"\n}'
+    state_file = deal.state_file()
+    reduced_state = state_file.read_bytes()
+    try:
+        steps = json.loads(reduced_state)["steps_completed"]
+        deal.write_state(
+            steps_completed=[*steps, "triage", "commercial"],
+            triage={"sources": ["https://example.invalid/registry"]},
+            commercial={"sources": ["Synthetic market context"]},
+        )
+        checked = deal.run("source_manifest", "--check-sources", *deal.deal_args())
+        assert checked.returncode == 0 and checked.stderr == ""
+        assert json.loads(checked.stdout) == {"missing_saved_sources": False, "sources_declared": "declared"}
+    finally:
+        state_file.write_bytes(reduced_state)
     wrote = deal.run("conventions", "--company", COMPANY, "--write", "--financials-source", "analyst-supplied", "--note",
                      "Depreciation embedded in Cost of Goods Sold", "--proposal", PROPOSAL, "--confirmed-date", "2026-01-15")
     convention = json.loads(wrote.stdout)
@@ -285,6 +299,8 @@ def test_saved_sources_and_conventions_print_what_the_workflow_page_shows(deal):
                                       "confirmed_date": "2026-01-15", "proposal": PROPOSAL}]
     assert json.loads(deal.run("conventions", "--enterprise", "--read").stdout) == {"found": False, "convention": None}
     workflows = page("workflows.md")
+    assert '{"missing_saved_sources": false, "sources_declared": "declared"}' in workflows
+    assert "reduced, incomplete state" in workflows
     for snippet in ('"filename": "example.invalid_registry.txt"', '"missing_saved_sources": false',
                     '"financials_source_default": "analyst-supplied"', '{"found": false, "convention": null}'):
         assert snippet in workflows, snippet

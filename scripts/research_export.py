@@ -8,10 +8,10 @@ from datetime import date
 from docx_builder import export_to_docx
 from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
-ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \\t]+(.*)|[ \\t]*)$")
+ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$")
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-LIST_ITEM_RE = re.compile(r"^[ \\t]*(?:[-*+][ \\t]+|\\d+[.)][ \\t]+)\\S")
-HTTP_URL_RE = re.compile(r"https?://[^\\s<>]+", re.IGNORECASE)
+LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)\S")
+HTTP_URL_RE = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 
 
 def _today_date():
@@ -30,7 +30,7 @@ def _markdown_structure(markdown):
     for index, line in enumerate(lines):
         if fence_char is not None:
             visible[index] = False
-            close_re = re.compile(rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \\t]*$")
+            close_re = re.compile(rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \t]*$")
             if close_re.match(line):
                 fence_char = None
                 fence_length = 0
@@ -44,7 +44,7 @@ def _markdown_structure(markdown):
         heading_match = ATX_HEADING_RE.match(line)
         if heading_match:
             raw_title = heading_match.group(2) or ""
-            title = re.sub(r"#+[ \\t]*$", "", raw_title).strip()
+            title = re.sub(r"#+[ \t]*$", "", raw_title).strip()
             headings.append((index, len(heading_match.group(1)), title))
     return lines, visible, headings
 
@@ -91,9 +91,9 @@ def _insert_after_first_heading(markdown, paragraph):
     """Place the status disclosure directly after the document's first ATX heading."""
     lines, _visible, headings = _markdown_structure(markdown)
     if not headings:
-        return paragraph + "\\n\\n" + markdown
+        return paragraph + "\n\n" + markdown
     index = headings[0][0]
-    return "\\n".join(lines[:index + 1] + ["", paragraph, ""] + lines[index + 1:]).strip() + "\\n"
+    return "\n".join(lines[:index + 1] + ["", paragraph, ""] + lines[index + 1:]).strip() + "\n"
 
 
 def export_research_brief(
@@ -146,7 +146,7 @@ def export_research_brief(
             "Footnote: No sources list is included in this brief. Exported under analyst override "
             f"on {release_date or _today_date()}: {source_override_reason}."
         )
-        brief_markdown = brief_markdown.rstrip() + "\\n\\n" + footnote
+        brief_markdown = brief_markdown.rstrip() + "\n\n" + footnote
 
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")

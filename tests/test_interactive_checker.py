@@ -453,6 +453,91 @@ def test_assemble_and_research_review_the_exact_saved_artifact_in_the_right_mode
     assert caller_problems(read(RESEARCH), "brief") == []
 
 
+
+# ---------------------------------------------------------------------------
+# /research asks the analyst before another review after three consecutive rejections
+# ---------------------------------------------------------------------------
+
+RESEARCH_CHECKPOINT_REQUIRED = {
+    "counts the consecutive rejection streak from disk":
+        "Count the consecutive trailing REJECTED entries from the deal's review_trail on disk, never from conversation memory",
+    "shows the pass count and latest findings":
+        "Show the pass count and a short list of the latest findings",
+    "uses the structured question tool":
+        "AskUserQuestion",
+    "offers another pass":
+        "Run another review pass",
+    "offers disclosed manual export":
+        "Stop and export for manual review (unapproved, disclosed)",
+    "offers stop without export":
+        "Stop without exporting",
+    "does not infer export consent":
+        "Silence, an ambiguous answer, or \"carry on\" is never consent to export",
+    "never passes the release flag independently":
+        "Never pass the flag on your own initiative",
+    "uses the exporter release flag":
+        "--analyst-release-unapproved",
+}
+
+
+def research_checkpoint_problems(text):
+    body = flat(text)
+    problems = [
+        label for label, needle in RESEARCH_CHECKPOINT_REQUIRED.items()
+        if needle not in body
+    ]
+    ordered_options = (
+        "Run another review pass",
+        "Stop and export for manual review (unapproved, disclosed)",
+        "Stop without exporting",
+    )
+    positions = [body.find(option) for option in ordered_options]
+    if positions != sorted(positions) or any(position < 0 for position in positions):
+        problems.append("the three analyst options are not present in the required order")
+    if "after the third consecutive REJECTED verdict and every subsequent REJECTED verdict" not in body:
+        problems.append("the checkpoint is not required after the third and every later rejection")
+    if "before starting another Reviewer" not in body:
+        problems.append("the checkpoint is not placed before another Reviewer starts")
+    if "If the answer is silent or ambiguous, or says \"carry on\", ask the structured question again" not in body:
+        problems.append("silence, ambiguity or carry-on does not trigger a repeated question")
+    if "Only an explicit selection of \"Stop and export for manual review (unapproved, disclosed)\" authorises" not in body:
+        problems.append("the release flag is not restricted to the explicit export choice")
+    return problems
+
+
+def test_research_command_contract_pins_three_rejections_structured_options_and_no_inferred_consent():
+    assert research_checkpoint_problems(read(RESEARCH)) == []
+
+
+RESEARCH_CHECKPOINT_MUTATIONS = [
+    ("disk trail count", lambda t: mutate(
+        t, r"Count the consecutive trailing REJECTED entries from the deal's review_trail on disk, never from conversation memory",
+        "Count rejections from conversation memory"), "counts the consecutive rejection streak from disk"),
+    ("third and later", lambda t: mutate(
+        t, r"after the third consecutive REJECTED verdict and every subsequent REJECTED verdict",
+        "after a few rejections"), "the checkpoint is not required after the third and every later rejection"),
+    ("structured question", lambda t: mutate(t, r"AskUserQuestion", "free-text question"), "uses the structured question tool"),
+    ("export option", lambda t: mutate(
+        t, r"Stop and export for manual review \(unapproved, disclosed\)", "export the draft"),
+        "offers disclosed manual export"),
+    ("stop option", lambda t: mutate(t, r"Stop without exporting", "stop now"), "offers stop without export"),
+    ("ambiguous consent", lambda t: mutate(
+        t, r'Silence, an ambiguous answer, or "carry on" is never consent to export',
+        "silence counts as consent"), "does not infer export consent"),
+    ("self-initiated flag", lambda t: mutate(
+        t, r"Never pass the flag on your own initiative", "pass the flag whenever needed"),
+        "never passes the release flag independently"),
+    ("checkpoint order", lambda t: mutate(t, r"before starting another Reviewer", "after a Reviewer starts"),
+        "the checkpoint is not placed before another Reviewer starts"),
+]
+
+
+@pytest.mark.parametrize(("label", "change", "expected"), RESEARCH_CHECKPOINT_MUTATIONS,
+                         ids=[item[0] for item in RESEARCH_CHECKPOINT_MUTATIONS])
+def test_research_checkpoint_contract_catches_mutations(label, change, expected):
+    assert any(expected in problem for problem in research_checkpoint_problems(change(read(RESEARCH))))
+
+
 DRAFT_ARG = r' --draft "deals/<company>/<proposal>_draft.md"`\*\*'
 BRIEF_ARG = r' --draft "deals/<company>/<proposal>_brief.md"`\*\*'
 CALLER_MUTATIONS = [

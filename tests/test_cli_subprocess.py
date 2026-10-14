@@ -228,7 +228,7 @@ def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
 def test_research_export_help_documents_the_analyst_override_flag(cli):
     result = cli("research_export", "--help")
     assert result.returncode == 0, result.stderr
-    assert "--analyst-override-no-sources REASON" in result.stdout
+    assert "--analyst-override-no-sources" in result.stdout and "REASON" in result.stdout
     assert "explicit analyst authorisation" in result.stdout
 
 

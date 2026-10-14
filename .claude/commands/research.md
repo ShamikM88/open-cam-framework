@@ -38,6 +38,8 @@ rationale. Ground every claim in a source the user has provided or a credible pu
 (e.g. a companies registry) — never invent a registration detail, charge, or UBO relationship
 you cannot source.
 
+**For a borrower inside a group, read the primary documents, not only the registry summaries.** Open the full instrument for every outstanding charge: who the chargeholders are, what it secures and how far any negative pledge reaches. Read the creditors and debtors notes, the key accounting estimates and the going-concern note of the borrower's own accounts, and compare what the directors say about borrowing with what the notes show. Read the parent's subsidiary and guarantee notes for statutory parent guarantees and for which entity directly holds each subsidiary. Read the PSC history, including ceased PSCs, and look for overlap with the board and the company secretary. Save each document you rely on under the Source material step. Where a document cannot be opened, say so as a gap rather than writing around it.
+
 ## Company & sector research
 
 Same task as `/commercial`. **Primary inputs** (ask the user for whatever's missing and isn't

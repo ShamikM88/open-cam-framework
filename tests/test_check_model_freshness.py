@@ -55,6 +55,7 @@ def test_deprecated_model_includes_the_sdk_end_of_life_date():
     )
     assert report["models"][0]["deprecated"] is True
     assert report["models"][0]["end_of_life"] == "November 30th, 2026"
+    assert "Yes — November 30th, 2026" in render_markdown(report)
     assert report["findings"] == [{
         "type": "deprecated_model",
         "source": "test:setting",
@@ -231,13 +232,13 @@ def test_runtime_entry_points_do_not_import_model_freshness_diagnostic(module_na
 
 def test_default_model_ast_reader_handles_annotation_syntax(tmp_path):
     path = tmp_path / "calibrate.py"
-    path.write_text("_DEFAULT_MODEL: str = 'claude-sonnet-5'\\n", encoding="utf-8")
+    path.write_text("_DEFAULT_MODEL: str = 'claude-sonnet-5'\n", encoding="utf-8")
     assert read_default_model(path) == "claude-sonnet-5"
 
 
 @pytest.mark.parametrize("source", [
-    "_DEFAULT_MODEL = [\\n",
-    "_DEFAULT_MODEL = object()\\n",
+    "_DEFAULT_MODEL = [\n",
+    "_DEFAULT_MODEL = object()\n",
 ])
 def test_default_model_ast_reader_wraps_syntax_and_nonliteral_errors(tmp_path, source):
     path = tmp_path / "calibrate.py"
@@ -256,7 +257,7 @@ def test_configuration_must_be_a_json_object_with_string_model_ids(tmp_path, set
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(json.dumps(settings), encoding="utf-8")
     calibrate_path = tmp_path / "calibrate.py"
-    calibrate_path.write_text('_DEFAULT_MODEL = "claude-sonnet-5"\\n', encoding="utf-8")
+    calibrate_path.write_text('_DEFAULT_MODEL = "claude-sonnet-5"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="must contain a JSON object|must be a string"):
         load_model_sources(settings_path, calibrate_path)
 
@@ -308,7 +309,7 @@ def test_main_returns_one_for_an_unwritable_json_report(tmp_path, capsys):
     settings_path = tmp_path / "settings.json"
     settings_path.write_text(json.dumps({"maker_model": "claude-sonnet-5"}), encoding="utf-8")
     calibrate_path = tmp_path / "calibrate.py"
-    calibrate_path.write_text('_DEFAULT_MODEL = "claude-sonnet-5"\\n', encoding="utf-8")
+    calibrate_path.write_text('_DEFAULT_MODEL = "claude-sonnet-5"\n', encoding="utf-8")
 
     result = main(
         ["--json", str(tmp_path / "missing-directory" / "report.json")],
@@ -322,4 +323,4 @@ def test_main_returns_one_for_an_unwritable_json_report(tmp_path, capsys):
     captured = capsys.readouterr()
     assert result == 1 and captured.out == ""
     assert captured.err.startswith("error: cannot write JSON report")
-    assert captured.err.count("\\n") == 1
+    assert captured.err.count("\n") == 1

@@ -154,3 +154,21 @@ def test_override_has_no_effect_when_sources_are_already_populated(tmp_path, mon
 def test_rejects_unsafe_path_components(company, proposal, date_str, tmp_path):
     with pytest.raises(ValueError):
         export_research_brief(company, proposal, VALID_BRIEF, date_str=date_str, base_dir=str(tmp_path))
+
+
+def test_research_command_requires_a_flat_sources_list_and_explicit_override():
+    from pathlib import Path
+
+    command = (Path(__file__).resolve().parents[1] / ".claude" / "commands" / "research.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Mandatory final Sources section" in command
+    assert "flat" in command and "docx_builder.py" in command and "nested bullets" in command
+    assert "every document the brief relies on" in command
+    assert "URL wherever one exists" in command
+    assert "citation key" in command and "WRG note 14" in command
+    assert 'explicitly authorises exporting without that section, in chat' in command
+    assert "record that reason" in command
+    assert "Silence, an ambiguous answer, or “just export it” is not explicit authorisation." in command
+    assert "Never pass the flag on your own initiative." in command
+    assert '--analyst-override-no-sources "<reason>"' in command

@@ -536,7 +536,7 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
     ("structured question", lambda t: mutate_research_checkpoint(t, r"AskUserQuestion", "free-text question"),
      "uses the structured question tool"),
     ("export option", lambda t: mutate_research_checkpoint(
-        t, r"Stop and export for manual review \\(unapproved, disclosed\\)", "export the draft"),
+        t, r"Stop and export for manual review \(unapproved, disclosed\)", "export the draft"),
      "offers disclosed manual export"),
     ("stop option", lambda t: mutate_research_checkpoint(t, r"Stop without exporting", "stop now"),
      "offers stop without export"),

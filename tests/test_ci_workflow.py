@@ -520,10 +520,10 @@ def test_model_freshness_workflow_is_weekly_and_manual_only_never_a_pull_request
     text = MODEL_FRESHNESS_WORKFLOW.read_text(encoding="utf-8")
     triggers = text.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
     assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"schedule", "workflow_dispatch"}
-    assert re.search(r'cron: "\\d{1,2} \\d{1,2} \\* \\* [0-6]"', triggers)
+    assert re.search(r'cron: "\d{1,2} \d{1,2} \* \* [0-6]"', triggers)
     assert "pull_request" not in triggers and "push:" not in triggers
     assert "pull_request_target" not in text and "workflow_run" not in text
-    assert re.search(r"^permissions:\\s*\\{\\}\\s*$", text, re.M)
+    assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M)
     jobs = split_jobs(text)
     assert list(jobs) == ["model_freshness"]
     assert job_permissions(jobs["model_freshness"]) == {"contents": "read", "issues": "write"}

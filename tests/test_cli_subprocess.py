@@ -250,7 +250,7 @@ def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
     state_dir.mkdir(parents=True)
     state_path = state_dir / "state.json"
     state_path.write_text(json.dumps({
-        "company": "Acme", "proposal": "Brief", "date": "2026-10-14", "schema_version": "1.1.0",
+        "company": "Acme", "proposal": "Brief", "date": "2026-10-14",
         "review_trail": [
             {"iteration": 1, "verdict": "APPROVED", "notes": "previous cycle"},
             {"iteration": 2, "verdict": "REJECTED", "notes": "synthetic finding one"},

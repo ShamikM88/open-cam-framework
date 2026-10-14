@@ -2,7 +2,7 @@
 import ast
 import json
 from pathlib import Path
-from typing import Literal, Union
+from typing import Literal
 
 import pytest
 
@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 def fake_model_type(*model_ids):
     """Shape the fake SDK exposes: a Union whose first member is Literal[known model IDs]."""
-    return Union[Literal.__getitem__(tuple(model_ids)), str]
+    return Literal.__getitem__(tuple(model_ids)) | str
 
 
 def model_item(model_id, source="test:setting"):
@@ -96,7 +96,7 @@ def test_dated_latest_and_preview_ids_are_not_used_for_version_comparison(model_
 
 
 @pytest.mark.parametrize(("model_type", "deprecated_table", "missing_table"), [
-    (Union[str, int], {}, "anthropic.types.Model"),
+    (str | int, {}, "anthropic.types.Model"),
     (fake_model_type("claude-sonnet-5"), [], "anthropic.resources.messages.messages.DEPRECATED_MODELS"),
     (None, [], None),
 ])

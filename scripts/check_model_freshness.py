@@ -122,10 +122,6 @@ def parse_model_id(model_id):
     return {"family": family, "major": int(major), "minor": int(minor or "0")}
 
 
-def _format_version(parsed):
-    return f"{parsed['major']}.{parsed['minor']}"
-
-
 def build_report(model_sources, model_type, deprecated_table, sdk_version=None):
     """Make the report from SDK tables supplied as arguments; None/changed shapes are reported, never guessed."""
     known_models = extract_known_model_ids(model_type)

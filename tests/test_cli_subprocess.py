@@ -238,6 +238,56 @@ def test_research_export_on_a_missing_brief_fails(cli):
     result = cli("research_export", "--company", "A", "--proposal", "P", "--brief", "nope.md")
     assert result.returncode != 0 and "nope.md" in result.stderr
 
+def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Synthetic research brief\\n\\n## Findings\\nSynthetic analyst notes.\\n\\n"
+        "## Sources\\n\\n- Synthetic source: https://example.invalid/research\\n",
+        encoding="utf-8",
+    )
+    state_dir = cli.workdir / "deals" / "Acme" / "Brief_2026-10-14"
+    state_dir.mkdir(parents=True)
+    state_path = state_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "company": "Acme", "proposal": "Brief", "date": "2026-10-14", "schema_version": "1.1.0",
+        "review_trail": [
+            {"iteration": 1, "verdict": "APPROVED", "notes": "previous cycle"},
+            {"iteration": 2, "verdict": "REJECTED", "notes": "synthetic finding one"},
+            {"iteration": 3, "verdict": "REJECTED", "notes": "synthetic finding two"},
+            {"iteration": 4, "verdict": "REJECTED", "notes": "synthetic finding three"},
+        ],
+    }), encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-release-unapproved", "analyst requested manual review",
+    )
+    assert result.returncode == 0, result.stderr
+    output_path = next(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+    paragraphs = [p.text for p in docx.Document(output_path).paragraphs]
+    assert paragraphs[1].startswith(
+        "Review status: Not approved by the independent Risk Reviewer. 3 review passes returned REJECTED."
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["review_stopped_by_analyst"] == {
+        "passes": 3, "date": "2026-10-14", "reason": "analyst requested manual review",
+    }
+
+
+def test_research_export_release_unapproved_cli_rejects_blank_reason_without_output(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Synthetic research brief\\n\\n## Sources\\n\\n- Synthetic source: https://example.invalid/source\\n",
+        encoding="utf-8",
+    )
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-release-unapproved", "   ",
+    )
+    assert result.returncode == 1 and result.stderr.startswith("error: ")
+    assert "Analyst release reason must not be empty" in result.stderr and "Traceback" not in result.stderr
+    assert not (cli.workdir / "deals").exists()
+
+
 
 def test_spreading_check_recomputes_and_checkpoints_the_figures(cli):
     financials = cli.workdir / "fin.json"

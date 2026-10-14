@@ -494,6 +494,13 @@ def research_checkpoint_problems(text):
     positions = [body.find(option) for option in ordered_options]
     if positions != sorted(positions) or any(position < 0 for position in positions):
         problems.append("the three analyst options are not present in the required order")
+    exact_option_sequence = (
+        "with exactly three options: Run another review pass; "
+        "Stop and export for manual review (unapproved, disclosed); Stop without exporting. "
+        "This decision point"
+    )
+    if exact_option_sequence not in body:
+        problems.append("the question does not list exactly three options")
     if "after the third consecutive REJECTED verdict and every subsequent REJECTED verdict" not in body:
         problems.append("the checkpoint is not required after the third and every later rejection")
     if "before starting another Reviewer" not in body:
@@ -521,6 +528,8 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
         t, r"Stop and export for manual review \(unapproved, disclosed\)", "export the draft"),
         "offers disclosed manual export"),
     ("stop option", lambda t: mutate(t, r"Stop without exporting", "stop now"), "offers stop without export"),
+    ("extra option", lambda t: mutate(t, r"Stop without exporting", "Stop without exporting; Ignore the findings"),
+     "the question does not list exactly three options"),
     ("ambiguous consent", lambda t: mutate(
         t, r'Silence, an ambiguous answer, or "carry on" is never consent to export',
         "silence counts as consent"), "does not infer export consent"),

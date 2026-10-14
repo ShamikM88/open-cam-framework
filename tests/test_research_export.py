@@ -177,9 +177,9 @@ def test_research_command_requires_a_flat_sources_list_and_explicit_override():
 
 def test_fenced_source_items_do_not_populate_a_real_sources_section(tmp_path):
     brief = (
-        "# Synthetic brief\\n\\n## Sources\\n\\n"
-        "```text\\n- Fake source: https://example.invalid/fake\\n```\\n\\n"
-        "## Findings\\nOther synthetic content.\\n"
+        "# Synthetic brief\n\n## Sources\n\n"
+        "```text\n- Fake source: https://example.invalid/fake\n```\n\n"
+        "## Findings\nOther synthetic content.\n"
     )
     with pytest.raises(ValueError, match="populated Sources or References section"):
         export_research_brief("Acme Co", "Synthetic Lease", brief, base_dir=str(tmp_path))

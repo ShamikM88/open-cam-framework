@@ -145,7 +145,7 @@ def build_report(model_sources, model_type, deprecated_table, sdk_version=None):
     }
 
     findings = []
-    for key, details in sdk_tables.items():
+    for details in sdk_tables.values():
         if details["status"] != "available":
             findings.append({
                 "type": "sdk_table_not_found",

@@ -276,8 +276,8 @@ def review_problems(text):
         problems.append("allowed-tools pre-approves a Bash command other than an approved state/policy script")
     body = flat(text)
     message_start = text.find("Review one saved draft.")
-    first_fence = text.find("```", message_start) if message_start >= 0 else -1
-    second_fence = text.find("```", first_fence + 3) if first_fence >= 0 else -1
+    first_fence = text.rfind("```", 0, message_start) if message_start >= 0 else -1
+    second_fence = text.find("```", message_start) if message_start >= 0 else -1
     if message_start < 0 or first_fence < 0 or second_fence < 0:
         problems.append("/review has no path-only delegation message")
     else:

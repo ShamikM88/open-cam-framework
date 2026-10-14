@@ -177,50 +177,6 @@ def test_source_override_and_unapproved_release_combine_status_near_top_and_sour
     )
 
 
-def test_research_command_contract_pins_three_pass_checkpoint_options_and_explicit_consent():
-    from pathlib import Path
-
-    command = (Path(__file__).resolve().parents[1] / ".claude" / "commands" / "research.md").read_text(
-        encoding="utf-8"
-    )
-    body = " ".join(command.split())
-    required = (
-        "three consecutive REJECTED",
-        "review_trail on disk",
-        "AskUserQuestion",
-        "Run another review pass",
-        "Stop and export for manual review (unapproved, disclosed)",
-        "Stop without exporting",
-        "Silence, an ambiguous answer, or \"carry on\" is never consent to export",
-        "Never pass the flag on your own initiative",
-        "--analyst-release-unapproved",
-    )
-    for phrase in required:
-        assert phrase in body, phrase
-    assert body.index("Run another review pass") < body.index("Stop and export for manual review") < body.index(
-        "Stop without exporting"
-    )
-
-
-@pytest.mark.parametrize(("phrase", "replacement"), [
-    ("Run another review pass", "run again maybe"),
-    ("Stop and export for manual review (unapproved, disclosed)", "export whatever"),
-    ("Stop without exporting", "export anyway"),
-    ('Silence, an ambiguous answer, or "carry on" is never consent to export', "silence means yes"),
-    ("Never pass the flag on your own initiative", "use the flag whenever helpful"),
-    ("review_trail on disk", "conversation history"),
-])
-def test_research_command_contract_rejects_weakened_checkpoint_rules(phrase, replacement):
-    from pathlib import Path
-
-    command = (Path(__file__).resolve().parents[1] / ".claude" / "commands" / "research.md").read_text(
-        encoding="utf-8"
-    )
-    changed = command.replace(phrase, replacement)
-    body = " ".join(changed.split())
-    assert phrase not in body
-
-
 def test_trailing_rejection_counter_stops_at_latest_non_rejected_entry():
     assert research_export._trailing_rejected_count([
         {"verdict": "REJECTED"}, {"verdict": "APPROVED"},

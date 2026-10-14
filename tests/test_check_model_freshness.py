@@ -6,7 +6,8 @@ from typing import Literal
 
 import pytest
 
-from check_model_freshness import build_report, main, read_default_model, load_model_sources, render_markdown
+from check_model_freshness import (build_report, extract_deprecated_models, load_installed_sdk_tables, main,
+                                   read_default_model, load_model_sources, render_markdown)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -226,3 +227,99 @@ def test_runtime_entry_points_do_not_import_model_freshness_diagnostic(module_na
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.append(node.module)
     assert not any("check_model_freshness" in name for name in imports)
+
+
+def test_default_model_ast_reader_handles_annotation_syntax(tmp_path):
+    path = tmp_path / "calibrate.py"
+    path.write_text("_DEFAULT_MODEL: str = 'claude-sonnet-5'\\n", encoding="utf-8")
+    assert read_default_model(path) == "claude-sonnet-5"
+
+
+@pytest.mark.parametrize("source", [
+    "_DEFAULT_MODEL = [\\n",
+    "_DEFAULT_MODEL = object()\\n",
+])
+def test_default_model_ast_reader_wraps_syntax_and_nonliteral_errors(tmp_path, source):
+    path = tmp_path / "calibrate.py"
+    path.write_text(source, encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot read|must be a string literal"):
+        read_default_model(path)
+
+
+def test_default_model_ast_reader_wraps_an_unreadable_path(tmp_path):
+    with pytest.raises(ValueError, match="cannot read the _DEFAULT_MODEL assignment"):
+        read_default_model(tmp_path / "missing-calibrate.py")
+
+
+@pytest.mark.parametrize("settings", [[], {"maker_model": 123}])
+def test_configuration_must_be_a_json_object_with_string_model_ids(tmp_path, settings):
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+    calibrate_path = tmp_path / "calibrate.py"
+    calibrate_path.write_text('_DEFAULT_MODEL = "claude-sonnet-5"\\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="must contain a JSON object|must be a string"):
+        load_model_sources(settings_path, calibrate_path)
+
+
+def test_literal_sdk_list_with_a_non_string_member_is_not_trusted():
+    from check_model_freshness import extract_known_model_ids
+    assert extract_known_model_ids(Literal[123] | str) is None
+
+
+def test_deprecated_sdk_table_with_blank_date_is_not_trusted():
+    assert extract_deprecated_models({"claude-sonnet-5": "  "}) is None
+
+
+def test_parseable_but_unlisted_model_is_unknown_not_guessed():
+    report = report_for(["claude-sonnet-4-4"], ["claude-sonnet-5", "claude-sonnet-5-5"])
+    assert report["models"][0]["status"] == "unknown"
+    assert report["models"][0]["known_in_sdk"] is False
+    assert any(f["type"] == "unknown_model" for f in report["findings"])
+
+
+def test_deprecated_model_with_a_newer_same_family_version_is_flagged():
+    report = report_for(
+        ["claude-sonnet-4-5"],
+        ["claude-sonnet-4-5", "claude-sonnet-5-5"],
+        {"claude-sonnet-4-5": "November 30th, 2026"},
+    )
+    item = report["models"][0]
+    assert item["deprecated"] is True and item["newer_model"] == "claude-sonnet-5-5"
+    assert item["status"] == "deprecated; newer version available"
+
+
+def test_installed_sdk_import_and_version_failures_degrade_to_missing_tables(monkeypatch):
+    import builtins
+    import importlib.metadata
+
+    real_import = builtins.__import__
+
+    def unavailable_sdk_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name in {"anthropic.types", "anthropic.resources.messages.messages"}:
+            raise ImportError("simulated missing SDK table")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", unavailable_sdk_import)
+    monkeypatch.setattr(importlib.metadata, "version", lambda package: (_ for _ in ()).throw(RuntimeError("no metadata")))
+    assert load_installed_sdk_tables() == (None, None, None)
+
+
+def test_main_returns_one_for_an_unwritable_json_report(tmp_path, capsys):
+    settings_path = tmp_path / "settings.json"
+    settings_path.write_text(json.dumps({"maker_model": "claude-sonnet-5"}), encoding="utf-8")
+    calibrate_path = tmp_path / "calibrate.py"
+    calibrate_path.write_text('_DEFAULT_MODEL = "claude-sonnet-5"\\n', encoding="utf-8")
+
+    result = main(
+        ["--json", str(tmp_path / "missing-directory" / "report.json")],
+        settings_path=settings_path,
+        calibrate_path=calibrate_path,
+        model_type=fake_model_type("claude-sonnet-5"),
+        deprecated_table={},
+        sdk_version="test-sdk",
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1 and captured.out == ""
+    assert captured.err.startswith("error: cannot write JSON report")
+    assert captured.err.count("\\n") == 1

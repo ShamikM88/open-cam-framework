@@ -92,8 +92,9 @@ Call the Agent tool **once per review**, with `subagent_type` set to exactly `ri
   not fall back to reviewing in this conversation, and do not record a verdict.
 
 The message you send contains **only** the following, with the paths filled in, and no draft text, no summary of the draft
-or of this conversation, no Maker explanation, no analyst remark and no earlier review notes. Never send the combined
-`state.json` path to the Reviewer:
+or of this conversation, no Maker explanation, no analyst remark and no earlier review notes. Replace both dated-folder
+path placeholders below with the exact paths returned by the CLI; for a standalone review with no deal, use
+`none (standalone review)` for both. Never send the combined `state.json` path to the Reviewer:
 
 ```
 Review one saved draft. Everything you need is on disk at the paths below; open it yourself.
@@ -101,8 +102,8 @@ Mode: <full CAM | /research brief (no CAM data, no deterministic check)>
 Company: <company>
 Proposal: <proposal>
 Draft: <path from step 1>
-Record for first pass (without review history): <dated folder>/review_view/state_for_review.json
-Review history (read only at step 3): <dated folder>/review_view/review_trail.json
+Record for first pass (without review history): <dated folder>/review_view/state_for_review.json or "none (standalone review)"
+Review history (read only at step 3): <dated folder>/review_view/review_trail.json or "none (standalone review)"
 Source manifest: <sources/manifest.json path in the dated folder, or "none">
 Credit policy: config/credit_policy.md (<exists | does not exist>)
 Policy interpretation notes: config/credit_policy_notes.md (<exists | does not exist>)

@@ -12,10 +12,10 @@ from docx_builder import export_to_docx
 from state_manager import resolve_date_str, sanitize_path_component
 
 
-ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \\t]+(.*)|[ \\t]*)$")
+ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$")
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-LIST_ITEM_RE = re.compile(r"^[ \\t]{0,3}(?:[-*+][ \\t]+|\\d+[.)][ \\t]+)\\S")
-HTTP_URL_RE = re.compile(r"https?://[^\\s<>]+", re.IGNORECASE)
+LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+][ \t]+|\d+[.)][ \t]+)\S")
+HTTP_URL_RE = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 
 
 def _today_date():
@@ -34,7 +34,7 @@ def _markdown_structure(markdown):
     for index, line in enumerate(lines):
         if fence_char is not None:
             visible[index] = False
-            close_re = re.compile(rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \\t]*$")
+            close_re = re.compile(rf"^ {{0,3}}{re.escape(fence_char)}{{{fence_length},}}[ \t]*$")
             if close_re.match(line):
                 fence_char = None
                 fence_length = 0
@@ -50,7 +50,7 @@ def _markdown_structure(markdown):
         heading_match = ATX_HEADING_RE.match(line)
         if heading_match:
             raw_title = heading_match.group(2) or ""
-            title = re.sub(r"#+[ \\t]*$", "", raw_title).strip()
+            title = re.sub(r"#+[ \t]*$", "", raw_title).strip()
             headings.append((index, len(heading_match.group(1)), title))
 
     return lines, visible, headings
@@ -111,7 +111,7 @@ def export_research_brief(
             f"Footnote: No sources list is included in this brief. Exported under analyst override "
             f"on {_today_date()}: {override_reason}."
         )
-        brief_markdown = brief_markdown.rstrip() + "\\n\\n" + footnote
+        brief_markdown = brief_markdown.rstrip() + "\n\n" + footnote
 
     # Validate the content before resolving paths or creating any output directory.
     company = sanitize_path_component(company, "company")
@@ -130,8 +130,6 @@ def export_research_brief(
 
 
 def main(argv=None):
-    from textio import configure_stdio
-    configure_stdio()
     import argparse
 
     parser = argparse.ArgumentParser(
@@ -161,4 +159,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
     main()

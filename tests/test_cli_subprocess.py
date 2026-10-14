@@ -226,7 +226,7 @@ def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
 
 
 def test_research_export_writes_the_brief_docx(cli):
-    brief.write_text("# Research brief\\n\\n- **Verdict:** Go\\n\\nSector notes [placeholder].\\n\\n## Sources\\n\\n- Synthetic registry: https://example.invalid/registry\\n", encoding="utf-8")
+    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n\n## Sources\n\n- Synthetic registry: https://example.invalid/registry\n", encoding="utf-8")
     result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
     assert result.returncode == 0, result.stderr
     assert "Research brief exported to" in result.stdout
@@ -235,7 +235,7 @@ def test_research_export_writes_the_brief_docx(cli):
 
 def test_research_export_without_sources_fails_cleanly_without_writing(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Synthetic brief\\n\\nFindings refer to sources but give no list.\\n", encoding="utf-8")
+    brief.write_text("# Synthetic brief\n\nFindings refer to sources but give no list.\n", encoding="utf-8")
     result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
     assert result.returncode == 1
     assert len(result.stderr.splitlines()) == 1 and result.stderr.startswith("error: ")
@@ -248,7 +248,7 @@ def test_research_export_override_succeeds_and_discloses_the_reason(cli):
     import docx
 
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Synthetic brief\\n\\nSynthetic findings only.\\n", encoding="utf-8")
+    brief.write_text("# Synthetic brief\n\nSynthetic findings only.\n", encoding="utf-8")
     result = cli(
         "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
         "--analyst-override-no-sources", "Synthetic analyst-authorised reason",
@@ -262,7 +262,7 @@ def test_research_export_override_succeeds_and_discloses_the_reason(cli):
 
 def test_research_export_override_without_a_reason_fails_cleanly(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Synthetic brief\\n\\nSynthetic findings only.\\n", encoding="utf-8")
+    brief.write_text("# Synthetic brief\n\nSynthetic findings only.\n", encoding="utf-8")
     result = cli(
         "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
         "--analyst-override-no-sources",

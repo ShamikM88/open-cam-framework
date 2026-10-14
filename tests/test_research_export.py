@@ -9,12 +9,12 @@ from state_manager import write_state
 
 
 VALID_BRIEF = (
-    "# Synthetic Research Brief\\n\\n## Go/No-Go\\n\\nGO -- synthetic example.\\n\\n"
-    "## Sources\\n\\n- Synthetic registry record: https://example.invalid/registry\\n"
+    "# Synthetic Research Brief\n\n## Go/No-Go\n\nGO -- synthetic example.\n\n"
+    "## Sources\n\n- Synthetic registry record: https://example.invalid/registry\n"
 )
 NO_SOURCES_BRIEF = (
-    "# Synthetic Research Brief\\n\\n## Go/No-Go\\n\\n"
-    "The word sources in this paragraph is not a sources section.\\n"
+    "# Synthetic Research Brief\n\n## Go/No-Go\n\n"
+    "The word sources in this paragraph is not a sources section.\n"
 )
 
 
@@ -56,7 +56,7 @@ def test_missing_sources_section_is_rejected_before_creating_any_output(tmp_path
 
 
 def test_empty_sources_section_is_rejected_before_creating_any_output(tmp_path):
-    brief = "# Synthetic brief\\n\\n## Sources\\n\\n## Findings\\n\\nNo source list here."
+    brief = "# Synthetic brief\n\n## Sources\n\n## Findings\n\nNo source list here."
     with pytest.raises(ValueError, match="populated Sources or References section"):
         export_research_brief("Acme Co", "Synthetic Lease", brief, date_str="2026-01-15", base_dir=str(tmp_path))
     assert not (tmp_path / "deals").exists()
@@ -64,14 +64,14 @@ def test_empty_sources_section_is_rejected_before_creating_any_output(tmp_path):
 
 @pytest.mark.parametrize("heading", ["# SOURCES", "### rEfErEnCeS ###", "###### Sources  ####"])
 def test_populated_sources_heading_is_case_insensitive_any_level_and_allows_closing_hashes(tmp_path, heading):
-    brief = f"# Synthetic brief\\n\\n{heading}\\n\\n1) Synthetic reference\\n"
+    brief = f"# Synthetic brief\n\n{heading}\n\n1) Synthetic reference\n"
     output = export_research_brief("Acme Co", "Synthetic Lease", brief, date_str="2026-01-15",
                                    base_dir=str(tmp_path))
     assert os.path.isfile(output)
 
 
 def test_sources_section_can_be_populated_by_a_url_without_a_list_item(tmp_path):
-    brief = "# Synthetic brief\\n\\n## References\\n\\nhttps://example.invalid/source\\n"
+    brief = "# Synthetic brief\n\n## References\n\nhttps://example.invalid/source\n"
     output = export_research_brief("Acme Co", "Synthetic Lease", brief, date_str="2026-01-15",
                                    base_dir=str(tmp_path))
     assert os.path.isfile(output)
@@ -85,8 +85,8 @@ def test_word_sources_in_a_paragraph_does_not_count_as_a_section(tmp_path):
 
 def test_sources_headings_and_entries_inside_fenced_code_are_ignored(tmp_path):
     brief = (
-        "# Synthetic brief\\n\\n```markdown\\n## Sources\\n- Fake source: https://example.invalid/fake\\n```\\n"
-        "\\n## Findings\\nNo real source section.\\n"
+        "# Synthetic brief\n\n```markdown\n## Sources\n- Fake source: https://example.invalid/fake\n```\n"
+        "\n## Findings\nNo real source section.\n"
     )
     with pytest.raises(ValueError, match="populated Sources or References section"):
         export_research_brief("Acme Co", "Synthetic Lease", brief, base_dir=str(tmp_path))
@@ -94,7 +94,7 @@ def test_sources_headings_and_entries_inside_fenced_code_are_ignored(tmp_path):
 
 
 def test_sources_section_stops_at_next_heading_of_same_or_higher_level(tmp_path):
-    brief = "# Synthetic brief\\n\\n## Sources\\n\\n### Still in this section\\n\\n## Findings\\n- Not a source entry\\n"
+    brief = "# Synthetic brief\n\n## Sources\n\n### Still in this section\n\n## Findings\n- Not a source entry\n"
     with pytest.raises(ValueError, match="populated Sources or References section"):
         export_research_brief("Acme Co", "Synthetic Lease", brief, base_dir=str(tmp_path))
     assert not (tmp_path / "deals").exists()
@@ -102,7 +102,7 @@ def test_sources_section_stops_at_next_heading_of_same_or_higher_level(tmp_path)
 
 def test_override_adds_the_disclosed_footnote_as_the_last_docx_paragraph(tmp_path, monkeypatch):
     monkeypatch.setattr(research_export, "_today_date", lambda: "2026-10-14")
-    reason = "  analyst  explicitly\\n authorised\\t omission  "
+    reason = "  analyst  explicitly\n authorised\t omission  "
     output = export_research_brief(
         "Acme Co", "Synthetic Lease", NO_SOURCES_BRIEF, date_str="2026-01-15", base_dir=str(tmp_path),
         analyst_override_no_sources=reason,
@@ -114,7 +114,7 @@ def test_override_adds_the_disclosed_footnote_as_the_last_docx_paragraph(tmp_pat
     )
 
 
-@pytest.mark.parametrize("reason", ["", "   ", "\\n \\t"])
+@pytest.mark.parametrize("reason", ["", "   ", "\n \t"])
 def test_override_with_empty_or_whitespace_reason_is_rejected_before_writing(tmp_path, reason):
     with pytest.raises(ValueError, match="reason must not be empty"):
         export_research_brief(

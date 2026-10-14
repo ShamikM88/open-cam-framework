@@ -460,7 +460,7 @@ def test_assemble_and_research_review_the_exact_saved_artifact_in_the_right_mode
 
 RESEARCH_CHECKPOINT_REQUIRED = {
     "counts the consecutive rejection streak from disk":
-        "Count the consecutive trailing REJECTED entries from the deal's review_trail on disk, never from conversation memory",
+        "Count the consecutive trailing REJECTED entries from the deal's `review_trail` on disk, never from conversation memory",
     "shows the pass count and latest findings":
         "Show the pass count and a short list of the latest findings",
     "uses the structured question tool":
@@ -518,7 +518,7 @@ def test_research_command_contract_pins_three_rejections_structured_options_and_
 
 RESEARCH_CHECKPOINT_MUTATIONS = [
     ("disk trail count", lambda t: mutate(
-        t, r"Count the consecutive trailing REJECTED entries from the deal's review_trail on disk, never from conversation memory",
+        t, r"Count the consecutive trailing REJECTED entries from the deal's `review_trail` on disk, never from conversation memory",
         "Count rejections from conversation memory"), "counts the consecutive rejection streak from disk"),
     ("third and later", lambda t: mutate(
         t, r"after the third consecutive REJECTED verdict and every subsequent REJECTED verdict",

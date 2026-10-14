@@ -518,7 +518,7 @@ def test_the_benchmark_summary_step_writes_one_row_with_pytests_own_timing(tmp_p
 
 def test_model_freshness_workflow_is_weekly_and_manual_only_never_a_pull_request_check():
     text = MODEL_FRESHNESS_WORKFLOW.read_text(encoding="utf-8")
-    triggers = text.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
+    triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"schedule", "workflow_dispatch"}
     assert re.search(r'cron: "\d{1,2} \d{1,2} \* \* [0-6]"', triggers)
     assert "pull_request" not in triggers and "push:" not in triggers

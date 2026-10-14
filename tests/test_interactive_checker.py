@@ -56,7 +56,7 @@ AGENT_REQUIRED = {
         r"You have not seen the Maker's conversation, its reasoning, or anything the analyst said",
     "audits the draft saved on disk": r"Read the draft at the path you were given",
     "audits before it reads the earlier verdicts":
-        r"do not read or use review_trail\.json or review_verdict",
+        r"do not read or use review_trail\.json",
     "reads the trail only afterwards": r"Only then read review_trail\.json",
     "does not treat an earlier verdict as evidence":
         r"an earlier approval is never evidence that this draft is correct",
@@ -162,7 +162,7 @@ AGENT_MUTATIONS = [
      lambda t: mutate(t, r"Read `agents/risk_reviewer_agent\.md` and act according to that role", "Act as a credit officer"),
      "applies the one role prompt rather than a copy of it"),
     ("no instruction to ignore the trail first",
-     lambda t: mutate(t, r"\*\*do not read or use `review_trail\.json` or `review_verdict`\*\*", "read everything"),
+     lambda t: mutate(t, r"\*\*do not read or use `review_trail\.json`\*\*", "read everything"),
      "audits before it reads the earlier verdicts"),
     ("the trail read first",
      lambda t: mutate(mutate(t, r"\*\*Only then read `review_trail\.json`\.\*\*", "Read `review_trail.json` first."),

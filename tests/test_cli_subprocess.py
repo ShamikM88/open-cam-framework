@@ -24,6 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import docx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

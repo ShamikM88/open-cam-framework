@@ -172,3 +172,25 @@ def test_research_command_requires_a_flat_sources_list_and_explicit_override():
     assert "Silence, an ambiguous answer, or “just export it” is not explicit authorisation." in command
     assert "Never pass the flag on your own initiative." in command
     assert '--analyst-override-no-sources "<reason>"' in command
+
+
+
+def test_fenced_source_items_do_not_populate_a_real_sources_section(tmp_path):
+    brief = (
+        "# Synthetic brief\\n\\n## Sources\\n\\n"
+        "```text\\n- Fake source: https://example.invalid/fake\\n```\\n\\n"
+        "## Findings\\nOther synthetic content.\\n"
+    )
+    with pytest.raises(ValueError, match="populated Sources or References section"):
+        export_research_brief("Acme Co", "Synthetic Lease", brief, base_dir=str(tmp_path))
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("reason", [123, []])
+def test_override_reason_must_be_text(tmp_path, reason):
+    with pytest.raises(ValueError, match="reason must be text"):
+        export_research_brief(
+            "Acme Co", "Synthetic Lease", NO_SOURCES_BRIEF, base_dir=str(tmp_path),
+            analyst_override_no_sources=reason,
+        )
+    assert not (tmp_path / "deals").exists()

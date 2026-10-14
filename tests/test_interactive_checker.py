@@ -460,7 +460,7 @@ def test_assemble_and_research_review_the_exact_saved_artifact_in_the_right_mode
 
 RESEARCH_CHECKPOINT_REQUIRED = {
     "counts the consecutive rejection streak from disk":
-        "Count the consecutive trailing REJECTED entries from the deal's `review_trail` on disk, never from conversation memory",
+        "Count the consecutive trailing REJECTED entries from the deal's review_trail on disk, never from conversation memory",
     "shows the pass count and latest findings":
         "Show the pass count and a short list of the latest findings",
     "uses the structured question tool":
@@ -482,20 +482,18 @@ RESEARCH_CHECKPOINT_REQUIRED = {
 
 def research_checkpoint_problems(text):
     body = flat(text)
+    if "Analyst decision after repeated rejection" not in body or "3. Export it." not in body:
+        return ["the analyst checkpoint is not in the review/export step"]
+    checkpoint = body.split("Analyst decision after repeated rejection", 1)[1].split("3. Export it.", 1)[0]
     problems = [
         label for label, needle in RESEARCH_CHECKPOINT_REQUIRED.items()
-        if needle not in body
+        if needle not in checkpoint
     ]
     ordered_options = (
         "Run another review pass",
         "Stop and export for manual review (unapproved, disclosed)",
         "Stop without exporting",
     )
-    if "Analyst decision after repeated rejection" not in body or "3. Export it." not in body:
-        problems.append("the analyst checkpoint is not in the review/export step")
-        checkpoint = ""
-    else:
-        checkpoint = body.split("Analyst decision after repeated rejection", 1)[1].split("3. Export it.", 1)[0]
     positions = [checkpoint.find(option) for option in ordered_options]
     if positions != sorted(positions) or any(position < 0 for position in positions):
         problems.append("the three analyst options are not present in the required order")
@@ -521,27 +519,36 @@ def test_research_command_contract_pins_three_rejections_structured_options_and_
     assert research_checkpoint_problems(read(RESEARCH)) == []
 
 
+def mutate_research_checkpoint(text, pattern, replacement):
+    start = text.index("Analyst decision after repeated rejection")
+    end = text.index("3. **Export it.**", start)
+    changed_section = mutate(text[start:end], pattern, replacement)
+    return text[:start] + changed_section + text[end:]
+
+
 RESEARCH_CHECKPOINT_MUTATIONS = [
-    ("disk trail count", lambda t: mutate(
+    ("disk trail count", lambda t: mutate_research_checkpoint(
         t, r"Count the consecutive trailing REJECTED entries from the deal's `review_trail` on disk, never from conversation memory",
         "Count rejections from conversation memory"), "counts the consecutive rejection streak from disk"),
-    ("third and later", lambda t: mutate(
-        t, r"after the third consecutive REJECTED verdict and every subsequent REJECTED verdict",
-        "after a few rejections"), "the checkpoint is not required after the third and every later rejection"),
-    ("structured question", lambda t: mutate(t, r"AskUserQuestion", "free-text question"), "uses the structured question tool"),
-    ("export option", lambda t: mutate(
-        t, r"Stop and export for manual review \(unapproved, disclosed\)", "export the draft"),
-        "offers disclosed manual export"),
-    ("stop option", lambda t: mutate(t, r"Stop without exporting", "stop now"), "offers stop without export"),
-    ("extra option", lambda t: mutate(t, r"Stop without exporting", "Stop without exporting; Ignore the findings"),
+    ("third and later", lambda t: mutate_research_checkpoint(
+        t, r"After the third consecutive REJECTED verdict and every subsequent REJECTED verdict",
+        "After a few rejections"), "the checkpoint is not required after the third and every later rejection"),
+    ("structured question", lambda t: mutate_research_checkpoint(t, r"AskUserQuestion", "free-text question"),
+     "uses the structured question tool"),
+    ("export option", lambda t: mutate_research_checkpoint(
+        t, r"Stop and export for manual review \\(unapproved, disclosed\\)", "export the draft"),
+     "offers disclosed manual export"),
+    ("stop option", lambda t: mutate_research_checkpoint(t, r"Stop without exporting", "stop now"),
+     "offers stop without export"),
+    ("extra option", lambda t: mutate_research_checkpoint(t, r"Stop without exporting", "Stop without exporting; Ignore the findings"),
      "the question does not list exactly three options"),
-    ("ambiguous consent", lambda t: mutate(
+    ("ambiguous consent", lambda t: mutate_research_checkpoint(
         t, r'Silence, an ambiguous answer, or "carry on" is never consent to export',
         "silence counts as consent"), "does not infer export consent"),
-    ("self-initiated flag", lambda t: mutate(
+    ("self-initiated flag", lambda t: mutate_research_checkpoint(
         t, r"Never pass the flag on your own initiative", "pass the flag whenever needed"),
         "never passes the release flag independently"),
-    ("checkpoint order", lambda t: mutate(
+    ("checkpoint order", lambda t: mutate_research_checkpoint(
         t, r"After the third consecutive REJECTED verdict and every subsequent REJECTED verdict, before starting another Reviewer",
         "After repeated rejections, start another Reviewer before asking"),
         "the checkpoint is not required after the third and every later rejection"),

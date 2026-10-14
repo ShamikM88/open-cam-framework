@@ -92,7 +92,17 @@ worked examples are in [Workflows](workflows.md).
   template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
-- **Can go wrong:** a `REJECTED` review means revise, overwrite, and review again with a new Reviewer. After three consecutive `REJECTED` passes and each later rejection, `/research` asks a structured three-choice question before another pass: another review; stop and export for disclosed manual review; or stop without exporting. It reads the consecutive rejection count from the on-disk `review_trail`; silence and ambiguous replies are not permission to export. Only the explicit manual-review choice allows `--analyst-release-unapproved "<reason>"`, which inserts a status disclosure near the document top and records `review_stopped_by_analyst` in state. The exporter's missing/empty Sources section also blocks export unless the analyst explicitly authorises `--analyst-override-no-sources "<reason>"`, which leaves its footnote last. It may afterwards offer end-of-deal learnings, written only on your explicit yes.
+- **Can go wrong:** a `REJECTED` review means revise, overwrite and review again with a new Reviewer. After three consecutive
+  `REJECTED` passes and each later rejection, `/research` asks a structured three-choice question before another
+  pass: Run another review pass; Stop and export for manual review (unapproved, disclosed); or Stop without exporting.
+  The pass count comes from the on-disk `review_trail`; silence, ambiguity or “carry on” is not permission to export.
+  Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which inserts a dated
+  not-approved status near the top of the DOCX and records `review_stopped_by_analyst` in state. No saved sources
+  (same check as `/triage`) or a missing/empty Sources/References section still blocks export before output is written.
+  A populated final `## Sources` list is required, including document URLs and citation keys for short-form references.
+  Export without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote;
+  the command never offers or infers this override. It may afterwards offer end-of-deal learnings, written only on
+  your explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread

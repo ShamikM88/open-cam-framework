@@ -56,8 +56,8 @@ AGENT_REQUIRED = {
         r"You have not seen the Maker's conversation, its reasoning, or anything the analyst said",
     "audits the draft saved on disk": r"Read the draft at the path you were given",
     "audits before it reads the earlier verdicts":
-        r"do not read or use review_trail or review_verdict",
-    "reads the trail only afterwards": r"Only then read review_trail",
+        r"do not read or use review_trail\.json or review_verdict",
+    "reads the trail only afterwards": r"Only then read review_trail\.json",
     "does not treat an earlier verdict as evidence":
         r"an earlier approval is never evidence that this draft is correct",
     "checks claims against the saved document, not the citation":
@@ -98,8 +98,8 @@ def agent_problems(text):
     for label, pattern in AGENT_REQUIRED.items():
         if not re.search(pattern, body, re.I):
             problems.append(f"the instructions no longer say that it {label}")
-    first = body.lower().find("do not read or use review_trail")
-    then = body.lower().find("only then read review_trail")
+    first = body.lower().find("do not read or use review_trail.json")
+    then = body.lower().find("only then read review_trail.json")
     if not 0 <= first < then:
         problems.append("the instructions no longer put the first audit before the review_trail")
     return problems
@@ -162,10 +162,10 @@ AGENT_MUTATIONS = [
      lambda t: mutate(t, r"Read `agents/risk_reviewer_agent\.md` and act according to that role", "Act as a credit officer"),
      "applies the one role prompt rather than a copy of it"),
     ("no instruction to ignore the trail first",
-     lambda t: mutate(t, r"\*\*do not read or use `review_trail` or `review_verdict`\*\*", "read everything"),
+     lambda t: mutate(t, r"\*\*do not read or use `review_trail\.json` or `review_verdict`\*\*", "read everything"),
      "audits before it reads the earlier verdicts"),
     ("the trail read first",
-     lambda t: mutate(mutate(t, r"\*\*Only then read `review_trail`\.\*\*", "Read `review_trail` first."),
+     lambda t: mutate(mutate(t, r"\*\*Only then read `review_trail\.json`\.\*\*", "Read `review_trail.json` first."),
                       r"For the first pass, \*\*do not", "For the first pass, **do not") .replace(
          "Audit the current draft first", "Audit"),
      "reads the trail only afterwards"),
@@ -275,12 +275,13 @@ def review_problems(text):
     if re.search(r"Bash\((?!python scripts/(?:policy_check|state_manager)\.py \*\))", tokens) or "Bash(*" in tokens:
         problems.append("allowed-tools pre-approves a Bash command other than an approved state/policy script")
     body = flat(text)
-    message_block = re.search(r"Review one saved draft\.(.*?)\\n", text, re.S)
-    if message_block is None:
+    message_start = text.find("Review one saved draft.")
+    first_fence = text.find("```", message_start) if message_start >= 0 else -1
+    second_fence = text.find("```", first_fence + 3) if first_fence >= 0 else -1
+    if message_start < 0 or first_fence < 0 or second_fence < 0:
         problems.append("/review has no path-only delegation message")
     else:
-        message_end = text.find("\n```", message_block.start())
-        delegation = text[message_block.start():message_end if message_end >= 0 else len(text)]
+        delegation = text[first_fence + 3:second_fence]
         if "state.json" in delegation or "Deal record:" in delegation:
             problems.append("/review passes the combined state.json to the Reviewer")
     for label, pattern in REVIEW_REQUIRED.items():

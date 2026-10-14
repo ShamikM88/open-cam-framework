@@ -100,7 +100,7 @@ Claude Code only.
 3. Claude saves the brief to `deals/Synthetic Co/Synthetic Fleet Loan_brief.md` ([an example brief](examples/synthetic_co/brief.md)) and runs
    `/review ... --research-brief`: the Risk Reviewer checks grounding and narrative, not credit policy or mitigants,
    because nothing has been structured yet **(model)**. A `REJECTED` verdict means revise, overwrite the file and
-   review again with a new Reviewer. After the third consecutive `REJECTED` verdict and every later rejection, the session reads the on-disk `review_trail`, shows the pass count and latest findings, and asks through `AskUserQuestion` with exactly three options: `Run another review pass`; `Stop and export for manual review (unapproved, disclosed)`; or `Stop without exporting`. Silence, ambiguous answers and “carry on” are not consent; ask again. Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which adds a dated status paragraph after the first document heading and records `review_stopped_by_analyst` after the DOCX is written. This is a decision point, not a hard cap.
+   review again with a new Reviewer. After the third consecutive `REJECTED` verdict and every later rejection, the session reads the saved `review_trail` on disk, shows the pass count and latest findings, and asks through `AskUserQuestion` with exactly three options: Run another review pass; Stop and export for manual review (unapproved, disclosed); or Stop without exporting. Silence, ambiguity and “carry on” are not consent; ask again. Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which adds a dated status paragraph after the first document heading and records `review_stopped_by_analyst` after the DOCX is written. This is a decision point, not a hard cap.
 4. The export runs **(local)**:
 
    ```bash
@@ -111,6 +111,8 @@ Claude Code only.
    ```text
    Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
    ```
+
+Before export, the brief must end with a populated, flat `## Sources` section listing every relied-on document (URL where available) and defining short-form citation keys such as `WRG note 14`. Nested bullets are not suitable because the DOCX builder does not render them correctly. A missing or empty section blocks export without writing output. Only an explicit analyst instruction in chat to export without sources, together with the analyst's stated reason, permits `--analyst-override-no-sources "<reason>"`; the `.docx` then ends with a dated override footnote. The session never offers or infers this override, and the reason is not stored in `state.json`.
 
 The deal's `state.json` now holds `triage` and `commercial` exactly as `/triage` and `/commercial` would have written
 them, so the deal can continue into `/spread` later without redoing anything. A research-only deal does not create

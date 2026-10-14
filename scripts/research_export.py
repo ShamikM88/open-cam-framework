@@ -127,7 +127,6 @@ def export_research_brief(
 
     date_str = resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     release_date = _today_date() if release_reason is not None or not has_sources else None
-    state = None
     passes = None
     if release_reason is not None:
         state = read_state(
@@ -180,7 +179,7 @@ def main(argv=None):
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--brief", required=True, help="Path to the drafted research brief Markdown file")
     parser.add_argument(
-        "--analyst-override-no-sources", metavar="REASON",
+        "--analyst-override-no-sources", nargs="?", const="", default=None, metavar="REASON",
         help="Export without a populated Sources/References section only after explicit analyst authorisation; "
              "the reason is printed as the final DOCX paragraph.",
     )

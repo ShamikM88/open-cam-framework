@@ -60,6 +60,16 @@ shortened):
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
 
+### Reviewer view files
+
+For an interactive `/review`, `state_manager.py --export-reviewer-view` derives two files under
+`deals/<Company>/<Proposal>_<Date>/review_view/`: `state_for_review.json` is a copy of the deal record without
+`review_trail` and `review_verdict`, while `review_trail.json` contains the history list (or `[]` when absent).
+Each successful export overwrites both derived copies. They are **not records**; `state.json` remains the source of
+truth and is the file `/review` updates in its `State: write` stage. No other script may consume these view files as
+a deal record. This removes the default path to earlier verdicts during the Reviewer's first pass, but it does not
+prevent a determined Reviewer from globbing to the combined `state.json`; see [AI assurance](ai-assurance.md#the-interactive-checker-is-a-separate-context-204).
+
 ### Two raw-figure stores, never blended
 
 A deal's raw line items live in exactly one of two places, depending on `financials_source`:
@@ -120,7 +130,9 @@ plain local files, not a trained model.
 ## State manager and state.json
 
 **`scripts/state_manager.py`** — no `anthropic` dependency, same testability pattern as
-`template_resolver.py`. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
+`template_resolver.py`. Its mutually exclusive `--check-steps` mode keeps its existing output; `--export-reviewer-view`
+validates state and writes the history-free first-pass copy and separate history copy described above, refusing invalid,
+newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
 `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
 an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
 today, so a deal resumed on a later calendar day still finds its original file. (This is

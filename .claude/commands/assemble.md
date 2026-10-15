@@ -20,6 +20,10 @@ session, or from after a context compaction. Treat it as the source of truth for
 has recorded; never fall back to a summarized/compacted memory of a step when state.json already
 has that step's result.
 
+### Analyst-defined terms
+
+If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning.
+
 You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
 `/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier
 in this conversation. If any of those steps' results aren't available from either source, tell
@@ -109,7 +113,7 @@ guarantees to condition on; don't treat its absence as a missing step.
    draft, never a standing fact worth remembering. Also exclude anything already routed through
    `/review`'s own "Persisting a policy-interpretation correction" step (never double-capture the
    same correction in two places). If any candidates remain, surface them **as one batch**, not a
-   prompt per item: *"This deal's review surfaced N correction(s) that might be worth remembering
+   prompt per item: *"This deal's review surfaced N item(s) that might be worth remembering
    for future deals: [list]. Persist any of these?"* For each one
    the analyst confirms, ask explicitly **"Is this specific to `<company>`, or does it apply
    across every borrower?"** (same question `/spread`'s own persisted-convention step asks) and
@@ -125,6 +129,9 @@ guarantees to condition on; don't treat its absence as a missing step.
    — see issue #58's "deterministic, analyst-confirmed, never silently assumed" principle. This is
    independent of "State: write" below, which always runs regardless of whether anything was
    persisted here.
+
+
+   Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as the other candidates, and persist it on an explicit yes exactly like any other learning (same scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is industry-standard rather than specific to their institution, say so and point to `docs/glossary.md`; never write to a tracked file. Only what is already in `analyst_terms` is a candidate; never infer a term from the conversation.
 
 ## State: write
 

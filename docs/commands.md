@@ -265,7 +265,7 @@ files and `CLAUDE.md`'s "Slash commands" section remain the authority for how th
   ever) need a full CAM: combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector
   research into one step, writing the exact same `triage`/`commercial` state.json keys those two
   commands would (so the deal can still continue into the full pipeline later without redoing
-  anything). Loops `/review --research-brief` until APPROVED before exporting (issue #87), mirroring
+  anything). Loops `/review --research-brief` until APPROVED before exporting (issue #87), with an analyst checkpoint after the third consecutive rejection (see `/research` above), mirroring
   `/assemble`'s own review loop but scoped to what applies before any credit structuring exists —
   then exports a standalone brief via
   `python scripts/research_export.py --company ... --proposal ... --brief ...` as its Bash step.

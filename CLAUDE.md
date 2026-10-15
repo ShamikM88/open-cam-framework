@@ -294,8 +294,9 @@ must not break:
   scripts/spreading_check.py` as a Bash step rather than recalculating subtotals and ratios by hand (issue
   #98); `/project` always passes `--no-update-financials-source`, and `/spread`'s analyst-supplied mode
   deliberately skips independent recomputation.
-- `/research` loops `/review --research-brief` until `APPROVED` (issue #87), then exports with
-  `python scripts/research_export.py`; `/assemble` loops `/review` until `APPROVED`, then exports with
+- `/research` loops `/review --research-brief` until `APPROVED` (issue #87), asking the analyst what to do after the
+  third consecutive `REJECTED` pass and each later one (never exporting an unapproved brief unless they explicitly choose
+  the disclosed manual-review release), then exports with `python scripts/research_export.py`; `/assemble` loops `/review` until `APPROVED`, then exports with
   `python scripts/deal_export.py`.
 - `/spread` routes any figure it reads out of an image (a screenshot, a photo, a scanned page) through
   `scripts/transcription_check.py` in both modes (issue #132): nothing is written to `state.json`, and `spread` is

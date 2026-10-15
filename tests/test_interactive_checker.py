@@ -56,8 +56,8 @@ AGENT_REQUIRED = {
         r"You have not seen the Maker's conversation, its reasoning, or anything the analyst said",
     "audits the draft saved on disk": r"Read the draft at the path you were given",
     "audits before it reads the earlier verdicts":
-        r"do not read or use review_trail\.json",
-    "reads the trail only afterwards": r"Only then read review_trail\.json",
+        r"Read the deal record at the first path; `review_trail` and `review_verdict` are not in it\. You are not given the combined `state\.json`; do not search for or open it\.",
+    "reads the trail only afterwards": r"Only then read the review history at the second path",
     "does not treat an earlier verdict as evidence":
         r"an earlier approval is never evidence that this draft is correct",
     "checks claims against the saved document, not the citation":
@@ -98,8 +98,8 @@ def agent_problems(text):
     for label, pattern in AGENT_REQUIRED.items():
         if not re.search(pattern, body, re.I):
             problems.append(f"the instructions no longer say that it {label}")
-    first = body.lower().find("do not read or use review_trail.json")
-    then = body.lower().find("only then read review_trail.json")
+    first = body.lower().find("do not search for or open it")
+    then = body.lower().find("only then read the review history at the second path")
     if not 0 <= first < then:
         problems.append("the instructions no longer put the first audit before the review_trail")
     return problems

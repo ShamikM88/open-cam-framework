@@ -16,9 +16,9 @@ toward the coverage of the `__main__` blocks.
 """
 import ast
 import atexit
-from datetime import date
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -851,9 +851,12 @@ def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
     assert paragraphs[1].startswith(
         "Review status: Not approved by the independent Risk Reviewer. 3 review passes returned REJECTED."
     )
+    # The CLI stamps the release with the day it runs; the date is read back from the document and the record must
+    # agree with it, so the test depends on neither the day it runs nor a midnight rollover during the run.
+    released_on = re.search(r"at the analyst's request on (\d{4}-\d{2}-\d{2}): ", paragraphs[1]).group(1)
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["review_stopped_by_analyst"] == {
-        "passes": 3, "date": date.today().isoformat(), "reason": "analyst requested manual review",
+        "passes": 3, "date": released_on, "reason": "analyst requested manual review",
     }
 
 

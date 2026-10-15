@@ -56,7 +56,7 @@ shortened):
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
 | `deal_structure_notes.review_cap` | `/research` review checkpoint, when the analyst sets a lower maximum | Optional lower per-deal REJECTED-pass threshold; it takes precedence over the default third-pass checkpoint and is recorded when set. This is an optional nested deal note, not a schema-version bump |
-| `review_stopped_by_analyst` | `research_export.py --analyst-release-unapproved` (`/research`, after explicit analyst choice) | `{"passes": N, "date": "YYYY-MM-DD", "reason": "..."}`: trailing consecutive REJECTED review count and the analyst's dated reason for releasing the brief for manual review |
+| `review_stopped_by_analyst` | `research_export.py --analyst-release-unapproved` (`/research`, after explicit analyst choice) | An append-only list of `{"date": "YYYY-MM-DD", "passes": N, "reason": "..."}` records, one per release: the date, the trailing consecutive REJECTED review count and the analyst's reason for releasing the brief for manual review. No record is cleared or overwritten, and a later approved export leaves the list as it is; `review_verdict` carries the current verdict |
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
 
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a

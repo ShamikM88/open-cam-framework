@@ -158,6 +158,9 @@ def export_research_brief(
         state = read_state(
             company, proposal, date_str=date_str, base_dir=base_dir, keys=("review_trail",)
         ) or {}
+        earlier_releases = state.get("review_stopped_by_analyst", [])
+        if not isinstance(earlier_releases, list):
+            raise ValueError("state.json: review_stopped_by_analyst must be a list of release records.")
         passes = _trailing_rejected_count(state.get("review_trail") or [])
         if passes == 0:
             raise ValueError(
@@ -182,11 +185,11 @@ def export_research_brief(
             proposal,
             date_str=date_str,
             base_dir=base_dir,
-            review_stopped_by_analyst={
-                "passes": passes,
-                "date": release_date,
-                "reason": release_reason,
-            },
+            # Append-only: every release adds one record and none is ever cleared or overwritten.
+            review_stopped_by_analyst=[
+                *earlier_releases,
+                {"date": release_date, "passes": passes, "reason": release_reason},
+            ],
         )
     return output_path
 

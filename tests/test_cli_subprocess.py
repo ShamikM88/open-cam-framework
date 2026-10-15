@@ -855,9 +855,9 @@ def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
     # agree with it, so the test depends on neither the day it runs nor a midnight rollover during the run.
     released_on = re.search(r"at the analyst's request on (\d{4}-\d{2}-\d{2}): ", paragraphs[1]).group(1)
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert state["review_stopped_by_analyst"] == {
-        "passes": 3, "date": released_on, "reason": "analyst requested manual review",
-    }
+    assert state["review_stopped_by_analyst"] == [
+        {"date": released_on, "passes": 3, "reason": "analyst requested manual review"},
+    ]
 
 
 def test_research_export_release_unapproved_cli_refuses_a_deal_without_a_rejection(cli):

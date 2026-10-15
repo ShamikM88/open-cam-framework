@@ -97,7 +97,7 @@ worked examples are in [Workflows](workflows.md).
   pass: Run another review pass; Stop and export for manual review (unapproved, disclosed); or Stop without exporting.
   The pass count comes from the on-disk `review_trail`; silence, ambiguity or “carry on” is not permission to export.
   Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which inserts a dated
-  not-approved status near the top of the DOCX and records `review_stopped_by_analyst` in state. No saved sources
+  not-approved status near the top of the DOCX and appends a record to the append-only `review_stopped_by_analyst` list in state. No saved sources
   (same check as `/triage`) or a missing/empty Sources/References section still blocks export before output is written.
   A populated final `## Sources` list is required, including document URLs and citation keys for short-form references. If the analyst sets a lower per-deal review maximum, `/research` uses that threshold and records it under `deal_structure_notes.review_cap` in `state.json`.
   Export without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote;

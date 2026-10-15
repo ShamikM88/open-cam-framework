@@ -225,9 +225,9 @@ def test_unapproved_release_discloses_trailing_rejection_count_near_document_top
         "Released for manual analyst review at the analyst's request on 2026-10-14: analyst requested manual review."
     )
     state = read_state("Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path))
-    assert state["review_stopped_by_analyst"] == {
-        "passes": 3, "date": "2026-10-14", "reason": "analyst requested manual review",
-    }
+    assert state["review_stopped_by_analyst"] == [
+        {"date": "2026-10-14", "passes": 3, "reason": "analyst requested manual review"},
+    ]
     assert state["review_trail"] == trail
 
 
@@ -260,7 +260,7 @@ def test_unapproved_release_state_is_written_only_after_docx_export(tmp_path, mo
     )
     assert observed == {"docx_exists": True, "release_record_present_during_export": False}
     state = read_state("Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path))
-    assert state["review_stopped_by_analyst"]["passes"] == 1
+    assert state["review_stopped_by_analyst"][0]["passes"] == 1
 
 
 def test_source_override_and_unapproved_release_combine_status_near_top_and_sources_footnote_last(
@@ -332,3 +332,65 @@ def test_unapproved_release_status_uses_the_singular_for_one_pass(tmp_path, monk
         analyst_release_unapproved="analyst asked",
     )
     assert wording in docx.Document(output).paragraphs[1].text
+
+
+def test_two_releases_keep_both_records_in_order(tmp_path, monkeypatch):
+    _state_with_trail(tmp_path, [{"verdict": "REJECTED", "notes": "one"}] * 3)
+    monkeypatch.setattr(research_export, "_today_date", lambda: "2026-10-14")
+    export_research_brief(
+        "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+        analyst_release_unapproved="first release",
+    )
+    write_state(
+        "Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path),
+        review_trail=[{"verdict": "REJECTED", "notes": "one"}] * 4,
+    )
+    monkeypatch.setattr(research_export, "_today_date", lambda: "2026-10-16")
+    export_research_brief(
+        "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+        analyst_release_unapproved="second release",
+    )
+    state = read_state("Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path))
+    assert state["review_stopped_by_analyst"] == [
+        {"date": "2026-10-14", "passes": 3, "reason": "first release"},
+        {"date": "2026-10-16", "passes": 4, "reason": "second release"},
+    ]
+
+
+def test_an_approved_export_after_a_release_leaves_the_records_and_the_verdict_alone(tmp_path, monkeypatch):
+    monkeypatch.setattr(research_export, "_today_date", lambda: "2026-10-14")
+    _state_with_trail(tmp_path, [{"verdict": "REJECTED", "notes": "one"}] * 3)
+    export_research_brief(
+        "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+        analyst_release_unapproved="manual review please",
+    )
+    write_state(
+        "Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path),
+        review_verdict="APPROVED",
+        review_trail=[{"verdict": "REJECTED", "notes": "one"}] * 3 + [{"verdict": "APPROVED", "notes": "ok"}],
+    )
+    output = export_research_brief(
+        "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+    )
+    assert not any(p.text.startswith("Review status:") for p in docx.Document(output).paragraphs)
+    state = read_state("Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path))
+    assert state["review_stopped_by_analyst"] == [
+        {"date": "2026-10-14", "passes": 3, "reason": "manual review please"},
+    ]
+    assert state["review_verdict"] == "APPROVED"
+
+
+def test_a_release_refuses_a_state_whose_record_is_not_a_list_and_changes_nothing(tmp_path):
+    _state_with_trail(tmp_path, [{"verdict": "REJECTED", "notes": "one"}])
+    write_state(
+        "Acme Co", "Synthetic Lease", date_str="2026-10-14", base_dir=str(tmp_path),
+        review_stopped_by_analyst={"passes": 1},
+    )
+    state_file = tmp_path / "deals" / "Acme Co" / "Synthetic Lease_2026-10-14" / "state.json"
+    before = state_file.read_bytes()
+    with pytest.raises(ValueError, match="must be a list"):
+        export_research_brief(
+            "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+            analyst_release_unapproved="again",
+        )
+    assert state_file.read_bytes() == before and not list(state_file.parent.glob("*.docx"))

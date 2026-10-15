@@ -145,7 +145,7 @@ paragraph instead of rendering as separate lines.
    reusable insight about this borrower or this institution — as opposed to a narrow, one-off fix
    with no standing value (e.g. "add a citation for this one claim" isn't a reusable insight, but
    "this borrower's registered office recently changed and Companies House filings lag two weeks"
-   is). 
+   is).
 
    Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as
    the other candidates, and persist it on an explicit yes exactly like any other learning (same

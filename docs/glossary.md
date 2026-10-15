@@ -10,7 +10,7 @@ Short definitions for terms used in OpenCAM's UK credit workflows. Where meaning
 - **Finance lease:** An asset-finance arrangement in which a customer pays to use an asset over an agreed term; ownership and end-of-term responsibilities depend on the contract.
 - **GBB (guaranteed buy back):** A vendor's promise to repurchase specified unsold or repossessed stock; unlike an RV guarantee, it is a promise to buy back the stock rather than simply support its end-of-term value.
 - **Guarantee:** A commitment to meet specified obligations if the party primarily responsible does not; the extent of the commitment depends on the wording.
-- **KYC/AML (Know Your Customer / anti-money laundering):** Identity and risk checks intended to establish who a customer is and help detect or prevent financial crime.
+- **KYC-AML (Know Your Customer / anti-money laundering):** Identity and risk checks intended to establish who a customer is and help detect or prevent financial crime.
 - **LGD (Loss Given Default):** The estimated proportion of an exposure that will not be recovered after default, usually expressed as a percentage.
 - **PD (Probability of Default):** The estimated likelihood that a borrower will default over a stated period.
 - **PSC (Person with Significant Control):** A UK company-law term for a person who meets the criteria for significant ownership or control of a company.

@@ -528,6 +528,10 @@ def research_checkpoint_problems(text):
         problems.append("the question does not list exactly three authorised options in order")
     if "Before starting any Reviewer after the first" not in body:
         problems.append("the checkpoint is not placed before a later Reviewer starts")
+    # The authorised paragraph replaces the old "repeat until APPROVED" instruction; no other wording leads into it.
+    lead_in = body.split("Review checkpoint.", 1)[0]
+    if not lead_in.endswith("and run /review again — a new Reviewer each time. "):
+        problems.append("wording that the maintainer did not authorise leads into the review checkpoint")
     return problems
 
 def test_research_command_contract_pins_authorised_checkpoint_wording_and_no_inferred_consent():
@@ -548,6 +552,9 @@ def mutate_research_checkpoint(text, needle, replacement):
 
 
 RESEARCH_CHECKPOINT_MUTATIONS = [
+    ("unauthorised lead-in", lambda t: t.replace("a new Reviewer each time.\n\n   **Review checkpoint.**",
+                                                 "a new Reviewer each time, taking the checkpoint below.\n\n   **Review checkpoint.**"),
+     "did not authorise"),
     ("disk trail count", lambda t: mutate_research_checkpoint(
         t, "count the consecutive `REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation)",
         "count rejections from conversation memory"), "counts the consecutive rejection streak from disk"),

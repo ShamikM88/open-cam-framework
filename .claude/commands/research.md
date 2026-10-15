@@ -121,8 +121,7 @@ paragraph instead of rendering as separate lines.
    the verdict is REJECTED, revise the brief per the notes, **overwrite**
    `deals/<company>/<proposal>_brief.md` with the revised Markdown (never leave the stale,
    rejected version on disk; `/review` does not write the brief, so a stale file would be reviewed
-   again), and run `/review` again — a new Reviewer each time, taking the analyst checkpoint below after the third
-and every later consecutive rejection before starting another Reviewer.
+   again), and run `/review` again — a new Reviewer each time.
 
    **Review checkpoint.** Before starting any Reviewer after the first, count the consecutive `REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation). After the third, and after every further `REJECTED`, do not start another Reviewer yet. Show the analyst the number of passes and a short list of the latest findings, then ask a structured question with exactly three options: **Run another review pass**; **Stop and export for manual review (unapproved, disclosed)**; **Stop without exporting**. Only an explicit choice of the second option exports an unapproved brief: silence, an ambiguous answer or "carry on" is not consent, and if the answer is unclear ask again. If they choose it, export with `--analyst-release-unapproved "<reason>"`, which adds a visible "Review status" paragraph and records the stop in `state.json`. The default is never to export an unapproved brief. If the analyst has set a lower maximum for this deal, checkpoint at that number instead, and record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it.
 

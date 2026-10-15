@@ -16,6 +16,7 @@ toward the coverage of the `__main__` blocks.
 """
 import ast
 import atexit
+from datetime import date
 import json
 import os
 import shutil
@@ -852,7 +853,7 @@ def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
     )
     state = json.loads(state_path.read_text(encoding="utf-8"))
     assert state["review_stopped_by_analyst"] == {
-        "passes": 3, "date": "2026-10-14", "reason": "analyst requested manual review",
+        "passes": 3, "date": date.today().isoformat(), "reason": "analyst requested manual review",
     }
 
 

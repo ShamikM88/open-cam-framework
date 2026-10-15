@@ -151,7 +151,7 @@ paragraph instead of rendering as separate lines.
    the other candidates, and persist it on an explicit yes exactly like any other learning (same
    scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is
    industry-standard rather than specific to their institution, say so and point to
-   `docs/glossary.md`; never write to a tracked file. Only what is already in `analyst_terms` is a
+   docs/glossary.md; never write to a tracked file. Only what is already in `analyst_terms` is a
    candidate; never infer a term from the conversation.
 
    If any candidates remain, surface them **as one batch**, not a prompt per item: *"This

@@ -467,7 +467,9 @@ RESEARCH_CHECKPOINT_TEXT = (
     "Only an explicit choice of the second option exports an unapproved brief: silence, an ambiguous answer or \"carry on\" is not consent, and if the answer is unclear ask again. "
     "If they choose it, export with `--analyst-release-unapproved \"<reason>\"`, which adds a visible \"Review status\" paragraph and records the stop in `state.json`. "
     "The default is never to export an unapproved brief. "
-    "If the analyst has set a lower maximum for this deal, checkpoint at that number instead, and record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it."
+    "If the analyst has set a lower maximum for this deal, checkpoint at that number instead, and record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it. "
+    "After a manual-review release, carry on with the remaining export steps as for an approved export. "
+    "If the analyst chose to stop without exporting, do not export, but still run the end-of-deal learnings step."
 )
 
 RESEARCH_CHECKPOINT_REQUIRED = {
@@ -499,6 +501,10 @@ RESEARCH_CHECKPOINT_REQUIRED = {
         "If the analyst has set a lower maximum for this deal, checkpoint at that number instead",
     "records the lower maximum under the authorised state key":
         "record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it",
+    "carries on with the export steps after a release":
+        "After a manual-review release, carry on with the remaining export steps as for an approved export",
+    "still runs the learnings step after a stop without exporting":
+        "If the analyst chose to stop without exporting, do not export, but still run the end-of-deal learnings step",
 }
 
 
@@ -586,6 +592,15 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
     ("lower maximum state key", lambda t: mutate_research_checkpoint(
         t, "`deal_structure_notes.review_cap`", "`review_cap`"),
         "records the lower maximum under the authorised state key"),
+    ("release does not continue the export steps", lambda t: mutate_research_checkpoint(
+        t, "carry on with the remaining export steps as for an approved export", "stop after the export command"),
+        "carries on with the export steps after a release"),
+    ("stop without exporting skips the learnings step", lambda t: mutate_research_checkpoint(
+        t, "but still run the end-of-deal learnings step", "and skip the end-of-deal learnings step"),
+        "still runs the learnings step after a stop without exporting"),
+    ("stop without exporting may export", lambda t: mutate_research_checkpoint(
+        t, "do not export, but still run", "export, and still run"),
+        "still runs the learnings step after a stop without exporting"),
 ]
 
 

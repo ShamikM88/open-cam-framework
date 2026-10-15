@@ -101,7 +101,9 @@ worked examples are in [Workflows](workflows.md).
   (same check as `/triage`) or a missing/empty Sources/References section still blocks export before output is written.
   A populated final `## Sources` list is required, including document URLs and citation keys for short-form references. If the analyst sets a lower per-deal review maximum, `/research` uses that threshold and records it under `deal_structure_notes.review_cap` in `state.json`.
   Export without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote;
-  the command never offers or infers this override. It may afterwards offer end-of-deal learnings, written only on
+  the command never offers or infers this override. After a manual-review release the session carries on with the
+  remaining export steps as for an approved export; after “Stop without exporting” nothing is exported, but the
+  end-of-deal learnings step still runs. It may afterwards offer end-of-deal learnings, written only on
   your explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 

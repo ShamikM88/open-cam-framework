@@ -222,7 +222,7 @@ worked examples are in [Workflows](workflows.md).
   returns no valid verdict (the review stops, and an unapproved draft is never exported); a saved source the Reviewer
   cannot open (it reports that as an evidence gap rather than verifying the claim). For a `/research` brief, the Reviewer
   also checks closing Sources-list completeness and citation-key definitions, or that an override footnote replacing
-  Sources has a reason and date. The authorised override is not itself a rejection reason; untraceable claims remain findings.
+  Sources has a reason and date. The authorised override is not itself a rejection reason; untraceable claims remain findings. A listed source that no claim cites is a minor point, not a reason to reject on its own.
 
 ## Implementation notes
 

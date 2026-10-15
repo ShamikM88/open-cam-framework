@@ -79,7 +79,7 @@ Claude Code only.
    for every claim **(model)**. For a borrower inside a group or with related-party links, it reads the full outstanding
    charge instruments, the borrower's creditors/debtors/key-estimates/going-concern notes, the parent's guarantee and
    subsidiary-holder notes, and current plus ceased PSC history. Each document relied on is saved to the deal's
-   `sources/` folder; an inaccessible document is reported as an evidence gap. Each document it fetches or is given is saved:
+   `sources/` folder; an inaccessible document is reported as an evidence gap. Repeat the accounts-note checks for each available year, not just the latest, and make register/accounts conflicts analyst follow-ups. Each document it fetches or is given is saved:
 
    ```bash
    python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \

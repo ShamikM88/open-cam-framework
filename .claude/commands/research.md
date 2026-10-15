@@ -170,4 +170,3 @@ paragraph instead of rendering as separate lines.
    — see issue #58's "deterministic, analyst-confirmed, never silently assumed" principle. This is
    independent of "State: write" above, which already ran regardless of whether anything is
    persisted here.
-

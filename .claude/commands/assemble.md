@@ -24,6 +24,8 @@ has that step's result.
 
 If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning.
 
+## Assemble the memorandum
+
 You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
 `/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier
 in this conversation. If any of those steps' results aren't available from either source, tell
@@ -138,9 +140,6 @@ guarantees to condition on; don't treat its absence as a missing step.
    — see issue #58's "deterministic, analyst-confirmed, never silently assumed" principle. This is
    independent of "State: write" below, which always runs regardless of whether anything was
    persisted here.
-
-
-   
 
 ## State: write
 

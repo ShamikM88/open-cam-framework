@@ -97,7 +97,7 @@ worked examples are in [Workflows](workflows.md).
   `/triage`).
 - **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
   an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
-  analyst says the term is industry-standard, point to `docs/glossary.md` and do not write it to a tracked file.
+  analyst says the term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread
@@ -202,7 +202,7 @@ worked examples are in [Workflows](workflows.md).
   template, which is treated as new.
 - **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
   an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
-  analyst says the term is industry-standard, point to `docs/glossary.md` and do not write it to a tracked file.
+  analyst says the term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
 
 ### /review
 

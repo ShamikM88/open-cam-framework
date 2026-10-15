@@ -501,6 +501,10 @@ def analyst_terms_problems(text, command):
         problems.append("the immediate checkpoint no longer matches the authorised wording")
     if flat(ANALYST_TERMS_BATCH) not in body:
         problems.append("the learning instruction for end-of-deal terms no longer matches the authorised wording")
+    scope_question = flat("Is this specific to `<company>`, or does it apply across every borrower?")
+    if scope_question not in body:
+        problems.append("the borrower-specific versus enterprise-wide scope question is missing")
+
 
     batch_at = text.rfind("This deal's review surfaced")
     if batch_at < 0:
@@ -559,6 +563,10 @@ ANALYST_TERMS_MUTATIONS = [
     ("scope may be inferred",
      lambda t: mutate(t, r"same scope question, same files", "without asking scope, using the same files"),
      "learning instruction"),
+    ("the explicit scope question is removed",
+     lambda t: mutate(t, "Is this specific to `<company>`, or does it apply across every borrower\\?",
+                      "Choose whichever scope seems natural"),
+     "scope question"),
     ("industry-standard terms are not referred to the glossary",
      lambda t: mutate(t, r"point to `docs/glossary.md`", "point to the analyst's notes"),
      "learning instruction"),

@@ -26,6 +26,10 @@ date). If found, read it and treat every fact already recorded there as the sour
 never re-derive something from a summarized/compacted conversation when state.json already has
 it. If none exists, this is the first step run for this deal.
 
+### Analyst-defined terms
+
+If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning.
+
 ## Legal identity & Go/No-Go screen
 
 Same task as `/triage`. **Primary inputs** (ask the user for whatever's missing and isn't
@@ -142,7 +146,7 @@ paragraph instead of rendering as separate lines.
    with no standing value (e.g. "add a citation for this one claim" isn't a reusable insight, but
    "this borrower's registered office recently changed and Companies House filings lag two weeks"
    is). If any candidates remain, surface them **as one batch**, not a prompt per item: *"This
-   deal's review surfaced N correction(s) that might be worth remembering for future deals:
+   deal's review surfaced N item(s) that might be worth remembering for future deals:
    [list]. Persist any of these?"* For each one the analyst confirms, ask explicitly **"Is this
    specific to `<company>`, or does it apply across every borrower?"** (same question `/spread`'s
    own persisted-convention step asks) and append a dated entry to the matching file —
@@ -157,3 +161,5 @@ paragraph instead of rendering as separate lines.
    — see issue #58's "deterministic, analyst-confirmed, never silently assumed" principle. This is
    independent of "State: write" above, which already ran regardless of whether anything is
    persisted here.
+
+   Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as the other candidates, and persist it on an explicit yes exactly like any other learning (same scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is industry-standard rather than specific to their institution, say so and point to `docs/glossary.md`; never write to a tracked file. Only what is already in `analyst_terms` is a candidate; never infer a term from the conversation.

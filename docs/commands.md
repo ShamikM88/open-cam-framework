@@ -95,7 +95,7 @@ worked examples are in [Workflows](workflows.md).
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
   `/triage`). For a group borrower or related-party links, open the primary charge instruments and the
   borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect PSC history
-  including ceased entries. Save each relied-on document and report any inaccessible document as an evidence gap.
+  including ceased entries. Read each year's available accounts, not only the latest, and make register/accounts disagreements analyst follow-ups. Save each relied-on document and report any inaccessible document as an evidence gap.
   It may afterwards offer end-of-deal learnings, written only on your explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 

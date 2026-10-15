@@ -433,7 +433,7 @@ explicit yes. During `/research` and `/assemble`, an analyst-defined term is che
 `state.json` under `analyst_terms`, so compaction cannot lose a definition already recorded. At end of deal, the
 `analyst_terms` entries join the reusable REJECTED notes from `review_trail` in the same candidate batch. Persist a
 candidate only on an explicit yes and ask each time whether it is borrower-specific or applies to every borrower. If
-the analyst says a term is industry-standard, point to `docs/glossary.md` and write nothing to a tracked file. These
+the analyst says a term is industry-standard, point to docs/glossary.md and write nothing to a tracked file. These
 learnings are advisory, and the fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit,
 write it plainly in the brief.
 

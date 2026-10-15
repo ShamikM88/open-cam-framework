@@ -487,21 +487,8 @@ def test_the_caller_check_fails_when_a_caller_stops_passing_the_saved_file_or_st
 # Analyst-defined terms: immediate checkpoint and the shared end-of-deal batch (#330)
 # ---------------------------------------------------------------------------
 
-ANALYST_TERMS_CHECKPOINT = (
-    "If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means "
-    "(whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an "
-    "`analyst_terms` list (merge; never drop an existing entry): "
-    `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. "
-    "Do not wait for the end of the deal: a conversation can be compacted. "
-    "If you do not know a term, ask the analyst; never guess its meaning."
-)
-ANALYST_TERMS_BATCH = (
-    "Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as the other "
-    "candidates, and persist it on an explicit yes exactly like any other learning (same scope question, same files) "
-    "in the form `**Term:** X — meaning.` If the analyst says a term is industry-standard rather than specific to "
-    "their institution, say so and point to `docs/glossary.md`; never write to a tracked file. Only what is already "
-    "in `analyst_terms` is a candidate; never infer a term from the conversation."
-)
+ANALYST_TERMS_CHECKPOINT = """If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning."""
+ANALYST_TERMS_BATCH = """Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as the other candidates, and persist it on an explicit yes exactly like any other learning (same scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is industry-standard rather than specific to their institution, say so and point to `docs/glossary.md`; never write to a tracked file. Only what is already in `analyst_terms` is a candidate; never infer a term from the conversation."""
 
 
 def analyst_terms_problems(text, command):

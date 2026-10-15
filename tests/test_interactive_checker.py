@@ -506,11 +506,11 @@ def analyst_terms_problems(text, command):
         problems.append("the borrower-specific versus enterprise-wide scope question is missing")
 
 
-    batch_at = text.rfind("This deal's review surfaced")
+    batch_at = text.rfind("deal's review surfaced")
     if batch_at < 0:
         problems.append("the existing end-of-deal batch introduction is missing")
     else:
-        batch_text = text[batch_at:batch_at + 220]
+        batch_text = text[max(0, batch_at - 20):batch_at + 220]
         if "N item(s)" not in batch_text:
             problems.append("the end-of-deal batch label is not N item(s)")
         if "N correction(s)" in batch_text:

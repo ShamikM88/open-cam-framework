@@ -422,7 +422,7 @@ python scripts/orchestrator.py --company "Synthetic Co" --proposal "Synthetic Fl
    it also checks that the closing Sources list is complete for the claims, that each in-text short-form reference has
    a citation key, and that no cited document is absent from the list. If an analyst-override footnote replaces Sources,
    the note must include a reason and date; the authorised override itself is not grounds to reject, but every claim
-   still has to trace to a source cited in the text. A code-enforced reason cannot be overridden by it.
+   still has to trace to a source cited in the text. A listed source that no claim cites is a minor point, not a reason to reject on its own. A code-enforced reason cannot be overridden by it.
 
 Each verdict is appended to the deal's `review_trail`, which is never replaced:
 

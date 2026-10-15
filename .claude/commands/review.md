@@ -47,9 +47,8 @@ only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
 rule). Read its real `state.json` in this orchestrating context (you need its `review_trail` and `steps_completed` to
-record the result), and note the dated folder. If there is no dated state file, do not create a reviewer view: a review
-with a deal identity cannot proceed without its record. A standalone review (below) has no deal state and does not run
-this command.
+record the result), and note the dated folder. If there is none, there is no record: carry on without one only for a
+standalone review (below), and say so.
 
 Run `python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"`. It writes
 `review_view/state_for_review.json` (the deal record without `review_trail` and `review_verdict`) and

@@ -112,7 +112,7 @@ guarantees to condition on; don't treat its absence as a missing step.
    full list, since this framework may add more of these over time) — these are bugs in *this*
    draft, never a standing fact worth remembering. Also exclude anything already routed through
    `/review`'s own "Persisting a policy-interpretation correction" step (never double-capture the
-   same correction in two places). 
+   same correction in two places).
 
    Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as
    the other candidates, and persist it on an explicit yes exactly like any other learning (same

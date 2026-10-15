@@ -504,12 +504,12 @@ RESEARCH_CHECKPOINT_REQUIRED = {
 
 def research_checkpoint_problems(text):
     body = flat(text)
-    if "**Review checkpoint.**" not in body or "3. **Export it.**" not in body:
+    if "Review checkpoint." not in body or "3. Export it." not in body:
         return ["the analyst checkpoint is not in the review/export step"]
-    checkpoint = body.split("**Review checkpoint.**", 1)[1].split("If `/review` reports", 1)[0]
+    checkpoint = body.split("Review checkpoint.", 1)[1].split("If /review reports", 1)[0]
     problems = [
         label for label, needle in RESEARCH_CHECKPOINT_REQUIRED.items()
-        if needle not in checkpoint
+        if flat(needle) not in checkpoint
     ]
     ordered_options = (
         "Run another review pass",
@@ -521,15 +521,14 @@ def research_checkpoint_problems(text):
         problems.append("the three analyst options are not present in the required order")
     exact_option_sequence = (
         "then ask a structured question with exactly three options: "
-        "**Run another review pass**; **Stop and export for manual review (unapproved, disclosed)**; "
-        "**Stop without exporting**. Only an explicit choice of the second option exports an unapproved brief:"
+        "Run another review pass; Stop and export for manual review (unapproved, disclosed); "
+        "Stop without exporting. Only an explicit choice of the second option exports an unapproved brief:"
     )
-    if exact_option_sequence not in checkpoint:
+    if flat(exact_option_sequence) not in checkpoint:
         problems.append("the question does not list exactly three authorised options in order")
     if "before starting any Reviewer after the first" not in body:
         problems.append("the checkpoint is not placed before a later Reviewer starts")
     return problems
-
 
 def test_research_command_contract_pins_authorised_checkpoint_wording_and_no_inferred_consent():
     command = read(RESEARCH)

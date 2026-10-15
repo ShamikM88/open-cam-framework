@@ -113,7 +113,7 @@ def test_the_risk_reviewer_subagent_is_fresh_read_only_and_told_how_to_audit_ind
 def test_risk_reviewer_role_prompt_checks_research_sources_and_override_disclosure():
     """Contract test for issue #320; this pins the requested qualitative duties, not model behaviour."""
     prompt = flat(read("agents/risk_reviewer_agent.md"))
-    assert "For a `/research` brief, also check the closing Sources section" in prompt
+    assert "For a /research brief, also check the closing Sources section" in prompt
     assert "lists the documents the brief's claims actually rest on" in prompt
     assert 'every short-form reference used in the text (for example "WRG note 14") is defined by a citation key' in prompt
     assert "no cited document is missing from the list" in prompt

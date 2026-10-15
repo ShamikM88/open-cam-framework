@@ -513,7 +513,7 @@ def analyst_terms_problems(text, command):
     if flat(ANALYST_TERMS_CHECKPOINT) not in body:
         problems.append("the immediate checkpoint no longer matches the authorised wording")
     if flat(ANALYST_TERMS_BATCH) not in body:
-        problems.append("the end-of-deal term candidate instruction no longer matches the authorised wording")
+        problems.append("the learning instruction for end-of-deal terms no longer matches the authorised wording")
 
     batch_at = text.rfind("This deal's review surfaced")
     if batch_at < 0:

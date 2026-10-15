@@ -61,7 +61,7 @@ shortened):
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
 
-`analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones.
+`analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.
 
 ### Two raw-figure stores, never blended
 

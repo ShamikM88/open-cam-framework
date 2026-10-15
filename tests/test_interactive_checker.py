@@ -463,7 +463,7 @@ PRIMARY_DOCUMENT_PARAGRAPH = (
     "statutory parent guarantees and for which entity directly holds each subsidiary. Read the PSC history, "
     "including ceased PSCs, and look for overlap with the board and the company secretary. Save each document "
     "you rely on under the Source material step. Where a document cannot be opened, say so as a gap rather "
-    "than writing around it."
+    "than writing around it. Do this for each year's accounts you can open, not only the latest: the controlling-party note can disclose a dated ownership change the PSC register has not caught up with, and a policy or loan note can change between years. Where the register and the accounts disagree, say so and make it an analyst follow-up."
 )
 PRIMARY_DOCUMENT_REQUIREMENTS = {
     "charge instruments": "full instrument for every outstanding charge",

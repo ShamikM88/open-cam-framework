@@ -430,7 +430,7 @@ Each verdict is appended to the deal's `review_trail`, which is never replaced:
 If the Reviewer rejects a draft over a credit-policy point and you correct its reading of the policy, `/review`
 offers to persist that as a standing interpretation note; it writes `config/credit_policy_notes.md` only on an
 explicit yes. After a deal, `/assemble` and `/research` can likewise offer end-of-deal learnings, also only on an
-explicit yes and only from what the review trail recorded.
+explicit yes and only from what the review trail recorded. See the [shared glossary](glossary.md) for external credit terms.
 
 ## State rehydration (resuming and compaction)
 

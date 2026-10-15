@@ -91,9 +91,13 @@ worked examples are in [Workflows](workflows.md).
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
   template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
-  `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
+  `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later. If the analyst
+  defines a term in the step, it is checkpointed immediately in `analyst_terms` in `state.json`.
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
-  `/triage`). It may afterwards offer end-of-deal learnings, written only on your explicit yes.
+  `/triage`).
+- **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
+  an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
+  analyst says the term is industry-standard, point to `docs/glossary.md` and do not write it to a tracked file.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread
@@ -191,10 +195,14 @@ worked examples are in [Workflows](workflows.md).
 - **Produces:** `<Company>_<Proposal>_CAM.docx` and `<Company>_<Proposal>_Spreading.xlsx` in the deal's dated folder; a
   new local template if the deal type had none.
 - **State:** `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path`, `policy_state`, `assemble` in `steps_completed`
-  (`/review` writes `review_verdict` and `review_trail`).
+  (`/review` writes `review_verdict` and `review_trail`). If the analyst defines a term during the step, it is
+  checkpointed immediately in `analyst_terms` in `state.json`.
 - **Can go wrong:** `spread` missing (it stops before drafting); a code-enforced rejection that the Reviewer cannot
   override (fix the draft, or the recorded structure if the reason is a security gap or covenant); a deal type with no
   template, which is treated as new.
+- **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
+  an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
+  analyst says the term is industry-standard, point to `docs/glossary.md` and do not write it to a tracked file.
 
 ### /review
 

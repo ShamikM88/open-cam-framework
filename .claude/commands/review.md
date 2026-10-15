@@ -98,8 +98,8 @@ Mode: <full CAM | /research brief (no CAM data, no deterministic check)>
 Company: <company>
 Proposal: <proposal>
 Draft: <path from step 1>
-Record for first pass (without review history): <dated folder>/review_view/state_for_review.json or "none (standalone review)"
-Review history (read only at step 3): <dated folder>/review_view/review_trail.json or "none (standalone review)"
+Deal record (without review history): <path to state_for_review.json, or "none (standalone review)">
+Review history (read only after your first pass): <path to review_trail.json, or "none">
 Source manifest: <sources/manifest.json path in the dated folder, or "none">
 Credit policy: config/credit_policy.md (<exists | does not exist>)
 Policy interpretation notes: config/credit_policy_notes.md (<exists | does not exist>)

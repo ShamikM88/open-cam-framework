@@ -526,7 +526,7 @@ def research_checkpoint_problems(text):
     )
     if flat(exact_option_sequence) not in checkpoint:
         problems.append("the question does not list exactly three authorised options in order")
-    if "before starting any Reviewer after the first" not in body:
+    if "Before starting any Reviewer after the first" not in body:
         problems.append("the checkpoint is not placed before a later Reviewer starts")
     return problems
 

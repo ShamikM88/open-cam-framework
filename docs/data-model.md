@@ -55,10 +55,13 @@ shortened):
 | `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries; `{"provider", "type", "amount"}` entries |
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
+| `analyst_terms` | `/research` and `/assemble`, when the analyst defines a term | A list of `{term, meaning, date}` records checkpointed immediately so the definition is not lost if the conversation is compacted; entries become learning candidates only on explicit confirmation |
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
 
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
+
+`analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones.
 
 ### Two raw-figure stores, never blended
 

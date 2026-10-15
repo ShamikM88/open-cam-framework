@@ -593,7 +593,7 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
                          ids=[item[0] for item in RESEARCH_CHECKPOINT_MUTATIONS])
 def test_research_checkpoint_contract_catches_mutations(label, change, expected):
     assert any(expected in problem for problem in research_checkpoint_problems(change(read(RESEARCH))))
-    
+
 
 DRAFT_ARG = r' --draft "deals/<company>/<proposal>_draft.md"`\*\*'
 BRIEF_ARG = r' --draft "deals/<company>/<proposal>_brief.md"`\*\*'

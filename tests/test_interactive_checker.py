@@ -568,7 +568,7 @@ ANALYST_TERMS_MUTATIONS = [
                       "Choose whichever scope seems natural"),
      "scope question"),
     ("industry-standard terms are not referred to the glossary",
-     lambda t: mutate(t, r"point to `docs/glossary.md`", "point to the analyst's notes"),
+     lambda t: mutate(t, "point to docs/glossary.md", "point to the analyst's notes"),
      "learning instruction"),
     ("industry-standard terms could be written to tracked files",
      lambda t: mutate(t, r"never write to a tracked file", "write to a tracked file when helpful"),

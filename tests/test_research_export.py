@@ -294,3 +294,41 @@ def test_trailing_rejection_counter_stops_at_latest_non_rejected_entry():
         {"verdict": "REJECTED"}, {"verdict": "REJECTED"},
     ]) == 2
     assert research_export._trailing_rejected_count([{"verdict": "APPROVED"}]) == 0
+
+
+def test_unapproved_release_is_refused_when_the_deal_has_no_review_trail(tmp_path):
+    with pytest.raises(ValueError, match="no trailing REJECTED entry"):
+        export_research_brief(
+            "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+            analyst_release_unapproved="analyst asked",
+        )
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("trail", [
+    [{"verdict": "APPROVED", "notes": "clean"}],
+    [{"verdict": "REJECTED", "notes": "old"}, {"verdict": "APPROVED", "notes": "latest is approved"}],
+])
+def test_unapproved_release_is_refused_when_the_latest_verdict_is_approved(tmp_path, trail):
+    _state_with_trail(tmp_path, trail)
+    state_file = tmp_path / "deals" / "Acme Co" / "Synthetic Lease_2026-10-14" / "state.json"
+    before = state_file.read_bytes()
+    with pytest.raises(ValueError, match="no trailing REJECTED entry"):
+        export_research_brief(
+            "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+            analyst_release_unapproved="analyst asked",
+        )
+    assert state_file.read_bytes() == before, "the refusal must not touch state.json"
+    assert not list(state_file.parent.glob("*.docx")), "the refusal must not write a document"
+
+
+@pytest.mark.parametrize(("count", "wording"), [(1, "1 review pass returned REJECTED."),
+                                                (2, "2 review passes returned REJECTED.")])
+def test_unapproved_release_status_uses_the_singular_for_one_pass(tmp_path, monkeypatch, count, wording):
+    monkeypatch.setattr(research_export, "_today_date", lambda: "2026-10-14")
+    _state_with_trail(tmp_path, [{"verdict": "REJECTED", "notes": "synthetic"}] * count)
+    output = export_research_brief(
+        "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+        analyst_release_unapproved="analyst asked",
+    )
+    assert wording in docx.Document(output).paragraphs[1].text

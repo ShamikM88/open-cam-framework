@@ -860,6 +860,29 @@ def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
     }
 
 
+def test_research_export_release_unapproved_cli_refuses_a_deal_without_a_rejection(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Synthetic research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/source\n",
+        encoding="utf-8",
+    )
+    state_dir = cli.workdir / "deals" / "Acme" / "Brief_2026-10-14"
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "company": "Acme", "proposal": "Brief", "date": "2026-10-14",
+        "review_trail": [{"iteration": 1, "verdict": "APPROVED", "notes": "clean"}],
+    }), encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-release-unapproved", "analyst asked",
+    )
+    assert result.returncode == 1 and result.stderr.startswith("error: ")
+    assert result.stderr.count("\n") == 1 and "no trailing REJECTED entry" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list(state_dir.glob("*.docx"))
+    assert "review_stopped_by_analyst" not in (state_dir / "state.json").read_text(encoding="utf-8")
+
+
 def test_research_export_release_unapproved_cli_rejects_blank_reason_without_output(cli):
     brief = cli.workdir / "brief.md"
     brief.write_text(

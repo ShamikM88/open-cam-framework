@@ -159,9 +159,14 @@ def export_research_brief(
             company, proposal, date_str=date_str, base_dir=base_dir, keys=("review_trail",)
         ) or {}
         passes = _trailing_rejected_count(state.get("review_trail") or [])
+        if passes == 0:
+            raise ValueError(
+                "Cannot release an unapproved brief: the deal's review_trail has no trailing REJECTED entry "
+                "(no review yet, or the latest verdict is not REJECTED)."
+            )
         status = (
             "Review status: Not approved by the independent Risk Reviewer. "
-            f"{passes} review passes returned REJECTED. Released for manual analyst review "
+            f"{passes} review {'pass' if passes == 1 else 'passes'} returned REJECTED. Released for manual analyst review "
             f"at the analyst's request on {release_date}: {release_reason}."
         )
         brief_markdown = _insert_after_first_heading(brief_markdown, status)

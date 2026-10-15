@@ -121,6 +121,7 @@ def test_risk_reviewer_role_prompt_checks_research_sources_and_override_disclosu
     assert "the footnote names a reason and a date" in prompt
     assert "An override is the analyst's authorised decision, so it is not itself a reason to reject" in prompt
     assert "still flag every claim that cannot be traced to a source cited in the text" in prompt
+    assert "A listed source that no claim cites is a minor point, not a reason to reject on its own" in prompt
 
 
 def test_the_registry_names_the_one_subagent_and_says_it_is_neither_a_command_nor_a_skill():

@@ -55,7 +55,7 @@ AGENT_REQUIRED = {
     "was not given the Maker's conversation":
         r"You have not seen the Maker's conversation, its reasoning, or anything the analyst said",
     "audits the draft saved on disk": r"Read the draft at the path you were given",
-    "does not open the combined record": r"Read the deal record at the first path; `review_trail` and `review_verdict` are not in it\. You are not given the combined `state\.json`; do not search for or open it\.",
+    "does not open the combined record": r"Read the deal record at the first path; review_trail and review_verdict are not in it\. You are not given the combined state\.json; do not search for or open it\.",
     "reads the trail only afterwards": r"Only then read the review history at the second path",
     "does not treat an earlier verdict as evidence":
         r"an earlier approval is never evidence that this draft is correct",
@@ -217,7 +217,7 @@ REVIEW_REQUIRED = {
     "sends the draft path": r"Draft: <path from step 1>",
     "sends the derived record path": r'Deal record \(without review history\): <path to state_for_review\.json, or "none \(standalone review\)">',
     "sends the separate review history path": r'Review history \(read only after your first pass\): <path to review_trail\.json, or "none">',
-    "keeps the combined state path out of the delegation": r"never send the combined `state\.json` path to the Reviewer",
+    "keeps the combined state path out of the delegation": r"never send the combined state\.json path to the Reviewer",
     "sends the source manifest path": r"Source manifest: ",
     "sends the credit policy path": r"Credit policy: config/credit_policy\.md",
     "sends the policy notes path": r"Policy interpretation notes: config/credit_policy_notes\.md",

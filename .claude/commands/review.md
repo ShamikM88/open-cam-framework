@@ -47,18 +47,14 @@ only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
 rule). Read its real `state.json` in this orchestrating context (you need its `review_trail` and `steps_completed` to
-record the result), and note the dated folder. Then run:
+record the result), and note the dated folder. If there is no dated state file, do not create a reviewer view: a review
+with a deal identity cannot proceed without its record. A standalone review (below) has no deal state and does not run
+this command.
 
-```bash
-python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"
-```
-
-This must succeed and print one JSON object with the paths for `state_for_review` and `review_trail`. If it prints an
-`error:` line, exits non-zero, or does not print that JSON object, **stop** and report the error; delegate nothing.
-Use the paths it actually returned, and verify both are inside the dated folder found above. Do not pass the combined
-`state.json` path to the Reviewer. This command overwrites only the two derived files under `review_view/`; it does
-not change the real record. If there is no dated state file, do not create a reviewer view: a review with a deal identity
-cannot proceed without its record. A standalone review (below) has no deal state and does not run this command.
+Run `python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"`. It writes
+`review_view/state_for_review.json` (the deal record without `review_trail` and `review_verdict`) and
+`review_view/review_trail.json`. If it prints an `error:` line or exits non-zero, stop and delegate nothing. Never give
+the Reviewer the combined `state.json` path.
 
 A **standalone review** (`--draft` given with no `--company`/`--proposal`) has no deal: there is no `state.json`, no
 deterministic check and nothing to record. The Reviewer is told so and follows the role's full manual-verification path.

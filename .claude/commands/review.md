@@ -46,8 +46,7 @@ truncation) it may be incomplete: say that the latest dated folder could not be 
 only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
-rule). Read its real `state.json` in this orchestrating context (you need its `review_trail` and `steps_completed` to
-record the result), and note the dated folder. If there is none, there is no record: carry on without one only for a
+rule). Read its `state.json` (you need its `review_trail` and `steps_completed` to record the result), and note the folder. If there is none, there is no record: carry on without one only for a
 standalone review (below), and say so.
 
 Run `python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"`. It writes

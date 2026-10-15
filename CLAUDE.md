@@ -255,7 +255,7 @@ enterprise-wide) where a scope question applies.**
   — never freshly re-mined from a conversation that may already be compacted by deal's end.
   Terms in `analyst_terms` join the same end-of-deal candidate batch; persist only on an explicit yes
   and ask the borrower-specific versus enterprise-wide scope question each time. If the analyst says
-  a term is industry-standard, point to `docs/glossary.md` and do not write it to a tracked file.
+  a term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
   `/assemble`'s version must exclude any
   code-enforced deterministic reason mixed into the same `notes` string (those are bugs in that
   specific draft, never a standing fact) — `/research`'s version doesn't need this filter at all,

@@ -221,8 +221,9 @@ that same git-ignore wholesale — no new confidentiality gap, same as `state.js
 
 ## Persisted conventions
 
-For an interactive Claude Code session, when you meet an abbreviation you cannot place, consult `docs/glossary.md` and the learnings files `config/deal_learnings.md` and `deals/<Company>/_learnings.md`; if neither defines it, say you do not know the term and never guess.
-
+For an interactive Claude Code session, when you meet an abbreviation you cannot place, consult
+`docs/glossary.md` and the learnings files `config/deal_learnings.md` and `deals/<Company>/_learnings.md`;
+if neither defines it, say you do not know the term and never guess.
 
 Every convention adjustment an analyst confirms is otherwise deal-scoped and one-shot: if a
 borrower's accounts embed Depreciation inside Cost of Goods Sold (see `/spread`'s analyst-supplied

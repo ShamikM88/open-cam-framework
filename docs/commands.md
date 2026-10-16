@@ -96,8 +96,11 @@ worked examples are in [Workflows](workflows.md).
   `/triage`); a missing or empty Sources/References section blocks export before output is written. A populated
   final `## Sources` list is required, including document URLs and a citation key for short-form references. Export
   without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote; the
-  command never offers or infers this override. It may afterwards offer end-of-deal learnings, written only on your
-  explicit yes.
+  command never offers or infers this override. For a group borrower or related-party links, open the primary charge
+  instruments and the borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect
+  PSC history including ceased entries. Read each year's available accounts, not only the latest, and make
+  register/accounts disagreements analyst follow-ups. Save each relied-on document and report any inaccessible
+  document as an evidence gap. It may afterwards offer end-of-deal learnings, written only on your explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread

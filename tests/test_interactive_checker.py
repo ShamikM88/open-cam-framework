@@ -109,6 +109,21 @@ def test_the_risk_reviewer_subagent_is_fresh_read_only_and_told_how_to_audit_ind
     assert agent_problems(read(AGENT)) == []
 
 
+
+RESEARCH_SOURCES_CHECK = (
+    'For a `/research` brief, also check the closing Sources section: that it lists the documents the brief\'s claims actually rest on, that every short-form reference used in the text (for example "WRG note 14") is defined by a citation key, and that no cited document is missing from the list. If the brief carries an analyst-override footnote instead of a Sources section, check that the footnote names a reason and a date. An override is the analyst\'s authorised decision, so it is not itself a reason to reject; still flag every claim that cannot be traced to a source cited in the text. A listed source that no claim cites is a minor point, not a reason to reject on its own.'
+)
+
+
+def test_risk_reviewer_role_prompt_checks_research_sources_and_override_disclosure():
+    """Contract test for issue #320: pins the maintainer-authorised sentence exactly, not model behaviour."""
+    prompt = flat(read("agents/risk_reviewer_agent.md"))
+    assert flat(RESEARCH_SOURCES_CHECK) in prompt
+    # Appended in place to Audit Checklist item 1: no new item, no renumbering.
+    item_1 = prompt[prompt.index("1. Flag any ungrounded assertion"):prompt.index(" 2. Assess the qualitative depth")]
+    assert item_1.endswith(flat(RESEARCH_SOURCES_CHECK))
+
+
 def test_the_registry_names_the_one_subagent_and_says_it_is_neither_a_command_nor_a_skill():
     registry = flat(read("config/skills_registry.md"))
     assert "Sub-agents are neither commands nor skills and have no row" in registry

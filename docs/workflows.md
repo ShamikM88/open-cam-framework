@@ -117,6 +117,8 @@ Claude Code only.
    Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
    ```
 
+Before export, the brief must end with a populated, flat `## Sources` section listing every relied-on document (URL where available) and defining short-form citation keys such as `WRG note 14`. Nested bullets are not suitable because the DOCX builder does not render them correctly. A missing or empty section blocks export without writing output. Only an explicit analyst instruction in chat to export without sources, together with the analyst's stated reason, permits `--analyst-override-no-sources "<reason>"`; the `.docx` then ends with a dated override footnote. The session never offers or infers this override, and the reason is not stored in `state.json`.
+
 The deal's `state.json` now holds `triage` and `commercial` exactly as `/triage` and `/commercial` would have written
 them, so the deal can continue into `/spread` later without redoing anything. A research-only deal does not create
 the workbook and never saves an auto-generated template.
@@ -423,8 +425,14 @@ python scripts/orchestrator.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 2. **The Risk Reviewer's judgement (model)**, run by a fresh sub-agent that has not seen your session and reads the saved
    draft and the deal's files itself, covers what code cannot: unsourced claims, weak mitigants, whether the
-   narrative is substantive, and (when you have calibrated one) credit-policy violations. A code-enforced reason
-   cannot be overridden by it.
+   narrative is substantive, and (when you have calibrated one) credit-policy violations. For a `/research` brief,
+   it also checks that the closing Sources list is complete for the claims, that each in-text short-form reference has
+   a citation key, and that no cited document is absent from the list. If an analyst-override footnote replaces Sources,
+   the note must include a reason and date; the authorised override itself is not grounds to reject, but every claim
+   still has to trace to a source cited in the text. A listed source that no claim cites is a minor point, not a reason to reject on its own. A code-enforced reason cannot be overridden by it.
+   The analyst-override footnote is added by the exporter after the review, so the Reviewer cannot see it: a brief exported
+   with an override and no Sources section may therefore be flagged by the Reviewer. The analyst's decision at the review
+   checkpoint (after three consecutive rejected passes, or at a lower maximum the analyst set for the deal) handles that case.
 
 Each verdict is appended to the deal's `review_trail`, which is never replaced:
 

@@ -419,6 +419,7 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   progress resolves the dated folder itself (`state_manager.resolve_date_str()`); `export_deal()` reads and
   validates state **before** it creates a folder or auto-saves a template, and never writes into the git-tracked
   `templates/cam/`. Full behaviour: [CLI reference](docs/cli-reference.md#export).
+- **`scripts/research_export.py`** (no `anthropic` dependency) -- requires a populated `Sources`/`References` section before creating output; `--analyst-override-no-sources` is used only after explicit analyst authorisation, must have a reason, and adds a final DOCX footnote without writing the reason to `state.json`. Full behaviour: [CLI reference](docs/cli-reference.md#research-export).
 - **`scripts/state_manager.py`** (no `anthropic` dependency) -- `write_state()` shallow-merges and keeps
   `company`/`proposal`/`date` in sync; **`write_state()` and `append_review_trail()` never downgrade a state**
   (a newer or malformed `schema_version` raises `SchemaVersionError` and leaves the file unchanged); each consumer

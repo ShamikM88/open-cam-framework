@@ -93,10 +93,14 @@ worked examples are in [Workflows](workflows.md).
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
-  `/triage`). For a group borrower or related-party links, open the primary charge instruments and the
-  borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect PSC history
-  including ceased entries. Read each year's available accounts, not only the latest, and make register/accounts disagreements analyst follow-ups. Save each relied-on document and report any inaccessible document as an evidence gap.
-  It may afterwards offer end-of-deal learnings, written only on your explicit yes.
+  `/triage`); a missing or empty Sources/References section blocks export before output is written. A populated
+  final `## Sources` list is required, including document URLs and a citation key for short-form references. Export
+  without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote; the
+  command never offers or infers this override. For a group borrower or related-party links, open the primary charge
+  instruments and the borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect
+  PSC history including ceased entries. Read each year's available accounts, not only the latest, and make
+  register/accounts disagreements analyst follow-ups. Save each relied-on document and report any inaccessible
+  document as an evidence gap. It may afterwards offer end-of-deal learnings, written only on your explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread
@@ -223,7 +227,9 @@ worked examples are in [Workflows](workflows.md).
 - **Can go wrong:** no saved draft (it stops; save the draft and pass `--draft`); a stale draft file (the caller must
   overwrite it before re-reviewing, since `/review` does not write the draft); the sub-agent cannot be started, or it
   returns no valid verdict (the review stops, and an unapproved draft is never exported); a saved source the Reviewer
-  cannot open (it reports that as an evidence gap rather than verifying the claim).
+  cannot open (it reports that as an evidence gap rather than verifying the claim). For a `/research` brief, the Reviewer
+  also checks closing Sources-list completeness and citation-key definitions, or that an override footnote replacing
+  Sources has a reason and date. The authorised override is not itself a rejection reason; untraceable claims remain findings. A listed source that no claim cites is a minor point, not a reason to reject on its own.
 
 ## Implementation notes
 

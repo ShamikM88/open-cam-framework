@@ -159,6 +159,10 @@ python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic
 Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
 ```
 
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
+
 ## Spreading check
 
 `scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]

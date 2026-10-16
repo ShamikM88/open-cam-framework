@@ -112,6 +112,8 @@ fields must use a bullet list (`- **Label:** value`) or genuinely blank-line-sep
 — never a bare run of consecutive `**Label:** value` lines, which will merge into one run-on
 paragraph instead of rendering as separate lines.
 
+**Mandatory final Sources section.** Before saving or reviewing the brief, make its final section a flat `## Sources` section. List every document the brief relies on, with its URL wherever one exists. Include a citation key defining each short-form reference used in the body (for example, `WRG note 14`). Keep the list flat: `scripts/docx_builder.py` does not render nested bullets as intended. A heading without entries is not enough.
+
 1. Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet).
 2. **Run `/review --company "<company>" --proposal "<proposal>" --research-brief --draft "deals/<company>/<proposal>_brief.md"`**
    against that saved brief (see issue #87 — this gives `/research` the same Checker audit `/assemble`
@@ -131,6 +133,8 @@ paragraph instead of rendering as separate lines.
    This creates the dated deal folder — reusing one that already exists for this company/proposal,
    exactly like `/triage`/`/commercial` do — and exports the brief as
    `<Company>_<Proposal>_Research_Brief.docx`.
+   The exporter refuses a missing or empty `Sources`/`References` section before it creates output. If the analyst explicitly authorises exporting without that section, in chat, and provides a reason, record that reason (never invent one) and add `--analyst-override-no-sources "<reason>"` to the export command above, leaving the brief path unchanged and using it for no other reason. The resulting `.docx` includes a final footnote naming the override date and reason. If the analyst explicitly authorises the omission but has not provided a reason, ask for the reason; do not suggest the override as an option. Silence, an ambiguous answer, or “just export it” is not explicit authorisation. Never pass the flag on your own initiative. If a populated sources section exists, do not pass the flag; it has no effect on a valid brief. The reason is disclosed in the document and is not written to `state.json`.
+
 4. Report the output path to the user, then delete the temporary `<proposal>_brief.md` file — the
    real output now lives in the dated folder.
 5. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's

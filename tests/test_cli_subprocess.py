@@ -225,13 +225,61 @@ def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     assert not (cli.workdir / "deals").exists()  # nothing was created for either failure
 
 
+def test_research_export_help_documents_the_analyst_override_flag(cli):
+    result = cli("research_export", "--help")
+    assert result.returncode == 0, result.stderr
+    assert "--analyst-override-no-sources" in result.stdout and "REASON" in result.stdout
+    assert "explicit analyst authorisation" in result.stdout
+
+
 def test_research_export_writes_the_brief_docx(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n", encoding="utf-8")
+    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n\n## Sources\n\n- Synthetic registry: https://example.invalid/registry\n", encoding="utf-8")
     result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
     assert result.returncode == 0, result.stderr
     assert "Research brief exported to" in result.stdout
     assert list(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+
+
+def test_research_export_without_sources_fails_cleanly_without_writing(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Synthetic brief\n\nFindings refer to sources but give no list.\n", encoding="utf-8")
+    result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
+    assert result.returncode == 1
+    assert len(result.stderr.splitlines()) == 1 and result.stderr.startswith("error: ")
+    assert "populated Sources or References section" in result.stderr
+    assert "Traceback" not in result.stderr and result.stdout == ""
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_research_export_override_succeeds_and_discloses_the_reason(cli):
+    import docx
+
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Synthetic brief\n\nSynthetic findings only.\n", encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-override-no-sources", "Synthetic analyst-authorised reason",
+    )
+    assert result.returncode == 0, result.stderr
+    output = next(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+    footnote = docx.Document(output).paragraphs[-1].text
+    assert footnote.startswith("Footnote: No sources list is included in this brief. Exported under analyst override on ")
+    assert footnote.endswith(": Synthetic analyst-authorised reason.")
+
+
+def test_research_export_override_without_a_reason_fails_cleanly(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Synthetic brief\n\nSynthetic findings only.\n", encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-override-no-sources",
+    )
+    assert result.returncode == 1
+    assert len(result.stderr.splitlines()) == 1 and result.stderr.startswith("error: ")
+    assert "reason must not be empty" in result.stderr
+    assert "Traceback" not in result.stderr and result.stdout == ""
+    assert not (cli.workdir / "deals").exists()
 
 
 def test_research_export_on_a_missing_brief_fails(cli):

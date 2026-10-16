@@ -145,6 +145,12 @@ patch to re-home `state.json`.
 
 ## Research export
 
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
+
+An explicitly authorised release of a brief the Reviewer did not approve uses `--analyst-release-unapproved "<reason>"`. The non-empty reason is collapsed to one line. The flag is refused, with one `error:` line, exit status 1 and nothing written, when the saved `review_trail` has no trailing `REJECTED` entry (no review yet, or the latest verdict is not `REJECTED`). The exporter counts consecutive trailing `REJECTED` entries in the saved `review_trail`, inserts a `Review status: Not approved by the independent Risk Reviewer...` paragraph immediately after the first document heading, and, after writing the DOCX, appends one `{date, passes, reason}` record to the `review_stopped_by_analyst` list in `state.json`. The list is append-only: no release clears or overwrites an earlier record, a later approved export leaves it untouched, and `review_verdict` keeps carrying the current verdict. A `review_stopped_by_analyst` that is already present but is not a list is refused with one `error:` line before anything is written. This is not an automatic fallback: the slash-command session may pass the flag only after the analyst explicitly chooses the disclosed manual-review option. When both release flags are used, the review status remains near the top and the missing-sources footnote remains last.
+
 `scripts/research_export.py --company ... --proposal ... --brief <path>` exports a drafted research brief (Markdown)
 to `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder, reusing the folder that exists or creating
 one. It is deliberately separate from `deal_export.py`, so a research-only deal never triggers a CAM's side effects
@@ -158,6 +164,10 @@ python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic
 ```text
 Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
 ```
+
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
 
 ## Spreading check
 

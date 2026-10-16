@@ -186,6 +186,12 @@ change. Stop the loop and resolve the structure with the analyst.
 
 ## Sources and exports
 
+### `error: Research brief must contain a populated Sources or References section.`
+
+`research_export.py` refuses to export a brief unless an ATX `Sources` or `References` section contains at least one list item or an HTTP(S) URL. The section heading is case-insensitive; fenced code blocks do not count. Nothing is written when this check fails. Add a populated, flat `## Sources` section at the end of the brief, listing relied-on documents and URLs and defining any short-form citation keys.
+
+If the analyst has explicitly authorised an export without sources in chat and given a reason, the session may pass `--analyst-override-no-sources "<reason>"`. The generated DOCX ends with a dated footnote recording that exception. An empty or whitespace-only reason is refused. The command must not suggest or infer the override, and it is not recorded in `state.json`.
+
 ### `error: Cannot use .../sources/manifest.json: ...`
 
 `source_manifest.py` (either mode) found a `sources/manifest.json` it cannot use: invalid JSON, not UTF-8 text, a value that

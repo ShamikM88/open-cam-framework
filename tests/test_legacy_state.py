@@ -3,8 +3,8 @@
 `state.json` changed shape several times as features landed, and a deal persists across sessions, so a deal started
 before a change must still work after it. The version mechanism is tested in test_state_manager.py (a file without
 `schema_version` reads back as "0.0.0" and is upgraded on write). What was not tested is older state flowing through
-the downstream consumers. Five synthetic fixtures in tests/fixtures/state/ (an invented company, invented figures)
-reproduce the historical shapes:
+the downstream consumers. Five synthetic legacy fixtures and one additive-state fixture in tests/fixtures/state/ (an invented company, invented figures)
+cover the historical shapes and the new optional term record:
 
   01  before schema versioning (#25): historical periods only, the then-smaller ratio set, no schema_version
   02  before spreading_check.py existed (#98/#99): forward year + downside case, no multi_period_financials,
@@ -13,6 +13,7 @@ reproduce the historical shapes:
   04  before the separate analyst-supplied store (#121): analyst subtotals in `financials`, no raw breakdown,
       no analyst_supplied_financials
   05  a NEWER schema than this code knows, with fields it has never heard of
+  06  the supported schema with an additive analyst_terms list
 
 Each goes through the three consumers the issue names: spreading_check.compute (merge into an old-shaped state),
 policy_check.compute, and deal_export (the raw-figures read for the workbook).
@@ -41,10 +42,11 @@ import state_manager
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "state"
 COMPANY, PROPOSAL, DATE = "Synthetic Legacy Co", "Synthetic Fleet Loan", "2026-01-01"
 FIXTURES = ["01_pre_schema_version", "02_pre_spreading_check", "03_pre_merge_fix", "04_pre_analyst_store",
-            "05_future_unknown_fields"]
+            "05_future_unknown_fields", "06_analyst_terms"]
 EXPECTED_SCHEMA = {"01_pre_schema_version": "0.0.0", "02_pre_spreading_check": "1.1.0", "03_pre_merge_fix": "1.1.0",
-                   "04_pre_analyst_store": "1.1.0", "05_future_unknown_fields": "9.9.9"}
-HAS_COLLATERAL = {"01_pre_schema_version", "02_pre_spreading_check", "03_pre_merge_fix", "05_future_unknown_fields"}
+                   "04_pre_analyst_store": "1.1.0", "05_future_unknown_fields": "9.9.9", "06_analyst_terms": "1.1.0"}
+HAS_COLLATERAL = {"01_pre_schema_version", "02_pre_spreading_check", "03_pre_merge_fix", "05_future_unknown_fields",
+                  "06_analyst_terms"}
 DRAFT = "# Credit Assessment Memorandum\n\n- **Borrower:** [Company Name]\n\nSynthetic body text.\n"
 
 
@@ -91,13 +93,24 @@ def test_each_fixture_reads_back_with_the_schema_version_it_was_written_with(tmp
     assert state_manager.read_state(COMPANY, PROPOSAL)["schema_version"] == EXPECTED_SCHEMA[name]
 
 
+def test_analyst_terms_fixture_is_valid_without_a_schema_version_bump():
+    state = load_fixture("06_analyst_terms")
+    assert state["schema_version"] == state_manager.SCHEMA_VERSION == "1.1.0"
+    assert state_manager.validate_state(state) is state
+    assert state["analyst_terms"] == [{
+        "term": "SYNTHETIC-TERM",
+        "meaning": "A made-up test definition that carries no borrower or institution detail.",
+        "date": "2026-01-15",
+    }]
+
+
 # ---------------------------------------------------------------------------
 # spreading_check.compute: merge new figures into an old-shaped state
 # ---------------------------------------------------------------------------
 
 NEW_PERIOD = {"FY+2": {"revenue": 5100, "cost_of_sales": 3150}}
 UNTOUCHED_KEYS = ("inputs", "collateral", "steps_completed", "review_trail", "review_verdict", "draft_path",
-                  "stress_assumptions", "financials_source_note", "future_key", "x_analyst_note")
+                  "stress_assumptions", "financials_source_note", "future_key", "x_analyst_note", "analyst_terms")
 
 
 WRITABLE = [name for name in FIXTURES if name != "05_future_unknown_fields"]   # 05 is newer: it is refused (#170)
@@ -476,7 +489,7 @@ def test_unknown_keys_are_never_inspected_or_rejected(tmp_path, monkeypatch, cap
 
 @pytest.mark.parametrize("name", FIXTURES)
 def test_every_historical_fixture_passes_the_full_validation(name):
-    """The five historical shapes (and the newer one with unknown fields) must stay loadable."""
+    """All six fixtures, including the additive analyst_terms key, must stay loadable."""
     state_manager.validate_state(load_fixture(name))
 
 

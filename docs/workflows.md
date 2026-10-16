@@ -112,6 +112,8 @@ Claude Code only.
    Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
    ```
 
+Before export, the brief must end with a populated, flat `## Sources` section listing every relied-on document (URL where available) and defining short-form citation keys such as `WRG note 14`. Nested bullets are not suitable because the DOCX builder does not render them correctly. A missing or empty section blocks export without writing output. Only an explicit analyst instruction in chat to export without sources, together with the analyst's stated reason, permits `--analyst-override-no-sources "<reason>"`; the `.docx` then ends with a dated override footnote. The session never offers or infers this override, and the reason is not stored in `state.json`.
+
 The deal's `state.json` now holds `triage` and `commercial` exactly as `/triage` and `/commercial` would have written
 them, so the deal can continue into `/spread` later without redoing anything. A research-only deal does not create
 the workbook and never saves an auto-generated template.

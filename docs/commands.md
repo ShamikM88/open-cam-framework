@@ -93,7 +93,11 @@ worked examples are in [Workflows](workflows.md).
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
 - **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
-  `/triage`). It may afterwards offer end-of-deal learnings, written only on your explicit yes.
+  `/triage`); a missing or empty Sources/References section blocks export before output is written. A populated
+  final `## Sources` list is required, including document URLs and a citation key for short-form references. Export
+  without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote; the
+  command never offers or infers this override. It may afterwards offer end-of-deal learnings, written only on your
+  explicit yes.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread

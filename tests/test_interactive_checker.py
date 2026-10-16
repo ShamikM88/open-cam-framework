@@ -469,6 +469,162 @@ def test_assemble_and_research_review_the_exact_saved_artifact_in_the_right_mode
 
 
 
+# ---------------------------------------------------------------------------
+# /research asks the analyst before another review after three consecutive rejections
+# ---------------------------------------------------------------------------
+
+RESEARCH_CHECKPOINT_TEXT = (
+    "**Review checkpoint.** Before starting any Reviewer after the first, count the consecutive "
+    "`REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation). "
+    "After the third, and after every further `REJECTED`, do not start another Reviewer yet. "
+    "Show the analyst the number of passes and a short list of the latest findings, then ask a structured question with exactly three options: "
+    "**Run another review pass**; **Stop and export for manual review (unapproved, disclosed)**; **Stop without exporting**. "
+    "Only an explicit choice of the second option exports an unapproved brief: silence, an ambiguous answer or \"carry on\" is not consent, and if the answer is unclear ask again. "
+    "If they choose it, export with `--analyst-release-unapproved \"<reason>\"`, which adds a visible \"Review status\" paragraph and records the stop in `state.json`. "
+    "The default is never to export an unapproved brief. "
+    "If the analyst has set a lower maximum for this deal, checkpoint at that number instead, and record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it. "
+    "After a manual-review release, carry on with the remaining export steps as for an approved export. "
+    "If the analyst chose to stop without exporting, do not export, but still run the end-of-deal learnings step."
+)
+
+RESEARCH_CHECKPOINT_REQUIRED = {
+    "counts the consecutive rejection streak from disk":
+        "count the consecutive `REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation)",
+    "requires a pause after the third and later rejections":
+        "After the third, and after every further `REJECTED`, do not start another Reviewer yet",
+    "shows the pass count and latest findings":
+        "Show the analyst the number of passes and a short list of the latest findings",
+    "uses a structured question with exactly three options":
+        "ask a structured question with exactly three options",
+    "offers another pass":
+        "Run another review pass",
+    "offers disclosed manual export":
+        "Stop and export for manual review (unapproved, disclosed)",
+    "offers stop without export":
+        "Stop without exporting",
+    "restricts export to the explicit second choice":
+        "Only an explicit choice of the second option exports an unapproved brief",
+    "does not infer export consent":
+        'silence, an ambiguous answer or "carry on" is not consent, and if the answer is unclear ask again',
+    "uses the exporter release flag":
+        "`--analyst-release-unapproved \"<reason>\"`",
+    "discloses review status and records the stop":
+        'which adds a visible "Review status" paragraph and records the stop in `state.json`',
+    "defaults to never exporting an unapproved brief":
+        "The default is never to export an unapproved brief",
+    "honours a lower per-deal maximum":
+        "If the analyst has set a lower maximum for this deal, checkpoint at that number instead",
+    "records the lower maximum under the authorised state key":
+        "record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it",
+    "carries on with the export steps after a release":
+        "After a manual-review release, carry on with the remaining export steps as for an approved export",
+    "still runs the learnings step after a stop without exporting":
+        "If the analyst chose to stop without exporting, do not export, but still run the end-of-deal learnings step",
+}
+
+
+def research_checkpoint_problems(text):
+    body = flat(text)
+    if "Review checkpoint." not in body or "3. Export it." not in body:
+        return ["the analyst checkpoint is not in the review/export step"]
+    checkpoint = body.split("Review checkpoint.", 1)[1].split("If /review reports", 1)[0]
+    problems = [
+        label for label, needle in RESEARCH_CHECKPOINT_REQUIRED.items()
+        if flat(needle) not in checkpoint
+    ]
+    ordered_options = (
+        "Run another review pass",
+        "Stop and export for manual review (unapproved, disclosed)",
+        "Stop without exporting",
+    )
+    positions = [checkpoint.find(option) for option in ordered_options]
+    if positions != sorted(positions) or any(position < 0 for position in positions):
+        problems.append("the three analyst options are not present in the required order")
+    exact_option_sequence = (
+        "then ask a structured question with exactly three options: "
+        "Run another review pass; Stop and export for manual review (unapproved, disclosed); "
+        "Stop without exporting. Only an explicit choice of the second option exports an unapproved brief:"
+    )
+    if flat(exact_option_sequence) not in checkpoint:
+        problems.append("the question does not list exactly three authorised options in order")
+    if "Before starting any Reviewer after the first" not in body:
+        problems.append("the checkpoint is not placed before a later Reviewer starts")
+    # The authorised paragraph replaces the old "repeat until APPROVED" instruction; no other wording leads into it.
+    lead_in = body.split("Review checkpoint.", 1)[0]
+    if not lead_in.endswith("and run /review again — a new Reviewer each time. "):
+        problems.append("wording that the maintainer did not authorise leads into the review checkpoint")
+    return problems
+
+def test_research_command_contract_pins_authorised_checkpoint_wording_and_no_inferred_consent():
+    command = read(RESEARCH)
+    assert "allowed-tools: AskUserQuestion" in command
+    assert flat(RESEARCH_CHECKPOINT_TEXT) in flat(command)
+    assert research_checkpoint_problems(command) == []
+
+
+def mutate_research_checkpoint(text, needle, replacement):
+    start = text.index("**Review checkpoint.**")
+    end = text.index("\n\n   If `/review` reports", start)
+    section = text[start:end]
+    if needle not in section:
+        raise AssertionError(f"Checkpoint mutation anchor was not found: {needle}")
+    changed_section = section.replace(needle, replacement, 1)
+    return text[:start] + changed_section + text[end:]
+
+
+RESEARCH_CHECKPOINT_MUTATIONS = [
+    ("unauthorised lead-in", lambda t: t.replace("a new Reviewer each time.\n\n   **Review checkpoint.**",
+                                                 "a new Reviewer each time, taking the checkpoint below.\n\n   **Review checkpoint.**"),
+     "did not authorise"),
+    ("disk trail count", lambda t: mutate_research_checkpoint(
+        t, "count the consecutive `REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation)",
+        "count rejections from conversation memory"), "counts the consecutive rejection streak from disk"),
+    ("third and later", lambda t: mutate_research_checkpoint(
+        t, "After the third, and after every further `REJECTED`, do not start another Reviewer yet",
+        "After repeated rejection, start another Reviewer before asking"), "requires a pause after the third and later rejections"),
+    ("structured question", lambda t: mutate_research_checkpoint(
+        t, "ask a structured question with exactly three options", "ask a free-text question"),
+        "uses a structured question with exactly three options"),
+    ("export option", lambda t: mutate_research_checkpoint(
+        t, "Stop and export for manual review (unapproved, disclosed)", "export the draft"),
+        "the question does not list exactly three authorised options in order"),
+    ("stop option", lambda t: mutate_research_checkpoint(
+        t, "Stop without exporting", "stop now"),
+        "the question does not list exactly three authorised options in order"),
+    ("ambiguous consent", lambda t: mutate_research_checkpoint(
+        t, 'silence, an ambiguous answer or "carry on" is not consent, and if the answer is unclear ask again',
+        "silence counts as consent"), "does not infer export consent"),
+    ("explicit export choice", lambda t: mutate_research_checkpoint(
+        t, "Only an explicit choice of the second option exports an unapproved brief",
+        "any answer authorises exporting an unapproved brief"),
+        "restricts export to the explicit second choice"),
+    ("disclosure record", lambda t: mutate_research_checkpoint(
+        t, "records the stop in `state.json`", "does not record the stop"),
+        "discloses review status and records the stop"),
+    ("lower maximum", lambda t: mutate_research_checkpoint(
+        t, "checkpoint at that number instead", "ignore the lower maximum"),
+        "honours a lower per-deal maximum"),
+    ("lower maximum state key", lambda t: mutate_research_checkpoint(
+        t, "`deal_structure_notes.review_cap`", "`review_cap`"),
+        "records the lower maximum under the authorised state key"),
+    ("release does not continue the export steps", lambda t: mutate_research_checkpoint(
+        t, "carry on with the remaining export steps as for an approved export", "stop after the export command"),
+        "carries on with the export steps after a release"),
+    ("stop without exporting skips the learnings step", lambda t: mutate_research_checkpoint(
+        t, "but still run the end-of-deal learnings step", "and skip the end-of-deal learnings step"),
+        "still runs the learnings step after a stop without exporting"),
+    ("stop without exporting may export", lambda t: mutate_research_checkpoint(
+        t, "do not export, but still run", "export, and still run"),
+        "still runs the learnings step after a stop without exporting"),
+]
+
+
+@pytest.mark.parametrize(("label", "change", "expected"), RESEARCH_CHECKPOINT_MUTATIONS,
+                         ids=[item[0] for item in RESEARCH_CHECKPOINT_MUTATIONS])
+def test_research_checkpoint_contract_catches_mutations(label, change, expected):
+    assert any(expected in problem for problem in research_checkpoint_problems(change(read(RESEARCH))))
+
+
 PRIMARY_DOCUMENT_PARAGRAPH = (
     "For a borrower inside a group, read the primary documents, not only the registry summaries. "
     "Open the full instrument for every outstanding charge: who the chargeholders are, what it secures "

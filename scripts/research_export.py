@@ -9,7 +9,7 @@ import sys
 from datetime import date
 
 from docx_builder import export_to_docx
-from state_manager import resolve_date_str, sanitize_path_component
+from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
 
 ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|[ \t]*)$")
@@ -92,9 +92,39 @@ def _normalise_override_reason(reason):
     return collapsed
 
 
+def _normalise_release_reason(reason):
+    if reason is None:
+        return None
+    if not isinstance(reason, str):
+        raise ValueError("Analyst release reason must be text.")
+    collapsed = " ".join(reason.split())
+    if not collapsed:
+        raise ValueError("Analyst release reason must not be empty.")
+    return collapsed
+
+
+def _trailing_rejected_count(review_trail):
+    """Count only the consecutive REJECTED entries at the end of the recorded trail."""
+    count = 0
+    for entry in reversed(review_trail or []):
+        if not isinstance(entry, dict) or entry.get("verdict") != "REJECTED":
+            break
+        count += 1
+    return count
+
+
+def _insert_after_first_heading(markdown, paragraph):
+    """Place the status disclosure directly after the document's first ATX heading."""
+    lines, _visible, headings = _markdown_structure(markdown)
+    if not headings:
+        return paragraph + "\n\n" + markdown
+    index = headings[0][0]
+    return "\n".join(lines[:index + 1] + ["", paragraph, ""] + lines[index + 1:]).strip() + "\n"
+
+
 def export_research_brief(
     company, proposal, brief_markdown, date_str=None, base_dir=None,
-    analyst_override_no_sources=None,
+    analyst_override_no_sources=None, analyst_release_unapproved=None,
 ):
     """Export a research brief as DOCX, refusing an empty/missing sources section.
 
@@ -103,6 +133,7 @@ def export_research_brief(
     the final paragraph of the document.
     """
     override_reason = _normalise_override_reason(analyst_override_no_sources)
+    release_reason = _normalise_release_reason(analyst_release_unapproved)
     has_sources = _has_populated_sources_section(brief_markdown)
     if not has_sources:
         if override_reason is None:
@@ -120,12 +151,46 @@ def export_research_brief(
         date_str = sanitize_path_component(date_str, "date_str")
 
     date_str = resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
+    release_date = None
+    passes = None
+    if release_reason is not None:
+        release_date = _today_date()
+        state = read_state(
+            company, proposal, date_str=date_str, base_dir=base_dir, keys=("review_trail",)
+        ) or {}
+        earlier_releases = state.get("review_stopped_by_analyst", [])
+        if not isinstance(earlier_releases, list):
+            raise ValueError("state.json: review_stopped_by_analyst must be a list of release records.")
+        passes = _trailing_rejected_count(state.get("review_trail") or [])
+        if passes == 0:
+            raise ValueError(
+                "Cannot release an unapproved brief: the deal's review_trail has no trailing REJECTED entry "
+                "(no review yet, or the latest verdict is not REJECTED)."
+            )
+        status = (
+            "Review status: Not approved by the independent Risk Reviewer. "
+            f"{passes} review {'pass' if passes == 1 else 'passes'} returned REJECTED. Released for manual analyst review "
+            f"at the analyst's request on {release_date}: {release_reason}."
+        )
+        brief_markdown = _insert_after_first_heading(brief_markdown, status)
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, f"{company}_{proposal}_Research_Brief.docx")
     export_to_docx(brief_markdown, output_path)
+    if release_reason is not None:
+        write_state(
+            company,
+            proposal,
+            date_str=date_str,
+            base_dir=base_dir,
+            # Append-only: every release adds one record and none is ever cleared or overwritten.
+            review_stopped_by_analyst=[
+                *earlier_releases,
+                {"date": release_date, "passes": passes, "reason": release_reason},
+            ],
+        )
     return output_path
 
 
@@ -134,7 +199,7 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(
         description="Export a standalone research brief to .docx after verifying that it has a populated "
-                    "Sources or References section. A disclosed analyst override can permit omission."
+                    "Sources or References section; explicit analyst-authorised disclosures can release a brief without sources or approval."
     )
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
@@ -144,6 +209,11 @@ def main(argv=None):
         help="Export without a populated Sources/References section only after explicit analyst authorisation; "
              "the reason is printed as the final DOCX paragraph.",
     )
+    parser.add_argument(
+        "--analyst-release-unapproved", metavar="REASON",
+        help="Record an explicitly analyst-authorised release of a non-approved brief for manual review; "
+             "the reason is disclosed near the top of the DOCX and in state.json.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -152,6 +222,7 @@ def main(argv=None):
         output_path = export_research_brief(
             args.company, args.proposal, brief_markdown,
             analyst_override_no_sources=args.analyst_override_no_sources,
+            analyst_release_unapproved=args.analyst_release_unapproved,
         )
     except ValueError as exc:
         sys.exit(f"error: {exc}")

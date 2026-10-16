@@ -105,7 +105,7 @@ Claude Code only.
 3. Claude saves the brief to `deals/Synthetic Co/Synthetic Fleet Loan_brief.md` ([an example brief](examples/synthetic_co/brief.md)) and runs
    `/review ... --research-brief`: the Risk Reviewer checks grounding and narrative, not credit policy or mitigants,
    because nothing has been structured yet **(model)**. A `REJECTED` verdict means revise, overwrite the file and
-   review again until `APPROVED`.
+   review again with a new Reviewer. After the third consecutive `REJECTED` verdict and every later rejection, the session reads the saved `review_trail` on disk, shows the pass count and latest findings, and asks through `AskUserQuestion` with exactly three options: Run another review pass; Stop and export for manual review (unapproved, disclosed); or Stop without exporting. Silence, ambiguity and “carry on” are not consent; ask again. Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which adds a dated status paragraph after the first document heading and appends a record to the append-only `review_stopped_by_analyst` list after the DOCX is written. After a release the session carries on with the remaining export steps (steps 4 onward) as for an approved export; after "Stop without exporting" nothing is exported, but the end-of-deal learnings step still runs. This is a decision point, not a hard cap. If the analyst sets a lower per-deal maximum, the session checkpoints at that number and records it under `deal_structure_notes.review_cap` in `state.json`.
 4. The export runs **(local)**:
 
    ```bash

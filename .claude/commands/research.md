@@ -1,7 +1,7 @@
 ---
 description: Standalone research deliverable -- legal identity/Go-No-Go screen plus company/sector/competitive research, no financial spreading (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [registration number, credit bureau summary, charges register] [sector, management bios, customer/supplier notes]"
-allowed-tools: Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
+allowed-tools: AskUserQuestion, Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
 disable-model-invocation: true
 ---
 
@@ -123,9 +123,13 @@ paragraph instead of rendering as separate lines.
    the verdict is REJECTED, revise the brief per the notes, **overwrite**
    `deals/<company>/<proposal>_brief.md` with the revised Markdown (never leave the stale,
    rejected version on disk; `/review` does not write the brief, so a stale file would be reviewed
-   again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
-   reports that it could not run or that no valid verdict came back, stop: that is neither an approval
+   again), and run `/review` again — a new Reviewer each time.
+
+   **Review checkpoint.** Before starting any Reviewer after the first, count the consecutive `REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation). After the third, and after every further `REJECTED`, do not start another Reviewer yet. Show the analyst the number of passes and a short list of the latest findings, then ask a structured question with exactly three options: **Run another review pass**; **Stop and export for manual review (unapproved, disclosed)**; **Stop without exporting**. Only an explicit choice of the second option exports an unapproved brief: silence, an ambiguous answer or "carry on" is not consent, and if the answer is unclear ask again. If they choose it, export with `--analyst-release-unapproved "<reason>"`, which adds a visible "Review status" paragraph and records the stop in `state.json`. The default is never to export an unapproved brief. If the analyst has set a lower maximum for this deal, checkpoint at that number instead, and record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it. After a manual-review release, carry on with the remaining export steps as for an approved export. If the analyst chose to stop without exporting, do not export, but still run the end-of-deal learnings step.
+
+   If `/review` reports that it could not run or that no valid verdict came back, stop: that is neither an approval
    nor a rejection, so do not export; tell the user.
+
 3. **Export it.** Once approved, run:
    ```
    python scripts/research_export.py --company "<company>" --proposal "<proposal>" --brief "deals/<company>/<proposal>_brief.md"

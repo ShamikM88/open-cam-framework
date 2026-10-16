@@ -35,7 +35,19 @@ import re
 # trips a finding on the words around it.
 BRACKETED_SPAN_RE = re.compile(r"\[[^\[\]]*\]")
 
-CURRENCY_AMOUNT_RE = re.compile(r"[£$€]\s?\d[\d,]*(?:\.\d+)?")
+CURRENCY_AMOUNT_RE = re.compile(r"[£$€¥]\s?\d[\d,]*(?:\.\d+)?")
+_AMOUNT_WITH_OPTIONAL_SCALE = (
+    r"(?:\d{1,3}(?:[,. ]\d{3})*(?:[.,]\d+)?|\d{4,})(?:\s*[mMkKbB])?"
+)
+CURRENCY_CODES = r"(?:GBP|USD|EUR|CHF|JPY|CAD|AUD)"
+CURRENCY_CODE_AMOUNT_RE = re.compile(
+    rf"(?<![A-Z]){CURRENCY_CODES}\s*{_AMOUNT_WITH_OPTIONAL_SCALE}(?![A-Z0-9])"
+    rf"|(?<![A-Z0-9]){_AMOUNT_WITH_OPTIONAL_SCALE}\s*{CURRENCY_CODES}\b",
+    re.IGNORECASE,
+)
+CURRENCY_SUFFIX_AMOUNT_RE = re.compile(
+    r"(?<!\w)\d{1,3}(?:[. ]\d{3})+(?:,\d+)?\s*[€$£¥](?!\w)"
+)
 EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 UK_COMPANIES_HOUSE_NUMBER_RE = re.compile(r"\b\d{8}\b")
 UK_PHONE_RE = re.compile(r"\b(?:0|\+44\s?)\d{2,4}[\s-]?\d{3,4}[\s-]?\d{3,4}\b")
@@ -60,9 +72,21 @@ VAT_NUMBER_RE = re.compile(
     r"IE\d[A-Z0-9+*]\d{5}[A-Z]{1,2}|IT\d{11}|NL\d{9}B\d{2})\b"
 )
 ISO_DATE_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
+NUMERIC_SLASH_DATE_RE = re.compile(
+    r"\b(?:(?:0?[1-9]|[12]\d|3[01])/(?:0?[1-9]|1[0-2])|"
+    r"(?:0?[1-9]|1[0-2])/(?:0?[1-9]|[12]\d|3[01]))/\d{4}\b"
+)
+NUMERIC_DOT_DATE_RE = re.compile(
+    r"\b(?:0?[1-9]|[12]\d|3[01])\.(?:0?[1-9]|1[0-2])\.\d{4}\b"
+)
+_MONTH_NAME_PATTERN = (
+    r"(?:January|February|March|April|May|June|July|August|September|October|November|December|"
+    r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)"
+)
 LONG_DATE_RE = re.compile(
-    r"\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|"
-    r"September|October|November|December)\s+\d{4}\b"
+    r"\b(?:\d{1,2}\s+" + _MONTH_NAME_PATTERN + r"\.?\s+\d{4}|"
+    + _MONTH_NAME_PATTERN + r"\.?\s+\d{1,2},?\s+\d{4})\b",
+    re.IGNORECASE,
 )
 COMPANY_NAME_RE = re.compile(
     r"\b[A-Z][A-Za-z0-9&,.'()-]*(?:\s+[A-Z(][A-Za-z0-9&,.'()-]*)*\s+"
@@ -76,6 +100,8 @@ COMPANY_NAME_RE = re.compile(
 # checked against every line.
 CHECKS = [
     (CURRENCY_AMOUNT_RE, "looks like a real currency amount, not a [placeholder]"),
+    (CURRENCY_CODE_AMOUNT_RE, "looks like a currency amount next to an ISO currency code"),
+    (CURRENCY_SUFFIX_AMOUNT_RE, "looks like a currency amount with a trailing symbol"),
     (EMAIL_RE, "looks like a real email address"),
     (UK_COMPANIES_HOUSE_NUMBER_RE, "looks like a real 8-digit Companies House registration number"),
     (UK_PHONE_RE, "looks like a real phone number"),
@@ -86,6 +112,8 @@ CHECKS = [
     (GERMAN_REGISTER_NUMBER_RE, "looks like a real German commercial register number (HRA/HRB)"),
     (VAT_NUMBER_RE, "looks like a real VAT number"),
     (ISO_DATE_RE, "looks like a real ISO date, not a [placeholder]"),
+    (NUMERIC_SLASH_DATE_RE, "looks like a real numeric date, not a [placeholder]"),
+    (NUMERIC_DOT_DATE_RE, "looks like a real numeric date, not a [placeholder]"),
     (LONG_DATE_RE, "looks like a real date, not a [placeholder]"),
     (COMPANY_NAME_RE, "looks like a real company name (Limited/Ltd/PLC/LLP/Inc/LLC/Corp/GmbH/AG/S.A. ...), not a [placeholder]"),
 ]

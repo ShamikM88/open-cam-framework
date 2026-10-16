@@ -129,6 +129,35 @@ Put the table of medians on the pull request or its issue so the next tuning has
 - **Never** weaken the job: no `continue-on-error`, no `|| true`, no dropped requirements file.
 - **Secret scanning and push protection** are repository settings, as is the ruleset on `main`; they are outside the files in this repository and are changed by the maintainer in GitHub.
 
+## Model freshness report
+
+**Purpose.** Tell maintainers when configured Claude model IDs may be stale or deprecated without silently changing
+runtime behaviour. `.github/workflows/model-freshness.yml` runs every week and on demand only; it is not a pull-request
+check or required status check. It installs the repository dependencies, reads model tables packaged in the installed
+Anthropic SDK, and runs `scripts/check_model_freshness.py`. No API key, network request or model call is used. The
+report is only as fresh as that installed SDK.
+
+- **Findings create or update one issue.** If the report has findings, the workflow updates the open issue titled
+  `Model freshness report`, labelled `tech-debt`, or creates it when no open issue with that exact title exists. It
+  does not open a new issue for each run. With no findings it does nothing.
+- **Treat the result as a prompt for review, not an automatic migration.** A newer ID is a stable version found in the
+  same family, not proof that it is behaviourally interchangeable. Unknown IDs or a missing SDK table are inconclusive.
+- **A model bump is its own pull request.** Do not edit `config/settings.json` or change `_DEFAULT_MODEL` as a side
+  effect of this report. Treat model changes as behaviour changes: include an evaluation statement, use an available
+  baseline for like-for-like comparison where one exists, and state clearly when a live evaluation/baseline has not
+  been performed. The first bump to newer models is deliberately separate from the diagnostic. Removing the duplicate
+  `_DEFAULT_MODEL` in `calibrate.py` is also a separate follow-up.
+
+To inspect the current checkout without waiting for the schedule:
+
+```bash
+python scripts/check_model_freshness.py
+python scripts/check_model_freshness.py --json model-freshness-report.json
+```
+
+See [Configuration](configuration.md#model-freshness-diagnostic) for the fields and limitations, and the
+[CLI reference](cli-reference.md#model-freshness-check) for the report contract.
+
 ## Documentation maintenance
 
 **Purpose.** The documentation is trustworthy only while it is checked, so most of the upkeep is running the checks and acting on them.

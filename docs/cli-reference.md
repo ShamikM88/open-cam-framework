@@ -17,6 +17,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
 | `state_manager.py` | Checks completed steps and exports derived Reviewer-view files with history separated | No | [State manager](#state-manager) |
+| `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
@@ -335,11 +336,29 @@ python scripts/pii_scan.py templates/local/cam/asset_finance_cam.md
 - `scripts/check_test_count.py <pytest_output> [--badge-path <path>] [--write]` compares pytest's passed count with
   `badges/test-count.json` (exit `1` on a mismatch); `--write` updates the file from a complete green run (never used
   in CI).
+- `scripts/check_model_freshness.py [--json PATH]` reports configured-model freshness from local SDK tables; findings never fail the report.
 - `scripts/mutation_report.py <results> [--config <pyproject.toml>] [--top <n>] [--json <path>]` prints the
   per-module mutation score from `mutmut results --all true`; exit `0` whenever a report is produced, `2` for an
   unreadable file.
 
 Their rules and the reasoning are in [Testing](testing.md).
+
+## Model freshness check
+
+`python scripts/check_model_freshness.py [--json PATH]` prints a Markdown report of model IDs configured in
+`config/settings.json` (`maker_model`, `checker_model`, and `calibrate_model` when set) and the string literal
+`_DEFAULT_MODEL` in `scripts/calibrate.py`. The default is read with `ast`, not by importing `calibrate.py`.
+The installed `anthropic.types.Model` and
+`anthropic.resources.messages.messages.DEPRECATED_MODELS` tables supply known IDs and deprecation dates.
+
+The report suggests a newer stable ID only from the same family. Dated variants, `-latest` and `-preview` aliases are
+not used for version comparison. An ID that cannot be parsed or found is marked `unknown`; a missing or reshaped SDK
+table is reported as `SDK table not found` without a guess. With `--json PATH`, report data is written as JSON
+(`report_version`, `sdk_version`, `freshness_note`, `sdk_tables`, `models`, `findings` and `summary`).
+Exit `0` whenever a report is produced, including when it contains findings; exit `2` for unreadable configuration.
+It does not read an API key, call the API, or make a model call. It is only as fresh as the installed Anthropic SDK.
+A model change remains a separate reviewed PR with an evaluation statement; the script never upgrades one automatically.
+See [Model freshness report](operations.md#model-freshness-report).
 
 ## Evaluation harness
 

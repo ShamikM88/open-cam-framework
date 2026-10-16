@@ -34,8 +34,9 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "mutation_report", "orchestrator",
-    "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "conventions", "deal_export",
+    "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest",
+    "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check",
 )
 
@@ -146,6 +147,29 @@ def test_pii_scan_reports_findings_as_json(cli):
 def test_pii_scan_on_a_missing_file_fails(cli):
     result = cli("pii_scan", "no-such-file.md")
     assert result.returncode != 0 and "no-such-file.md" in result.stderr
+
+
+
+
+def test_check_model_freshness_real_cli_reports_installed_sdk_shape_offline(cli, tmp_path):
+    report_path = tmp_path / "model-freshness.json"
+    result = cli("check_model_freshness", "--json", report_path, cwd=REPO_ROOT)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert "only as fresh as the installed Anthropic SDK" in result.stdout
+    assert "does not query the API" in result.stdout
+    with open(report_path, encoding="utf-8") as f:
+        report = json.load(f)
+    assert set(report) == {
+        "report_version", "sdk_version", "freshness_note", "sdk_tables", "models", "findings", "summary"
+    }
+    assert report["report_version"] == 1
+    assert report["models"] and report["summary"]["models_checked"] == len(report["models"])
+    assert report["summary"]["finding_count"] == len(report["findings"])
+    assert report["summary"]["has_findings"] is bool(report["findings"])
+    assert set(report["sdk_tables"]) == {"known_models", "deprecated_models"}
+    assert all(item["status"] in {"available", "SDK table not found"}
+               for item in report["sdk_tables"].values())
 
 
 def test_state_manager_check_steps_reports_missing_steps_and_always_exits_zero(cli):

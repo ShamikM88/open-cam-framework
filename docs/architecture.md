@@ -210,6 +210,7 @@ open-cam-framework/
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json (`--write` updates the file by hand) -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)
 │   ├── check_coverage.py        Checks coverage.py's JSON report against the floors in pyproject.toml -- overall plus a higher per-module floor for the eight governance modules; CI's code-enforced coverage gate (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
 │   ├── mutation_report.py       Per-module mutation score + completeness report from `mutmut results --all true`, run by the weekly mutation workflow -- diagnostic only, never fails over a score (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
+│   ├── check_model_freshness.py  Reports newer/deprecated/unknown configured Claude model IDs from installed SDK metadata; weekly/manual diagnostic, never auto-upgrades (no API call)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   ├── spreading_check.py       Standalone CLI wrapper around spreading_builder.py's formula evaluation -- compute(); callable from /spread's and /project's own Bash steps so the slash-command interface gets the same code-enforced subtotal/ratio computation orchestrator.py's headless pipeline does (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)
@@ -231,6 +232,7 @@ open-cam-framework/
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eight governance modules (diagnostic report, never a merge gate)
+├── .github/workflows/model-freshness.yml  Weekly + manual diagnostic of SDK model/deprecation metadata; updates one tech-debt issue, never a required check
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`
 ├── .github/workflows/ci-parallelism-benchmark.yml  Manual-only timing of the suite with 1, 2 and 4 workers, for re-choosing CI's worker counts (never a gate; see the operations runbook)
 └── README.md

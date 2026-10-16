@@ -13,7 +13,7 @@ material and never committed (see [Security](security.md)).
 
 | File | Written by | Read by | Effect |
 | :--- | :--- | :--- | :--- |
-| `config/settings.json` (tracked) | you | `orchestrator.py`, `calibrate.py` | Which model drafts and audits, optional temperatures. Only the model and temperature keys do anything; see [Which settings are read](#which-settings-are-read) |
+| `config/settings.json` (tracked) | you | `orchestrator.py`, `calibrate.py`, `check_model_freshness.py` | Which model drafts and audits, optional temperatures. The freshness diagnostic reads model IDs to report stale or deprecated choices; only the model and temperature keys affect model calls. See [Which settings are read](#which-settings-are-read) |
 | `config/style_guide.md` *git-ignored* | `/calibrate`, `calibrate.py` | the Underwriter (the orchestrator puts it in the Maker's prompt only; in Claude Code the Underwriter role is told to follow it) | House tone and layout. Absent means the neutral default tone |
 | `templates/local/cam/<type>_cam.md` *git-ignored* | `/calibrate`, `calibrate.py`, or auto-saved for a new deal type | `/assemble`, the orchestrator | A calibrated CAM template; **takes precedence** over the shipped one for that type |
 | `templates/cam/<type>_cam.md` (tracked) | the project | the same | The shipped default templates (`corporate_credit`, `asset_finance`) |
@@ -77,6 +77,19 @@ changes nothing, because the corresponding values are constants in the code (iss
 Wiring these keys in is deliberately not done: one `max_tokens` could not stand for three call sites with different
 limits, and the evaluation harness's budgets and baselines assume the current values. The five inert keys stay in the
 shipped file so existing forks keep a valid config; do not rely on them.
+
+## Model freshness diagnostic
+
+Run `python scripts/check_model_freshness.py [--json PATH]` to compare the configured `maker_model`,
+`checker_model` and optional `calibrate_model`, plus the literal `_DEFAULT_MODEL` in `scripts/calibrate.py`, with the
+known-model and deprecation tables packaged in the installed Anthropic SDK. The calibration default is read using
+Python's AST parser; the script does not import `calibrate.py`. It does not call the API, need a key, or access the
+network. It only reports; it never edits `config/settings.json` or changes a model.
+
+The report lists newer stable IDs only within the same family, deprecation dates and IDs it cannot parse or find. A
+missing or reshaped SDK table is reported as `SDK table not found` rather than guessed around. The report is only as
+fresh as the installed SDK version, which Dependabot refreshes through the normal dependency-update process. See the
+[CLI reference](cli-reference.md#model-freshness-check) and [operations runbook](operations.md#model-freshness-report).
 
 ## Credentials
 

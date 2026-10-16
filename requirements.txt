@@ -4,5 +4,5 @@
 anthropic>=1.11.0
 python-docx>=1.2.0
 openpyxl>=3.1.5
-pydantic>=2.13.5
+pydantic>=2.14.1
 pypdf>=6.19.0

@@ -254,8 +254,13 @@ enterprise-wide) where a scope question applies.**
 - Deal learnings (`/assemble`'s and `/research`'s own "Surface end-of-deal learnings" steps,
   issues #86/#89): borrower-specific (`deals/<Company>/_learnings.md`) or enterprise-wide
   (`config/deal_learnings.md`). Sourced only from what's already checkpointed on disk by the end
-  of a deal (`review_trail`'s REJECTED-verdict notes) — never freshly re-mined from a conversation
-  that may already be compacted by deal's end. `/assemble`'s version must exclude any
+  of a deal: `review_trail`'s REJECTED-verdict notes and the `analyst_terms` list of terms the
+  analyst defined and checkpointed immediately in `state.json` during `/research` or `/assemble`
+  — never freshly re-mined from a conversation that may already be compacted by deal's end.
+  Terms in `analyst_terms` join the same end-of-deal candidate batch; persist only on an explicit yes
+  and ask the borrower-specific versus enterprise-wide scope question each time. If the analyst says
+  a term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
+  `/assemble`'s version must exclude any
   code-enforced deterministic reason mixed into the same `notes` string (those are bugs in that
   specific draft, never a standing fact) — `/research`'s version doesn't need this filter at all,
   since `--research-brief` mode skips `/review`'s Code-enforced check section entirely (issue #87),

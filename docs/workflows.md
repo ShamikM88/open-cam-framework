@@ -442,9 +442,14 @@ Each verdict is appended to the deal's `review_trail`, which is never replaced:
 
 If the Reviewer rejects a draft over a credit-policy point and you correct its reading of the policy, `/review`
 offers to persist that as a standing interpretation note; it writes `config/credit_policy_notes.md` only on an
-explicit yes. After a deal, `/assemble` and `/research` can likewise offer end-of-deal learnings, also only on an
-explicit yes and only from what the review trail recorded. See the [shared glossary](glossary.md)
-for external credit terms.
+explicit yes. During `/research` and `/assemble`, an analyst-defined term is checkpointed immediately to the deal's
+`state.json` under `analyst_terms`, so compaction cannot lose a definition already recorded. At end of deal, the
+`analyst_terms` entries join the reusable REJECTED notes from `review_trail` in the same candidate batch. Persist a
+candidate only on an explicit yes and ask each time whether it is borrower-specific or applies to every borrower. If
+the analyst says a term is industry-standard, point to docs/glossary.md and write nothing to a tracked file. These
+learnings are advisory, and the fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit,
+write it plainly in the brief.
+See the [shared glossary](glossary.md) for external credit terms.
 
 ## State rehydration (resuming and compaction)
 

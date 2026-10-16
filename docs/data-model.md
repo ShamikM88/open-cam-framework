@@ -57,10 +57,13 @@ shortened):
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
 | `deal_structure_notes.review_cap` | `/research` review checkpoint, when the analyst sets a lower maximum | Optional lower per-deal REJECTED-pass threshold; it takes precedence over the default third-pass checkpoint and is recorded when set. This is an optional nested deal note, not a schema-version bump |
 | `review_stopped_by_analyst` | `research_export.py --analyst-release-unapproved` (`/research`, after explicit analyst choice) | An append-only list of `{"date": "YYYY-MM-DD", "passes": N, "reason": "..."}` records, one per release: the date, the trailing consecutive REJECTED review count and the analyst's reason for releasing the brief for manual review. No record is cleared or overwritten, and a later approved export leaves the list as it is; `review_verdict` carries the current verdict |
+| `analyst_terms` | `/research` and `/assemble`, when the analyst defines a term | A list of `{term, meaning, date}` records checkpointed immediately so the definition is not lost if the conversation is compacted; entries become learning candidates only on explicit confirmation |
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
 
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
+
+`analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.
 
 ### Two raw-figure stores, never blended
 

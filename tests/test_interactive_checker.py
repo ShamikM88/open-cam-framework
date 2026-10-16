@@ -708,6 +708,115 @@ def test_the_caller_check_fails_when_a_caller_stops_passing_the_saved_file_or_st
     assert any(expected in p for p in caller_problems(changed, kind)), caller_problems(changed, kind)
 
 
+
+# ---------------------------------------------------------------------------
+# Analyst-defined terms: immediate checkpoint and the shared end-of-deal batch (#330)
+# ---------------------------------------------------------------------------
+
+ANALYST_TERMS_CHECKPOINT = """If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning."""
+ANALYST_TERMS_BATCH = """Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as the other candidates, and persist it on an explicit yes exactly like any other learning (same scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is industry-standard rather than specific to their institution, say so and point to `docs/glossary.md`; never write to a tracked file. Only what is already in `analyst_terms` is a candidate; never infer a term from the conversation."""
+
+
+def analyst_terms_problems(text, command):
+    """Pin the authorised term text, its placement, and the explicit-confirmation batch."""
+    problems = []
+    body = flat(text)
+    if "### Analyst-defined terms" not in text:
+        problems.append("the Analyst-defined terms section heading is missing")
+    if flat(ANALYST_TERMS_CHECKPOINT) not in body:
+        problems.append("the immediate checkpoint no longer matches the authorised wording")
+    if flat(ANALYST_TERMS_BATCH) not in body:
+        problems.append("the learning instruction for end-of-deal terms no longer matches the authorised wording")
+    scope_question = flat("Is this specific to `<company>`, or does it apply across every borrower?")
+    if scope_question not in body:
+        problems.append("the borrower-specific versus enterprise-wide scope question is missing")
+
+
+    batch_at = text.rfind("deal's review surfaced")
+    if batch_at < 0:
+        problems.append("the existing end-of-deal batch introduction is missing")
+    else:
+        batch_text = text[max(0, batch_at - 20):batch_at + 220]
+        if "N item(s)" not in batch_text:
+            problems.append("the end-of-deal batch label is not N item(s)")
+        if "N correction(s)" in batch_text:
+            problems.append("the end-of-deal batch still says N correction(s)")
+
+    state_read_at = text.find("## State: read")
+    terms_at = text.find("### Analyst-defined terms")
+    if state_read_at < 0 or terms_at < 0 or terms_at <= state_read_at:
+        problems.append("the checkpoint section is not after State: read")
+    elif command == "research":
+        next_section = text.find("## Legal identity & Go/No-Go screen", state_read_at)
+        if next_section < 0 or terms_at >= next_section:
+            problems.append("the checkpoint section is not placed before the research screen")
+    elif command == "assemble":
+        assembly_intro = text.find("You're assembling the final Credit Assessment Memorandum", state_read_at)
+        if assembly_intro < 0 or terms_at >= assembly_intro:
+            problems.append("the checkpoint section is not placed before the assembly task")
+    else:
+        problems.append(f"unknown command kind: {command}")
+    return problems
+
+
+def test_analyst_defined_terms_contract_is_pinned_in_both_commands():
+    assert analyst_terms_problems(read(RESEARCH), "research") == []
+    assert analyst_terms_problems(read(ASSEMBLE), "assemble") == []
+
+
+ANALYST_TERMS_MUTATIONS = [
+    ("checkpoint is delayed", lambda t: mutate(t, r"at once as a new entry", "at the end as a new entry"),
+     "immediate checkpoint"),
+    ("an existing entry may be dropped",
+     lambda t: mutate(t, r"merge; never drop an existing entry", "merge; may drop an existing entry"),
+     "immediate checkpoint"),
+    ("the meaning may be paraphrased",
+     lambda t: mutate(t, r"in the analyst's own words, not paraphrased", "in the session's own words"),
+     "immediate checkpoint"),
+    ("the write can wait until deal end",
+     lambda t: mutate(t, r"Do not wait for the end of the deal", "Wait until the end of the deal"),
+     "immediate checkpoint"),
+    ("an unknown term may be guessed",
+     lambda t: mutate(t, r"never guess its meaning", "guess its likely meaning"),
+     "immediate checkpoint"),
+    ("term candidates are no longer batched",
+     lambda t: mutate(t, r"same batch as the other candidates", "a separate batch from the other candidates"),
+     "learning instruction"),
+    ("terms may be saved without explicit yes",
+     lambda t: mutate(t, r"persist it on an explicit yes exactly like any other learning",
+                      "persist it automatically like any other learning"),
+     "learning instruction"),
+    ("scope may be inferred",
+     lambda t: mutate(t, r"same scope question, same files", "without asking scope, using the same files"),
+     "learning instruction"),
+    ("the explicit scope question is removed",
+     lambda t: mutate(t, "Is this specific to `<company>`, or does it apply across every borrower\\?",
+                      "Choose whichever scope seems natural"),
+     "scope question"),
+    ("industry-standard terms are not referred to the glossary",
+     lambda t: mutate(t, "point to docs/glossary.md", "point to the analyst's notes"),
+     "learning instruction"),
+    ("industry-standard terms could be written to tracked files",
+     lambda t: mutate(t, r"never write to a tracked file", "write to a tracked file when helpful"),
+     "learning instruction"),
+    ("terms may be mined from the conversation",
+     lambda t: mutate(t, r"never infer a term from the conversation", "infer terms from the conversation"),
+     "learning instruction"),
+    ("the batch count label drifts",
+     lambda t: mutate(t, r"N item\(s\)", "N correction(s)"),
+     "batch label"),
+]
+
+
+@pytest.mark.parametrize(("command", "path"), [("research", RESEARCH), ("assemble", ASSEMBLE)])
+@pytest.mark.parametrize(("label", "change", "expected"), ANALYST_TERMS_MUTATIONS,
+                         ids=[item[0] for item in ANALYST_TERMS_MUTATIONS])
+def test_analyst_terms_contract_fails_when_authorised_requirements_are_weakened(command, path, label, change, expected):
+    changed = change(read(path))
+    problems = analyst_terms_problems(changed, command)
+    assert any(expected in problem for problem in problems), (label, problems)
+
+
 def test_only_review_may_start_the_reviewer():
     """A command that could start the Reviewer by itself would bypass the checks `/review` owns."""
     for path in sorted((REPO / ".claude" / "commands").glob("*.md")):

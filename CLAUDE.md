@@ -298,8 +298,9 @@ must not break:
   scripts/spreading_check.py` as a Bash step rather than recalculating subtotals and ratios by hand (issue
   #98); `/project` always passes `--no-update-financials-source`, and `/spread`'s analyst-supplied mode
   deliberately skips independent recomputation.
-- `/research` loops `/review --research-brief` until `APPROVED` (issue #87), then exports with
-  `python scripts/research_export.py`; `/assemble` loops `/review` until `APPROVED`, then exports with
+- `/research` loops `/review --research-brief` until `APPROVED` (issue #87), asking the analyst what to do after the
+  third consecutive `REJECTED` pass and each later one (never exporting an unapproved brief unless they explicitly choose
+  the disclosed manual-review release), then exports with `python scripts/research_export.py`; `/assemble` loops `/review` until `APPROVED`, then exports with
   `python scripts/deal_export.py`.
 - `/spread` routes any figure it reads out of an image (a screenshot, a photo, a scanned page) through
   `scripts/transcription_check.py` in both modes (issue #132): nothing is written to `state.json`, and `spread` is
@@ -423,6 +424,7 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   progress resolves the dated folder itself (`state_manager.resolve_date_str()`); `export_deal()` reads and
   validates state **before** it creates a folder or auto-saves a template, and never writes into the git-tracked
   `templates/cam/`. Full behaviour: [CLI reference](docs/cli-reference.md#export).
+- **`scripts/research_export.py`** (no `anthropic` dependency) -- requires a populated `Sources`/`References` section before creating output; `--analyst-override-no-sources` is used only after explicit analyst authorisation, must have a reason, and adds a final DOCX footnote without writing the reason to `state.json`. Full behaviour: [CLI reference](docs/cli-reference.md#research-export).
 - **`scripts/state_manager.py`** (no `anthropic` dependency) -- `write_state()` shallow-merges and keeps
   `company`/`proposal`/`date` in sync; **`write_state()` and `append_review_trail()` never downgrade a state**
   (a newer or malformed `schema_version` raises `SchemaVersionError` and leaves the file unchanged); each consumer

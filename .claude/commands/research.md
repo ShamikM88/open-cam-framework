@@ -1,7 +1,7 @@
 ---
 description: Standalone research deliverable -- legal identity/Go-No-Go screen plus company/sector/competitive research, no financial spreading (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [registration number, credit bureau summary, charges register] [sector, management bios, customer/supplier notes]"
-allowed-tools: Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
+allowed-tools: AskUserQuestion, Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
 disable-model-invocation: true
 ---
 
@@ -41,6 +41,8 @@ charges/mortgages against it, and output an initial **Go/No-Go** screening statu
 rationale. Ground every claim in a source the user has provided or a credible public record
 (e.g. a companies registry) — never invent a registration detail, charge, or UBO relationship
 you cannot source.
+
+**For a borrower inside a group, read the primary documents, not only the registry summaries.** Open the full instrument for every outstanding charge: who the chargeholders are, what it secures and how far any negative pledge reaches. Read the creditors and debtors notes, the key accounting estimates and the going-concern note of the borrower's own accounts, and compare what the directors say about borrowing with what the notes show. Read the parent's subsidiary and guarantee notes for statutory parent guarantees and for which entity directly holds each subsidiary. Read the PSC history, including ceased PSCs, and look for overlap with the board and the company secretary. Save each document you rely on under the Source material step. Where a document cannot be opened, say so as a gap rather than writing around it. Do this for each year's accounts you can open, not only the latest: the controlling-party note can disclose a dated ownership change the PSC register has not caught up with, and a policy or loan note can change between years. Where the register and the accounts disagree, say so and make it an analyst follow-up.
 
 ## Company & sector research
 
@@ -114,6 +116,8 @@ fields must use a bullet list (`- **Label:** value`) or genuinely blank-line-sep
 — never a bare run of consecutive `**Label:** value` lines, which will merge into one run-on
 paragraph instead of rendering as separate lines.
 
+**Mandatory final Sources section.** Before saving or reviewing the brief, make its final section a flat `## Sources` section. List every document the brief relies on, with its URL wherever one exists. Include a citation key defining each short-form reference used in the body (for example, `WRG note 14`). Keep the list flat: `scripts/docx_builder.py` does not render nested bullets as intended. A heading without entries is not enough.
+
 1. Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet).
 2. **Run `/review --company "<company>" --proposal "<proposal>" --research-brief --draft "deals/<company>/<proposal>_brief.md"`**
    against that saved brief (see issue #87 — this gives `/research` the same Checker audit `/assemble`
@@ -123,9 +127,13 @@ paragraph instead of rendering as separate lines.
    the verdict is REJECTED, revise the brief per the notes, **overwrite**
    `deals/<company>/<proposal>_brief.md` with the revised Markdown (never leave the stale,
    rejected version on disk; `/review` does not write the brief, so a stale file would be reviewed
-   again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
-   reports that it could not run or that no valid verdict came back, stop: that is neither an approval
+   again), and run `/review` again — a new Reviewer each time.
+
+   **Review checkpoint.** Before starting any Reviewer after the first, count the consecutive `REJECTED` entries at the end of this deal's `review_trail` in `state.json` (never from memory of the conversation). After the third, and after every further `REJECTED`, do not start another Reviewer yet. Show the analyst the number of passes and a short list of the latest findings, then ask a structured question with exactly three options: **Run another review pass**; **Stop and export for manual review (unapproved, disclosed)**; **Stop without exporting**. Only an explicit choice of the second option exports an unapproved brief: silence, an ambiguous answer or "carry on" is not consent, and if the answer is unclear ask again. If they choose it, export with `--analyst-release-unapproved "<reason>"`, which adds a visible "Review status" paragraph and records the stop in `state.json`. The default is never to export an unapproved brief. If the analyst has set a lower maximum for this deal, checkpoint at that number instead, and record that maximum in `state.json` under `deal_structure_notes.review_cap` when they set it. After a manual-review release, carry on with the remaining export steps as for an approved export. If the analyst chose to stop without exporting, do not export, but still run the end-of-deal learnings step.
+
+   If `/review` reports that it could not run or that no valid verdict came back, stop: that is neither an approval
    nor a rejection, so do not export; tell the user.
+
 3. **Export it.** Once approved, run:
    ```
    python scripts/research_export.py --company "<company>" --proposal "<proposal>" --brief "deals/<company>/<proposal>_brief.md"
@@ -133,6 +141,8 @@ paragraph instead of rendering as separate lines.
    This creates the dated deal folder — reusing one that already exists for this company/proposal,
    exactly like `/triage`/`/commercial` do — and exports the brief as
    `<Company>_<Proposal>_Research_Brief.docx`.
+   The exporter refuses a missing or empty `Sources`/`References` section before it creates output. If the analyst explicitly authorises exporting without that section, in chat, and provides a reason, record that reason (never invent one) and add `--analyst-override-no-sources "<reason>"` to the export command above, leaving the brief path unchanged and using it for no other reason. The resulting `.docx` includes a final footnote naming the override date and reason. If the analyst explicitly authorises the omission but has not provided a reason, ask for the reason; do not suggest the override as an option. Silence, an ambiguous answer, or “just export it” is not explicit authorisation. Never pass the flag on your own initiative. If a populated sources section exists, do not pass the flag; it has no effect on a valid brief. The reason is disclosed in the document and is not written to `state.json`.
+
 4. Report the output path to the user, then delete the temporary `<proposal>_brief.md` file — the
    real output now lives in the dated folder.
 5. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's

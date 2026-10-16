@@ -16,7 +16,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
-| `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
+| `state_manager.py` | Checks completed steps and exports derived Reviewer-view files with history separated | No | [State manager](#state-manager) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
@@ -265,13 +265,24 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 ## State manager
 
-`scripts/state_manager.py --check-steps --company ... --proposal ... --required <step,step>` checks that every named
-step appears in the deal's `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. It exits `0`
-whatever the result (an unreadable `state.json` is an error: one `error:` line, exit `1`). `--check-steps` is the only
-mode.
+`scripts/state_manager.py` has two mutually exclusive modes:
+
+- `--check-steps --company ... --proposal ... --required <step,step>` checks every named step against
+  `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. A valid result always exits `0`;
+  an unreadable or malformed state is one `error:` line and exit `1`. Its JSON output is unchanged.
+- `--export-reviewer-view --company ... --proposal ...` validates the saved state and writes
+  `review_view/state_for_review.json` (the record without `review_trail` or `review_verdict`) and
+  `review_view/review_trail.json` (the history list, or `[]` when absent) into the deal's dated folder. A successful
+  run overwrites both derived files and prints one JSON object with their paths. Invalid state, or a newer or malformed
+  schema version, produces one `error:` line, exit `1`, and writes nothing.
+
+The two review-view files are derived copies for the interactive Reviewer, not records of the deal; no other script may
+read them as a record. The source of truth remains the real `state.json`, which `/review` updates in its `State: write`
+stage. See the [data model](data-model.md).
 
 ```bash
 python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
+python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
 ```
 
 ## Source manifest

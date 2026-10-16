@@ -55,9 +55,8 @@ AGENT_REQUIRED = {
     "was not given the Maker's conversation":
         r"You have not seen the Maker's conversation, its reasoning, or anything the analyst said",
     "audits the draft saved on disk": r"Read the draft at the path you were given",
-    "audits before it reads the earlier verdicts":
-        r"do not read or use review_trail or review_verdict",
-    "reads the trail only afterwards": r"Only then read review_trail",
+    "does not open the combined record": r"Read the deal record at the first path; review_trail and review_verdict are not in it\. You are not given the combined state\.json; do not search for or open it\.",
+    "reads the trail only afterwards": r"Only then read the review history at the second path",
     "does not treat an earlier verdict as evidence":
         r"an earlier approval is never evidence that this draft is correct",
     "checks claims against the saved document, not the citation":
@@ -98,8 +97,8 @@ def agent_problems(text):
     for label, pattern in AGENT_REQUIRED.items():
         if not re.search(pattern, body, re.I):
             problems.append(f"the instructions no longer say that it {label}")
-    first = body.lower().find("do not read or use review_trail")
-    then = body.lower().find("only then read review_trail")
+    first = body.lower().find("do not search for or open it")
+    then = body.lower().find("only then read the review history at the second path")
     if not 0 <= first < then:
         problems.append("the instructions no longer put the first audit before the review_trail")
     return problems
@@ -176,13 +175,12 @@ AGENT_MUTATIONS = [
     ("a copy of the role in place of the role prompt",
      lambda t: mutate(t, r"Read `agents/risk_reviewer_agent\.md` and act according to that role", "Act as a credit officer"),
      "applies the one role prompt rather than a copy of it"),
-    ("no instruction to ignore the trail first",
-     lambda t: mutate(t, r"\*\*do not read or use `review_trail` or `review_verdict`\*\*", "read everything"),
-     "audits before it reads the earlier verdicts"),
+    ("no instruction to avoid the combined state",
+     lambda t: mutate(t, r"You are not given the combined `state\.json`; do not search for or open it",
+                      "Open combined state first"),
+     "does not open the combined record"),
     ("the trail read first",
-     lambda t: mutate(mutate(t, r"\*\*Only then read `review_trail`\.\*\*", "Read `review_trail` first."),
-                      r"For the first pass, \*\*do not", "For the first pass, **do not") .replace(
-         "Audit the current draft first", "Audit"),
+     lambda t: mutate(t, r"Only then read the review history at the second path\.", "Read the review history first."),
      "reads the trail only afterwards"),
     ("an earlier approval treated as evidence",
      lambda t: mutate(t, r"an earlier approval is never evidence that this draft is correct", "an earlier approval is good evidence"),
@@ -232,7 +230,9 @@ REVIEW_REQUIRED = {
     "does not send the draft text": r"no draft text, no summary of the draft or of this conversation",
     "sends no Maker explanation or earlier review notes": r"no Maker explanation, no analyst remark and no earlier review notes",
     "sends the draft path": r"Draft: <path from step 1>",
-    "sends the deal record path": r"Deal record: ",
+    "sends the derived record path": r'Deal record \(without review history\): <path to state_for_review\.json, or "none \(standalone review\)">',
+    "sends the separate review history path": r'Review history \(read only after your first pass\): <path to review_trail\.json, or "none">',
+    "keeps the combined state path out of the delegation": r"never send the combined state\.json path to the Reviewer",
     "sends the source manifest path": r"Source manifest: ",
     "sends the credit policy path": r"Credit policy: config/credit_policy\.md",
     "sends the policy notes path": r"Policy interpretation notes: config/credit_policy_notes\.md",
@@ -280,12 +280,23 @@ def review_problems(text):
     tokens = fields.get("allowed-tools", "")
     if "Agent(risk-reviewer)" not in tokens:
         problems.append("allowed-tools no longer pre-approves the risk-reviewer sub-agent")
+    if "Bash(python scripts/state_manager.py *)" not in tokens:
+        problems.append("/review no longer pre-approves state_manager's Reviewer-view mode")
     extra = sorted(set(re.findall(r"(?<![\w(])(Agent|Task|Write|Edit|NotebookEdit|Skill)\b(?!\(risk-reviewer\))", tokens)))
     if extra:
         problems.append(f"allowed-tools pre-approves more than the Reviewer: {', '.join(extra)}")
-    if re.search(r"Bash\((?!python scripts/policy_check\.py \*\))", tokens) or "Bash(*" in tokens:
-        problems.append("allowed-tools pre-approves a Bash command other than policy_check.py")
+    if re.search(r"Bash\((?!python scripts/(?:policy_check|state_manager)\.py \*\))", tokens) or "Bash(*" in tokens:
+        problems.append("allowed-tools pre-approves a Bash command other than an approved state/policy script")
     body = flat(text)
+    message_start = text.find("Review one saved draft.")
+    first_fence = text.rfind("```", 0, message_start) if message_start >= 0 else -1
+    second_fence = text.find("```", message_start) if message_start >= 0 else -1
+    if message_start < 0 or first_fence < 0 or second_fence < 0:
+        problems.append("/review has no path-only delegation message")
+    else:
+        delegation = text[first_fence + 3:second_fence]
+        if "state.json" in delegation or "Deal record:" in delegation:
+            problems.append("/review passes the combined state.json to the Reviewer")
     for label, pattern in REVIEW_REQUIRED.items():
         if not re.search(pattern, body, re.I):
             problems.append(f"/review no longer {label}")
@@ -342,8 +353,16 @@ REVIEW_MUTATIONS = [
      lambda t: mutate(t, r"Draft: <path from step 1>\n", ""), "no longer sends the draft path"),
     ("the source manifest dropped",
      lambda t: mutate(t, r"Source manifest: [^\n]*\n", ""), "no longer sends the source manifest path"),
-    ("the deal record dropped",
-     lambda t: mutate(t, r"Deal record: [^\n]*\n", ""), "no longer sends the deal record path"),
+    ("the first-pass record dropped",
+     lambda t: mutate(t, r"Deal record \(without review history\): [^\n]*\n", ""),
+     "no longer sends the derived record path"),
+    ("the separate review history dropped",
+     lambda t: mutate(t, r"Review history \(read only after your first pass\): [^\n]*\n", ""),
+     "no longer sends the separate review history path"),
+    ("the combined record passed in the delegation",
+     lambda t: mutate(t, r"Deal record \(without review history\): [^\n]*",
+                      "Deal record (without review history): deals/Synthetic Co/Synthetic Loan_2026-01-01/state.json"),
+     "passes the combined state.json to the Reviewer"),
     ("the policy files dropped",
      lambda t: mutate(t, r"Credit policy: config/credit_policy\.md[^\n]*\nPolicy interpretation notes: [^\n]*\n", ""),
      "no longer sends the credit policy path"),
@@ -387,9 +406,12 @@ REVIEW_MUTATIONS = [
      lambda t: mutate(t, r"Only this command, after the analyst's yes, ever writes that file: the Reviewer cannot\.", ""),
      "no longer leaves the policy note to the analyst's yes"),
     ("the Reviewer given a shell by the command",
-     lambda t: mutate(t, r"allowed-tools: Bash\(python scripts/policy_check\.py \*\), Agent\(risk-reviewer\)",
+     lambda t: mutate(t, r"allowed-tools: Bash\(python scripts/policy_check\.py \*\), Bash\(python scripts/state_manager\.py \*\), Agent\(risk-reviewer\)",
                       "allowed-tools: Bash(python scripts/policy_check.py *), Bash(*), Agent(risk-reviewer)"),
-     "pre-approves a Bash command other than policy_check.py"),
+     "pre-approves a Bash command other than an approved state/policy script"),
+    ("the Reviewer-view CLI not pre-approved",
+     lambda t: mutate(t, r", Bash\(python scripts/state_manager\.py \*\)", ""),
+     "no longer pre-approves state_manager's Reviewer-view mode"),
     ("any agent pre-approved",
      lambda t: mutate(t, r"Agent\(risk-reviewer\)", "Agent"),
      "allowed-tools no longer pre-approves the risk-reviewer sub-agent"),
@@ -894,5 +916,6 @@ def test_the_decision_and_the_assurance_page_state_the_implemented_design_and_it
                    "a different underlying model", "any defence against an instruction planted in a source document"):
         assert needle in decisions, needle
     for needle in ("The interactive Checker is a separate context", "A different model.", "Immunity to planted instructions.",
-                   "A verified live run.", "A prompt instruction only", "contract-tested", "an evidence gap"):
+                   "A verified live run.", "default path to the trail is removed",
+                   "a determined Reviewer could still Glob to and read the combined", "contract-tested", "an evidence gap"):
         assert needle in assurance, needle

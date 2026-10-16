@@ -38,6 +38,8 @@ rationale. Ground every claim in a source the user has provided or a credible pu
 (e.g. a companies registry) — never invent a registration detail, charge, or UBO relationship
 you cannot source.
 
+**For a borrower inside a group, read the primary documents, not only the registry summaries.** Open the full instrument for every outstanding charge: who the chargeholders are, what it secures and how far any negative pledge reaches. Read the creditors and debtors notes, the key accounting estimates and the going-concern note of the borrower's own accounts, and compare what the directors say about borrowing with what the notes show. Read the parent's subsidiary and guarantee notes for statutory parent guarantees and for which entity directly holds each subsidiary. Read the PSC history, including ceased PSCs, and look for overlap with the board and the company secretary. Save each document you rely on under the Source material step. Where a document cannot be opened, say so as a gap rather than writing around it. Do this for each year's accounts you can open, not only the latest: the controlling-party note can disclose a dated ownership change the PSC register has not caught up with, and a policy or loan note can change between years. Where the register and the accounts disagree, say so and make it an analyst follow-up.
+
 ## Company & sector research
 
 Same task as `/commercial`. **Primary inputs** (ask the user for whatever's missing and isn't
@@ -135,12 +137,7 @@ paragraph instead of rendering as separate lines.
    This creates the dated deal folder — reusing one that already exists for this company/proposal,
    exactly like `/triage`/`/commercial` do — and exports the brief as
    `<Company>_<Proposal>_Research_Brief.docx`.
-   The exporter refuses a missing or empty `Sources`/`References` section before it creates output. If the analyst explicitly authorises exporting without that section, in chat, and provides a reason, record that reason and pass `--analyst-override-no-sources "<reason>"` on this export. The resulting `.docx` includes a final footnote naming the override date and reason. If the analyst explicitly authorises the omission but has not provided a reason, ask for the reason; do not suggest the override as an option. Silence, an ambiguous answer, or “just export it” is not explicit authorisation. Never pass the flag on your own initiative. If a populated sources section exists, do not pass the flag; it has no effect on a valid brief. The reason is disclosed in the document and is not written to `state.json`.
-
-   When the analyst has explicitly authorised the omission and provided the reason, add the
-   `--analyst-override-no-sources "<reason>"` argument to the export command above (substitute the
-   analyst-provided reason; never invent one). Do not change the brief path or use this argument for
-   any other reason.
+   The exporter refuses a missing or empty `Sources`/`References` section before it creates output. If the analyst explicitly authorises exporting without that section, in chat, and provides a reason, record that reason (never invent one) and add `--analyst-override-no-sources "<reason>"` to the export command above, leaving the brief path unchanged and using it for no other reason. The resulting `.docx` includes a final footnote naming the override date and reason. If the analyst explicitly authorises the omission but has not provided a reason, ask for the reason; do not suggest the override as an option. Silence, an ambiguous answer, or “just export it” is not explicit authorisation. Never pass the flag on your own initiative. If a populated sources section exists, do not pass the flag; it has no effect on a valid brief. The reason is disclosed in the document and is not written to `state.json`.
 
 4. Report the output path to the user, then delete the temporary `<proposal>_brief.md` file — the
    real output now lives in the dated folder.

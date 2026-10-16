@@ -109,6 +109,21 @@ def test_the_risk_reviewer_subagent_is_fresh_read_only_and_told_how_to_audit_ind
     assert agent_problems(read(AGENT)) == []
 
 
+
+RESEARCH_SOURCES_CHECK = (
+    'For a `/research` brief, also check the closing Sources section: that it lists the documents the brief\'s claims actually rest on, that every short-form reference used in the text (for example "WRG note 14") is defined by a citation key, and that no cited document is missing from the list. If the brief carries an analyst-override footnote instead of a Sources section, check that the footnote names a reason and a date. An override is the analyst\'s authorised decision, so it is not itself a reason to reject; still flag every claim that cannot be traced to a source cited in the text. A listed source that no claim cites is a minor point, not a reason to reject on its own.'
+)
+
+
+def test_risk_reviewer_role_prompt_checks_research_sources_and_override_disclosure():
+    """Contract test for issue #320: pins the maintainer-authorised sentence exactly, not model behaviour."""
+    prompt = flat(read("agents/risk_reviewer_agent.md"))
+    assert flat(RESEARCH_SOURCES_CHECK) in prompt
+    # Appended in place to Audit Checklist item 1: no new item, no renumbering.
+    item_1 = prompt[prompt.index("1. Flag any ungrounded assertion"):prompt.index(" 2. Assess the qualitative depth")]
+    assert item_1.endswith(flat(RESEARCH_SOURCES_CHECK))
+
+
 def test_the_registry_names_the_one_subagent_and_says_it_is_neither_a_command_nor_a_skill():
     registry = flat(read("config/skills_registry.md"))
     assert "Sub-agents are neither commands nor skills and have no row" in registry
@@ -608,6 +623,60 @@ RESEARCH_CHECKPOINT_MUTATIONS = [
                          ids=[item[0] for item in RESEARCH_CHECKPOINT_MUTATIONS])
 def test_research_checkpoint_contract_catches_mutations(label, change, expected):
     assert any(expected in problem for problem in research_checkpoint_problems(change(read(RESEARCH))))
+
+
+PRIMARY_DOCUMENT_PARAGRAPH = (
+    "For a borrower inside a group, read the primary documents, not only the registry summaries. "
+    "Open the full instrument for every outstanding charge: who the chargeholders are, what it secures "
+    "and how far any negative pledge reaches. Read the creditors and debtors notes, the key accounting "
+    "estimates and the going-concern note of the borrower's own accounts, and compare what the directors "
+    "say about borrowing with what the notes show. Read the parent's subsidiary and guarantee notes for "
+    "statutory parent guarantees and for which entity directly holds each subsidiary. Read the PSC history, "
+    "including ceased PSCs, and look for overlap with the board and the company secretary. Save each document "
+    "you rely on under the Source material step. Where a document cannot be opened, say so as a gap rather "
+    "than writing around it. Do this for each year's accounts you can open, not only the latest: the controlling-party note can disclose a dated ownership change the PSC register has not caught up with, and a policy or loan note can change between years. Where the register and the accounts disagree, say so and make it an analyst follow-up."
+)
+PRIMARY_DOCUMENT_REQUIREMENTS = {
+    "charge instruments": "full instrument for every outstanding charge",
+    "accounts notes": "creditors and debtors notes, the key accounting estimates and the going-concern note",
+    "parent guarantees and direct holders": "statutory parent guarantees and for which entity directly holds each subsidiary",
+    "PSC history": "PSC history, including ceased PSCs, and look for overlap with the board and the company secretary",
+}
+
+
+def primary_document_problems(text):
+    body = flat(text)
+    return [label for label, needle in PRIMARY_DOCUMENT_REQUIREMENTS.items() if needle not in body]
+
+
+def test_research_command_requires_primary_documents_for_group_borrowers():
+    command = read(RESEARCH)
+    assert flat(PRIMARY_DOCUMENT_PARAGRAPH) in flat(command)
+    assert primary_document_problems(command) == []
+    body = flat(command)
+    assert "Save each document you rely on under the Source material step" in body
+    assert "Where a document cannot be opened, say so as a gap" in body
+
+
+PRIMARY_DOCUMENT_MUTATIONS = [
+    ("charge instruments", lambda t: mutate(t, r"full instrument for every outstanding charge",
+                                             "registry summary only"), "charge instruments"),
+    ("accounts notes", lambda t: mutate(t, r"creditors and debtors notes, the key accounting estimates and the going-concern note",
+                                        "the annual report summary"), "accounts notes"),
+    ("parent guarantees and direct holders",
+     lambda t: mutate(t, r"statutory parent guarantees and for which entity directly holds each subsidiary",
+                      "parent support generally"), "parent guarantees and direct holders"),
+    ("PSC history",
+     lambda t: mutate(t, r"PSC history, including ceased PSCs, and look for overlap with the board and the company secretary",
+                      "current PSC only"), "PSC history"),
+]
+
+
+@pytest.mark.parametrize(("label", "change", "expected"), PRIMARY_DOCUMENT_MUTATIONS,
+                         ids=[m[0] for m in PRIMARY_DOCUMENT_MUTATIONS])
+def test_primary_document_contract_detects_each_weakened_check(label, change, expected):
+    changed = change(read(RESEARCH))
+    assert expected in primary_document_problems(changed), (label, primary_document_problems(changed))
 
 
 DRAFT_ARG = r' --draft "deals/<company>/<proposal>_draft.md"`\*\*'

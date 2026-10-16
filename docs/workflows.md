@@ -76,7 +76,12 @@ Claude Code only.
 ```
 
 1. Claude screens legal identity, ownership and charges and drafts the company and sector sections, citing a source
-   for every claim **(model)**. Each document it fetches or is given is saved to the deal's `sources/` folder:
+   for every claim **(model)**. For a borrower inside a group or with related-party links, it reads the full outstanding
+   charge instruments, the borrower's creditors/debtors/key-estimates/going-concern notes, the parent's guarantee and
+   subsidiary-holder notes, and current plus ceased PSC history. It repeats the accounts-note checks for each available
+   year, not just the latest, and makes register/accounts conflicts analyst follow-ups; an inaccessible document is
+   reported as an evidence gap. Each document it fetches or is given, and each it relies on, is saved to the deal's
+   `sources/` folder:
 
    ```bash
    python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \
@@ -420,8 +425,14 @@ python scripts/orchestrator.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 2. **The Risk Reviewer's judgement (model)**, run by a fresh sub-agent that has not seen your session and reads the saved
    draft and the deal's files itself, covers what code cannot: unsourced claims, weak mitigants, whether the
-   narrative is substantive, and (when you have calibrated one) credit-policy violations. A code-enforced reason
-   cannot be overridden by it.
+   narrative is substantive, and (when you have calibrated one) credit-policy violations. For a `/research` brief,
+   it also checks that the closing Sources list is complete for the claims, that each in-text short-form reference has
+   a citation key, and that no cited document is absent from the list. If an analyst-override footnote replaces Sources,
+   the note must include a reason and date; the authorised override itself is not grounds to reject, but every claim
+   still has to trace to a source cited in the text. A listed source that no claim cites is a minor point, not a reason to reject on its own. A code-enforced reason cannot be overridden by it.
+   The analyst-override footnote is added by the exporter after the review, so the Reviewer cannot see it: a brief exported
+   with an override and no Sources section may therefore be flagged by the Reviewer. The analyst's decision at the review
+   checkpoint (after three consecutive rejected passes, or at a lower maximum the analyst set for the deal) handles that case.
 
 Each verdict is appended to the deal's `review_trail`, which is never replaced:
 

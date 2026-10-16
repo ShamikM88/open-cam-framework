@@ -18,6 +18,16 @@ NO_SOURCES_BRIEF = (
 )
 
 
+VALID_BRIEF = (
+    "# Synthetic Research Brief\n\n## Go/No-Go\n\nGO -- synthetic example.\n\n"
+    "## Sources\n\n- Synthetic registry record: https://example.invalid/registry\n"
+)
+NO_SOURCES_BRIEF = (
+    "# Synthetic Research Brief\n\n## Go/No-Go\n\n"
+    "The word sources in this paragraph is not a sources section.\n"
+)
+
+
 def test_creates_dated_output_folder_when_none_exists_yet(tmp_path):
     base = str(tmp_path)
     output_path = export_research_brief(

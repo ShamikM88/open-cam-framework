@@ -75,7 +75,10 @@ def _normalise_number_token(number):
 
 
 def _mask_verified_manifest_count(text, deal_folder):
-    """Mask the generated manifest-entry count only when it matches the saved manifest."""
+    """Mask only a verified manifest count on the opening Material reviewed line."""
+    if not text.startswith("**Material reviewed:**"):
+        return text
+    first_line, separator, remaining = text.partition("\n")
     manifest_path = Path(deal_folder) / "sources" / "manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -84,12 +87,12 @@ def _mask_verified_manifest_count(text, deal_folder):
     if not isinstance(manifest, list):
         return text
 
-    chars = list(text)
-    for match in MANIFEST_COUNT_RE.finditer(text):
+    chars = list(first_line)
+    for match in MANIFEST_COUNT_RE.finditer(first_line):
         if int(match.group(1)) == len(manifest):
             start, end = match.span(1)
             chars[start:end] = " " * (end - start)
-    return "".join(chars)
+    return "".join(chars) + (separator + remaining if separator else "")
 
 
 def report_problems(report, deal_folder, spec, *, items=None, stopped=False):

@@ -230,8 +230,10 @@ contextual, and a model-invocable description would sit in every session's conte
   "Source material persistence". The standard is the Underwriter's Guideline 1, which it points to and does not restate.
 - **Side effects.** None.
 - **Limits.** It can show that a document is saved, not that it supports the claim; it marks those for a person and
-  never says "verified". `--check-sources` says only that nothing was saved despite a declared `triage` or `commercial`
-  citation; the matching of citations to entries is the skill's own reading. The catalogue's "keep analysis grounded" is built as an on-demand audit, not as an always-on
+  never says "verified". `--check-sources` prints two keys: `missing_saved_sources` is `true` when nothing was saved despite a
+  declared `triage` or `commercial` citation, and also when `sources_declared` is `"unknown"`; `sources_declared` is
+  `"declared"`, `"not_declared"` or `"unknown"`, and `"unknown"` (a completed step's saved state has no valid `sources`
+  list) is a gap in the record to report, never proof that no citations were used. The matching of citations to entries is the skill's own reading. The catalogue's "keep analysis grounded" is built as an on-demand audit, not as an always-on
   reminder: a persistent reminder is a Practice skill and would duplicate Guideline 1.
 - **Versus commands.** `/review` challenges a draft's assertions as the Checker; this audits the deal's records before
   drafting and is not a Checker.

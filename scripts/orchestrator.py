@@ -498,6 +498,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
     validate_finite_numbers(multi_period_financials, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
+    validate_finite_numbers(collateral_data, path="collateral")
     client = client or _default_client()
 
     # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly

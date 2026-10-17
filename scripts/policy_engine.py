@@ -593,7 +593,7 @@ def evaluate_deal_policy(state_dict):
     if state_dict:
         for key in (
             "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
-            "stress_assumptions", "downside_case", "covenants",
+            "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
         ):
             if key in state_dict:
                 validate_finite_numbers(state_dict[key], path=f"policy state[{key!r}]")

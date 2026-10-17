@@ -83,7 +83,8 @@ a positive denominator is a real number and is kept (an EBITDA of -100 over debt
 `NaN`, `Infinity` and `-Infinity` in raw figures or stress assumptions before evaluating them. Non-finite values
 already present in persisted state, supplied as covenant thresholds/ratios, or produced by arithmetic overflow are
 also rejected before the state is changed or a policy result is returned. They are never coerced to zero, N/A or a
-large finite substitute. This does not change the rule above: finite negative numerators remain valid figures, while
+large finite substitute. The same guard covers the `collateral` and `security_package` figures in state and the
+`--collateral` input of the headless run (one `error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators remain valid figures, while
 ratios with zero or negative denominators remain N/A.
 
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the

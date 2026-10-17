@@ -54,3 +54,19 @@ def test_headless_cli_rejects_non_finite_stress_before_model_or_state(tmp_path, 
 
     _assert_controlled_error(result, "stress assumptions", "revenue_haircut_pct")
     assert not (tmp_path / "deals").exists()
+
+
+COLLATERAL_TOKENS = (*NON_FINITE_TOKENS, "1e999")
+
+
+@pytest.mark.parametrize("token", COLLATERAL_TOKENS, ids=["nan", "positive-infinity", "negative-infinity", "overflow-1e999"])
+def test_headless_cli_rejects_non_finite_collateral_before_model_or_state(tmp_path, token):
+    """Decision D4 (#244): collateral figures feed the cover ratio, so they get the same guard as financials."""
+    collateral = tmp_path / "collateral.json"
+    collateral.write_text('[{"asset_class":"HGV","exposure":' + token + ',"collateral_value":80}]', encoding="utf-8")
+
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+                               "--collateral", collateral)
+
+    _assert_controlled_error(result, "collateral", "exposure")
+    assert not (tmp_path / "deals").exists()

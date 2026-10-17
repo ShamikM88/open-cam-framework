@@ -2161,3 +2161,21 @@ def test_run_pipeline_rejects_non_finite_persisted_raw_state_before_model_call(p
 
     assert client.call_count == 0
     assert _deal_files() == before
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), json.loads("1e999")],
+                         ids=["nan", "positive-infinity", "negative-infinity", "overflow-1e999"])
+def test_run_pipeline_rejects_non_finite_collateral_before_model_call(project_root, value):
+    """Decision D4 (#244): collateral_data is validated like the financial inputs, before any model call or write."""
+    client = MockClient([])
+    before = _deal_files()
+
+    with pytest.raises(ValueError, match="collateral.*exposure"):
+        run_pipeline(
+            "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            collateral_data=[{"asset_class": "HGV", "exposure": value, "collateral_value": 80}],
+            client=client,
+        )
+
+    assert client.call_count == 0
+    assert _deal_files() == before

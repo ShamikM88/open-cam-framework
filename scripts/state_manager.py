@@ -88,7 +88,7 @@ FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
 # State fields whose numeric contents participate in framework-computed financial or policy decisions.
 FINITE_NUMERIC_STATE_KEYS = (
     "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
-    "stress_assumptions", "downside_case", "covenants",
+    "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
 )
 
 

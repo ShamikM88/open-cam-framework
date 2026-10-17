@@ -113,6 +113,19 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
 - `--financials` is a JSON file of raw line items per period (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`,
   any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
   own forecast, never derived by the tool.
+  Periods are merged into the deal's recorded `multi_period_financials` rather than replacing the whole
+  history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
+  `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
+  matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
+  **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
+  (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
+  nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
+  For forward-year input only, `financials_source` is a deal-level flag. If a run would clear
+  `analyst-supplied` while preserving any non-empty period whose raw line items are missing, the run is refused
+  before a model call or write. If raw line items exist for every preserved period, all preserved raw periods are
+  recomputed alongside the new input before the flag is changed to `framework-computed`. Supply raw inputs for
+  every preserved period to recompute, or keep the analyst-supplied basis; a partial update must not relabel stale
+  analyst-supplied figures as framework-computed.
 - `--collateral` is a JSON file holding a flat list of asset objects.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,

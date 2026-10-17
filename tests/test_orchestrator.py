@@ -1157,6 +1157,62 @@ def test_run_pipeline_preserves_existing_financials_when_rerun_without_new_data(
     assert state_after_second["financials"]["FY-Current"]["gross_profit"] == 600
 
 
+def test_run_pipeline_merges_forward_only_input_with_recorded_history_and_resolves_covenant(project_root):
+    from spreading_check import compute
+
+    history = {
+        "FY-1": {"revenue": 2000, "cost_of_sales": 1000, "admin_expenses": 200,
+                 "interest_paid": 40, "scheduled_principal": 100, "long_term_debt": 500},
+        "FY-Current": {"revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
+                       "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 600},
+    }
+    compute("Acme Corp", "Fleet Loan", multi_period_financials=history)
+    write_state("Acme Corp", "Fleet Loan", covenants=[
+        {"metric": "dscr", "type": "minimum", "threshold": 1.2},
+    ])
+    forward = {
+        "FY+1": {"revenue": 2600, "cost_of_sales": 1300, "admin_expenses": 270,
+                 "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 620},
+        "FY+2": {"revenue": 2750, "cost_of_sales": 1350, "admin_expenses": 280,
+                 "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 610},
+    }
+
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials=forward, client=MockClient([_compliant_draft(cs_ids=[*STANDARD_CS_IDS, "CS-COVENANT-COMPLIANCE"]), _approved_json()]),
+    )
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    expected_periods = {"FY-1", "FY-Current", "FY+1", "FY+2"}
+    assert set(state["multi_period_financials"]) == expected_periods
+    assert set(state["financials"]) == expected_periods
+    assert set(state["ratios"]) == expected_periods
+    assert state["multi_period_financials"]["FY-Current"] == history["FY-Current"]
+    result = next(item for item in state["policy_state"]["covenant_results"] if item["metric"] == "dscr")
+    assert result["status"] == "PASS"
+    assert result["actual"] is not None and result["actual"] >= 1.2
+
+
+def test_run_pipeline_merges_partial_historical_correction_field_by_field(project_root):
+    from spreading_check import compute
+
+    recorded = {
+        "revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
+        "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 600,
+    }
+    compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": recorded})
+
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials={"FY-Current": {"revenue": 2600}},
+        client=MockClient([_compliant_draft(), _approved_json()]),
+    )
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["multi_period_financials"]["FY-Current"] == {**recorded, "revenue": 2600}
+    assert state["financials"]["FY-Current"]["gross_profit"] == 1400
+
+
 def test_run_pipeline_preserves_existing_collateral_when_rerun_without_new_data(project_root):
     collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
                          "perfection_status": "Registered"}]
@@ -1474,11 +1530,10 @@ def test_build_grounding_context_omits_financials_source_note_text_when_not_give
 
 
 def test_run_pipeline_resets_financials_source_note_when_fresh_financials_given(project_root):
-    """A fresh --financials/--spread run always resets financials_source to
-    framework-computed (see run_pipeline()'s own comment) -- a stale note
-    from a prior analyst-supplied run must not linger in state.json either,
-    even though it's currently inert while financials_source itself is reset."""
-    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+    """A fresh --financials/--spread run on a deal that is not analyst-supplied resets financials_source to
+    framework-computed (see run_pipeline()'s own comment) and clears any stale note. (An analyst-supplied deal is
+    refused instead: decision D2, see the tests below.)"""
+    write_state("Acme Corp", "Fleet Loan", financials_source="framework-computed",
                 financials_source_note="Stale note from a prior run.")
     client = MockClient([_compliant_draft(), _approved_json()])
     multi_period_financials = {
@@ -1751,14 +1806,102 @@ def test_without_the_analyst_flag_the_same_state_gets_the_ordinary_recomputation
     assert read_state("Acme Corp", "Fleet Loan")["downside_case"] == {"financials": {}, "ratios": {}}
 
 
+def test_partial_recompute_refuses_to_relabel_preserved_analyst_history_without_raw_inputs(project_root):
+    """A deal-level source flag cannot be cleared while an untouched historical period has no raw lines to recompute."""
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials_source_note="FY-1 was supplied by the analyst",
+        financials={"FY-1": {"ebitda": 777}},
+        ratios={"FY-1": {"dscr": 9.99}},
+        steps_completed=["spread"],
+    )
+    before = _deal_files()
+    client = MockClient([])
+
+    with pytest.raises(StateError) as refused:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            multi_period_financials={"FY+1": {"revenue": 2000, "cost_of_sales": 1000}},
+            client=client,
+        )
+
+    message = str(refused.value)
+    assert "analyst-supplied" in message and "FY-1" in message and "nothing was written" in message
+    assert client.call_count == 0, "the provenance check runs before any model call"
+    assert _deal_files() == before, "state and every other file remain byte-identical"
+
+
+def test_partial_recompute_recomputes_all_preserved_analyst_periods_when_raw_inputs_exist(project_root):
+    """A safe recomputation includes every preserved historical period with available raw lines, not just the fresh delta."""
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials_source_note="FY-1 was supplied by the analyst",
+        multi_period_financials={"FY-1": {"revenue": 1000, "cost_of_sales": 600}},
+        financials={"FY-1": {"ebitda": 777}},
+        ratios={"FY-1": {"dscr": 9.99}},
+        steps_completed=["spread"],
+    )
+    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials={"FY+1": {"revenue": 2000, "cost_of_sales": 1000}},
+        client=client,
+    )
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials_source"] == "framework-computed"
+    assert state["financials_source_note"] == ""
+    assert state["financials"]["FY-1"]["gross_profit"] == 400
+    assert state["financials"]["FY-1"]["ebitda"] == 400
+    assert state["ratios"]["FY-1"]["dscr"] is None, "the stale supplied ratio was replaced by a fresh computation"
+    assert state["financials"]["FY+1"]["gross_profit"] == 1000
+    assert set(state["financials"]) == {"FY-1", "FY+1"}
+
+
+@pytest.mark.parametrize("incoming", [
+    {"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+    {"FY-1": {"revenue": 4000}},
+    {"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}, "FY+1": {"revenue": 5200, "cost_of_sales": 3100}},
+], ids=["current", "prior-year", "historical-and-forward"])
+def test_a_headless_run_with_historical_figures_on_an_analyst_supplied_deal_is_refused_and_writes_nothing(
+        project_root, incoming):
+    """Decision D2 (#246): --financials with a historical period never recomputes or relabels an analyst-supplied deal,
+    even when raw lines exist for every recorded period."""
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials={"FY-Current": {"ebitda": 300, "gross_profit": 999}},
+        ratios={"FY-Current": {"dscr": 1.3}},
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000}},
+        multi_period_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 4001}},
+        steps_completed=["spread"],
+    )
+    before = _deal_files()
+    client = MockClient([])
+
+    with pytest.raises(StateError) as refused:
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     multi_period_financials=incoming, client=client)
+
+    message = str(refused.value)
+    assert "analyst-supplied" in message and "historical" in message and "nothing was written" in message
+    assert "\n" not in message
+    assert client.call_count == 0, "the refusal comes before any model call"
+    assert _deal_files() == before, "state and every other file remain byte-identical"
+    assert read_state("Acme Corp", "Fleet Loan")["financials_source"] == "analyst-supplied"
+
+
 def test_a_fresh_recomputation_replaces_the_forward_years_and_clears_the_analyst_forecast_flag(project_root):
     _analyst_forecast_state(forecast_source="analyst-supplied")
     client = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-                 multi_period_financials={"FY-Current": {"revenue": 100, "cost_of_sales": 60}}, client=client)
+                 multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}}, client=client)
     state = read_state("Acme Corp", "Fleet Loan")
     assert state["forecast_source"] is None and state["financials_source"] == "framework-computed"
-    assert set(state["financials"]) == {"FY-Current"}
+    assert set(state["financials"]) == {"FY-Current", "FY+1"}
 
 
 def test_a_deal_that_never_had_the_flag_does_not_gain_one_from_a_run(project_root):
@@ -1836,8 +1979,7 @@ def test_a_changed_assumption_is_still_allowed_with_a_fresh_recomputation_or_wit
     _analyst_forecast_state(forecast_source="analyst-supplied")
     client = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-                 multi_period_financials={"FY-Current": {"revenue": 100, "cost_of_sales": 60},
-                                          "FY+1": {"revenue": 100, "cost_of_sales": 60}},
+                 multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}},
                  stress_assumptions={"revenue_haircut_pct": 30}, client=client)
     state = read_state("Acme Corp", "Fleet Loan")
     assert state["forecast_source"] is None and state["stress_assumptions"] == {"revenue_haircut_pct": 30}

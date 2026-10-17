@@ -119,10 +119,10 @@ def _print_plan_details(selected, repeats):
         models = eval_runner.describe_inputs(eval_runner.REPO_ROOT, scratch)["models"]
     makers = sum(1 for c in selected if c["mode"] == "maker")
     checkers = len(selected) - makers
-    print(f"  Maker cases ({makers}): model {models['maker_model']}, temperature {models['maker_temperature']}, "
+    print(f"  Maker cases ({makers}): model {models['maker_model']}, "
           f"max_tokens {eval_runner.MAKER_MAX_TOKENS}")
-    print(f"  Checker cases ({checkers}): model {models['checker_model']}, temperature "
-          f"{models['checker_temperature']}, max_tokens {eval_runner.CHECKER_MAX_TOKENS}")
+    print(f"  Checker cases ({checkers}): model {models['checker_model']}, "
+          f"max_tokens {eval_runner.CHECKER_MAX_TOKENS}")
     bound = repeats * (makers * eval_runner.MAKER_MAX_TOKENS + checkers * eval_runner.CHECKER_MAX_TOKENS)
     print(f"  Output is bounded at {bound} tokens in total (calls x max_tokens). Input size is not bounded "
           "here: it depends on each case's prompt.")

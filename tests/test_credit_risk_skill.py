@@ -275,3 +275,16 @@ def test_the_refusal_list_names_each_character_once_so_a_backslash_in_a_name_is_
     assert all(len(token) == 1 for token in listed)
     for name in ("Acme\\Holdings", "Acme/Holdings", "Acme:Holdings", "Acme$Holdings"):
         assert any(token in name for token in listed), name
+
+
+def test_report_numbers_must_match_whole_record_tokens_not_substrings(tmp_path):
+    """The credit-risk report shares the whole-token number check (#262): 50 is inside 1250/2500, 2 inside 2026."""
+    folder = make_deal(tmp_path, state={**BASE_STATE, "financials": {"FY-Current": {"ebitda": 1250}}, "total_debt": 2500})
+    report = (header("not present", NO_DRAFT, "Financial") + risk(
+        1, "Market position", "Is the claim supported?", "The reviewed record contains no statement establishing it.",
+        "An unsupported position could mislead the reader.", NONE, "The record does not establish it.",
+        "Which source supports it?") + "\n" + CAVEAT)
+    assert report_problems(report, folder, SPEC, items=1) == [], report_problems(report, folder, SPEC, items=1)
+    for sentence, token in (("EBITDA margin is 50 percent of debt.", "50"), ("Gross leverage works out at 2x.", "2")):
+        broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
+        assert f"number not in the record: {token}" in report_problems(broken, folder, SPEC, items=1)

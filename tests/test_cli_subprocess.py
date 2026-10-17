@@ -356,7 +356,8 @@ def test_deal_export_reports_unsafe_names_as_one_error_line(cli, name):
 
 def test_research_export_reports_unsafe_names_as_one_error_line(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Research brief\n", encoding="utf-8")
+    # A populated Sources section, so the exporter's sources check passes and the unsafe name is what fails.
+    brief.write_text("# Research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/a\n", encoding="utf-8")
     result = cli("research_export", "--company", "a/b", "--proposal", "Brief", "--brief", brief)
     _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
     assert not (cli.workdir / "deals").exists()

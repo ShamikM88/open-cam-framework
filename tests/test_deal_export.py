@@ -248,6 +248,58 @@ def test_export_deal_populates_downside_columns_in_the_exported_workbook(tmp_pat
     assert ws.cell(row=label_to_row["Revenue"], column=8).value == 950  # H = FY+1 (Downside)
 
 
+def test_analyst_supplied_historical_export_uses_recorded_values_and_labels_the_column(tmp_path):
+    from state_manager import write_state
+
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+    write_state(
+        "Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base,
+        financials_source="analyst-supplied",
+        analyst_supplied_financials={
+            "FY-Current": {"revenue": 5000, "cost_of_sales": 3300, "admin_expenses": 1000},
+        },
+        financials={
+            "FY-Current": {
+                "gross_profit": 1700, "ebitda": 1300, "total_equity": 2300,
+            },
+        },
+        ratios={
+            "FY-Current": {
+                "gross_leverage": 1.54, "dscr": 2.6, "gearing": 0.87,
+            },
+        },
+    )
+
+    output_dir = export_deal(
+        "Acme Corp", "Fleet Loan", "asset_finance", "# Draft",
+        date_str="2026-01-15", base_dir=base,
+    )
+
+    wb = openpyxl.load_workbook(os.path.join(output_dir, "Acme Corp_Fleet Loan_Spreading.xlsx"))
+    ws = wb["Financial Spreading"]
+    assert ws.cell(row=1, column=4).value == "FY-Current (analyst-supplied)"
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+
+    expected_values = {
+        "Revenue": 5000,
+        "Gross Profit": 1700,
+        "EBITDA": 1300,
+        "Total Equity": 2300,
+        "Gross Leverage": 1.54,
+        "DSCR": 2.6,
+        "Gearing % (Interest-Bearing Debt / Equity)": 0.87,
+    }
+    for label, expected in expected_values.items():
+        value = ws.cell(row=label_to_row[label], column=4).value
+        assert value == expected, label
+        assert not (isinstance(value, str) and value.startswith("=")), label
+
+    # No recorded subtotal was supplied for Net Profit; do not let Excel
+    # recompute one from raw cells that were not the basis of the supplied figure.
+    assert ws.cell(row=label_to_row["Net Profit"], column=4).value is None
+
+
 # ---------------------------------------------------------------------------
 # CLI (/assemble's Bash step): which dated folder does it export into? Issue
 # #97 -- a multi-day deal's output must land next to its own state.json, not

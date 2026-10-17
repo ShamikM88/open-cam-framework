@@ -181,6 +181,28 @@ def test_completion_kwargs_includes_temperature_via_extra_body_when_given():
     }
 
 
+def test_run_pipeline_warns_and_ignores_unsupported_temperature_settings(project_root, capsys):
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-sonnet-5",
+        "checker_model": "claude-opus-5",
+        "maker_temperature": 0.3,
+        "checker_temperature": 0.2,
+    }), encoding="utf-8")
+
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        client=client,
+    )
+
+    warning = capsys.readouterr().err.lower()
+    assert "maker_temperature" in warning and "checker_temperature" in warning
+    assert "ignored" in warning
+    assert client.call_count == 2
+    assert all("extra_body" not in call for call in client.calls)
+    assert all("temperature" not in call for call in client.calls)
+
+
 def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project_root):
     """End-to-end proof, not just the config-parsing function in isolation:
     with checker_model configured differently, the actual client.messages

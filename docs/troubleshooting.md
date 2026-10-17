@@ -24,6 +24,10 @@ Expected, not an error. `calibrate.py` has no key, so it wrote placeholder files
 call. To calibrate for real, set the key in your own shell (see [Configuration](configuration.md#credentials)) and
 run again without `--mock`.
 
+### `calibrate.py` reports that PDFs have no extractable text
+
+A sample PDF may be an image-only scan or otherwise lack a text layer. Calibration warns with the PDF's filename and skips it. If the complete sample set has no extractable text, the command exits with status 1 before making a model call or writing either output, including in `--mock` mode. Use `/calibrate`, which reads PDFs natively, or OCR the samples before running the headless calibration script.
+
 ### `orchestrator.py` stops with `error: no Anthropic credentials were found`
 
 The headless pipeline needs credentials the Anthropic SDK can use: normally `ANTHROPIC_API_KEY` in the environment of

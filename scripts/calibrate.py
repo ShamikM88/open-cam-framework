@@ -146,13 +146,27 @@ def _sample_pdf_paths():
 
 
 def _read_sample_text():
-    text_content = ""
+    """Read extractable text and warn about PDFs that contain none."""
+    text_parts = []
     for path in _sample_pdf_paths():
         reader = PdfReader(path)
+        pdf_parts = []
         for page in reader.pages:
-            text_content += page.extract_text() + "\n"
-    return text_content
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                # Preserve the historical trailing newline per text-bearing page.
+                pdf_parts.append(page_text + "\n")
 
+        pdf_text = "".join(pdf_parts)
+        if not pdf_text.strip():
+            print(
+                f"[WARN] {path}: no extractable text; it may be scanned. "
+                "Use /calibrate, which reads PDFs natively, or OCR it first."
+            )
+            continue
+        text_parts.append(pdf_text)
+
+    return "".join(text_parts)
 
 def _split_into_chunks(text, limit=CHUNK_CHAR_LIMIT):
     """Split `text` into consecutive pieces of at most `limit` characters,
@@ -301,9 +315,15 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
     # the length check below is the first decision point of the run -- see
     # _choose_overflow_mode().
     text_content = _read_sample_text()
-    if not text_content:
-        print("No sample PDFs found in inputs/calibration_samples/")
-        return
+    if not text_content.strip():
+        if not _sample_pdf_paths():
+            print("No sample PDFs found in inputs/calibration_samples/")
+            return
+        sys.exit(
+            "error: calibration PDFs contain no extractable text; no model call "
+            "was made and no output files were written. Use /calibrate, which "
+            "reads PDFs natively, or OCR the samples first."
+        )
 
     total_chars = len(text_content)
     mode = "split"

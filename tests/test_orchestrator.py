@@ -55,7 +55,7 @@ class MockClient:
     """Stand-in for anthropic.Anthropic: returns each response in `responses`,
     in order, from successive .messages.create() calls. Also records every
     call's kwargs (self.calls) so a test can assert on what model/
-    temperature/etc. a given call actually received -- e.g. confirming the
+    request kwargs a given call actually received -- e.g. confirming the
     Maker and Checker calls used different configured models."""
 
     def __init__(self, responses):
@@ -105,9 +105,9 @@ def project_root(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# _resolve_maker_checker_config()/_completion_kwargs(): the Maker and
-# Checker are independently configurable model/temperature knobs, read from
-# config/settings.json fresh on every call rather than a hardcoded constant.
+# _resolve_maker_checker_config()/_completion_kwargs(): model selection is
+# configurable; unsupported per-agent temperature overrides are retired and
+# never sent, with a warning if a legacy config still declares them.
 # ---------------------------------------------------------------------------
 
 def test_resolve_maker_checker_config_raises_when_no_config_file_at_all(tmp_path, monkeypatch):
@@ -137,9 +137,8 @@ def test_resolve_maker_checker_config_reads_model_from_settings(project_root):
     assert config["checker_model"] == "claude-custom-v9"  # still no separate override given
 
 
-def test_resolve_maker_checker_config_checker_model_independent_of_maker(project_root):
-    """The core of the model-independence fix: an explicit checker_model
-    must NOT be overridden by the maker's model."""
+def test_resolve_maker_checker_config_checker_model_independent_of_maker(project_root, capsys):
+    """Model choice stays independent; retired sampling settings are warned about and ignored."""
     (project_root / "config" / "settings.json").write_text(json.dumps({
         "maker_model": "claude-maker-model",
         "checker_model": "claude-checker-model",
@@ -150,8 +149,11 @@ def test_resolve_maker_checker_config_checker_model_independent_of_maker(project
     config = _resolve_maker_checker_config()
     assert config["maker_model"] == "claude-maker-model"
     assert config["checker_model"] == "claude-checker-model"
-    assert config["maker_temperature"] == 0.2
-    assert config["checker_temperature"] == 0.0
+    assert "maker_temperature" not in config
+    assert "checker_temperature" not in config
+    warning = capsys.readouterr().err
+    assert "maker_temperature" in warning and "checker_temperature" in warning
+    assert "ignored" in warning
 
 
 def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, monkeypatch):
@@ -164,21 +166,13 @@ def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, mon
         _resolve_maker_checker_config()
 
 
-def test_completion_kwargs_omits_temperature_when_none():
-    assert _completion_kwargs("some-model", None) == {"model": "some-model"}
+def test_completion_kwargs_contains_only_the_model():
+    assert _completion_kwargs("some-model") == {"model": "some-model"}
 
 
-def test_completion_kwargs_includes_temperature_via_extra_body_when_given():
-    """Routed through extra_body, not a direct temperature= kwarg -- the
-    anthropic SDK (>=1.x) dropped temperature/top_p/top_k from
-    Messages.create()'s own typed signature; a direct kwarg raises
-    TypeError before any request is sent. extra_body is the SDK's own
-    documented escape hatch for this. This project's own test suite can't
-    catch a regression back to the direct-kwarg form on its own (MockClient
-    accepts arbitrary **kwargs), so this test pins the exact shape."""
-    assert _completion_kwargs("some-model", 0.3) == {
-        "model": "some-model", "extra_body": {"temperature": 0.3},
-    }
+def test_completion_kwargs_omits_sampling_parameters_for_shipped_models():
+    assert _completion_kwargs("claude-sonnet-5") == {"model": "claude-sonnet-5"}
+    assert _completion_kwargs("claude-opus-5") == {"model": "claude-opus-5"}
 
 
 def test_run_pipeline_warns_and_ignores_unsupported_temperature_settings(project_root, capsys):

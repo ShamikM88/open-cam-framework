@@ -106,8 +106,8 @@ def project_root(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------------------
 # _resolve_maker_checker_config()/_completion_kwargs(): the Maker and
-# Checker are independently configurable model/temperature knobs, read from
-# config/settings.json fresh on every call rather than a hardcoded constant.
+# Checker may use independent model identifiers. Unsupported legacy
+# temperature settings are warned about and never reach the API.
 # ---------------------------------------------------------------------------
 
 def test_resolve_maker_checker_config_raises_when_no_config_file_at_all(tmp_path, monkeypatch):
@@ -143,15 +143,11 @@ def test_resolve_maker_checker_config_checker_model_independent_of_maker(project
     (project_root / "config" / "settings.json").write_text(json.dumps({
         "maker_model": "claude-maker-model",
         "checker_model": "claude-checker-model",
-        "maker_temperature": 0.2,
-        "checker_temperature": 0.0,
     }), encoding="utf-8")
 
     config = _resolve_maker_checker_config()
     assert config["maker_model"] == "claude-maker-model"
     assert config["checker_model"] == "claude-checker-model"
-    assert config["maker_temperature"] == 0.2
-    assert config["checker_temperature"] == 0.0
 
 
 def test_resolve_maker_checker_config_warns_and_ignores_legacy_temperature_settings(
@@ -165,11 +161,19 @@ def test_resolve_maker_checker_config_warns_and_ignores_legacy_temperature_setti
     }), encoding="utf-8")
 
     config = _resolve_maker_checker_config()
-
     assert config == {
         "maker_model": "claude-maker-model",
         "checker_model": "claude-checker-model",
     }
+
+    # Exercise actual request kwargs as well as the config resolver: neither
+    # legacy temperature may be passed through to the Maker or Checker call.
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    assert len(client.calls) == 2
+    assert all("extra_body" not in call for call in client.calls)
+    assert all("temperature" not in call for call in client.calls)
+
     warning = capsys.readouterr().err
     assert "maker_temperature" in warning
     assert "checker_temperature" in warning
@@ -186,21 +190,8 @@ def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, mon
         _resolve_maker_checker_config()
 
 
-def test_completion_kwargs_omits_temperature_when_none():
-    assert _completion_kwargs("some-model", None) == {"model": "some-model"}
-
-
-def test_completion_kwargs_includes_temperature_via_extra_body_when_given():
-    """Routed through extra_body, not a direct temperature= kwarg -- the
-    anthropic SDK (>=1.x) dropped temperature/top_p/top_k from
-    Messages.create()'s own typed signature; a direct kwarg raises
-    TypeError before any request is sent. extra_body is the SDK's own
-    documented escape hatch for this. This project's own test suite can't
-    catch a regression back to the direct-kwarg form on its own (MockClient
-    accepts arbitrary **kwargs), so this test pins the exact shape."""
-    assert _completion_kwargs("some-model", 0.3) == {
-        "model": "some-model", "extra_body": {"temperature": 0.3},
-    }
+def test_completion_kwargs_uses_provider_default_sampling_only():
+    assert _completion_kwargs("some-model") == {"model": "some-model"}
 
 
 def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project_root):

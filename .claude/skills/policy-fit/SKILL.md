@@ -10,7 +10,7 @@ allowed-tools:
   - Glob
   - Grep
   - Bash(python scripts/policy_check.py *)
-disallowed-tools: Write Edit NotebookEdit
+disallowed-tools: Write Edit NotebookEdit WebFetch WebSearch
 ---
 
 # policy-fit

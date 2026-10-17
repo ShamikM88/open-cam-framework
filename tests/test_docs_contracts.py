@@ -323,3 +323,97 @@ def test_the_system_prompt_claim_check_flags_each_wording_and_passes_the_current
     assert system_prompt_claims(right) == {}
     assert live_sources(), "the check must scan something"
     assert REPO / "docs" / "move-ledger.md" not in live_sources()
+
+
+# ---------------------------------------------------------------------------
+# Dated deal-state lookup is consistent across the seven state-reading commands
+# ---------------------------------------------------------------------------
+
+STATE_LOOKUP_COMMANDS = (
+    ".claude/commands/triage.md",
+    ".claude/commands/research.md",
+    ".claude/commands/spread.md",
+    ".claude/commands/commercial.md",
+    ".claude/commands/collateral.md",
+    ".claude/commands/project.md",
+    ".claude/commands/assemble.md",
+)
+
+
+# The maintainer-authorised paragraph (issue #251, comment 6229146299), identical in all seven commands. A PR may change
+# placement and formatting only; any other change to this text needs a fresh authorisation on that issue.
+AUTHORISED_STATE_LOOKUP = (
+    "Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files, newest-modified first, which is not "
+    "the same as latest by date; if the list reaches 100 files (the tool also flags truncation) it may be incomplete: "
+    "say that the latest dated folder could not be established, and stop. Otherwise consider only a folder named "
+    "exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and two-digit "
+    "day); ignore every other folder, including another proposal that merely starts with the same words. Take the "
+    "latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the "
+    "same rule). Read its `state.json` and note the folder."
+)
+
+
+def dated_state_lookup_problems(text):
+    """Report when a command does not use /review's exact dated-folder lookup and write-back rule."""
+    body = " ".join(text.split())
+    problems = []
+    if AUTHORISED_STATE_LOOKUP not in body:
+        problems.append("the lookup paragraph is not the maintainer-authorised text")
+    if re.search(r"there should be at most one, regardless of date", body, re.I):
+        problems.append("still claims there is at most one state file regardless of date")
+    required = {
+        "bounded glob": "Glob `deals/<company>/<proposal>_*/state.json`",
+        "100-result stop": "if the list reaches 100 files",
+        "incomplete-list warning": "it may be incomplete",
+        "exact-folder naming rule": "only a folder named exactly `<proposal>_YYYY-MM-DD`",
+        "latest-by-date rule": "Take the latest of those by comparing the date text",
+        "same-file write-back rule": "write back to that same file",
+    }
+    for label, phrase in required.items():
+        if phrase not in body:
+            problems.append(f"missing {label}")
+    return problems
+
+
+@pytest.mark.parametrize("path", STATE_LOOKUP_COMMANDS)
+def test_state_reading_commands_use_the_exact_dated_folder_rule(path):
+    assert dated_state_lookup_problems(read(path)) == []
+
+
+def test_the_dated_state_lookup_guard_detects_a_deliberately_wrong_glob_rule():
+    correct = (
+        "Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files, newest-modified first, "
+        "which is not the same as latest by date; if the list reaches 100 files it may be incomplete. Otherwise "
+        "consider only a folder named exactly `<proposal>_YYYY-MM-DD`; ignore other folders. Take the latest of "
+        "those by comparing the date text. Read its `state.json` and write back to that same file."
+    )
+    wrong = correct.replace(
+        "only a folder named exactly `<proposal>_YYYY-MM-DD`",
+        "any folder matching the proposal prefix",
+    )
+    assert wrong != correct, "the mutation must change the text the guard checks"
+    assert "missing exact-folder naming rule" in dated_state_lookup_problems(wrong)
+    assert "the lookup paragraph is not the maintainer-authorised text" in dated_state_lookup_problems(wrong)
+
+
+def documented_state_lookup_problems(text):
+    body = " ".join(text.split())
+    required = {
+        "exact-folder naming": "exact `<proposal>_YYYY-MM-DD` folder",
+        "latest-by-date selection": "choose the latest by comparing the date text",
+        "bounded lookup": "stop if the lookup reaches 100 files",
+        "incomplete results warning": "the list may be incomplete",
+    }
+    return [f"missing {label}" for label, phrase in required.items() if phrase not in body]
+
+
+def test_commands_documentation_describes_the_same_dated_state_lookup_rule():
+    assert documented_state_lookup_problems(read("docs/commands.md")) == []
+
+
+def test_the_documented_lookup_guard_detects_a_deliberately_wrong_date_rule():
+    correct = ("Look up an exact `<proposal>_YYYY-MM-DD` folder, choose the latest by comparing the date text, "
+               "and stop if the lookup reaches 100 files because the list may be incomplete.")
+    wrong = correct.replace("choose the latest by comparing the date text", "choose the first result")
+    assert wrong != correct, "the mutation must change the text the guard checks"
+    assert "missing latest-by-date selection" in documented_state_lookup_problems(wrong)

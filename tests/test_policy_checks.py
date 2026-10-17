@@ -371,6 +371,32 @@ def test_check_draft_compliance_passes_when_downside_breach_is_acknowledged():
     assert reasons == []
 
 
+def test_acknowledging_one_of_two_same_metric_downside_breaches_leaves_the_other_undisclosed():
+    first_breach = {
+        **DOWNSIDE_BREACH,
+        "year": "FY+1",
+        "breach_id": "DOWNSIDE-FY-1-DSCR",
+    }
+    second_breach = {
+        **DOWNSIDE_BREACH,
+        "year": "FY+1",
+        "breach_id": "DOWNSIDE-FY-1-DSCR-2",
+    }
+    draft = _compliant_draft(
+        cp_ids=["KYC-AML"], downside_breaches_acknowledged=["DOWNSIDE-FY-1-DSCR"])
+    policy_state = _policy_state(
+        downside_covenant_breaches=[first_breach, second_breach])
+
+    reasons = check_draft_compliance(draft, policy_state, {})
+
+    assert not any("Undisclosed Downside Breach DOWNSIDE-FY-1-DSCR " in reason for reason in reasons)
+    assert any(
+        "Undisclosed Downside Breach DOWNSIDE-FY-1-DSCR-2" in reason
+        and "FY+1" in reason and "dscr" in reason
+        for reason in reasons
+    )
+
+
 def test_check_draft_compliance_with_no_draft_never_checks_downside_disclosure():
     """Disclosure is a property of the draft's own narrative -- it can't be
     checked before a draft exists, same as CP/taxonomy."""

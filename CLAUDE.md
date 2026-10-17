@@ -489,13 +489,18 @@ model configured in `config/settings.json`.
 
 ### What `config/settings.json` actually controls
 
-Only the model and temperature keys are read: `maker_model` (required), and optional `checker_model`,
-`maker_temperature`, `checker_temperature` and `calibrate_model`. The other keys the shipped file carries
-(`max_tokens`, `default_currency`, `output_directory`, `template_directory`, `spreading_template_directory`) are
-**inert**: editing them changes nothing, because the values are constants in the code (issue #108). Wiring them in
-is deliberately not done: one `max_tokens` could not stand for three call sites with different limits, and the
-evaluation harness's budgets and baselines assume the current values. The full table, with where each key is read
-and the real values, is in [docs/configuration.md](docs/configuration.md#which-settings-are-read).
+Only the model keys are used: `maker_model` (required), and optional `checker_model` and `calibrate_model`.
+The legacy `maker_temperature` and `checker_temperature` keys are retired. If either remains in a fork's
+`config/settings.json`, `orchestrator.py` warns that it is ignored and omits sampling parameters from every
+request. The shipped Claude Sonnet 5 and Opus 5 models reject non-default sampling parameters with HTTP 400; use
+prompting to guide behaviour instead (see [Anthropic's model migration guidance](https://platform.claude.com/docs/en/about-claude/models/migration-guide)).
+
+The other keys the shipped file carries (`max_tokens`, `default_currency`, `output_directory`,
+`template_directory`, `spreading_template_directory`) are **inert**: editing them changes nothing, because the
+values are constants in the code (issue #108). Wiring them in is deliberately not done: one `max_tokens` could not
+stand for three call sites with different limits, and the evaluation harness's budgets and baselines assume the
+current values. The full table, with where each key is used and the real values, is in
+[docs/configuration.md](docs/configuration.md#which-settings-are-read).
 
 ## Testing and static analysis
 

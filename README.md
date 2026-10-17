@@ -113,6 +113,8 @@ analyst makes the credit decision. Details, including the grounding rule: [archi
 [`.claude/commands/`](.claude/commands/) is the runnable implementation of it, as native Claude
 Code slash commands (no `ANTHROPIC_API_KEY` needed — see [Getting started](#getting-started)):
 
+Skills are separate person-invoked analyst and maintainer aids, not workflow commands; see the [Skills reference](docs/skills.md).
+
 | Command | Inputs | Produces |
 | :--- | :--- | :--- |
 | `/calibrate` | Sample CAM PDFs in `inputs/calibration_samples/` | `config/style_guide.md` + a derived template override |

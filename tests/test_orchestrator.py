@@ -178,7 +178,23 @@ def test_resolve_maker_checker_config_warns_and_ignores_legacy_temperature_setti
     warning = capsys.readouterr().err
     assert "maker_temperature" in warning
     assert "checker_temperature" in warning
+    assert "claude-maker-model" in warning and "claude-checker-model" in warning, "the warning names the models"
     assert "ignored" in warning.lower()
+    assert warning.count("warning:") == 1, "one warning for the whole run, not one per call or iteration"
+
+
+def test_a_single_legacy_temperature_key_warns_naming_only_that_key_and_its_model(project_root, capsys):
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-maker-model", "checker_model": "claude-checker-model", "checker_temperature": 0.2,
+    }), encoding="utf-8")
+
+    config = _resolve_maker_checker_config()
+
+    assert config == {"maker_model": "claude-maker-model", "checker_model": "claude-checker-model"}
+    warning = capsys.readouterr().err
+    assert warning.count("warning:") == 1
+    assert "checker_temperature" in warning and "claude-checker-model" in warning
+    assert "maker_temperature" not in warning
 
 
 def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, monkeypatch):

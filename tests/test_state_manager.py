@@ -766,6 +766,40 @@ def test_resolve_date_str_returns_the_given_date_str_unchanged(tmp_path):
                              base_dir=str(tmp_path)) == "2026-01-15"
 
 
+@pytest.mark.parametrize("date_str", ["2026-02-31", "2026-13-01", "2026-00-01"])
+def test_state_path_and_write_state_reject_impossible_explicit_calendar_dates(tmp_path, date_str):
+    base = str(tmp_path)
+    with pytest.raises(ValueError, match="calendar date"):
+        state_path("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)
+    with pytest.raises(ValueError, match="calendar date"):
+        write_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base, note="must not write")
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("date_str", ["2024-02-29", "2026-01-31"])
+def test_valid_leap_day_and_month_end_dates_are_accepted(tmp_path, date_str):
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)
+    assert path == os.path.join(base, "deals", "Acme Corp", f"Fleet Loan_{date_str}", "state.json")
+    written = write_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base, note=date_str)
+    assert written["date"] == date_str
+    assert read_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)["note"] == date_str
+
+
+def test_auto_discovery_ignores_impossible_date_shaped_folder_names(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-31", base_dir=base, note="valid state")
+    impossible = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-02-31"
+    impossible.mkdir(parents=True)
+    (impossible / "state.json").write_text(
+        json.dumps({"company": "Acme Corp", "proposal": "Fleet Loan", "date": "2026-02-31",
+                    "note": "must be ignored"}),
+        encoding="utf-8",
+    )
+    assert resolve_date_str("Acme Corp", "Fleet Loan", base_dir=base) == "2026-01-31"
+    assert read_state("Acme Corp", "Fleet Loan", base_dir=base)["note"] == "valid state"
+
+
 def test_resolve_date_str_with_new_review_ignores_an_existing_dated_folder(tmp_path):
     base = str(tmp_path)
     write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base)

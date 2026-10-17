@@ -31,7 +31,7 @@ import re
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import date, datetime
 
 DEALS_DIR = "deals"
 
@@ -176,6 +176,33 @@ def parse_schema_version(value):
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+
+def validate_iso_date_str(value, field_name="date_str", require_shape=True):
+    """Validate ISO-shaped dates against the calendar.
+
+    The CLI requires the exact YYYY-MM-DD shape. The state-manager API preserves its
+    historical acceptance of non-ISO date suffixes (which discovery deliberately ignores),
+    but refuses impossible real-calendar dates such as 2026-02-31.
+    """
+    if not isinstance(value, str) or not _ISO_DATE_RE.fullmatch(value):
+        if require_shape:
+            raise ValueError(f"{field_name} {value!r} must be a YYYY-MM-DD date")
+        return value
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} {value!r} is not a valid calendar date") from exc
+    return value
+
+
+def _is_valid_iso_date_str(value):
+    try:
+        validate_iso_date_str(value)
+    except ValueError:
+        return False
+    return True
+
+
 LOCK_TIMEOUT_SECONDS = 10
 _LOCK_POLL_INTERVAL_SECONDS = 0.05
 
@@ -273,14 +300,16 @@ def _existing_date_str(company, proposal, base_dir=None):
     dates = []
     for p in glob.glob(pattern):
         name = os.path.basename(p)
-        if os.path.isdir(p) and name.startswith(prefix) and _ISO_DATE_RE.fullmatch(name[len(prefix):]):
+        if os.path.isdir(p) and name.startswith(prefix) and _is_valid_iso_date_str(name[len(prefix):]):
             dates.append(name[len(prefix):])
     return max(dates) if dates else None
 
 
 def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
     if date_str:
-        return date_str
+        # Preserve the legacy state-manager API for non-ISO suffixes, which discovery
+        # ignores, while refusing ISO-shaped impossible calendar dates at the boundary.
+        return validate_iso_date_str(date_str, require_shape=False)
     if new_review:
         # Force today's date rather than resuming the most recent existing
         # folder -- e.g. a new annual review for the same company/proposal

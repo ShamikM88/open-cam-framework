@@ -399,7 +399,7 @@ Subordinate Ranking: Asset AST-002 charge ranking is 'Second', not First.
 
    The deal's dated folder now holds `state.json`, `Synthetic Co_Synthetic Fleet Loan_CAM.docx` and
    `Synthetic Co_Synthetic Fleet Loan_Spreading.xlsx` (see [Outputs](outputs.md)). The folder is the deal's existing
-   one, however many days the work has taken. The temporary draft file is then deleted.
+   one, however many days the work has taken. The approved Markdown draft is then moved into that folder as `draft_approved.md` and its path is recorded in `state.json` as `approved_draft_path`; it is not deleted.
 
 The headless equivalent is one command, with the same outputs:
 

@@ -942,3 +942,55 @@ def test_the_decision_and_the_assurance_page_state_the_implemented_design_and_it
                    "A verified live run.", "default path to the trail is removed",
                    "a determined Reviewer could still Glob to and read the combined", "contract-tested", "an evidence gap"):
         assert needle in assurance, needle
+
+
+# The maintainer-authorised step 8 (issue #257, comment 6229145762), whitespace-flattened and without markup. A PR may
+# change placement and formatting only; any other change to this text needs a fresh authorisation on that issue.
+AUTHORISED_ASSEMBLE_STEP_8 = (
+    "8. Report the output folder to the user. Then preserve the approved Markdown draft, including its trailing "
+    "structured json block: move deals/<company>/<proposal>_draft.md into the same dated deal folder used for this "
+    "export (the actual folder date, not a new one) as draft_approved.md, and set approved_draft_path in that "
+    "folder's state.json to the repository-relative path of the moved file. Do not delete the approved draft: the "
+    ".docx/.xlsx are client-facing outputs, and the retained file is the exact code-checked artifact for audit."
+)
+
+
+# /assemble must retain the Markdown artifact whose contents were approved by /review.
+def assemble_approved_draft_problems(command_text):
+    """Return contract violations in step 8's approved-draft retention instructions."""
+    lines = command_text.splitlines()
+    step8 = next(
+        (i for i, line in enumerate(lines) if re.match(r"^\s*8\.\s", line)),
+        None,
+    )
+    if step8 is None:
+        return ["step 8 is missing"]
+    step9 = next(
+        (i for i in range(step8 + 1, len(lines)) if re.match(r"^\s*9\.\s", lines[i])),
+        len(lines),
+    )
+    step = flat("\n".join(lines[step8:step9]))
+    problems = []
+    if AUTHORISED_ASSEMBLE_STEP_8 not in step:
+        problems.append("step 8 is not the maintainer-authorised text")
+    if "delete the temporary <proposal>_draft.md file" in step:
+        problems.append("step 8 still deletes the reviewed draft")
+    if "draft_approved.md" not in step:
+        problems.append("step 8 does not name the retained draft destination")
+    if "approved_draft_path" not in step:
+        problems.append("step 8 does not record the retained draft path in state.json")
+    return problems
+
+
+def test_assemble_retains_the_approved_draft_and_records_its_path():
+    # Deliberately broken text demonstrates that the contract detects the old behavior.
+    broken = (
+        "8. Report the output folder, then delete the temporary "
+        "`<proposal>_draft.md` file.\n"
+        "9. Continue with optional learnings."
+    )
+    assert len(assemble_approved_draft_problems(broken)) == 4
+    reworded = read(ASSEMBLE).replace("Do not delete the approved draft", "Keep the approved draft")
+    assert "step 8 is not the maintainer-authorised text" in assemble_approved_draft_problems(reworded)
+    assert "step 8 is missing" in assemble_approved_draft_problems("No numbered steps here.")
+    assert assemble_approved_draft_problems(read(ASSEMBLE)) == []

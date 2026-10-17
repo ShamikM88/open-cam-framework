@@ -59,6 +59,7 @@ shortened):
 | `review_stopped_by_analyst` | `research_export.py --analyst-release-unapproved` (`/research`, after explicit analyst choice) | An append-only list of `{"date": "YYYY-MM-DD", "passes": N, "reason": "..."}` records, one per release: the date, the trailing consecutive REJECTED review count and the analyst's reason for releasing the brief for manual review. No record is cleared or overwritten, and a later approved export leaves the list as it is; `review_verdict` carries the current verdict |
 | `analyst_terms` | `/research` and `/assemble`, when the analyst defines a term | A list of `{term, meaning, date}` records checkpointed immediately so the definition is not lost if the conversation is compacted; entries become learning candidates only on explicit confirmation |
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
+| `approved_draft_path` | `/assemble` | Repository-relative path to the approved Markdown draft retained as `draft_approved.md` in the same dated deal folder |
 
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.

@@ -94,8 +94,7 @@ guarantees to condition on; don't treat its absence as a missing step.
    need to work out or pass a date; only a brand-new deal gets a folder dated today) — and, only
    if this deal type had no template at all, auto-saves the draft's structure as a new override
    under `templates/local/cam/`.
-8. Report the output folder to the user, then delete the temporary `<proposal>_draft.md` file —
-   the real output now lives in the dated folder as a proper `.docx`/`.xlsx`.
+8. Report the output folder to the user. Then preserve the approved Markdown draft, including its trailing structured `json` block: move `deals/<company>/<proposal>_draft.md` into the same dated deal folder used for this export (the actual folder date, not a new one) as `draft_approved.md`, and set `approved_draft_path` in that folder's `state.json` to the repository-relative path of the moved file. Do not delete the approved draft: the `.docx`/`.xlsx` are client-facing outputs, and the retained file is the exact code-checked artifact for audit.
 9. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's
    own `review_trail` (already read in "State: read" above). A REJECTED entry's `notes` can mix
    two very different kinds of content in the same string: code-enforced deterministic reasons

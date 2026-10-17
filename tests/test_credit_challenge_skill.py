@@ -342,3 +342,57 @@ def test_the_skill_asks_for_the_report_shape_the_checker_reads():
     for label in SPEC.labels:
         assert f"**{label}:**" in body
     assert SPEC.nothing_phrase in body and SPEC.caveat in body
+
+
+MANIFEST_ENTRY_CASES = [
+    # (entries saved, text written after "manifest: ", expected to be flagged)
+    (1, "1 entry", False),
+    (2, "2 entries", False),
+    (2, "1 entry", True),
+    (1, "2 entries", True),
+    (0, "1 entry", True),
+]
+
+
+def _report_with_material_line(material_line):
+    return (
+        material_line + "\n"
+        + item(1, "Market position", "What evidence supports the claim?",
+               "The reviewed record contains no statement establishing market position.",
+               "An unsupported position could mislead the reader.", "None recorded in the material reviewed.",
+               "The record does not establish whether the claim is true.", "Which recorded source, if any, supports the claim?")
+        + "\n" + CAVEAT)
+
+
+@pytest.mark.parametrize(("saved", "written", "flagged"), MANIFEST_ENTRY_CASES,
+                         ids=[f"{s}-saved-{w.replace(' ', '-')}" for s, w, _ in MANIFEST_ENTRY_CASES])
+def test_the_manifest_count_is_accepted_only_when_it_equals_the_saved_entries(tmp_path, saved, written, flagged):
+    """Regression for the reverted #262 attempt: the generated 'N entries' count is metadata, so it is accepted on the
+    opening line only when the saved manifest really has that many entries."""
+    manifest = [(f"Claim {name}", f"https://example.invalid/source-{name}") for name in "abcd"[:saved]]  # no digits
+    folder = make_deal(tmp_path, state=BASE_STATE, manifest=manifest)
+    report = _report_with_material_line(material(written, NO_DRAFT).rstrip("\n"))
+    problems = report_problems(report, folder, SPEC, items=1)
+    count = written.split()[0]
+    if flagged:
+        assert f"number not in the record: {count}" in problems
+    else:
+        assert problems == []
+
+
+def test_a_manifest_count_off_the_opening_line_is_checked_like_any_other_number(tmp_path):
+    folder = make_deal(tmp_path, state=BASE_STATE, manifest=[("Claim", "https://example.invalid/source")])
+    report = _report_with_material_line(material("1 entry", NO_DRAFT).rstrip("\n"))
+    assert report_problems(report, folder, SPEC, items=1) == []
+    moved = report.replace("\n> Analyst aid", "\nThe manifest: 1 entry was reviewed.\n\n> Analyst aid")
+    assert "number not in the record: 1" in report_problems(moved, folder, SPEC, items=1)
+
+
+@pytest.mark.parametrize("manifest_text", ["{}", "not json", '"a string"', "42"], ids=["object", "invalid-json", "string", "number"])
+def test_a_missing_or_non_list_manifest_never_verifies_a_count(tmp_path, manifest_text):
+    folder = make_deal(tmp_path, state=BASE_STATE)
+    report = _report_with_material_line(material("1 entry", NO_DRAFT).rstrip("\n"))
+    assert "number not in the record: 1" in report_problems(report, folder, SPEC, items=1), "no manifest file"
+    (folder / "sources").mkdir()
+    (folder / "sources" / "manifest.json").write_text(manifest_text, encoding="utf-8")
+    assert "number not in the record: 1" in report_problems(report, folder, SPEC, items=1)

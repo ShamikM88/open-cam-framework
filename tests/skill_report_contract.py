@@ -30,7 +30,17 @@ class ReportSpec:
     required_lines: tuple = ()   # lines the report must carry besides Material reviewed, e.g. "**Categories reviewed:**"
 
 
+# Preserve the original hard catch for explicit uppercase verdict tokens. Natural-language verdicts
+# need subject/context: otherwise legitimate evidence such as "if the supplier failed" is a false positive.
 VERDICT_RE = re.compile(r"(?<![A-Za-z])(?:APPROVED|REJECTED|PASS|PASSED|FAIL|FAILED)(?![A-Za-z])")
+VERDICT_CONCLUSION_RE = re.compile(
+    r"(?i)\b(?:(?:overall\s+)?(?:the\s+)?(?:deal|facility|proposal|loan|borrower|application|decision|result|verdict)"
+    r"\s+(?:is|was|has\s+been)\s+|(?:overall\s+)?(?:decision|result|verdict)\s*[:=]\s*)"
+    r"(?:\*\*|__)?(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)\b(?:\*\*|__)?"
+)
+VERDICT_STANDALONE_RE = re.compile(
+    r"(?im)^\s*(?:\*\*|__)?(?:approved|rejected|pass(?:ed)?|fail(?:ed)?)(?:\*\*|__)?[.!]?\s*$"
+)
 CONCLUSION_RE = re.compile(
     r"(?i)\b(?:we|i)\s+recommend|\brecommend(?:ed|ation)?\b[^.\n]{0,20}\b(?:lend|lending|declin\w*|approv\w*)"
     r"|\bshould\s+(?:be\s+)?(?:lent|lend|declin\w*|approv\w*)|\b(?:borrower|credit|risk)\s+(?:rating|grade|score)\b"
@@ -106,7 +116,7 @@ def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     for number in NUMBER_RE.findall(scan):
         if number.rstrip(".,") not in recorded and number.replace(",", "") not in recorded.replace(",", ""):
             problems.append(f"number not in the record: {number}")
-    if VERDICT_RE.search(prose):
+    if VERDICT_RE.search(prose) or VERDICT_CONCLUSION_RE.search(prose) or VERDICT_STANDALONE_RE.search(prose):
         problems.append("a verdict word appears outside a quoted recorded value")
     if CONCLUSION_RE.search(prose):
         problems.append("a rating, score, recommendation or clearance appears")

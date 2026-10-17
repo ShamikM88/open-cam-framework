@@ -146,6 +146,12 @@ CAM must carry an explicit caveat that those figures were not independently reco
 its own schema. One limit: a stored ratio whose denominator is not recorded (an analyst-supplied DSCR, say) cannot be
 cross-checked, so the N/A rule can only be applied where the denominator is on file.
 
+**One basis per deal.** If `financials_source` is already `"analyst-supplied"`, the default framework-computed
+`spreading_check.py` path refuses to recompute and relabel the deal. Use `/spread`'s analyst-supplied mode to record
+further figures; one deal never mixes the two modes. A historical period is refused on an analyst-supplied deal whatever
+`--no-update-financials-source` says (one `error:` line, exit status 1, nothing written); only a forward-year-only call, as
+`/project` makes, is accepted.
+
 ## Analyst-supplied forecasts and their downside
 
 `/project` has the same opt-in alternative as `/spread` (issue #124): when an institution's forecast convention does not

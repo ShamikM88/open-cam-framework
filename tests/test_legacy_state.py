@@ -163,12 +163,15 @@ def test_unknown_fields_survive_a_write_to_a_state_of_a_supported_version(tmp_pa
     assert written["future_key"] == original["future_key"] and written["x_analyst_note"] == original["x_analyst_note"]
 
 
-def test_the_analyst_supplied_flag_is_only_flipped_when_asked(tmp_path, monkeypatch):
+def test_the_analyst_supplied_flag_cannot_be_relabelled_by_default_computation(tmp_path, monkeypatch):
     install(tmp_path, monkeypatch, load_fixture("04_pre_analyst_store"))
     kept = spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD), update_financials_source=False)
-    assert kept["financials_source"] == "analyst-supplied"        # /project's call: never silently flipped
-    flipped = spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD))
-    assert flipped["financials_source"] == "framework-computed"   # /spread's default: it owns that decision
+    assert kept["financials_source"] == "analyst-supplied"        # the explicit non-relabel path is unchanged
+    state_path = next(tmp_path.glob("deals/*/*/state.json"))
+    before = state_path.read_bytes()
+    with pytest.raises(ValueError, match="one deal never mixes the two modes"):
+        spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD))
+    assert state_path.read_bytes() == before
 
 
 # ---------------------------------------------------------------------------

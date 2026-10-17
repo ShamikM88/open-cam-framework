@@ -37,6 +37,7 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 
+from numeric_validation import validate_finite_numbers
 from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
@@ -459,12 +460,14 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     Returns a list of {"year", "metric", "base_actual", "downside_actual",
     "threshold", "breach_id", "downside_status", "reason"}. `breach_id` is built from _slugify() (the
     same stable-identifier convention as `cp_id`), so a downside breach for
-    "FY+2"/"dscr" always slugifies to the same id (e.g.
+    "FY+2"/"dscr" always slugifies to the same base id (e.g.
     "DOWNSIDE-FY-2-DSCR" -- "+" is not alphanumeric, so it slugifies to
-    "-", the same as every other cp_id in this module) across repeated
-    calls with the same input.
+    "-", the same as every other cp_id in this module). Multiple covenants
+    on the same metric in one year receive a stable numeric suffix (e.g.
+    "DOWNSIDE-FY-1-DSCR-2"); a single covenant keeps its existing ID.
     """
     breaches = []
+    used_ids = set()
     for period in sorted(downside_ratios or {}):
         if period not in (all_ratios or {}):
             continue
@@ -487,7 +490,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "base_actual": base_result["actual"],
                     "downside_actual": downside_result["actual"],
                     "threshold": base_result["threshold"],
-                    "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                    "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
                     "downside_status": downside_result["status"],
                     "reason": downside_result["reason"],
                 })
@@ -508,7 +511,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "base_actual": base_result["actual"],
                     "downside_actual": None,
                     "threshold": base_result["threshold"],
-                    "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                    "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
                     "downside_status": "UNRESOLVABLE",
                     "reason": f"downside analysis unavailable for {period}: {unavailable[period]}",
                 })
@@ -587,6 +590,13 @@ def evaluate_deal_policy(state_dict):
                                       "headroom_pct", "reason"}, ...],
     }
     """
+    if state_dict:
+        for key in (
+            "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
+            "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
+        ):
+            if key in state_dict:
+                validate_finite_numbers(state_dict[key], path=f"policy state[{key!r}]")
     state_dict = state_dict or {}
     all_ratios = state_dict.get("ratios") or {}
     ratios = all_ratios.get("FY-Current") or {}

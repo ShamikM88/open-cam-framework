@@ -177,10 +177,10 @@ open-cam-framework/
 │   ├── underwriter_agent.md
 │   └── risk_reviewer_agent.md
 ├── config/
-│   ├── settings.json            maker_model (required) -- also optional checker_model/maker_temperature/
-│   │                            checker_temperature to independently configure the Risk Reviewer vs the
-│   │                            Underwriter (both default to the Underwriter's own model/no override when
-│   │                            unset), and an optional calibrate_model for scripts/calibrate.py (defaults
+│   ├── settings.json            maker_model (required) -- also an optional checker_model to
+│   │                            configure the Risk Reviewer's model independently of the Underwriter's
+│   │                            (it defaults to the Underwriter's model when unset; legacy
+│   │                            maker_temperature/checker_temperature are ignored with a warning), and an optional calibrate_model for scripts/calibrate.py (defaults
 │   │                            to maker_model when unset -- calibration has no need for a structurally
 │   │                            different model the way the Checker does). max_tokens/default_currency/
 │   │                            output_directory/template_directory/spreading_template_directory are also
@@ -224,7 +224,7 @@ open-cam-framework/
 ├── tests/                       Pytest suite (spreading_builder formulas, docx table rendering, template resolution, state persistence, property-based tests, golden .docx/.xlsx snapshots in snapshots/, synthetic state fixtures in fixtures/) -- see "Testing and static analysis" in `CLAUDE.md`
 ├── badges/
 │   └── test-count.json          Checked-in `{"passed": <int>}` record of the currently-passing test count -- deliberately public/git-tracked (a project stat, not derived borrower/institutional data), kept honest by CI's "Verify checked-in test count" step (scripts/check_test_count.py) rather than hand-maintained -- see "Execution scripts" in `CLAUDE.md`
-├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]` -- each also holds that deal's state.json and a sources/ subfolder (see "Source material persistence" in `CLAUDE.md`); a company also optionally holds a `_conventions.json` and a `_learnings.md` one level up, above its dated proposal folders (see "Persisted conventions" in `CLAUDE.md`)
+├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]`; a state-bearing deal folder holds `state.json` and `sources/` (see "Source material persistence" in `CLAUDE.md`), while an explicit `deal_export --date-str` may create an output-only folder ignored by state discovery. A company may also hold `_conventions.json` and `_learnings.md` one level up from its dated proposal folders (see "Persisted conventions" in `CLAUDE.md`)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
 ├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the eight governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`

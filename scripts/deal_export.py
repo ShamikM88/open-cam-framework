@@ -13,8 +13,11 @@ import sys
 from datetime import datetime
 
 from docx_builder import export_to_docx
-from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
-from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
+from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
+from state_manager import (
+    StateError, existing_state_date_str, read_state, resolve_export_date_str, sanitize_path_component,
+    state_path, validate_iso_date_str,
+)
 from template_resolver import cam_template_path, local_cam_template_path
 
 # The state.json keys export_deal() reads, with the kind each is held to. Deliberately looser than STATE_SHAPES for
@@ -77,8 +80,10 @@ def _downside_financial_data_from_state(state):
 
 
 def _supplied_row_values(*period_dicts):
-    """{workbook row label: value} for the subtotals and ratios in these period dicts that have a workbook row. A
-    ratio recorded as null is N/A, written as the workbook writes it; a non-number elsewhere is left blank."""
+    """{workbook row label: value} for recorded subtotals and ratios that have a workbook row.
+
+    A recorded null ratio is N/A; non-numeric values elsewhere are left blank.
+    """
     values = {}
     for period_dict in period_dicts:
         for key, value in (period_dict if isinstance(period_dict, dict) else {}).items():
@@ -93,21 +98,39 @@ def _supplied_row_values(*period_dicts):
 
 
 def _analyst_forecast_columns(state):
-    """(supplied base-case values, supplied downside values, forward years whose downside is unavailable, the raw
-    lines behind each framework-derived downside year) for a deal whose forecast was supplied by the analyst
-    (`forecast_source`, issue #124), else (None, None, None, None) -- which leaves the workbook exactly as it is for
-    every other deal. Those columns must show what was supplied, never a figure the workbook formulas would compute
-    from raw cells that were not the basis of the supplied numbers, and a derived downside row is shown only if every
-    line it reads was supplied."""
-    if state.get("forecast_source") != "analyst-supplied":
+    """Return recorded analyst-supplied values and any forward-downside annotations.
+
+    Historical periods use recorded values when financials_source is analyst-supplied;
+    forward periods use recorded values when forecast_source is analyst-supplied.
+    Supplied columns must not recalculate subtotals or ratios from incomplete raw lines.
+    """
+    historical_supplied = state.get("financials_source") == "analyst-supplied"
+    forecast_supplied = state.get("forecast_source") == "analyst-supplied"
+    if not historical_supplied and not forecast_supplied:
         return None, None, None, None
-    financials, ratios = state.get("financials"), state.get("ratios")
+
+    financials = state.get("financials")
+    financials = financials if isinstance(financials, dict) else {}
+    ratios = state.get("ratios")
+    ratios = ratios if isinstance(ratios, dict) else {}
     supplied = {}
-    for period in FORWARD_PERIOD_KEYS:
-        period_financials = financials.get(period) if isinstance(financials, dict) else None
-        period_ratios = ratios.get(period) if isinstance(ratios, dict) else None
-        if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
-            supplied[period] = _supplied_row_values(period_financials, period_ratios)
+
+    if historical_supplied:
+        for period in HISTORICAL_PERIOD_KEYS:
+            period_financials = financials.get(period)
+            period_ratios = ratios.get(period)
+            if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
+                supplied[period] = _supplied_row_values(period_financials, period_ratios)
+
+    if forecast_supplied:
+        for period in FORWARD_PERIOD_KEYS:
+            period_financials = financials.get(period)
+            period_ratios = ratios.get(period)
+            if isinstance(period_financials, dict) or isinstance(period_ratios, dict):
+                supplied[period] = _supplied_row_values(period_financials, period_ratios)
+    else:
+        return supplied or None, None, None, None
+
     downside = state.get("downside_case")
     downside = downside if isinstance(downside, dict) else {}
     basis = downside.get("basis") if isinstance(downside.get("basis"), dict) else {}
@@ -126,8 +149,7 @@ def _analyst_forecast_columns(state):
         for period, how in basis.items()
         if how != "analyst-supplied" and period in FORWARD_PERIOD_KEYS and period not in unavailable
     }
-    return supplied, supplied_downside, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
-
+    return supplied or None, supplied_downside or None, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
 
 def _collateral_data_from_state(state):
     """state.json's `collateral` is expected to be the flat list of asset
@@ -161,19 +183,29 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     proposal = sanitize_path_component(proposal, "proposal")
     deal_type = sanitize_path_component(deal_type, "deal_type")
     date_str = sanitize_path_component(date_str, "date_str") if date_str else None
+    state_date_str = date_str
 
     date_str = date_str or datetime.now().strftime("%Y-%m-%d")
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
 
-    # Auto-discovers this deal's state.json regardless of which dated folder
-    # it actually lives in (see state_manager.py) -- a multi-day deal's
-    # figures may have been checkpointed before today, but they're still
-    # this deal's ground truth for populating the spreading workbook. Read
-    # (and validated) BEFORE anything is created: a state.json that cannot be
-    # used (issue #171) must not leave behind an empty output folder or a
-    # freshly auto-saved template from a run that then fails.
-    state = read_state(company, proposal, base_dir=base_dir, keys=STATE_KEYS_READ) or {}
+    # An explicit date selects both the output folder and its state.json.
+    # Bare library calls still auto-discover existing state, while keeping
+    # their historical default of writing output to today's folder. Read
+    # (and validate) BEFORE anything is created: unusable state (issue #171)
+    # must not leave an empty output folder or auto-saved template behind.
+    if state_date_str and not os.path.isfile(state_path(company, proposal, date_str=state_date_str, base_dir=base_dir)):
+        # Decision D1 (#248): an explicit date that names a folder with no state.json is an error when the deal has state
+        # in another dated folder -- otherwise the workbook would come out blank. A deal with no state anywhere keeps
+        # exporting into the named folder.
+        elsewhere = existing_state_date_str(company, proposal, base_dir=base_dir)
+        if elsewhere:
+            raise StateError(
+                f"no state.json in the dated folder {proposal}_{state_date_str}, but this deal has state in "
+                f"{proposal}_{elsewhere}; name that date, or leave the date out; nothing was written.")
+    state = read_state(
+        company, proposal, date_str=state_date_str, base_dir=base_dir, keys=STATE_KEYS_READ,
+    ) or {}
     financial_data = _financial_data_from_state(state)
     downside_financial_data = _downside_financial_data_from_state(state)
     collateral_data = _collateral_data_from_state(state)
@@ -230,12 +262,9 @@ def main(argv=None):
              "else today's date for a brand-new deal.",
     )
     args = parser.parse_args(argv)
-    if args.date_str is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date_str):
-        # A free-form value would create a folder like "Fleet Loan_foo" that
-        # state_manager's date discovery (correctly) ignores forever after.
-        parser.error(f"--date-str {args.date_str!r} must be a YYYY-MM-DD date")
-
     try:
+        if args.date_str is not None:
+            validate_iso_date_str(args.date_str, field_name="--date-str")
         with open(args.draft, encoding="utf-8") as f:
             draft_markdown = f.read()
 
@@ -243,7 +272,7 @@ def main(argv=None):
         # validation at its own boundary.
         company = sanitize_path_component(args.company, "company")
         proposal = sanitize_path_component(args.proposal, "proposal")
-        date_str = resolve_date_str(company, proposal, date_str=args.date_str)
+        date_str = resolve_export_date_str(company, proposal, date_str=args.date_str)
         output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
     except (OSError, ValueError) as exc:
         sys.exit(f"error: {exc}")

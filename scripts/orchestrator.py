@@ -19,7 +19,9 @@ from policy_checks import (
     check_reported_figures as _check_reported_figures,
 )
 from policy_engine import evaluate_deal_policy
-from spreading_builder import evaluate_downside_case, evaluate_financial_model
+from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
+from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -32,22 +34,18 @@ from state_manager import (
 )
 from template_resolver import cam_template_path
 from textio import read_text
-from response_utils import EmptyModelResponseError, require_response_text
+from response_utils import EmptyModelResponseError, ModelResponseTruncatedError, require_complete_text
 
 def _load_settings():
-    """config/settings.json's full contents -- the documented single
-    source of truth per CLAUDE.md for the Maker/Checker model and
-    temperature configuration below, so neither can silently drift from a
-    hardcoded constant. Falls back to {} if the config file is missing or
-    malformed rather than raising here -- _resolve_maker_checker_config()
-    below is the one that decides whether an empty/incomplete result is
-    actually fatal (it is, for a missing maker_model). Only the model and
-    temperature keys are read from this file (see CLAUDE.md, "What
-    config/settings.json actually controls"); max_tokens, default_currency,
-    output_directory, template_directory and spreading_template_directory
-    may also appear in it but NO script reads them -- the corresponding
-    values are constants in the code, so editing those keys changes
-    nothing (issue #108).
+    """Read settings; the resolver warns on retired temperature keys and ignores them.
+
+    Falls back to {} if the file is missing or malformed rather than raising here;
+    _resolve_maker_checker_config() decides whether the result is fatal (a missing
+    maker_model is). Only maker_model/checker_model affect orchestrator routing.
+    Legacy maker_temperature/checker_temperature entries are unsupported and are
+    warned about then ignored. max_tokens, default_currency, output_directory,
+    template_directory and spreading_template_directory are also inert (issue #108). See CLAUDE.md's "What config/settings.json actually controls"
+    and docs/configuration.md for the supported settings contract.
     """
     try:
         with open("config/settings.json", encoding="utf-8") as f:
@@ -57,32 +55,16 @@ def _load_settings():
 
 
 def _resolve_maker_checker_config():
-    """The Underwriter ("Maker") and Risk Reviewer ("Checker") are
-    independently configurable model/temperature knobs -- institutional
-    governance expects independent review to use a structurally different
-    model/config, not just a different prompt, to avoid the two sharing the
-    same blind spots. Without an explicit "checker_model"/"*_temperature"
-    in config/settings.json, the Checker still defaults to the same model
-    as the Maker and no temperature override is applied (this framework
-    can't invent a second model on its own), but the two are independent
-    settings rather than one hardcoded constant shared by every call.
+    """Resolve independent Maker and Checker model identifiers.
 
-    Reads config/settings.json fresh on every call (matching e.g.
-    template_resolver.cam_template_path()'s own read-on-every-call
-    convention) rather than freezing the result at import time, both for
-    consistency with the rest of this codebase and so a config change is
-    picked up by the very next deal run without needing a process restart.
+    The Maker and Checker may use distinct configured models. Sampling
+    temperature overrides are deliberately unsupported because the shipped
+    model configuration rejects non-default sampling parameters. Older fork
+    settings may still contain maker_temperature/checker_temperature; these
+    are never sent to the API, and a warning makes the ignored setting visible.
 
-    Raises RuntimeError if "maker_model" isn't set (missing key, missing
-    file, or malformed JSON -- all indistinguishable from the caller's
-    perspective: there's no model to draft with). config/settings.json is
-    checked into the repo with maker_model already set, so a fork gets a
-    working config automatically -- a missing value here means the
-    checked-in config was deleted, corrupted, or deliberately edited to
-    remove it, not "a fresh install that hasn't configured it yet". A
-    silent hardcoded fallback would let a real deal draft on an
-    unconfigured, untracked model with no indication anything was
-    wrong -- exactly the config-drift failure mode issue #34 was about.
+    Reads config/settings.json fresh on every call. A missing maker_model is
+    fatal rather than silently selecting an untracked default (issue #34).
     """
     settings = _load_settings()
     maker_model = settings.get("maker_model")
@@ -93,11 +75,27 @@ def _resolve_maker_checker_config():
             "-- see CLAUDE.md's Execution scripts section -- rather than silently "
             "drafting a deal on an unconfigured default model."
         )
+
+    checker_model = settings.get("checker_model") or maker_model
+    ignored_temperature_keys = [
+        key for key in ("maker_temperature", "checker_temperature") if key in settings
+    ]
+    if ignored_temperature_keys:
+        details = []
+        if "maker_temperature" in ignored_temperature_keys:
+            details.append(f"maker_temperature for maker_model={maker_model!r}")
+        if "checker_temperature" in ignored_temperature_keys:
+            details.append(f"checker_temperature for checker_model={checker_model!r}")
+        print(
+            "warning: unsupported sampling setting(s) in config/settings.json are ignored: "
+            + ", ".join(details)
+            + "; the configured models' API-default sampling behaviour will be used.",
+            file=sys.stderr,
+        )
+
     return {
         "maker_model": maker_model,
-        "checker_model": settings.get("checker_model") or maker_model,
-        "maker_temperature": settings.get("maker_temperature"),
-        "checker_temperature": settings.get("checker_temperature"),
+        "checker_model": checker_model,
     }
 
 
@@ -110,28 +108,13 @@ STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source
                    "security_package", "guarantees", "review_trail")   # review_trail: append_review_trail() reads it
 
 
-def _completion_kwargs(model, temperature):
-    """kwargs for client.messages.create() -- temperature is only included
-    when actually configured, so omitting it from config/settings.json
-    preserves the Anthropic API's own default rather than this module
-    silently picking one.
+def _completion_kwargs(model):
+    """Return supported request kwargs without sampling overrides.
 
-    Routed through `extra_body` rather than a direct `temperature=` kwarg:
-    the anthropic Python SDK (>=1.x) dropped `temperature`/`top_p`/`top_k`
-    from `Messages.create()`'s own typed signature -- passing it directly
-    now raises `TypeError: unexpected keyword argument 'temperature'`
-    before any request is even sent, not a deprecation warning. `extra_body`
-    is the SDK's own documented escape hatch for a still-valid API field
-    that isn't (or is no longer) exposed as a named parameter. This bug
-    can't be caught by this project's own test suite -- MockClient accepts
-    arbitrary **kwargs, so it never validates against the real SDK's
-    signature -- confirmed by hand against the installed SDK before writing
-    this fix (see PR discussion, issue tied to the anthropic dependency bump).
+    The configured model families use the provider's default sampling behaviour;
+    legacy temperature config is warned about and ignored during resolution.
     """
-    kwargs = {"model": model}
-    if temperature is not None:
-        kwargs["extra_body"] = {"temperature": temperature}
-    return kwargs
+    return {"model": model}
 
 
 def _content_hash(text):
@@ -494,6 +477,9 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
+    validate_finite_numbers(multi_period_financials, path="financial inputs")
+    validate_finite_numbers(stress_assumptions, path="stress assumptions")
+    validate_finite_numbers(collateral_data, path="collateral")
     client = client or _default_client()
 
     # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly
@@ -590,8 +576,85 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 f"--stress-assumptions; nothing was written.")
 
     if multi_period_financials:
-        model_data = evaluate_financial_model(multi_period_financials)
-        financials, ratios = model_data["financials"], model_data["ratios"]
+        # Match the interactive /spread path: merge the supplied period/field deltas
+        # into recorded raw data, then recompute only the periods touched this run.
+        # A shallow state write would otherwise replace the history that was not
+        # repeated in this invocation (issue #246).
+        # A fresh framework recomputation supersedes any previously analyst-supplied
+        # forecast. Remove those forward periods from the planning input first so
+        # plan_fields does not reject the fresh figures as an attempt to overwrite
+        # analyst data, and so stale supplied forward years cannot survive a
+        # historical-only recomputation while the source flag is cleared below.
+        planning_state = existing_state
+        if existing_state.get("forecast_source") == "analyst-supplied":
+            planning_state = dict(existing_state)
+            planning_state["forecast_source"] = None
+            for field in ("multi_period_financials", "financials", "ratios"):
+                planning_state[field] = {
+                    period: value
+                    for period, value in (existing_state.get(field) or {}).items()
+                    if period not in FORWARD_PERIOD_KEYS
+                }
+
+        # financials_source is a whole-deal flag. Clearing an analyst-supplied
+        # flag is only defensible if every preserved period is recomputed from
+        # raw lines in this run. Refuse before any model call/write when a
+        # recorded period has no raw inputs; when raw history exists, recompute
+        # all of it rather than only the fresh delta so stale supplied outputs
+        # cannot be relabelled framework-computed (review finding on #297).
+        if existing_state.get("financials_source") == "analyst-supplied":
+            # Decision D2 (#246): historical figures never recompute or relabel an analyst-supplied deal headlessly.
+            historical_inputs = sorted(period for period in multi_period_financials
+                                       if period not in FORWARD_PERIOD_KEYS)
+            if historical_inputs:
+                raise StateError(
+                    "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
+                    f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
+                    "analyst-supplied mode; nothing was written."
+                )
+            recorded_periods = {
+                period
+                for field in ("financials", "ratios")
+                for period, value in (planning_state.get(field) or {}).items()
+                if isinstance(value, dict) and value
+            }
+            existing_raw = planning_state.get("multi_period_financials") or {}
+            incoming_raw = multi_period_financials or {}
+            available_raw_periods = {
+                period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
+            } | {
+                period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
+            }
+            missing_raw_periods = sorted(recorded_periods - available_raw_periods)
+            if missing_raw_periods:
+                raise StateError(
+                    "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
+                    f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
+                    "line items for every preserved period so all figures can be recomputed, or keep the "
+                    "analyst-supplied state; nothing was written."
+                )
+
+            recompute_inputs = {
+                period: dict(raw)
+                for period, raw in existing_raw.items()
+                if isinstance(raw, dict) and raw
+            }
+            for period, raw in incoming_raw.items():
+                merged_period = dict(recompute_inputs.get(period) or {})
+                merged_period.update(raw or {})
+                recompute_inputs[period] = merged_period
+            multi_period_financials = recompute_inputs
+            # This branch is the explicit clearing of the flag (forward-year input only, raw lines for every preserved
+            # period). Plan it as the framework-computed run it becomes, so plan_fields()'s analyst-supplied guard
+            # (decision D3, #271) -- which protects the interactive path -- does not refuse the existing rule here.
+            planning_state = {**planning_state, "financials_source": "framework-computed"}
+
+        planned_fields = plan_fields(
+            planning_state, multi_period_financials, update_financials_source=False,
+        )
+        financials = planned_fields["financials"]
+        ratios = planned_fields["ratios"]
+        multi_period_financials = planned_fields["multi_period_financials"]
         steps_completed = _add_step(steps_completed, "spread")
         # This call just independently recomputed every ratio from raw
         # line items -- "analyst-supplied" (see #55's /spread alternative
@@ -700,12 +763,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
-    draft = require_response_text(client.messages.create(
-        **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
+    draft = require_complete_text(client.messages.create(
+        **_completion_kwargs(maker_checker_config["maker_model"]),
         max_tokens=4000,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
-    ), "Maker draft")
+    ), "Maker draft", 4000)
     steps_completed = _add_step(steps_completed, "draft")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed,
                 financials_source=financials_source, model_provenance=model_provenance)
@@ -722,12 +785,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             f.write(draft)
 
         print(f"[2/3] Risk Reviewer Agent auditing draft (iteration {iteration}/{max_iterations})...")
-        audit_response = require_response_text(client.messages.create(
-            **_completion_kwargs(maker_checker_config["checker_model"], maker_checker_config["checker_temperature"]),
+        audit_response = require_complete_text(client.messages.create(
+            **_completion_kwargs(maker_checker_config["checker_model"]),
             max_tokens=2000,
             messages=[{"role": "user", "content":
                        f"{checker_prompt}\n{grounding_context}\nDraft to review:\n{draft}"}]
-        ), "Checker audit")
+        ), "Checker audit", 2000)
 
         verdict, notes = parse_verdict(audit_response)
         verdict, notes = _apply_deterministic_policy_checks(
@@ -746,15 +809,15 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
         if iteration < max_iterations:
             print(f"[Revise] Iteration {iteration} REJECTED: {notes}")
-            draft = require_response_text(client.messages.create(
-                **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
+            draft = require_complete_text(client.messages.create(
+                **_completion_kwargs(maker_checker_config["maker_model"]),
                 max_tokens=4000,
                 messages=[{"role": "user", "content":
                            f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}\n"
                            f"Previous draft:\n{draft}\n"
                            f"The Risk Reviewer rejected this draft. Address every point below "
                            f"and produce a revised, complete draft:\n{notes}"}]
-            ), "Maker draft")
+            ), "Maker revision", 4000)
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
@@ -826,5 +889,6 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError, EmptyModelResponseError) as exc:
+    except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
+            NonFiniteNumberError) as exc:
         sys.exit(f"error: {exc}")

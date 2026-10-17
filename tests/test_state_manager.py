@@ -766,6 +766,40 @@ def test_resolve_date_str_returns_the_given_date_str_unchanged(tmp_path):
                              base_dir=str(tmp_path)) == "2026-01-15"
 
 
+@pytest.mark.parametrize("date_str", ["2026-02-31", "2026-13-01", "2026-00-01"])
+def test_state_path_and_write_state_reject_impossible_explicit_calendar_dates(tmp_path, date_str):
+    base = str(tmp_path)
+    with pytest.raises(ValueError, match="calendar date"):
+        state_path("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)
+    with pytest.raises(ValueError, match="calendar date"):
+        write_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base, note="must not write")
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("date_str", ["2024-02-29", "2026-01-31"])
+def test_valid_leap_day_and_month_end_dates_are_accepted(tmp_path, date_str):
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)
+    assert path == os.path.join(base, "deals", "Acme Corp", f"Fleet Loan_{date_str}", "state.json")
+    written = write_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base, note=date_str)
+    assert written["date"] == date_str
+    assert read_state("Acme Corp", "Fleet Loan", date_str=date_str, base_dir=base)["note"] == date_str
+
+
+def test_auto_discovery_ignores_impossible_date_shaped_folder_names(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-31", base_dir=base, note="valid state")
+    impossible = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-02-31"
+    impossible.mkdir(parents=True)
+    (impossible / "state.json").write_text(
+        json.dumps({"company": "Acme Corp", "proposal": "Fleet Loan", "date": "2026-02-31",
+                    "note": "must be ignored"}),
+        encoding="utf-8",
+    )
+    assert resolve_date_str("Acme Corp", "Fleet Loan", base_dir=base) == "2026-01-31"
+    assert read_state("Acme Corp", "Fleet Loan", base_dir=base)["note"] == "valid state"
+
+
 def test_resolve_date_str_with_new_review_ignores_an_existing_dated_folder(tmp_path):
     base = str(tmp_path)
     write_state("Acme Corp", "Fleet Loan", date_str="2025-01-10", base_dir=base)
@@ -843,11 +877,32 @@ def test_write_state_leaves_no_stray_temp_file_behind(tmp_path):
 
 def test_date_discovery_ignores_a_prefix_sharing_proposals_folder(tmp_path):
     base = str(tmp_path)
-    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_2026-01-10"))
-    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_Q2_2026-05-01"))
+    write_state("Acme", "Fleet", date_str="2026-01-10", base_dir=base, note="fleet")
+    write_state("Acme", "Fleet_Q2", date_str="2026-05-01", base_dir=base, note="quarterly")
 
     assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-01-10"
     assert resolve_date_str("Acme", "Fleet_Q2", base_dir=base) == "2026-05-01"
+
+
+def test_date_discovery_skips_newer_export_only_folder_and_surfaces_malformed_state(tmp_path):
+    base = str(tmp_path)
+    write_state("Acme", "Fleet", date_str="2026-01-10", base_dir=base, note="source state")
+    export_only = os.path.join(base, "deals", "Acme", "Fleet_2026-03-01")
+    os.makedirs(export_only)
+    with open(os.path.join(export_only, "Acme_Fleet_CAM.docx"), "w", encoding="utf-8") as f:
+        f.write("synthetic exported document")
+
+    assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-01-10"
+    assert read_state("Acme", "Fleet", base_dir=base)["note"] == "source state"
+
+    # A present but malformed state must not be skipped as though it were export-only.
+    malformed = os.path.join(base, "deals", "Acme", "Fleet_2026-04-01")
+    os.makedirs(malformed)
+    with open(os.path.join(malformed, "state.json"), "w", encoding="utf-8") as f:
+        f.write("{")
+    assert resolve_date_str("Acme", "Fleet", base_dir=base) == "2026-04-01"
+    with pytest.raises(ValueError, match="corrupted"):
+        read_state("Acme", "Fleet", base_dir=base)
 
 
 def test_date_discovery_ignores_non_date_suffixes_and_files(tmp_path):
@@ -862,16 +917,85 @@ def test_date_discovery_ignores_non_date_suffixes_and_files(tmp_path):
 
 def test_date_discovery_matches_bracketed_names_literally(tmp_path):
     base = str(tmp_path)
-    os.makedirs(os.path.join(base, "deals", "Acme", "Fleet_2026-01-10"))
+    write_state("Acme", "Fleet", date_str="2026-01-10", base_dir=base, note="acme")
 
     today = datetime.now().strftime("%Y-%m-%d")
     # "[A]cme" is a glob character class for "Acme" -- it must not match it.
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == today
-    os.makedirs(os.path.join(base, "deals", "[A]cme", "Fleet_2026-02-02"))
+    write_state("[A]cme", "Fleet", date_str="2026-02-02", base_dir=base, note="bracketed")
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == "2026-02-02"
 
 
 # ---------------------------------------------------------------------------
+# Non-finite numeric values must never enter or survive persisted deal state
+# (issue #244). Invalid updates fail before replacing an existing file.
+# ---------------------------------------------------------------------------
+
+def test_merge_and_write_wraps_non_finite_validator_error_before_writing(tmp_path, monkeypatch):
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+
+    def reject_state(_state, path=None):
+        raise state_manager.NonFiniteNumberError(f"non-finite numeric value at {path}")
+
+    monkeypatch.setattr(state_manager, "validate_finite_state_numbers", reject_state)
+    with pytest.raises(state_manager.StateShapeError, match="Refusing to write state.json: non-finite"):
+        state_manager._merge_and_write(
+            path, "Acme Corp", "Fleet Loan", "2026-01-15", base, {"note": "test"},
+        )
+    assert not os.path.exists(os.path.join(base, "deals"))
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_write_state_rejects_non_finite_new_values_before_creating_a_deal(tmp_path, value):
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        write_state("Acme Corp", "Fleet Loan", base_dir=str(tmp_path),
+                    financials={"FY-Current": {"revenue": value}})
+    assert not os.path.exists(os.path.join(str(tmp_path), "deals"))
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_write_state_rejects_non_finite_update_without_changing_existing_state(tmp_path, value):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", base_dir=base, note="keep")
+    path = state_path("Acme Corp", "Fleet Loan", base_dir=base)
+    with open(path, "rb") as f:
+        before = f.read()
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        write_state("Acme Corp", "Fleet Loan", base_dir=base,
+                    financials={"FY-Current": {"revenue": value}})
+
+    with open(path, "rb") as f:
+        assert f.read() == before
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_read_state_refuses_existing_non_finite_json_without_modifying_it(tmp_path, value):
+    base = str(tmp_path)
+    path = state_path("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    invalid = {
+        "company": "Acme Corp",
+        "proposal": "Fleet Loan",
+        "date": "2026-01-15",
+        "financials": {"FY-Current": {"revenue": value}},
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(invalid, f, allow_nan=True)
+    with open(path, "rb") as f:
+        before = f.read()
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        read_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
+
+    with open(path, "rb") as f:
+        assert f.read() == before
+
+
 # Reviewer view: derived copies for the interactive first pass, never a new record.
 # ---------------------------------------------------------------------------
 
@@ -961,3 +1085,54 @@ def test_export_reviewer_view_rejects_missing_state_without_creating_deal_folder
     with pytest.raises(StateShapeError, match="no state.json"):
         export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
     assert not os.path.exists(os.path.join(base, "deals"))
+
+
+# Decision D4 (#244): collateral and security_package carry figures too, so non-finite values never reach state.json.
+NON_FINITE_VALUES = [float("nan"), float("inf"), float("-inf"), json.loads("1e999")]
+NON_FINITE_IDS = ["nan", "positive-infinity", "negative-infinity", "overflow-1e999"]
+COLLATERAL_FIELDS = [
+    ("collateral", [{"asset_class": "HGV", "exposure": "VALUE", "collateral_value": 80}]),
+    ("security_package", [{"secures_asset_id": "A1", "security_type": "charge", "value": "VALUE"}]),
+]
+
+
+def _with_value(template, value):
+    return [{key: (value if item == "VALUE" else item) for key, item in row.items()} for row in template]
+
+
+@pytest.mark.parametrize("value", NON_FINITE_VALUES, ids=NON_FINITE_IDS)
+@pytest.mark.parametrize(("key", "template"), COLLATERAL_FIELDS, ids=[name for name, _ in COLLATERAL_FIELDS])
+def test_write_state_rejects_non_finite_collateral_and_security_without_changing_state(tmp_path, key, template, value):
+    base = str(tmp_path)
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        write_state("Acme Corp", "Fleet Loan", base_dir=base, **{key: _with_value(template, value)})
+    assert not os.path.exists(os.path.join(base, "deals"))
+
+    write_state("Acme Corp", "Fleet Loan", base_dir=base, note="keep")
+    path = state_path("Acme Corp", "Fleet Loan", base_dir=base)
+    with open(path, "rb") as f:
+        before = f.read()
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        write_state("Acme Corp", "Fleet Loan", base_dir=base, **{key: _with_value(template, value)})
+    with open(path, "rb") as f:
+        assert f.read() == before
+
+
+@pytest.mark.parametrize(("key", "template"), COLLATERAL_FIELDS, ids=[name for name, _ in COLLATERAL_FIELDS])
+def test_read_state_refuses_existing_non_finite_collateral_without_modifying_it(tmp_path, key, template):
+    base = str(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", base_dir=base, note="keep")
+    path = state_path("Acme Corp", "Fleet Loan", base_dir=base)
+    with open(path, encoding="utf-8") as f:
+        state = json.load(f)
+    state[key] = _with_value(template, float("nan"))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    with open(path, "rb") as f:
+        before = f.read()
+
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        read_state("Acme Corp", "Fleet Loan", base_dir=base)
+
+    with open(path, "rb") as f:
+        assert f.read() == before

@@ -163,12 +163,15 @@ def test_unknown_fields_survive_a_write_to_a_state_of_a_supported_version(tmp_pa
     assert written["future_key"] == original["future_key"] and written["x_analyst_note"] == original["x_analyst_note"]
 
 
-def test_the_analyst_supplied_flag_is_only_flipped_when_asked(tmp_path, monkeypatch):
+def test_the_analyst_supplied_flag_cannot_be_relabelled_by_default_computation(tmp_path, monkeypatch):
     install(tmp_path, monkeypatch, load_fixture("04_pre_analyst_store"))
     kept = spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD), update_financials_source=False)
-    assert kept["financials_source"] == "analyst-supplied"        # /project's call: never silently flipped
-    flipped = spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD))
-    assert flipped["financials_source"] == "framework-computed"   # /spread's default: it owns that decision
+    assert kept["financials_source"] == "analyst-supplied"        # the explicit non-relabel path is unchanged
+    state_path = next(tmp_path.glob("deals/*/*/state.json"))
+    before = state_path.read_bytes()
+    with pytest.raises(ValueError, match="one deal never mixes the two modes"):
+        spreading_check.compute(COMPANY, PROPOSAL, copy.deepcopy(NEW_PERIOD))
+    assert state_path.read_bytes() == before
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +233,7 @@ def test_an_analyst_supplied_state_with_the_raw_store_fills_the_workbook_from_th
     install(tmp_path, monkeypatch, state)
     revenue = revenue_cells(next(export(tmp_path).glob("*_Spreading.xlsx")))
     capsys.readouterr()
-    assert revenue["FY-Current"] == 4321      # read from analyst_supplied_financials, never from the other store
+    assert revenue["FY-Current (analyst-supplied)"] == 4321      # recorded historical column is explicitly labelled
 
 
 def test_the_downside_columns_are_filled_only_when_the_state_has_a_downside_case(tmp_path, monkeypatch, capsys):
@@ -460,7 +463,7 @@ def test_a_failed_export_leaves_no_output_folder_and_no_auto_saved_template(tmp_
     install(tmp_path, monkeypatch, mutated(financials_source=5))
     folder_listing = sorted(p.name for p in (tmp_path / "deals" / COMPANY).iterdir())
     with pytest.raises(state_manager.StateShapeError):
-        deal_export.export_deal(COMPANY, PROPOSAL, "brand_new_type", DRAFT, date_str="2026-02-02")
+        deal_export.export_deal(COMPANY, PROPOSAL, "brand_new_type", DRAFT)
     capsys.readouterr()
     assert sorted(p.name for p in (tmp_path / "deals" / COMPANY).iterdir()) == folder_listing
     assert not (tmp_path / "templates").exists()

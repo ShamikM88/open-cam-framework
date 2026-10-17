@@ -31,7 +31,9 @@ import re
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import date, datetime
+
+from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 
 DEALS_DIR = "deals"
 
@@ -83,6 +85,23 @@ STATE_SHAPES = {
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
 FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
+# State fields whose numeric contents participate in framework-computed financial or policy decisions.
+FINITE_NUMERIC_STATE_KEYS = (
+    "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
+    "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
+)
+
+
+def validate_finite_state_numbers(state, path="state.json"):
+    """Reject non-finite numbers in financial/policy data, without inspecting unrelated state keys."""
+    if not isinstance(state, dict):
+        return state  # validate_state() reports the existing top-level shape error
+    for key in FINITE_NUMERIC_STATE_KEYS:
+        if key in state:
+            validate_finite_numbers(state[key], path=f"{path}[{key!r}]")
+    return state
+
+
 _SHAPE_DESCRIPTIONS = {
     "object": "an object ({...})",
     "periods": 'an object keyed by period whose values are objects (e.g. {"FY-Current": {...}})',
@@ -176,6 +195,33 @@ def parse_schema_version(value):
 _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+
+def validate_iso_date_str(value, field_name="date_str", require_shape=True):
+    """Validate ISO-shaped dates against the calendar.
+
+    The CLI requires the exact YYYY-MM-DD shape. The state-manager API preserves its
+    historical acceptance of non-ISO date suffixes (which discovery deliberately ignores),
+    but refuses impossible real-calendar dates such as 2026-02-31.
+    """
+    if not isinstance(value, str) or not _ISO_DATE_RE.fullmatch(value):
+        if require_shape:
+            raise ValueError(f"{field_name} {value!r} must be a YYYY-MM-DD date")
+        return value
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} {value!r} is not a valid calendar date") from exc
+    return value
+
+
+def _is_valid_iso_date_str(value):
+    try:
+        validate_iso_date_str(value)
+    except ValueError:
+        return False
+    return True
+
+
 LOCK_TIMEOUT_SECONDS = 10
 _LOCK_POLL_INTERVAL_SECONDS = 0.05
 
@@ -252,35 +298,62 @@ def _deals_root(base_dir):
     return os.path.join(base_dir, DEALS_DIR) if base_dir else DEALS_DIR
 
 
-def _existing_date_str(company, proposal, base_dir=None):
-    """Date suffix of the most recent existing deals/<company>/<proposal>_<date>/
-    folder for this company/proposal, or None if there isn't one yet.
-
-    Date suffixes are ISO-8601 (YYYY-MM-DD), so sorting them as plain
-    strings also sorts them chronologically -- the lexicographic max is
-    the most recent.
-
-    Only a folder whose remainder after `<proposal>_` is exactly a date
-    counts: otherwise a proposal named "Fleet" would also claim a different
-    deal's "Fleet_Q2_2026-05-01" folder (its "date" would be
-    "Q2_2026-05-01", which sorts above any real one). The company and
-    proposal are glob-escaped so a "[" or "]" in a name matches literally
-    instead of as a character class.
-    """
+def _matching_dated_folder_dates(company, proposal, base_dir=None):
+    """Date suffixes of exact proposal_YYYY-MM-DD directories, newest last."""
     prefix = f"{proposal}_"
     pattern = os.path.join(
         glob.escape(_deals_root(base_dir)), glob.escape(company), f"{glob.escape(prefix)}*")
     dates = []
-    for p in glob.glob(pattern):
-        name = os.path.basename(p)
-        if os.path.isdir(p) and name.startswith(prefix) and _ISO_DATE_RE.fullmatch(name[len(prefix):]):
+    for path in glob.glob(pattern):
+        name = os.path.basename(path)
+        if os.path.isdir(path) and name.startswith(prefix) and _is_valid_iso_date_str(name[len(prefix):]):
             dates.append(name[len(prefix):])
-    return max(dates) if dates else None
+    return sorted(set(dates))
 
+
+def _existing_date_str(company, proposal, base_dir=None):
+    """Date of the newest folder containing state.json, or None when no deal state exists.
+
+    Export-only folders created by deal_export --date-str do not qualify. A malformed
+    but present state.json does qualify so read_state() surfaces its existing corruption
+    error instead of silently skipping or overwriting it. Exact proposal/date matching and
+    glob escaping prevent prefix-sharing or bracketed names from selecting a different deal.
+    """
+    dates = [
+        date for date in _matching_dated_folder_dates(company, proposal, base_dir=base_dir)
+        if os.path.isfile(os.path.join(
+            _deals_root(base_dir), company, f"{proposal}_{date}", "state.json"))
+    ]
+    return dates[-1] if dates else None
+
+
+def existing_state_date_str(company, proposal, base_dir=None):
+    """Public form of _existing_date_str(): the date of this deal's newest folder that holds a state.json, or None
+    when the deal has no state anywhere. Lets an exporter tell "a brand-new deal" from "a deal whose state is in
+    another dated folder"."""
+    return _existing_date_str(company, proposal, base_dir=base_dir)
+
+
+def resolve_export_date_str(company, proposal, date_str=None, base_dir=None):
+    """Choose a standalone export folder without changing state discovery.
+
+    An explicit date wins. Otherwise prefer the newest state-bearing folder so output
+    stays with the active deal. If no state exists, reuse the newest existing date-shaped
+    output folder (the export CLI's historical behavior); if none exists, use today.
+    """
+    if date_str:
+        return date_str
+    state_date = _existing_date_str(company, proposal, base_dir=base_dir)
+    if state_date:
+        return state_date
+    dates = _matching_dated_folder_dates(company, proposal, base_dir=base_dir)
+    return dates[-1] if dates else datetime.now().strftime("%Y-%m-%d")
 
 def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
     if date_str:
-        return date_str
+        # Preserve the legacy state-manager API for non-ISO suffixes, which discovery
+        # ignores, while refusing ISO-shaped impossible calendar dates at the boundary.
+        return validate_iso_date_str(date_str, require_shape=False)
     if new_review:
         # Force today's date rather than resuming the most recent existing
         # folder -- e.g. a new annual review for the same company/proposal
@@ -384,6 +457,12 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
                 "It may have been left partial by an interrupted write. Restore it "
                 "from a backup or fix it by hand before continuing."
             ) from e
+    try:
+        validate_finite_state_numbers(state, path=path)
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"state.json at {path} contains {exc}. Fix it by hand or restore it from a backup; nothing was changed."
+        ) from exc
     validate_state(state, keys=keys, path=path)
     state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
     return state
@@ -413,6 +492,14 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
 
     Returns the full state dict that was written.
     """
+    # Reject invalid numeric values before path creation or state mutation.
+    try:
+        validate_finite_state_numbers(fields, path="state update")
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"Refusing to write state.json: {exc}. No state was changed."
+        ) from exc
+
     # Sanitize before the first direct use below (_resolve_date_str's own
     # os.path.join) -- state_path() sanitizes again for its own join, but
     # that's just a redundant, harmless re-validation of the same strings.
@@ -464,6 +551,12 @@ def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     state["date"] = date_str
     state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
+    try:
+        validate_finite_state_numbers(state, path=path)
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"Refusing to write state.json: {exc}. No state was changed."
+        ) from exc
 
     # Atomic: write to a temp file in the same directory (so os.replace() is
     # a same-filesystem rename, not a cross-device copy) and swap it into

@@ -61,6 +61,10 @@ shortened):
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
 | `approved_draft_path` | `/assemble` | Repository-relative path to the approved Markdown draft retained as `draft_approved.md` in the same dated deal folder |
 
+The `financials_source` value describes the whole deal, not one period. If it is `"analyst-supplied"`, the
+default framework-computed `spreading_check.py` path refuses to overwrite the label or recompute figures in the other
+mode. Continue using `/spread`'s analyst-supplied mode for updates; one deal never mixes the two modes.
+
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
 
@@ -190,9 +194,9 @@ validates only that those two raw-figure keys are objects, that an object `downs
 read). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
 other: earlier code silently read it as empty. `export_deal()` reads and validates state before it creates the
 output folder or auto-saves a template, so a refusal leaves nothing behind; for a bare call with no `date_str`
-this also means a deal whose state sits in an earlier dated folder is now found (before, the freshly created
-empty folder was discovered first and the workbook came out blank); the CLI and the orchestrator always pass
-the date, so they are unaffected. Every CLI that reads state (`spreading_check`,
+this also means a bare call still finds the deal's existing state before creating today's output folder.
+When an explicit date is supplied, that same date selects the state read as well as the output folder; this is how
+the CLI and orchestrator keep export figures tied to the selected review. Every CLI that reads state (`spreading_check`,
 `policy_check`, `deal_export`, `orchestrator`, `state_manager --check-steps`, `source_manifest --check-sources`)
 catches `StateError` and prints one `error: ...` line to stderr with exit status 1, never a traceback; the "always
 exits 0" of the two `--check-*` modes is about their *results* (a missing step or source is not an error), not

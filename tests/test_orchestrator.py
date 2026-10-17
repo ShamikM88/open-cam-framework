@@ -166,6 +166,7 @@ def test_resolve_maker_checker_config_warns_and_ignores_legacy_temperature_setti
         "maker_model": "claude-maker-model",
         "checker_model": "claude-checker-model",
     }
+    capsys.readouterr()  # the direct call above warned once; the pipeline run below is counted on its own
 
     # Exercise actual request kwargs as well as the config resolver: neither
     # legacy temperature may be passed through to the Maker or Checker call.

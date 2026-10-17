@@ -247,7 +247,6 @@ so in its Related line) when a later decision supersedes it.
   [Skill design](skill-design.md).
 - **Related.** #196 (the initiative), #203 (`annual-review` needs new primitives), #204 (the interactive Checker's context, settled in D1's update).
 
-
 ## D16. The headless Maker and Checker use provider-default sampling parameters
 
 - **Context.** The shipped Maker and Checker model configuration rejects non-default sampling parameters. Exposing `maker_temperature` and `checker_temperature` therefore made a documented setting capable of breaking every headless call, even though the shipped defaults omitted those keys.

@@ -214,6 +214,9 @@ def main(argv=None):
         sys.exit(f"error: invalid JSON in {input_path}: {exc}")
     except OSError as exc:
         sys.exit(f"error: cannot read {input_path}: {exc}")
+    for path, data in ((args.financials, multi_period_financials), (args.stress_assumptions, stress_assumptions)):
+        if path and not isinstance(data, dict):
+            sys.exit(f"error: {path} must contain a JSON object, found {type(data).__name__}")
 
     try:
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,

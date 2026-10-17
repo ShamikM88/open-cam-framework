@@ -117,7 +117,10 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
   `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
   matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
-  **Analyst-supplied history safeguard:** `financials_source` is a deal-level flag. If a run would clear
+  **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
+  (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
+  nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
+  For forward-year input only, `financials_source` is a deal-level flag. If a run would clear
   `analyst-supplied` while preserving any non-empty period whose raw line items are missing, the run is refused
   before a model call or write. If raw line items exist for every preserved period, all preserved raw periods are
   recomputed alongside the new input before the flag is changed to `framework-computed`. Supply raw inputs for

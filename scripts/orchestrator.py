@@ -618,6 +618,15 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # all of it rather than only the fresh delta so stale supplied outputs
         # cannot be relabelled framework-computed (review finding on #297).
         if existing_state.get("financials_source") == "analyst-supplied":
+            # Decision D2 (#246): historical figures never recompute or relabel an analyst-supplied deal headlessly.
+            historical_inputs = sorted(period for period in multi_period_financials
+                                       if period not in FORWARD_PERIOD_KEYS)
+            if historical_inputs:
+                raise StateError(
+                    "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
+                    f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
+                    "analyst-supplied mode; nothing was written."
+                )
             recorded_periods = {
                 period
                 for field in ("financials", "ratios")

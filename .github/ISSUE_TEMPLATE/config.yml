@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security and confidentiality policy
+    url: https://github.com/ShamikM88/open-cam-framework/blob/main/SECURITY.md
+    about: Public issues are visible to everyone. Use synthetic data only; never post credentials or real borrower information.

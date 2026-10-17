@@ -44,7 +44,8 @@ def _load_settings():
     maker_model is). Only maker_model/checker_model affect orchestrator routing.
     Legacy maker_temperature/checker_temperature entries are unsupported and are
     warned about then ignored. max_tokens, default_currency, output_directory,
-    template_directory and spreading_template_directory are also inert (issue #108).
+    template_directory and spreading_template_directory are also inert (issue #108). See CLAUDE.md's "What config/settings.json actually controls"
+    and docs/configuration.md for the supported settings contract.
     """
     try:
         with open("config/settings.json", encoding="utf-8") as f:

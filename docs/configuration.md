@@ -71,7 +71,7 @@ An operator who raises `max_tokens` because drafts are cut off must change the c
 | --- | --- | --- |
 | `maker_model` (required) | `orchestrator.py` (`_resolve_maker_checker_config`), `calibrate.py` (fallback) | Model that drafts; missing = the pipeline refuses to start |
 | `checker_model` | `orchestrator.py` | Model that audits; defaults to `maker_model` |
-| `maker_temperature`, `checker_temperature` | Not read | Unsupported; warning if present, then ignored. Calls use provider-default sampling |
+| `maker_temperature`, `checker_temperature` | **nothing** | Unsupported; warning if present, then ignored. Calls use provider-default sampling |
 | `calibrate_model` | `calibrate.py` | Model for `calibrate.py`; defaults to `maker_model` |
 | `max_tokens` | **nothing** | No effect. Real values: `orchestrator.py` 4000 (draft and revision) and 2000 (audit) at the three `messages.create` calls, `calibrate.py` 3000 per call and `MERGE_MAX_TOKENS` = 6000; the eval harness mirrors 4000/2000 in `eval_runner.py` for its budget |
 | `default_currency` | **nothing** | No effect; no script labels a currency |

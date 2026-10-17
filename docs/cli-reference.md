@@ -110,6 +110,10 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   given. The defaults are example values: if you omit the flags they flow into the CAM as if you had supplied them,
   so always pass your own.
 - `--type` selects the template and defaults to `corporate_credit`.
+- A model reply that ends at its output-token limit (`stop_reason` `max_tokens`: 4000 for the Maker draft and revision, 2000
+  for the Checker audit) stops the run with one `error:` line and exit status 1. The partial text is not parsed, saved,
+  audited, recorded as a verdict or exported, and nothing from that call is checkpointed; see
+  [Troubleshooting](troubleshooting.md#the-headless-pipeline-stops-with-response-was-truncated).
 - `--financials` is a JSON file of raw line items per period (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`,
   any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
   own forecast, never derived by the tool.

@@ -92,6 +92,8 @@ never drop a field another step already recorded):
   Go/No-Go verdict and rationale (exactly the shape `/triage` would write), a `commercial` key
   holding the drafted sections above (exactly the shape `/commercial` would write), and any
   bureau/registry figures under `inputs` (e.g. `inputs.experian_score`).
+- Set `triage.sources` and `commercial.sources` each to a list of citation strings used by their respective sections
+  (use `[]` for a section with no citations); never omit either list.
 - Append `"triage"` and `"commercial"` to `steps_completed` if not already there. This makes the
   deal indistinguishable from one that ran `/triage` and `/commercial` individually, so it can
   seamlessly continue into `/spread` → `/collateral` → `/project` → `/assemble` later if it turns
@@ -101,7 +103,9 @@ Then run:
 ```
 python scripts/source_manifest.py --check-sources --company "<company>" --proposal "<proposal>"
 ```
-If `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
+If `sources_declared` is `"unknown"`, one or both completed sections has no valid `sources` list. Restore both lists
+of citation strings in state and rerun this check; do not assume no citations were used or continue silently.
+Otherwise, if `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
 of the material behind them (see issue #72) — go back and save at least one via the Source
 material step above before finishing, or tell the user explicitly that no source material was
 saved for this step and why (e.g. every source was unsaveable) rather than silently moving on.

@@ -100,17 +100,24 @@ def test_content_after_table_continues_as_a_paragraph(tmp_path):
     assert doc.paragraphs[-1].text == "After the table."
 
 
-def test_ragged_table_rows_do_not_crash(tmp_path):
+def test_ragged_table_rows_preserve_extra_cells_and_warn(tmp_path, capsys):
     markdown = (
         "| A | B |\n"
         "| --- | --- |\n"
         "| 1 |\n"          # missing a column -> padded with a blank cell
-        "| 2 | 3 | 4 |\n"  # extra column -> silently dropped
+        "| 2 | 3 | 4 |\n"  # extra column -> preserved by widening the table
     )
     doc = _build(tmp_path, markdown)
     table = doc.tables[0]
-    assert [c.text for c in table.rows[1].cells] == ["1", ""]
-    assert [c.text for c in table.rows[2].cells] == ["2", "3"]
+    assert len(table.columns) == 3
+    assert [c.text for c in table.rows[1].cells] == ["1", "", ""]
+    assert [c.text for c in table.rows[2].cells] == ["2", "3", "4"]
+    assert "body row 2 has 3 cells but its header has 2" in capsys.readouterr().err
+
+
+def test_escaped_pipe_stays_inside_one_table_cell(tmp_path):
+    doc = _build(tmp_path, "| Metric | Value |\n| --- | --- |\n| A \\| B split | 1.5x |\n")
+    assert [cell.text for cell in doc.tables[0].rows[1].cells] == ["A | B split", "1.5x"]
 
 
 def test_multiple_tables_in_one_document(tmp_path):

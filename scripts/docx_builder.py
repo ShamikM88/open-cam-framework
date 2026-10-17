@@ -44,13 +44,29 @@ def _is_table_row(line):
 
 
 def _split_row(line):
-    """Split a markdown table row into its cell strings, dropping the outer pipes."""
+    """Split a Markdown table row, treating an escaped pipe as cell content."""
     inner = line.strip()
     if inner.startswith("|"):
         inner = inner[1:]
     if inner.endswith("|"):
         inner = inner[:-1]
-    return [cell.strip() for cell in inner.split("|")]
+
+    cells, current = [], []
+    i = 0
+    while i < len(inner):
+        char = inner[i]
+        if char == "\\" and i + 1 < len(inner) and inner[i + 1] == "|":
+            current.append("|")
+            i += 2
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+        i += 1
+    cells.append("".join(current).strip())
+    return cells
 
 
 def _is_separator_row(cells):
@@ -145,16 +161,26 @@ def _set_cell_text(cell, text, alignment, bold=False):
 
 
 def _add_table(doc, header_cells, alignments, body_rows):
-    table = doc.add_table(rows=1, cols=len(header_cells))
+    column_count = max([len(header_cells), *(len(row) for row in body_rows)])
+    for row_number, row_cells in enumerate(body_rows, start=1):
+        if len(row_cells) > len(header_cells):
+            print(
+                f"[docx_builder] Table body row {row_number} has {len(row_cells)} cells "
+                f"but its header has {len(header_cells)}; preserving all cells by widening the table.",
+                file=sys.stderr,
+            )
+
+    table = doc.add_table(rows=1, cols=column_count)
     table.style = "Table Grid"
     table.autofit = True
 
     for idx, text in enumerate(header_cells):
-        _set_cell_text(table.rows[0].cells[idx], text, alignments[idx], bold=True)
+        alignment = alignments[idx] if idx < len(alignments) else "left"
+        _set_cell_text(table.rows[0].cells[idx], text, alignment, bold=True)
 
     for row_cells in body_rows:
         row = table.add_row()
-        for idx in range(len(row.cells)):
+        for idx in range(column_count):
             text = row_cells[idx] if idx < len(row_cells) else ""
             alignment = alignments[idx] if idx < len(alignments) else "left"
             _set_cell_text(row.cells[idx], text, alignment)

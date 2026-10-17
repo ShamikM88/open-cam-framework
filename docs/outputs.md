@@ -29,12 +29,15 @@ however many days the work took. Exporting never changes `state.json`'s figures;
 The draft is Markdown; `scripts/docx_builder.py` turns it into a Word document you can edit. The rendering rules are
 the ones that surprise authors:
 
+Body rows wider than the header are preserved by widening the table and emit a warning on standard error. Escape a literal pipe within a cell as `\|` (a single backslash); the exported cell contains `|`.
+
 | In the Markdown | In the Word document |
 | :--- | :--- |
 | `#`, `##`, `###` | Heading 1, 2, 3. Deeper levels (`####` to `######`) all become Heading 3 |
 | `- item` | a bullet (List Bullet style) |
 | `1. item` | an ordinary paragraph that begins `1.` (not an automatic numbered list) |
 | a pipe table | a Word table; the header row is bold and `:---:` / `---:` alignment markers are honoured |
+| `A \\| B` within a table cell | a literal `|` inside one cell |
 | `**bold**`, `*italic*`, `` `code` `` | bold, italic, and monospace text |
 | `[text](url)` | a real hyperlink |
 | a fenced block (no tag, or any tag except `json`) | monospace lines, whitespace kept exactly (the ownership-tree diagram uses this) |

@@ -102,7 +102,7 @@ def _resolve_maker_checker_config():
 MAX_REVIEW_ITERATIONS = 3
 
 # The state.json keys run_pipeline() reads from an existing deal (validated up front, before any model call: a
-# wrongly-typed one is a StateShapeError naming the key, shown by the CLI as one controlled error line).
+# wrongly-typed one is a StateShapeError naming the key, shown by the CLI as one `error:` line).
 STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                    "security_package", "guarantees", "review_trail")   # review_trail: append_review_trail() reads it

@@ -4,6 +4,12 @@
 
 The operating rule for adding a confidential location, and the rule for promoting a local template upstream, stay in `CLAUDE.md` under "Confidentiality rule for new features"; CI's security job, the advisory-ignore procedure and the workflow rules are in [testing and CI](testing.md). Credentials: [configuration](configuration.md#credentials).
 
+## Reporting a vulnerability or confidential exposure
+
+This repository's issue tracker is public. Read the root [`SECURITY.md`](../SECURITY.md) before reporting a vulnerability, suspected prompt-injection path, or possible disclosure of real data or credentials. Never put the vulnerability details, real material, API keys or other secrets in a public issue, pull request, discussion, screenshot, or CI log.
+
+The intended channel is GitHub private vulnerability reporting (`Security` → `Report a vulnerability`). This is a repository setting that the maintainer must enable; a pull request cannot enable it. If the private-reporting option is unavailable, do not disclose details publicly. Use a private maintainer contact already provided to you, or ask the maintainer—without any sensitive details—to enable the private channel.
+
 ## Where the protection comes from
 
 Security here is a few layers, and they are not equally visible. Know which ones are files you can review and which are settings you have to check.
@@ -56,7 +62,7 @@ The same builder sanitizes XML-invalid control characters in Markdown before wri
 
 Treat a public repository as already read by someone.
 
-1. **Stop and tell the maintainer** before doing anything else; do not paste the material or the key into an issue, a pull request or a chat.
+1. **Stop and tell the maintainer privately** before doing anything else; follow [`SECURITY.md`](../SECURITY.md). Do not paste the material or the key into an issue, a pull request or a chat.
 2. **A key or token:** revoke and rotate it at once. Removing it from git does not make it safe again.
 3. **Real data or a document:** the maintainer removes it from the branch and, because forks and clones keep history, decides whether history must be rewritten and whether the people affected must be told.
 4. **Close the gap:** add the missing location to `.gitignore` and to `PROTECTED_PATHS` in the same pull request ([contributing](contributing.md#confidentiality-and-credentials)) so a test enforces it from now on.

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability or confidential data exposure
+    url: https://github.com/ShamikM88/open-cam-framework/security/advisories/new
+    about: Issues are public. Do not include vulnerability details, real data, personal information, documents, credentials or secrets. Use private reporting once enabled; if unavailable, do not disclose details publicly.
+  - name: Security policy (read before reporting sensitive material)
+    url: https://github.com/ShamikM88/open-cam-framework/blob/main/SECURITY.md
+    about: Read how to report vulnerabilities and confidential exposure without publishing the material.

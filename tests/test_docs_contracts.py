@@ -417,3 +417,21 @@ def test_the_documented_lookup_guard_detects_a_deliberately_wrong_date_rule():
     wrong = correct.replace("choose the latest by comparing the date text", "choose the first result")
     assert wrong != correct, "the mutation must change the text the guard checks"
     assert "missing latest-by-date selection" in documented_state_lookup_problems(wrong)
+
+
+def test_public_issue_reporting_surfaces_private_security_policy_and_synthetic_data_only():
+    security = read("SECURITY.md")
+    security_guide = read("docs/security.md")
+    issue_config = read(".github/ISSUE_TEMPLATE/config.yml")
+    bug_template = read(".github/ISSUE_TEMPLATE/bug_report.md")
+
+    assert "private vulnerability reporting" in security.lower()
+    assert "report a vulnerability" in security.lower()
+    assert "SECURITY.md" in security_guide
+    assert "security/advisories/new" in issue_config
+    # Public issues stay fully available: the single bug template must not become the only way to open one.
+    assert "blank_issues_enabled: true" in issue_config
+    assert "public" in issue_config.lower() and "do not disclose details publicly" in issue_config.lower()
+    assert "public issue" in bug_template.lower() and "synthetic data only" in bug_template.lower()
+    for heading in ("## Problem", "## Concrete scenario", "## Proposed fix", "## Acceptance criteria"):
+        assert heading in bug_template

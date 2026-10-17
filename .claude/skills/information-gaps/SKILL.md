@@ -12,7 +12,7 @@ allowed-tools:
   - Bash(python scripts/state_manager.py --check-steps *)
   - Bash(python scripts/source_manifest.py --check-sources *)
   - Bash(python scripts/policy_check.py *)
-disallowed-tools: Write Edit NotebookEdit
+disallowed-tools: Write Edit NotebookEdit WebFetch WebSearch
 ---
 
 # information-gaps

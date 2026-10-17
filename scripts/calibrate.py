@@ -319,12 +319,11 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
         if not _sample_pdf_paths():
             print("No sample PDFs found in inputs/calibration_samples/")
             return
-        print(
+        sys.exit(
             "error: calibration PDFs contain no extractable text; no model call "
             "was made and no output files were written. Use /calibrate, which "
             "reads PDFs natively, or OCR the samples first."
         )
-        raise SystemExit(1)
 
     total_chars = len(text_content)
     mode = "split"

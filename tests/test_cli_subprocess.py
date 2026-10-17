@@ -609,6 +609,23 @@ def test_calibrate_without_the_mock_flag_and_without_a_key_falls_back_to_mock(cl
         encoding="utf-8") == MOCK_TEMPLATE
 
 
+def test_calibrate_with_only_a_scanned_pdf_is_one_error_line_on_stderr(cli):
+    from pypdf import PdfWriter
+
+    samples = cli.workdir / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with (samples / "scanned.pdf").open("wb") as handle:
+        writer.write(handle)
+    result = cli("calibrate", "--mock", "--type", "corporate_credit")
+    assert result.returncode == 1
+    assert result.stderr.startswith("error: ") and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "no extractable text" in result.stderr and "Traceback" not in result.stderr
+    assert "scanned.pdf" in result.stdout, "the per-PDF warning names the file on stdout"
+    assert not (cli.workdir / "config").exists() and not (cli.workdir / "templates").exists()
+
+
 def test_calibrate_without_sample_pdfs_says_so_and_writes_nothing(cli):
     result = cli("calibrate", "--mock")
     assert "No sample PDFs found" in result.stdout

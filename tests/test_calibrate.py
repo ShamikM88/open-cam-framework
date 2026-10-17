@@ -807,15 +807,16 @@ def test_pdfs_without_extractable_text_refuse_before_writing_outputs(
     with pytest.raises(SystemExit) as exc_info:
         run_calibration("corporate_credit", mock=mock)
 
-    assert exc_info.value.code == 1
+    # sys.exit(<message>): the message goes to stderr and the status is 1; the per-PDF [WARN] stays on stdout.
+    message = str(exc_info.value.code)
+    assert message.startswith("error: ") and "\n" not in message
     assert client.calls == []
     assert style_guide.read_bytes() == original_style
     assert not template.exists()
-    output = capsys.readouterr().out
-    assert "scanned.pdf" in output
-    assert "no extractable text" in output.lower()
-    assert "/calibrate" in output
-    assert "OCR" in output
+    assert "scanned.pdf" in capsys.readouterr().out
+    assert "no extractable text" in message.lower()
+    assert "/calibrate" in message
+    assert "OCR" in message
 
 
 def test_mixed_text_and_blank_pdfs_warns_and_processes_extractable_content(

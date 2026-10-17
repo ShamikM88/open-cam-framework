@@ -37,11 +37,12 @@ jobs:
           cache-dependency-path: |
             requirements-dev.txt
             requirements-mutation.txt
+            constraints.txt
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt -r requirements-mutation.txt
+          python -m pip install --upgrade -c constraints.txt pip==26.2.1
+          pip install -c constraints.txt -r requirements-dev.txt -r requirements-mutation.txt
 
       - name: Expose scripts/ to mutmut as src/
         # The tests import the modules as top-level names; mutmut only understands that layout from src/
@@ -87,13 +88,18 @@ jobs:
             echo "The per-module report could not be produced; see mutation-all.txt." >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Record the resolved mutation dependency versions
+        if: always()
+        run: pip freeze > pip-freeze-mutation.txt
+
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: mutation-report
           path: |
             mutmut-run.log
+            pip-freeze-mutation.txt
             mutation-survivors.txt
             mutation-all.txt
             mutation-report.json

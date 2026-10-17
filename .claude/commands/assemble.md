@@ -13,12 +13,20 @@ $ARGUMENTS
 
 ## State: read
 
-Glob `deals/<company>/<proposal>_*/state.json` (there should be at most one, regardless of
-date). If found, read it first — it may already hold the outputs of `/triage`, `/spread`,
-`/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous
-session, or from after a context compaction. Treat it as the source of truth for any figure it
-has recorded; never fall back to a summarized/compacted memory of a step when state.json already
-has that step's result.
+Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files,
+newest-modified first, which is not the same as latest by date; if the list reaches 100 files (the tool also flags
+truncation) it may be incomplete: say that the latest dated folder could not be established, and stop. Otherwise consider
+only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
+two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
+latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
+rule). Read its `state.json` and note the folder.
+If found, it may already hold the outputs of `/triage`, `/spread`, `/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous session, or from after a context compaction. Treat it as the source of truth for any figure it has recorded; never fall back to a summarized/compacted memory of a step when state.json already has that step's result.
+
+### Analyst-defined terms
+
+If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning.
+
+## Assemble the memorandum
 
 You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
 `/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier
@@ -88,8 +96,7 @@ guarantees to condition on; don't treat its absence as a missing step.
    need to work out or pass a date; only a brand-new deal gets a folder dated today) — and, only
    if this deal type had no template at all, auto-saves the draft's structure as a new override
    under `templates/local/cam/`.
-8. Report the output folder to the user, then delete the temporary `<proposal>_draft.md` file —
-   the real output now lives in the dated folder as a proper `.docx`/`.xlsx`.
+8. Report the output folder to the user. Then preserve the approved Markdown draft, including its trailing structured `json` block: move `deals/<company>/<proposal>_draft.md` into the same dated deal folder used for this export (the actual folder date, not a new one) as `draft_approved.md`, and set `approved_draft_path` in that folder's `state.json` to the repository-relative path of the moved file. Do not delete the approved draft: the `.docx`/`.xlsx` are client-facing outputs, and the retained file is the exact code-checked artifact for audit.
 9. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's
    own `review_trail` (already read in "State: read" above). A REJECTED entry's `notes` can mix
    two very different kinds of content in the same string: code-enforced deterministic reasons
@@ -108,8 +115,17 @@ guarantees to condition on; don't treat its absence as a missing step.
    full list, since this framework may add more of these over time) — these are bugs in *this*
    draft, never a standing fact worth remembering. Also exclude anything already routed through
    `/review`'s own "Persisting a policy-interpretation correction" step (never double-capture the
-   same correction in two places). If any candidates remain, surface them **as one batch**, not a
-   prompt per item: *"This deal's review surfaced N correction(s) that might be worth remembering
+   same correction in two places).
+
+   Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as
+   the other candidates, and persist it on an explicit yes exactly like any other learning (same
+   scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is
+   industry-standard rather than specific to their institution, say so and point to
+   docs/glossary.md; never write to a tracked file. Only what is already in `analyst_terms` is a
+   candidate; never infer a term from the conversation.
+
+   If any candidates remain, surface them **as one batch**, not a
+   prompt per item: *"This deal's review surfaced N item(s) that might be worth remembering
    for future deals: [list]. Persist any of these?"* For each one
    the analyst confirms, ask explicitly **"Is this specific to `<company>`, or does it apply
    across every borrower?"** (same question `/spread`'s own persisted-convention step asks) and
@@ -135,4 +151,4 @@ state-management protocol, a code-enforced structural finding like a covenant br
 gap must exist as a disk artifact, not only in this conversation), and append `"assemble"` to
 `steps_completed` if it isn't already there. `/review` already checkpoints `review_verdict`
 itself. `state.json` already sits next to the exported `.docx`/`.xlsx` — step 7 exports into the
-deal's existing dated folder — so write it back wherever you read it from; no re-homing needed.
+deal's existing dated folder — so write back to that same file; no re-homing needed.

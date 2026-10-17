@@ -878,9 +878,12 @@ if __name__ == "__main__":
                               "already has a dated folder always resumes the most recent one.")
     args = parser.parse_args()
 
-    multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
-    collateral_data = _load_json_file(args.collateral)
-    stress_assumptions = _load_json_file(args.stress_assumptions)
+    try:
+        multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
+        collateral_data = _load_json_file(args.collateral)
+        stress_assumptions = _load_json_file(args.stress_assumptions)
+    except (OSError, ValueError) as exc:    # a missing, non-UTF-8 or malformed input file
+        sys.exit(f"error: {exc}")
 
     try:
         run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,

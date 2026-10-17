@@ -49,6 +49,8 @@ Whether the agent prompts instruct the model to treat source content as *data, n
 
 Model-written Markdown is also untrusted input to the export: an image line can name any local path, so the document builder embeds only a real local png/jpg/gif/bmp, never touches the network, and turns anything else into a visible placeholder; an image path outside the deal's `sources/` folder deserves a second look in review ([outputs](outputs.md)).
 
+The same builder sanitizes XML-invalid control characters in Markdown before writing WordprocessingML, replaces each with U+FFFD, and emits one aggregate warning. This is resilience against malformed text, not a guarantee that the narrative itself is trustworthy.
+
 ## If something confidential was committed
 
 Treat a public repository as already read by someone.

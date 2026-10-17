@@ -233,6 +233,7 @@ def test_each_breakage_of_a_clean_report_is_caught(label, breakage, expected, tm
     assert broken != report
     assert any(expected in p for p in report_problems(broken, folder, SPEC, items=1)), (label, report_problems(broken, folder, SPEC))
 
+
 def test_report_numbers_must_match_whole_record_tokens_not_substrings(tmp_path):
     """Regression for #262: neither 50 in 1250/2500 nor 2 in 2026 is a recorded number."""
     date_str = "2026-01-10"
@@ -274,7 +275,6 @@ def test_report_numbers_must_match_whole_record_tokens_not_substrings(tmp_path):
         broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
         problems = report_problems(broken, folder, SPEC, items=1)
         assert f"number not in the record: {token}" in problems, (label, problems)
-
 
 
 def test_a_report_that_finds_nothing_but_lists_an_item_is_caught_and_so_is_the_reverse(tmp_path):

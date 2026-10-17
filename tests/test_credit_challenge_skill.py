@@ -216,8 +216,6 @@ BREAKAGES = [
      "a rating, score, recommendation or clearance appears"),
     ("a lend recommendation is added", lambda r: r.replace("\n> Analyst aid", "\nWe recommend lending.\n\n> Analyst aid"),
      "a rating, score, recommendation or clearance appears"),
-    ("a derived figure is added", lambda r: r.replace("\n> Analyst aid", "\nThat is 4.7x cover.\n\n> Analyst aid"),
-     "number not in the record: 4.7"),
     ("a value that is not in the record is quoted", lambda r: r.replace("\n> Analyst aid", "\nThe draft says `EBITDA of 999`.\n\n> Analyst aid"),
      "quoted value not in the record"),
     ("the caveat is removed", lambda r: r.split("\n> Analyst aid")[0].rstrip() + "\n", "the closing caveat is missing"),
@@ -234,6 +232,49 @@ def test_each_breakage_of_a_clean_report_is_caught(label, breakage, expected, tm
     broken = breakage(report)
     assert broken != report
     assert any(expected in p for p in report_problems(broken, folder, SPEC, items=1)), (label, report_problems(broken, folder, SPEC))
+
+
+def test_report_numbers_must_match_whole_record_tokens_not_substrings(tmp_path):
+    """Regression for #262: neither 50 in 1250/2500 nor 2 in 2026 is a recorded number."""
+    date_str = "2026-01-10"
+    write_state(
+        COMPANY,
+        PROPOSAL,
+        date_str=date_str,
+        base_dir=tmp_path,
+        **{
+            **BASE_STATE,
+            "steps_completed": ["triage", "spread"],
+            "financials": {"FY-Current": {"ebitda": 1250}},
+            "total_debt": 2500,
+        },
+    )
+    folder = Path(state_path(COMPANY, PROPOSAL, date_str=date_str, base_dir=tmp_path)).parent
+    reviewed_path = f"{folder.relative_to(tmp_path).as_posix()}/state.json"
+    report = (
+        f"**Material reviewed:** `{reviewed_path}`; manifest: not present; draft: {NO_DRAFT}.\n\n"
+        + item(
+            1, "Market position", "What evidence supports the claim?",
+            "The reviewed record contains no statement establishing market position.",
+            "An unsupported position could mislead the reader.",
+            "None recorded in the material reviewed.",
+            "The record does not establish whether the claim is true.",
+            "Which recorded source, if any, supports the claim?",
+        )
+        + "\n"
+        + CAVEAT
+    )
+    assert report_problems(report, folder, SPEC, items=1) == []
+
+    deliberately_broken = (
+        ("a derived multiple", "That is 4.7x cover.", "4.7"),
+        ("a margin derived from recorded values", "EBITDA margin is 50 percent of debt.", "50"),
+        ("a leverage multiple derived from a date", "Gross leverage works out at 2x.", "2"),
+    )
+    for label, sentence, token in deliberately_broken:
+        broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
+        problems = report_problems(broken, folder, SPEC, items=1)
+        assert f"number not in the record: {token}" in problems, (label, problems)
 
 
 def test_a_report_that_finds_nothing_but_lists_an_item_is_caught_and_so_is_the_reverse(tmp_path):
@@ -301,3 +342,92 @@ def test_the_skill_asks_for_the_report_shape_the_checker_reads():
     for label in SPEC.labels:
         assert f"**{label}:**" in body
     assert SPEC.nothing_phrase in body and SPEC.caveat in body
+
+
+MANIFEST_ENTRY_CASES = [
+    # (entries saved, text written after "manifest: ", expected to be flagged)
+    (1, "1 entry", False),
+    (2, "2 entries", False),
+    (2, "1 entry", True),
+    (1, "2 entries", True),
+    (0, "1 entry", True),
+]
+
+
+def _report_with_material_line(material_line):
+    return (
+        material_line + "\n"
+        + item(1, "Market position", "What evidence supports the claim?",
+               "The reviewed record contains no statement establishing market position.",
+               "An unsupported position could mislead the reader.", "None recorded in the material reviewed.",
+               "The record does not establish whether the claim is true.", "Which recorded source, if any, supports the claim?")
+        + "\n" + CAVEAT)
+
+
+@pytest.mark.parametrize(("saved", "written", "flagged"), MANIFEST_ENTRY_CASES,
+                         ids=[f"{s}-saved-{w.replace(' ', '-')}" for s, w, _ in MANIFEST_ENTRY_CASES])
+def test_the_manifest_count_is_accepted_only_when_it_equals_the_saved_entries(tmp_path, saved, written, flagged):
+    """Regression for the reverted #262 attempt: the generated 'N entries' count is metadata, so it is accepted on the
+    opening line only when the saved manifest really has that many entries."""
+    manifest = [(f"Claim {name}", f"https://example.invalid/source-{name}") for name in "abcd"[:saved]]  # no digits
+    folder = make_deal(tmp_path, state=BASE_STATE, manifest=manifest)
+    report = _report_with_material_line(material(written, NO_DRAFT).rstrip("\n"))
+    problems = report_problems(report, folder, SPEC, items=1)
+    count = written.split()[0]
+    if flagged:
+        assert f"number not in the record: {count}" in problems
+    else:
+        assert problems == []
+
+
+def test_a_manifest_count_off_the_opening_line_is_checked_like_any_other_number(tmp_path):
+    folder = make_deal(tmp_path, state=BASE_STATE, manifest=[("Claim", "https://example.invalid/source")])
+    report = _report_with_material_line(material("1 entry", NO_DRAFT).rstrip("\n"))
+    assert report_problems(report, folder, SPEC, items=1) == []
+    moved = report.replace("\n> Analyst aid", "\nThe manifest: 1 entry was reviewed.\n\n> Analyst aid")
+    assert "number not in the record: 1" in report_problems(moved, folder, SPEC, items=1)
+
+
+@pytest.mark.parametrize("manifest_text", ["{}", "not json", '"a string"', "42"], ids=["object", "invalid-json", "string", "number"])
+def test_a_missing_or_non_list_manifest_never_verifies_a_count(tmp_path, manifest_text):
+    folder = make_deal(tmp_path, state=BASE_STATE)
+    report = _report_with_material_line(material("1 entry", NO_DRAFT).rstrip("\n"))
+    assert "number not in the record: 1" in report_problems(report, folder, SPEC, items=1), "no manifest file"
+    (folder / "sources").mkdir()
+    (folder / "sources" / "manifest.json").write_text(manifest_text, encoding="utf-8")
+    assert "number not in the record: 1" in report_problems(report, folder, SPEC, items=1)
+
+
+@pytest.mark.parametrize(("recorded", "written", "accepted"), [
+    ("1,234", "1234", True),
+    ("1234", "1,234", True),
+    ("1,234,567", "1234567", True),
+    ("1,234.5", "1234.5", True),
+    ("1234", "12,34", False),
+    ("1234", "1,2,3", False),
+    ("1234", "123,4", False),
+])
+def test_only_proper_thousands_grouping_is_normalised(tmp_path, recorded, written, accepted):
+    """Review finding F3 (#262): '12,34' is not a grouped 1234; only 1,234-style grouping is presentation-only."""
+    folder = make_deal(tmp_path, state={**BASE_STATE, "total_debt": recorded.replace(",", "")}, draft=f"Debt is {recorded}.\n")
+    report = _report_with_material_line(material("not present", NO_DRAFT).rstrip("\n")).replace(
+        "\n> Analyst aid", f"\nThe draft shows {written}.\n\n> Analyst aid")
+    problems = [p for p in report_problems(report, folder, SPEC, items=1) if p.startswith("number not in the record")]
+    assert (problems == []) is accepted, problems
+
+
+@pytest.mark.parametrize(("recorded", "written", "accepted"), [
+    ("1250.0", "1250", True),
+    ("12.5", "12.50", True),
+    ("12.50", "12.5", True),
+    ("1250", "1250.0", True),
+    ("12.5", "12.6", False),
+    ("1250.0", "125", False),
+])
+def test_trailing_decimal_zeros_do_not_change_a_recorded_number(tmp_path, recorded, written, accepted):
+    """Review pass 2, finding 2 (#262): 1250.0 in state.json is the recorded number 1250."""
+    folder = make_deal(tmp_path, state=BASE_STATE, draft=f"Figure {recorded}.\n")
+    report = _report_with_material_line(material("not present", NO_DRAFT).rstrip("\n")).replace(
+        "\n> Analyst aid", f"\nThe draft shows {written}.\n\n> Analyst aid")
+    problems = [p for p in report_problems(report, folder, SPEC, items=1) if p.startswith("number not in the record")]
+    assert (problems == []) is accepted, problems

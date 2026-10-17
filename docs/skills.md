@@ -286,7 +286,7 @@ score is.
   for a reviewed change, and a candidate *missing assertion* for the behaviour no selected test checks. Both are
   [#219](https://github.com/ShamikM88/open-cam-framework/issues/219)'s groups.
 - **Read-only, and what that rests on.** It pre-approves only `Read`, `Glob` and `Grep`, and `Write`, `Edit`, `NotebookEdit`,
-  Write, Edit, NotebookEdit and Bash are removed while it runs, and WebFetch and WebSearch are also removed, so it runs no `mutmut`, no test and no script, cannot
+  `Bash`, `WebFetch` and `WebSearch` are removed while it runs, so it runs no `mutmut`, no test and no script, cannot
   browse or fetch external sources, and edits and files nothing. Other tools remain subject to your permission settings;
   the enforced list is the frontmatter's `disallowed-tools`. It never changes the mutation scope, the 75% diagnostic target,
   the configuration or the workflow.

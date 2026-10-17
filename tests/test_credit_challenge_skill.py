@@ -208,6 +208,10 @@ BREAKAGES = [
      "fields out of order"),
     ("an overall verdict is added", lambda r: r.replace("\n> Analyst aid", "\nOverall: APPROVED.\n\n> Analyst aid"),
      "a verdict word appears"),
+    ("a bold lowercase verdict label is added", lambda r: r.replace("\n> Analyst aid", "\nVerdict: **approved**.\n\n> Analyst aid"),
+     "a verdict word appears"),
+    ("a standalone lowercase verdict is added", lambda r: r.replace("\n> Analyst aid", "\napproved\n\n> Analyst aid"),
+     "a verdict word appears"),
     ("a rating is added", lambda r: r.replace("\n> Analyst aid", "\nOverall risk rating: low.\n\n> Analyst aid"),
      "a rating, score, recommendation or clearance appears"),
     ("a lend recommendation is added", lambda r: r.replace("\n> Analyst aid", "\nWe recommend lending.\n\n> Analyst aid"),
@@ -239,6 +243,22 @@ def test_a_report_that_finds_nothing_but_lists_an_item_is_caught_and_so_is_the_r
     assert any("both identifies items" in p for p in report_problems(both, folder, SPEC))
     neither = clean.replace(SPEC.nothing_phrase, "Nothing")
     assert any("does not say none was identified" in p for p in report_problems(neither, folder, SPEC))
+
+
+@pytest.mark.parametrize("sentence", [
+    "The deal is approved.",
+    "The facility is rejected.",
+    "Overall decision: pass.",
+    "Overall decision: PaSsEd.",
+    "Overall decision: fail.",
+    "Overall decision: fAiLeD.",
+])
+def test_lowercase_and_mixed_case_verdicts_are_rejected(sentence, tmp_path):
+    name = "unsupported_narrative_claim"
+    folder = folder_for(tmp_path, name)
+    report = SCENARIOS[name][1]
+    broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
+    assert any("verdict word" in problem for problem in report_problems(broken, folder, SPEC, items=1)), sentence
 
 
 def test_a_recorded_verdict_word_may_be_quoted_but_not_asserted(tmp_path):

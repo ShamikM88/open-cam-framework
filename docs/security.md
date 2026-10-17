@@ -119,3 +119,5 @@ IT, NL), by shape only, added for issue #111) pattern scan for likely-real curre
 company names left over in a calibrated `templates/local/cam/*.md` override -- the second line
 of defense (after a by-hand review) before promoting one upstream to the shared `templates/cam/`
 defaults; see the "Promoting a local override upstream" rule in `CLAUDE.md`'s confidentiality section.
+
+Currency and date patterns include the selected ISO codes GBP, USD, EUR, CHF, JPY, CAD and AUD adjacent to amount-shaped numbers; common trailing currency symbols after dot- or space-grouped amounts; the yen symbol before an amount; numeric dates in slash-separated day/month or month/day order and dot-separated day/month order; and full or abbreviated month names in day-first or month-first dates. These checks are intentionally shape-based and narrow. **This is not an international detector**: unsupported currencies, date conventions and other national identifiers may not be recognized.

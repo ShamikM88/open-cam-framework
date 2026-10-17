@@ -328,7 +328,7 @@ def test_main_turns_a_state_error_into_one_error_line_and_changes_nothing(tmp_pa
 def test_main_with_nothing_to_compute_writes_no_state(tmp_path, monkeypatch):
     """No --financials and nothing on file is refused (as compute() does), and no deal folder is created for it."""
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(ValueError, match="Nothing to compute"):
+    with pytest.raises(SystemExit, match="error: Nothing to compute"):
         main(["--company", "Acme Corp", "--proposal", "Fleet Loan"])
     assert not (tmp_path / "deals").exists()
 

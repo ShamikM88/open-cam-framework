@@ -26,6 +26,7 @@ so in its Related line) when a later decision supersedes it.
 - [D13. Mutation testing and coverage are diagnostics and floors, not a scoring game](#d13-mutation-testing-and-coverage-are-diagnostics-and-floors-not-a-scoring-game)
 - [D14. The test-count badge is checked by CI and never corrected by it](#d14-the-test-count-badge-is-checked-by-ci-and-never-corrected-by-it)
 - [D15. Skills are interactive aids and never input to the Maker or the Checker](#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker)
+- [D16. The headless Maker and Checker use provider-default sampling parameters](#d16-the-headless-maker-and-checker-use-provider-default-sampling-parameters)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -245,3 +246,12 @@ so in its Related line) when a later decision supersedes it.
   interactive Reviewer is a fresh sub-agent that reads files, not the conversation (D1's update). See
   [Skill design](skill-design.md).
 - **Related.** #196 (the initiative), #203 (`annual-review` needs new primitives), #204 (the interactive Checker's context, settled in D1's update).
+
+
+## D16. The headless Maker and Checker use provider-default sampling parameters
+
+- **Context.** The shipped Maker and Checker model configuration rejects non-default sampling parameters. Exposing `maker_temperature` and `checker_temperature` therefore made a documented setting capable of breaking every headless call, even though the shipped defaults omitted those keys.
+- **Choice.** The headless orchestrator does not support sampling-temperature overrides. It uses the provider's default sampling behaviour. If a fork's `config/settings.json` still carries either legacy key, the orchestrator emits a warning and ignores it.
+- **Why.** A setting must not promise control that the configured models do not accept. Silently sending a rejected request is worse than a visible migration warning with deterministic request shape.
+- **Consequences.** Maker/Checker model selection remains independent; sampling controls must not be added back without a separately reviewed, model-validated design. The key names are documented as unsupported in [Configuration](configuration.md#which-settings-are-read).
+- **Related.** #274.

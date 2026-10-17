@@ -1,4 +1,4 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
   - name: Security vulnerability or confidential data exposure
     url: https://github.com/ShamikM88/open-cam-framework/security/advisories/new

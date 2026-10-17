@@ -428,6 +428,8 @@ def test_public_issue_reporting_surfaces_private_security_policy_and_synthetic_d
     assert "report a vulnerability" in security.lower()
     assert "SECURITY.md" in security_guide
     assert "security/advisories/new" in issue_config
+    # Public issues stay fully available: the single bug template must not become the only way to open one.
+    assert "blank_issues_enabled: true" in issue_config
     assert "public" in issue_config.lower() and "do not disclose details publicly" in issue_config.lower()
     assert "public issue" in bug_template.lower() and "synthetic data only" in bug_template.lower()
     for heading in ("## Problem", "## Concrete scenario", "## Proposed fix", "## Acceptance criteria"):

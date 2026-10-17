@@ -410,11 +410,10 @@ def state_path(company, proposal, date_str=None, base_dir=None, new_review=False
     `company`/`proposal` are sanitized here -- the one place every other
     function in this module (and deal_export.py, via its own call) routes
     through -- since they're used directly as path components below. An
-    explicitly-passed `date_str` is sanitized too (it's embedded in the
-    same "{proposal}_{date_str}" component); an auto-resolved one (the
-    common case -- see _resolve_date_str()) is always either today's own
-    ISO-format date or discovered from an existing directory name, so it
-    never needs this check.
+    explicitly-passed `date_str` must first be a real calendar date in exact
+    YYYY-MM-DD form, then is sanitized as a path component; an auto-resolved
+    one (the common case -- see _resolve_date_str()) is always either today's
+    own ISO-format date or discovered from a valid existing directory name.
     """
     date_str = _validate_explicit_state_date(date_str)
     company = sanitize_path_component(company, "company")

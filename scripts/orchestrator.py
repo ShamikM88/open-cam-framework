@@ -38,13 +38,12 @@ from response_utils import EmptyModelResponseError, require_response_text
 
 def _load_settings():
     """config/settings.json's full contents -- the documented single
-    source of truth per CLAUDE.md for the Maker/Checker model and
-    temperature configuration below, so neither can silently drift from a
+    source of truth per CLAUDE.md for the Maker/Checker model configuration below, so neither can silently drift from a
     hardcoded constant. Falls back to {} if the config file is missing or
     malformed rather than raising here -- _resolve_maker_checker_config()
     below is the one that decides whether an empty/incomplete result is
-    actually fatal (it is, for a missing maker_model). Only the model and
-    temperature keys are read from this file (see CLAUDE.md, "What
+    actually fatal (it is, for a missing maker_model). Only model keys are used; the retired temperature keys are detected only
+    to warn that they are ignored, and no sampling parameters are sent (see CLAUDE.md, "What
     config/settings.json actually controls"); max_tokens, default_currency,
     output_directory, template_directory and spreading_template_directory
     may also appear in it but NO script reads them -- the corresponding
@@ -59,32 +58,19 @@ def _load_settings():
 
 
 def _resolve_maker_checker_config():
-    """The Underwriter ("Maker") and Risk Reviewer ("Checker") are
-    independently configurable model/temperature knobs -- institutional
-    governance expects independent review to use a structurally different
-    model/config, not just a different prompt, to avoid the two sharing the
-    same blind spots. Without an explicit "checker_model"/"*_temperature"
-    in config/settings.json, the Checker still defaults to the same model
-    as the Maker and no temperature override is applied (this framework
-    can't invent a second model on its own), but the two are independent
-    settings rather than one hardcoded constant shared by every call.
+    """Resolve the Maker and Checker models and retire per-agent temperatures.
 
-    Reads config/settings.json fresh on every call (matching e.g.
-    template_resolver.cam_template_path()'s own read-on-every-call
-    convention) rather than freezing the result at import time, both for
-    consistency with the rest of this codebase and so a config change is
-    picked up by the very next deal run without needing a process restart.
+    Claude Sonnet 5 and Opus 5 reject non-default sampling parameters. The
+    framework therefore omits temperature from every request. If an existing
+    fork still has maker_temperature or checker_temperature in its settings,
+    warn about the retired key and ignore it rather than sending a request that
+    the configured model will reject.
 
-    Raises RuntimeError if "maker_model" isn't set (missing key, missing
-    file, or malformed JSON -- all indistinguishable from the caller's
-    perspective: there's no model to draft with). config/settings.json is
-    checked into the repo with maker_model already set, so a fork gets a
-    working config automatically -- a missing value here means the
-    checked-in config was deleted, corrupted, or deliberately edited to
-    remove it, not "a fresh install that hasn't configured it yet". A
-    silent hardcoded fallback would let a real deal draft on an
-    unconfigured, untracked model with no indication anything was
-    wrong -- exactly the config-drift failure mode issue #34 was about.
+    Reads config/settings.json fresh on every call. Raises RuntimeError if
+    maker_model isn't set (missing key, missing file, or malformed JSON).
+    The shipped file is checked in with maker_model already set, so a missing
+    value means the configuration was deleted, corrupted or deliberately
+    edited rather than simply not configured yet.
     """
     settings = _load_settings()
     maker_model = settings.get("maker_model")
@@ -95,11 +81,20 @@ def _resolve_maker_checker_config():
             "-- see CLAUDE.md's Execution scripts section -- rather than silently "
             "drafting a deal on an unconfigured default model."
         )
+    ignored_temperatures = [
+        key for key in ("maker_temperature", "checker_temperature") if key in settings
+    ]
+    if ignored_temperatures:
+        names = ", ".join(ignored_temperatures)
+        print(
+            f"warning: config/settings.json contains retired temperature setting(s) {names}; "
+            "they are ignored because the configured Claude models reject non-default sampling "
+            "parameters. Remove these keys and use prompting to guide model behavior.",
+            file=sys.stderr,
+        )
     return {
         "maker_model": maker_model,
         "checker_model": settings.get("checker_model") or maker_model,
-        "maker_temperature": settings.get("maker_temperature"),
-        "checker_temperature": settings.get("checker_temperature"),
     }
 
 
@@ -112,28 +107,9 @@ STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source
                    "security_package", "guarantees", "review_trail")   # review_trail: append_review_trail() reads it
 
 
-def _completion_kwargs(model, temperature):
-    """kwargs for client.messages.create() -- temperature is only included
-    when actually configured, so omitting it from config/settings.json
-    preserves the Anthropic API's own default rather than this module
-    silently picking one.
-
-    Routed through `extra_body` rather than a direct `temperature=` kwarg:
-    the anthropic Python SDK (>=1.x) dropped `temperature`/`top_p`/`top_k`
-    from `Messages.create()`'s own typed signature -- passing it directly
-    now raises `TypeError: unexpected keyword argument 'temperature'`
-    before any request is even sent, not a deprecation warning. `extra_body`
-    is the SDK's own documented escape hatch for a still-valid API field
-    that isn't (or is no longer) exposed as a named parameter. This bug
-    can't be caught by this project's own test suite -- MockClient accepts
-    arbitrary **kwargs, so it never validates against the real SDK's
-    signature -- confirmed by hand against the installed SDK before writing
-    this fix (see PR discussion, issue tied to the anthropic dependency bump).
-    """
-    kwargs = {"model": model}
-    if temperature is not None:
-        kwargs["extra_body"] = {"temperature": temperature}
-    return kwargs
+def _completion_kwargs(model):
+    """Build a model-only request fragment; deprecated sampling settings stay out of the API body."""
+    return {"model": model}
 
 
 def _content_hash(text):
@@ -783,7 +759,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
     draft = require_response_text(client.messages.create(
-        **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
+        **_completion_kwargs(maker_checker_config["maker_model"]),
         max_tokens=4000,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
@@ -805,7 +781,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
         print(f"[2/3] Risk Reviewer Agent auditing draft (iteration {iteration}/{max_iterations})...")
         audit_response = require_response_text(client.messages.create(
-            **_completion_kwargs(maker_checker_config["checker_model"], maker_checker_config["checker_temperature"]),
+            **_completion_kwargs(maker_checker_config["checker_model"]),
             max_tokens=2000,
             messages=[{"role": "user", "content":
                        f"{checker_prompt}\n{grounding_context}\nDraft to review:\n{draft}"}]
@@ -829,7 +805,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         if iteration < max_iterations:
             print(f"[Revise] Iteration {iteration} REJECTED: {notes}")
             draft = require_response_text(client.messages.create(
-                **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
+                **_completion_kwargs(maker_checker_config["maker_model"]),
                 max_tokens=4000,
                 messages=[{"role": "user", "content":
                            f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}\n"

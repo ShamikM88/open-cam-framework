@@ -216,8 +216,6 @@ BREAKAGES = [
      "a rating, score, recommendation or clearance appears"),
     ("a lend recommendation is added", lambda r: r.replace("\n> Analyst aid", "\nWe recommend lending.\n\n> Analyst aid"),
      "a rating, score, recommendation or clearance appears"),
-    ("a derived figure is added", lambda r: r.replace("\n> Analyst aid", "\nThat is 4.7x cover.\n\n> Analyst aid"),
-     "number not in the record: 4.7"),
     ("a value that is not in the record is quoted", lambda r: r.replace("\n> Analyst aid", "\nThe draft says `EBITDA of 999`.\n\n> Analyst aid"),
      "quoted value not in the record"),
     ("the caveat is removed", lambda r: r.split("\n> Analyst aid")[0].rstrip() + "\n", "the closing caveat is missing"),
@@ -234,6 +232,49 @@ def test_each_breakage_of_a_clean_report_is_caught(label, breakage, expected, tm
     broken = breakage(report)
     assert broken != report
     assert any(expected in p for p in report_problems(broken, folder, SPEC, items=1)), (label, report_problems(broken, folder, SPEC))
+
+def test_report_numbers_must_match_whole_record_tokens_not_substrings(tmp_path):
+    """Regression for #262: neither 50 in 1250/2500 nor 2 in 2026 is a recorded number."""
+    date_str = "2026-01-10"
+    write_state(
+        COMPANY,
+        PROPOSAL,
+        date_str=date_str,
+        base_dir=tmp_path,
+        **{
+            **BASE_STATE,
+            "steps_completed": ["triage", "spread"],
+            "financials": {"FY-Current": {"ebitda": 1250}},
+            "total_debt": 2500,
+        },
+    )
+    folder = Path(state_path(COMPANY, PROPOSAL, date_str=date_str, base_dir=tmp_path)).parent
+    reviewed_path = f"{folder.relative_to(tmp_path).as_posix()}/state.json"
+    report = (
+        f"**Material reviewed:** `{reviewed_path}`; manifest: not present; draft: {NO_DRAFT}.\n\n"
+        + item(
+            1, "Market position", "What evidence supports the claim?",
+            "The reviewed record contains no statement establishing market position.",
+            "An unsupported position could mislead the reader.",
+            "None recorded in the material reviewed.",
+            "The record does not establish whether the claim is true.",
+            "Which recorded source, if any, supports the claim?",
+        )
+        + "\n"
+        + CAVEAT
+    )
+    assert report_problems(report, folder, SPEC, items=1) == []
+
+    deliberately_broken = (
+        ("a derived multiple", "That is 4.7x cover.", "4.7"),
+        ("a margin derived from recorded values", "EBITDA margin is 50 percent of debt.", "50"),
+        ("a leverage multiple derived from a date", "Gross leverage works out at 2x.", "2"),
+    )
+    for label, sentence, token in deliberately_broken:
+        broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
+        problems = report_problems(broken, folder, SPEC, items=1)
+        assert f"number not in the record: {token}" in problems, (label, problems)
+
 
 
 def test_a_report_that_finds_nothing_but_lists_an_item_is_caught_and_so_is_the_reverse(tmp_path):

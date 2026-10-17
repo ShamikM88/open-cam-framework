@@ -6,7 +6,7 @@ This is a public repository. **Do not disclose vulnerability details or confiden
 
 The intended reporting channel is GitHub's **private vulnerability reporting** for this repository: open the repository's **Security** tab and choose **Report a vulnerability**. A maintainer must enable this repository setting for the private form to be available; a pull request cannot enable it.
 
-If the private reporting option is unavailable, do not create a public issue containing the details. Use a private contact channel the maintainer has already provided, or ask the maintainer—in a message containing no sensitive detail—to enable private vulnerability reporting. The public issue tracker must not be used as a fallback disclosure channel.
+If the private reporting option is unavailable, do not create a public issue containing the details. No other private contact channel is published in this repository. Ask the maintainer to enable private vulnerability reporting (or to name a private channel) in a public issue or message that contains no vulnerability detail and no sensitive material, and send the details only once a private channel exists. The public issue tracker must not be used as a fallback disclosure channel.
 
 ### What to include in a private report
 

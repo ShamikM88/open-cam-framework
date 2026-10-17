@@ -1027,14 +1027,23 @@ def test_evaluate_financial_model_usable_from_orchestrator():
 # Governance loop: export gating, per-iteration checkpointing.
 # ---------------------------------------------------------------------------
 
-def test_run_pipeline_exports_when_approved_on_first_iteration(project_root):
+def test_run_pipeline_exports_when_approved_on_first_iteration(project_root, capsys):
+    # Normal `end_turn` responses are complete and must not be mistaken for truncation.
+    def complete_response(text):
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=text)],
+            stop_reason="end_turn",
+        )
+
     client = MockClient([
-        _compliant_draft(),      # [1/3] Underwriter draft
-        _approved_json(),        # [2/3] Risk Reviewer audit, iteration 1
+        complete_response(_compliant_draft()),  # [1/3] Underwriter draft
+        complete_response(_approved_json()),    # [2/3] Risk Reviewer audit, iteration 1
     ])
 
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client)
+    assert client.call_count == 2  # no revision call for a normal end_turn response
+    assert "truncated" not in capsys.readouterr().err.lower()
 
     deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
     assert os.path.isfile(os.path.join(deal_dir, "draft_v1.md"))
@@ -1104,6 +1113,96 @@ def test_run_pipeline_exits_nonzero_and_skips_export_after_max_rejections(projec
     assert len(state["review_trail"]) == MAX_REVIEW_ITERATIONS
     assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
     assert client.call_count == 6  # 1 initial draft + 3 audits + 2 revisions, no 3rd revision
+
+
+def test_run_pipeline_stops_and_records_truncated_initial_draft(project_root, capsys):
+    truncated = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="# Incomplete CAM")],
+        stop_reason="max_tokens",
+    )
+    client = MockClient([truncated])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            client=client,
+        )
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "warning:" in err
+    assert "Maker draft" in err and "max_tokens=4000" in err
+    deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
+    assert not os.path.exists(os.path.join(deal_dir, "draft_v1.md"))
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["review_verdict"] == "REJECTED"
+    assert state["review_trail"][-1]["verdict"] == "REJECTED"
+    assert "Maker draft" in state["review_trail"][-1]["notes"]
+    assert "max_tokens=4000" in state["review_trail"][-1]["notes"]
+    assert "draft" not in state.get("steps_completed", [])
+    assert client.call_count == 1
+
+
+def test_run_pipeline_fails_closed_on_truncated_checker_audit(project_root, capsys):
+    truncated = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=_approved_json())],
+        stop_reason="max_tokens",
+    )
+    client = MockClient([_compliant_draft(), truncated])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            client=client, max_iterations=1,
+        )
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "warning:" in err
+    assert "Checker audit" in err and "max_tokens=2000" in err
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["review_verdict"] == "REJECTED"
+    assert state["review_trail"][-1]["verdict"] == "REJECTED"
+    assert "Checker audit" in state["review_trail"][-1]["notes"]
+    assert "max_tokens=2000" in state["review_trail"][-1]["notes"]
+    assert client.call_count == 2
+    deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
+    assert os.path.isfile(os.path.join(deal_dir, "draft_v1.md"))
+    assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+
+
+def test_run_pipeline_stops_after_a_truncated_revision_without_another_audit(project_root, capsys):
+    truncated = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="# Incomplete revised CAM")],
+        stop_reason="max_tokens",
+    )
+    client = MockClient([
+        _compliant_draft("# Draft v1"),
+        _rejected_json("Fix the EBITDA figure."),
+        truncated,
+    ])
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            client=client,
+        )
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "warning:" in err
+    assert "Maker revision" in err and "max_tokens=4000" in err
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert [entry["verdict"] for entry in state["review_trail"]] == ["REJECTED", "REJECTED"]
+    assert state["review_trail"][0]["notes"] == "Fix the EBITDA figure."
+    assert "Maker revision" in state["review_trail"][1]["notes"]
+    assert "max_tokens=4000" in state["review_trail"][1]["notes"]
+    assert state["review_verdict"] == "REJECTED"
+    assert client.call_count == 3
+    deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
+    assert os.path.isfile(os.path.join(deal_dir, "draft_v1.md"))
+    assert not os.path.exists(os.path.join(deal_dir, "draft_v2.md"))
+    assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
 
 
 def test_run_pipeline_stores_financials_and_ratios_on_state(project_root):

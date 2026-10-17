@@ -493,6 +493,32 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     return "\n".join(parts)
 
 
+def _has_max_tokens_stop(response):
+    """Whether the API explicitly says a response ended at its output-token limit."""
+    return getattr(response, "stop_reason", None) == "max_tokens"
+
+
+def _truncation_note(call_name, max_tokens, action):
+    return (
+        f"{call_name} response was truncated (stop_reason=max_tokens, max_tokens={max_tokens}); "
+        f"{action}."
+    )
+
+
+def _record_truncated_maker_response(
+    company, proposal, call_name, max_tokens, action, deal_type, steps_completed,
+    date_str, model_provenance,
+):
+    """Record and stop on an incomplete Maker response; it must never be reviewed or exported."""
+    note = _truncation_note(call_name, max_tokens, action)
+    print(f"warning: {note}", file=sys.stderr)
+    append_review_trail(
+        company, proposal, verdict="REJECTED", notes=note, deal_type=deal_type,
+        steps_completed=steps_completed, date_str=date_str, model_provenance=model_provenance,
+    )
+    sys.exit(1)
+
+
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
@@ -782,12 +808,19 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
-    draft = require_response_text(client.messages.create(
+    draft_response = client.messages.create(
         **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
         max_tokens=4000,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
-    ), "Maker draft")
+    )
+    draft = require_response_text(draft_response, "Maker draft")
+    if _has_max_tokens_stop(draft_response):
+        _record_truncated_maker_response(
+            company, proposal, "Maker draft", 4000,
+            "stopping without saving the incomplete draft or calling the Checker",
+            deal_type, steps_completed, date_str, model_provenance,
+        )
     steps_completed = _add_step(steps_completed, "draft")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed,
                 financials_source=financials_source, model_provenance=model_provenance)
@@ -804,14 +837,22 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             f.write(draft)
 
         print(f"[2/3] Risk Reviewer Agent auditing draft (iteration {iteration}/{max_iterations})...")
-        audit_response = require_response_text(client.messages.create(
+        audit_response_obj = client.messages.create(
             **_completion_kwargs(maker_checker_config["checker_model"], maker_checker_config["checker_temperature"]),
             max_tokens=2000,
             messages=[{"role": "user", "content":
                        f"{checker_prompt}\n{grounding_context}\nDraft to review:\n{draft}"}]
-        ), "Checker audit")
+        )
+        audit_response = require_response_text(audit_response_obj, "Checker audit")
 
-        verdict, notes = parse_verdict(audit_response)
+        if _has_max_tokens_stop(audit_response_obj):
+            notes = _truncation_note(
+                "Checker audit", 2000, "treating the incomplete audit as REJECTED",
+            )
+            print(f"warning: {notes}", file=sys.stderr)
+            verdict = "REJECTED"
+        else:
+            verdict, notes = parse_verdict(audit_response)
         verdict, notes = _apply_deterministic_policy_checks(
             verdict, notes, draft, policy_state, ground_truth_figures,
             financials_source=financials_source,
@@ -828,7 +869,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
         if iteration < max_iterations:
             print(f"[Revise] Iteration {iteration} REJECTED: {notes}")
-            draft = require_response_text(client.messages.create(
+            revision_response = client.messages.create(
                 **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
                 max_tokens=4000,
                 messages=[{"role": "user", "content":
@@ -836,7 +877,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                            f"Previous draft:\n{draft}\n"
                            f"The Risk Reviewer rejected this draft. Address every point below "
                            f"and produce a revised, complete draft:\n{notes}"}]
-            ), "Maker draft")
+            )
+            draft = require_response_text(revision_response, "Maker revision")
+            if _has_max_tokens_stop(revision_response):
+                _record_truncated_maker_response(
+                    company, proposal, "Maker revision", 4000,
+                    "stopping without saving the incomplete revision or calling the Checker again",
+                    deal_type, steps_completed, date_str, model_provenance,
+                )
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",

@@ -29,6 +29,7 @@ already covered by the existing wholesale deals/ ignore entry.
 import argparse
 import json
 import os
+import sys
 import tempfile
 from datetime import date
 
@@ -173,18 +174,22 @@ if __name__ == "__main__":
     if args.proposal and not args.company:
         parser.error("--proposal is only meaningful with --company")
 
-    if args.read:
-        result = read_company_convention(args.company) if args.company else read_enterprise_convention()
-        print(json.dumps({"found": result is not None, "convention": result}, indent=2))
-    else:
-        if args.company:
-            record = write_company_convention(
-                args.company, financials_source=args.financials_source, note=args.note,
-                confirmed_date=args.confirmed_date, proposal=args.proposal,
-            )
+    try:
+        if args.read:
+            result = read_company_convention(args.company) if args.company else read_enterprise_convention()
+            print(json.dumps({"found": result is not None, "convention": result}, indent=2))
         else:
-            record = write_enterprise_convention(
-                financials_source=args.financials_source, note=args.note,
-                confirmed_date=args.confirmed_date,
-            )
-        print(json.dumps(record, indent=2))
+            if args.company:
+                record = write_company_convention(
+                    args.company, financials_source=args.financials_source, note=args.note,
+                    confirmed_date=args.confirmed_date, proposal=args.proposal,
+                )
+            else:
+                record = write_enterprise_convention(
+                    financials_source=args.financials_source, note=args.note,
+                    confirmed_date=args.confirmed_date,
+                )
+            print(json.dumps(record, indent=2))
+
+    except (OSError, ValueError) as exc:
+        sys.exit(f"error: {exc}")

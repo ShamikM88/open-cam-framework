@@ -330,9 +330,12 @@ def test_constraints_file_uniquely_pins_every_declared_requirement():
             line = raw_line.partition("#")[0].strip()
             if not line or line.startswith("-"):
                 continue
-            match = re.match(r"^([A-Za-z0-9_.-]+)(?:\[[^\]]+\])?\s*(?:===|==|~=|!=|<=|>=|<|>)", line)
-            assert match, f"unrecognised requirement syntax in {filename}: {raw_line!r}"
-            name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+            # The distribution name runs up to the first extras bracket, marker, space or version operator.
+            name_part = re.split(r"[\s;\[<>=!~]", line, maxsplit=1)[0]
+            has_operator = any(op in line for op in ("===", "==", "~=", "!=", "<=", ">=", "<", ">"))
+            assert re.fullmatch(r"[A-Za-z0-9_.-]+", name_part) and has_operator, (
+                f"unrecognised requirement syntax in {filename}: {raw_line!r}")
+            name = re.sub(r"[-_.]+", "-", name_part).lower()
             assert name in pins, f"{filename} dependency {name} has no exact constraint pin"
 
 

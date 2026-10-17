@@ -288,19 +288,57 @@ def test_cli_picks_the_most_recent_of_several_existing_dated_folders(tmp_path, m
     assert not (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2025-01-10" / "Acme Corp_Fleet Loan_CAM.docx").exists()
 
 
-def test_cli_date_str_flag_creates_export_only_folder_without_hijacking_state_discovery(tmp_path, monkeypatch):
+def test_cli_date_str_flag_creates_export_only_folder_for_a_deal_with_no_state_without_hijacking_discovery(
+        tmp_path, monkeypatch):
+    from datetime import datetime
     monkeypatch.chdir(tmp_path)
-    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", note="existing deal state")
 
     main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
           "--draft", _cli_draft(tmp_path), "--date-str", "2026-03-01"])
 
-    old_state = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json"
     export_dir = tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-03-01"
     assert (export_dir / "Acme Corp_Fleet Loan_CAM.docx").exists()
     assert not (export_dir / "state.json").exists()
-    assert resolve_date_str("Acme Corp", "Fleet Loan") == "2026-01-10"
-    assert json.loads(old_state.read_text(encoding="utf-8"))["note"] == "existing deal state"
+    assert resolve_date_str("Acme Corp", "Fleet Loan") == datetime.now().strftime("%Y-%m-%d")
+
+
+def test_cli_explicit_date_with_no_state_is_an_error_when_the_deal_has_state_in_another_folder(
+        tmp_path, monkeypatch, capsys):
+    """Decision D1 (#248): a named folder with no state.json must not silently export a blank workbook."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", note="existing deal state")
+    draft = _cli_draft(tmp_path)
+    before = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
+
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--type", "asset_finance",
+              "--draft", draft, "--date-str", "2026-03-01"])
+
+    message = str(caught.value.code)
+    assert message.startswith("error: ") and "\n" not in message
+    assert "2026-03-01" in message and "Fleet Loan_2026-01-10" in message
+    assert capsys.readouterr().err == ""
+    assert sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")) == before  # nothing written
+    assert not (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-03-01").exists()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_export_deal_with_an_explicit_date_that_has_no_state_raises_when_state_exists_elsewhere(tmp_path):
+    from state_manager import StateError
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", base_dir=str(tmp_path), note="existing deal state")
+
+    with pytest.raises(StateError, match=r"2026-03-01.*Fleet Loan_2026-01-10"):
+        export_deal("Acme Corp", "Fleet Loan", "asset_finance", "# Draft", date_str="2026-03-01", base_dir=str(tmp_path))
+
+    assert not (tmp_path / "deals" / "Acme Corp" / "Fleet Loan_2026-03-01").exists()
+
+
+def test_export_deal_with_an_explicit_date_that_has_state_or_no_deal_state_anywhere_still_exports(tmp_path):
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", base_dir=str(tmp_path), note="existing deal state")
+    own = export_deal("Acme Corp", "Fleet Loan", "asset_finance", "# Draft", date_str="2026-01-10", base_dir=str(tmp_path))
+    new = export_deal("Acme Corp", "Brand New", "asset_finance", "# Draft", date_str="2026-03-01", base_dir=str(tmp_path))
+    assert os.path.isfile(os.path.join(own, "Acme Corp_Fleet Loan_CAM.docx"))
+    assert os.path.isfile(os.path.join(new, "Acme Corp_Brand New_CAM.docx"))
 
 
 def test_cli_brand_new_deal_gets_a_folder_dated_today(tmp_path, monkeypatch):
@@ -492,3 +530,71 @@ def test_cli_help_lists_every_flag_and_exits_zero(capsys):
     text = capsys.readouterr().out
     for flag in ("--company", "--proposal", "--type", "--draft", "--date-str"):
         assert flag in text, flag
+
+
+def _write_dated_state(base, date_str, revenue):
+    folder = os.path.join(base, "deals", "Synthetic Co", f"Credit Facility_{date_str}")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "state.json"), "w", encoding="utf-8") as state_file:
+        json.dump({
+            "financials": {"FY-Current": {"raw": {"revenue": revenue}}},
+            "financials_source": "framework-computed",
+        }, state_file)
+
+
+def _exported_revenue(base, folder_date):
+    workbook_path = os.path.join(
+        base, "deals", "Synthetic Co", f"Credit Facility_{folder_date}",
+        "Synthetic Co_Credit Facility_Spreading.xlsx",
+    )
+    sheet = openpyxl.load_workbook(workbook_path)["Financial Spreading"]
+    revenue_row = next(row for row in sheet.iter_rows(values_only=True) if row[0] == "Revenue")
+    return revenue_row
+
+
+def test_explicit_date_exports_figures_from_that_dated_state(tmp_path):
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+    _write_dated_state(base, "2026-01-10", 1000)
+    _write_dated_state(base, "2026-03-12", 9999)
+
+    output_dir = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Draft",
+        date_str="2026-01-10", base_dir=base,
+    )
+
+    assert output_dir == os.path.join(base, "deals", "Synthetic Co", "Credit Facility_2026-01-10")
+    assert 1000 in _exported_revenue(base, "2026-01-10")
+    assert 9999 not in _exported_revenue(base, "2026-01-10")
+
+
+def test_cli_date_str_exports_figures_from_the_requested_dated_state(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write(os.path.join(str(tmp_path), "templates", "cam", "asset_finance_cam.md"))
+    _write_dated_state(str(tmp_path), "2026-01-10", 1000)
+    _write_dated_state(str(tmp_path), "2026-03-12", 9999)
+
+    main([
+        "--company", "Synthetic Co", "--proposal", "Credit Facility", "--type", "asset_finance",
+        "--draft", _cli_draft(tmp_path), "--date-str", "2026-01-10",
+    ])
+
+    assert 1000 in _exported_revenue(str(tmp_path), "2026-01-10")
+    assert 9999 not in _exported_revenue(str(tmp_path), "2026-01-10")
+
+
+def test_bare_export_still_uses_auto_discovered_state(tmp_path):
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+    _write_dated_state(base, "2026-01-10", 1000)
+    _write_dated_state(base, "2026-03-12", 9999)
+
+    output_dir = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Draft",
+        base_dir=base,
+    )
+
+    folder_date = os.path.basename(output_dir).removeprefix("Credit Facility_")
+    assert folder_date != "2026-01-10"
+    assert 9999 in _exported_revenue(base, folder_date)
+    assert 1000 not in _exported_revenue(base, folder_date)

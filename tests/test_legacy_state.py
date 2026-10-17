@@ -460,7 +460,7 @@ def test_a_failed_export_leaves_no_output_folder_and_no_auto_saved_template(tmp_
     install(tmp_path, monkeypatch, mutated(financials_source=5))
     folder_listing = sorted(p.name for p in (tmp_path / "deals" / COMPANY).iterdir())
     with pytest.raises(state_manager.StateShapeError):
-        deal_export.export_deal(COMPANY, PROPOSAL, "brand_new_type", DRAFT, date_str="2026-02-02")
+        deal_export.export_deal(COMPANY, PROPOSAL, "brand_new_type", DRAFT)
     capsys.readouterr()
     assert sorted(p.name for p in (tmp_path / "deals" / COMPANY).iterdir()) == folder_listing
     assert not (tmp_path / "templates").exists()

@@ -134,17 +134,20 @@ just needs it turned into deal output files. `export_deal()` creates the dated
 `deals/[Company]/[Proposal]_[Date]/` folder, auto-saves the draft as a new
 `templates/local/cam/<type>_cam.md` if that deal type had no template at all yet (never into
 the git-tracked `templates/cam/` -- see the confidentiality rule in `CLAUDE.md`), and exports
-`.docx`/`.xlsx`. **Which dated folder:** `export_deal()` itself still defaults to today when
-`date_str` isn't given (a bare library call has nothing else to go on), so every caller that
-has a deal in progress must resolve the date itself: `orchestrator.py` passes the `date_str`
-it already resolved at the start of its run, and the CLI takes an optional `--date-str`. For CLI output-directory selection, an explicit
-date wins; otherwise `state_manager.resolve_export_date_str()` prefers the latest state-bearing
+`.docx`/`.xlsx`. **Which dated folder and state:** an explicit `date_str` selects both the output
+folder and the `state.json` read for the workbook, so an older review cannot be populated from a newer
+review's figures. `orchestrator.py` passes the `date_str` it resolved at the start of its run; the CLI takes an
+optional `--date-str`. Without it, `state_manager.resolve_export_date_str()` prefers the latest state-bearing
 folder, then reuses the latest date-shaped output folder if no state exists yet, else uses today.
 State auto-resume remains separate: `state_manager.resolve_date_str()` selects only the latest
 folder containing `state.json`, so an explicit export-only folder cannot hijack later state reads.
 A present malformed `state.json` remains selected so its existing corruption error is surfaced.
 Only a folder named exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims
-another deal's `Fleet_Q2_2026-05-01`, and `--date-str` must be a real calendar date in `YYYY-MM-DD` format, so an impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1.
+another deal's `Fleet_Q2_2026-05-01`, and `--date-str` must be a real calendar date in `YYYY-MM-DD` format, so an
+impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1. An explicit date that names a dated folder with no `state.json` is an error (one `error:` line, exit status 1, nothing
+written) when the deal has state in another dated folder; a deal with no state anywhere still exports into the named
+folder. A bare library call that
+omits `date_str` retains its existing state auto-discovery, while its output folder still defaults to today.
 Without this a deal
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose

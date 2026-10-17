@@ -279,31 +279,49 @@ def _deals_root(base_dir):
     return os.path.join(base_dir, DEALS_DIR) if base_dir else DEALS_DIR
 
 
-def _existing_date_str(company, proposal, base_dir=None):
-    """Date suffix of the most recent existing deals/<company>/<proposal>_<date>/
-    folder for this company/proposal, or None if there isn't one yet.
-
-    Date suffixes are ISO-8601 (YYYY-MM-DD), so sorting them as plain
-    strings also sorts them chronologically -- the lexicographic max is
-    the most recent.
-
-    Only a folder whose remainder after `<proposal>_` is exactly a date
-    counts: otherwise a proposal named "Fleet" would also claim a different
-    deal's "Fleet_Q2_2026-05-01" folder (its "date" would be
-    "Q2_2026-05-01", which sorts above any real one). The company and
-    proposal are glob-escaped so a "[" or "]" in a name matches literally
-    instead of as a character class.
-    """
+def _matching_dated_folder_dates(company, proposal, base_dir=None):
+    """Date suffixes of exact proposal_YYYY-MM-DD directories, newest last."""
     prefix = f"{proposal}_"
     pattern = os.path.join(
         glob.escape(_deals_root(base_dir)), glob.escape(company), f"{glob.escape(prefix)}*")
     dates = []
-    for p in glob.glob(pattern):
-        name = os.path.basename(p)
-        if os.path.isdir(p) and name.startswith(prefix) and _is_valid_iso_date_str(name[len(prefix):]):
+    for path in glob.glob(pattern):
+        name = os.path.basename(path)
+        if os.path.isdir(path) and name.startswith(prefix) and _is_valid_iso_date_str(name[len(prefix):]):
             dates.append(name[len(prefix):])
-    return max(dates) if dates else None
+    return sorted(set(dates))
 
+
+def _existing_date_str(company, proposal, base_dir=None):
+    """Date of the newest folder containing state.json, or None when no deal state exists.
+
+    Export-only folders created by deal_export --date-str do not qualify. A malformed
+    but present state.json does qualify so read_state() surfaces its existing corruption
+    error instead of silently skipping or overwriting it. Exact proposal/date matching and
+    glob escaping prevent prefix-sharing or bracketed names from selecting a different deal.
+    """
+    dates = [
+        date for date in _matching_dated_folder_dates(company, proposal, base_dir=base_dir)
+        if os.path.isfile(os.path.join(
+            _deals_root(base_dir), company, f"{proposal}_{date}", "state.json"))
+    ]
+    return dates[-1] if dates else None
+
+
+def resolve_export_date_str(company, proposal, date_str=None, base_dir=None):
+    """Choose a standalone export folder without changing state discovery.
+
+    An explicit date wins. Otherwise prefer the newest state-bearing folder so output
+    stays with the active deal. If no state exists, reuse the newest existing date-shaped
+    output folder (the export CLI's historical behavior); if none exists, use today.
+    """
+    if date_str:
+        return date_str
+    state_date = _existing_date_str(company, proposal, base_dir=base_dir)
+    if state_date:
+        return state_date
+    dates = _matching_dated_folder_dates(company, proposal, base_dir=base_dir)
+    return dates[-1] if dates else datetime.now().strftime("%Y-%m-%d")
 
 def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
     if date_str:

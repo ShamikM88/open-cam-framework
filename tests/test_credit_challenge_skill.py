@@ -396,3 +396,21 @@ def test_a_missing_or_non_list_manifest_never_verifies_a_count(tmp_path, manifes
     (folder / "sources").mkdir()
     (folder / "sources" / "manifest.json").write_text(manifest_text, encoding="utf-8")
     assert "number not in the record: 1" in report_problems(report, folder, SPEC, items=1)
+
+
+@pytest.mark.parametrize(("recorded", "written", "accepted"), [
+    ("1,234", "1234", True),
+    ("1234", "1,234", True),
+    ("1,234,567", "1234567", True),
+    ("1,234.5", "1234.5", True),
+    ("1234", "12,34", False),
+    ("1234", "1,2,3", False),
+    ("1234", "123,4", False),
+])
+def test_only_proper_thousands_grouping_is_normalised(tmp_path, recorded, written, accepted):
+    """Review finding F3 (#262): '12,34' is not a grouped 1234; only 1,234-style grouping is presentation-only."""
+    folder = make_deal(tmp_path, state={**BASE_STATE, "total_debt": recorded.replace(",", "")}, draft=f"Debt is {recorded}.\n")
+    report = _report_with_material_line(material("not present", NO_DRAFT).rstrip("\n")).replace(
+        "\n> Analyst aid", f"\nThe draft shows {written}.\n\n> Analyst aid")
+    problems = [p for p in report_problems(report, folder, SPEC, items=1) if p.startswith("number not in the record")]
+    assert (problems == []) is accepted, problems

@@ -69,9 +69,14 @@ def _without_quotes(text):
     return CODE_SPAN_RE.sub(" ", text)
 
 
+GROUPED_NUMBER_RE = re.compile(r"\d{1,3}(?:,\d{3})+(?:\.\d+)?")
+
+
 def _normalise_number_token(number):
-    """Normalise presentation-only comma grouping and trailing punctuation."""
-    return number.rstrip(".,").replace(",", "")
+    """Normalise trailing punctuation and proper thousands grouping (1,234 -> 1234); a mis-grouped token such as 12,34
+    keeps its comma, so it cannot match a recorded 1234."""
+    number = number.rstrip(".,")
+    return number.replace(",", "") if GROUPED_NUMBER_RE.fullmatch(number) else number
 
 
 def _mask_verified_manifest_count(text, deal_folder):

@@ -49,6 +49,8 @@ Whether the agent prompts instruct the model to treat source content as *data, n
 
 Model-written Markdown is also untrusted input to the export: an image line can name any local path, so the document builder embeds only a real local png/jpg/gif/bmp, never touches the network, and turns anything else into a visible placeholder; an image path outside the deal's `sources/` folder deserves a second look in review ([outputs](outputs.md)).
 
+The same builder sanitizes XML-invalid control characters in Markdown before writing WordprocessingML, replaces each with U+FFFD, and emits one aggregate warning. This is resilience against malformed text, not a guarantee that the narrative itself is trustworthy. It also creates clickable Word hyperlinks only for `http`, `https` and `mailto` targets. File paths, UNC shares, script/protocol-handler URLs and relative targets stay plain text with a warning to avoid turning untrusted Markdown into an active local or application link.
+
 ## If something confidential was committed
 
 Treat a public repository as already read by someone.
@@ -117,3 +119,5 @@ IT, NL), by shape only, added for issue #111) pattern scan for likely-real curre
 company names left over in a calibrated `templates/local/cam/*.md` override -- the second line
 of defense (after a by-hand review) before promoting one upstream to the shared `templates/cam/`
 defaults; see the "Promoting a local override upstream" rule in `CLAUDE.md`'s confidentiality section.
+
+Currency and date patterns include the selected ISO codes GBP, USD, EUR, CHF, JPY, CAD and AUD adjacent to amount-shaped numbers; common trailing currency symbols after dot- or space-grouped amounts; the yen symbol before an amount; numeric dates in slash-separated day/month or month/day order and dot-separated day/month order; and full or abbreviated month names in day-first or month-first dates. These checks are intentionally shape-based and narrow. **This is not an international detector**: unsupported currencies, date conventions and other national identifiers may not be recognized.

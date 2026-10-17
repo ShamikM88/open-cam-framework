@@ -11,7 +11,7 @@ Claude Code follows when it works in this repository.
 | Understand how the pieces fit together, and the difference between running through Claude Code and running the Python scripts | [Architecture](architecture.md) |
 | Walk through a deal end to end with worked examples | [Workflows](workflows.md) |
 | Look up what a slash command asks for and writes | [Command reference](commands.md) |
-| Use the analyst aids (information gaps, evidence audit, reading the recorded figures) | [Skills](skills.md) |
+| Use the analyst aids (information gaps, evidence audit, reading financials, policy fit, credit challenge and credit-risk review) | [Skills](skills.md) |
 | Know what a Claude Code skill may and may not be in this repository, and which are planned | [Skill design](skill-design.md) |
 | Understand the figures: ratios, covenants, the policy engine, spreading | [Financial model and policy engine](financial-model.md) |
 | Understand `state.json`, source manifests and persisted conventions | [Data model](data-model.md) |
@@ -48,6 +48,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [skills.md](skills.md) | The analyst skills that ship with the framework: what each does and runs, what they never do, and how to use them safely |
 | [skill-design.md](skill-design.md) | Skills: the taxonomy, how they are invoked, why none is input to the Maker or the Checker, the single command-and-skill inventory, the planned first tranche and what is deferred |
 | [financial-model.md](financial-model.md) | Financial terms and ratios with worked numbers, N/A and UNRESOLVABLE, covenants, the downside case, what the policy engine decides |
+| [glossary.md](glossary.md) | Short definitions of abbreviations and terms used in the UK credit workflows |
 | [data-model.md](data-model.md) | `state.json`, its keys and versioning, the two raw-figure stores, sources, persisted conventions |
 | [cli-reference.md](cli-reference.md) | Every script's usage, flags, output and exit status; the headless pipeline |
 | [outputs.md](outputs.md) | What a run produces: the `.docx` rendering rules, the workbook layout, the research brief, templates |

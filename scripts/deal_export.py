@@ -14,7 +14,9 @@ from datetime import datetime
 
 from docx_builder import export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
-from state_manager import StateError, read_state, resolve_date_str, sanitize_path_component
+from state_manager import (
+    StateError, read_state, resolve_export_date_str, sanitize_path_component, validate_iso_date_str,
+)
 from template_resolver import cam_template_path, local_cam_template_path
 
 # The state.json keys export_deal() reads, with the kind each is held to. Deliberately looser than STATE_SHAPES for
@@ -231,26 +233,19 @@ def main(argv=None):
              "else today's date for a brand-new deal.",
     )
     args = parser.parse_args(argv)
-    if args.date_str is not None and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date_str):
-        # A free-form value would create a folder like "Fleet Loan_foo" that
-        # state_manager's date discovery (correctly) ignores forever after.
-        parser.error(f"--date-str {args.date_str!r} must be a YYYY-MM-DD date")
-
-    with open(args.draft, encoding="utf-8") as f:
-        draft_markdown = f.read()
-
-    # Reject path-unsafe company/proposal values before resolving, so nothing
-    # unsafe reaches the deals/ glob or the folder path built from them
-    # (export_deal() would reject them too, but only after resolution; note
-    # sanitize_path_component() deliberately allows "[" and "]", which
-    # _existing_date_str() glob-escapes).
-    company = sanitize_path_component(args.company, "company")
-    proposal = sanitize_path_component(args.proposal, "proposal")
-    date_str = resolve_date_str(company, proposal, date_str=args.date_str)
-
     try:
+        if args.date_str is not None:
+            validate_iso_date_str(args.date_str, field_name="--date-str")
+        with open(args.draft, encoding="utf-8") as f:
+            draft_markdown = f.read()
+
+        # Reject unsafe names before folder discovery; export_deal() repeats the
+        # validation at its own boundary.
+        company = sanitize_path_component(args.company, "company")
+        proposal = sanitize_path_component(args.proposal, "proposal")
+        date_str = resolve_export_date_str(company, proposal, date_str=args.date_str)
         output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
-    except StateError as exc:
+    except (OSError, ValueError) as exc:
         sys.exit(f"error: {exc}")
     print(f"Done! Files generated in {output_dir}")
 

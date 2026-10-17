@@ -2,9 +2,10 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on. The three analyst aids of Phase 2 are implemented and described in [Skills](skills.md); so are the two
-maintainer procedures of Phase 3, `cam-change-verification` and `docs-maintenance`, and the Phase 4 follow-ons
-`mutation-triage`, `prompt-change-gate`, `policy-fit` and `credit-challenge`. The inventory of commands and skills is
+build on. The six analyst aids are implemented and described in [Skills](skills.md): the Phase 2 skills
+`information-gaps`, `evidence-discipline` and `financial-analysis`, plus the Phase 4 skills `policy-fit`,
+`credit-challenge` and `credit-risk`. The four maintainer procedures are `cam-change-verification`,
+`docs-maintenance`, `mutation-triage` and `prompt-change-gate`. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
 
@@ -46,8 +47,8 @@ Two things decide what a skill is allowed to be: who it is for, and what it does
 
 | Effect | What it is | Allowed here |
 | :--- | :--- | :--- |
-| **Report** | Reads a named deal's records and scripts' output (or, for a maintainer, a downloaded report) and gives an account in chat. Read-only, forked, writes nothing. | Yes: `information-gaps`, `evidence-discipline`, `financial-analysis`; for a maintainer, `mutation-triage` |
-| **Procedure** | Gives a maintainer a sequence of actions over the repository (run these checks, find these pages), run in the maintainer's own session. Touches no deal. | Yes: `cam-change-verification`, `docs-maintenance` |
+| **Report** | Reads a named deal's records and scripts' output (or, for a maintainer, a downloaded report) and gives an account in chat. Read-only, forked, writes nothing. | Yes: `information-gaps`, `evidence-discipline`, `financial-analysis`, `policy-fit`, `credit-challenge`, `credit-risk`; for a maintainer, `mutation-triage` |
+| **Procedure** | Gives a maintainer a sequence of actions over the repository (run these checks, find these pages), run in the maintainer's own session. Touches no deal. | Yes: `cam-change-verification`, `docs-maintenance`, `prompt-change-gate` |
 | **Practice** | Changes how the model works for the rest of the conversation. | Deferred. It cannot avoid shaping later drafting in the same session, and a persistent reminder of a rule already in `CLAUDE.md` is a second copy. |
 | **Input** | Changes what the Maker or the Checker is told, on any interface. | **Not permitted.** It would need provenance and an evaluation baseline, and slash-command runs have no provenance at all today ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)). A separate design and issue come first. |
 
@@ -350,7 +351,7 @@ contextual, and a model-invocable description would sit in every session's conte
 
 ### `credit-challenge` — design contract
 
-**Decision recorded here:** the design-only proposal is preserved separately from the executable skill implementation. The implementation lives in a follow-up PR stacked on the design PR (it merges after it) and must satisfy this contract. It remains an analyst aid, not an input to the Maker or Checker.
+**Decision recorded here:** the design-only proposal remains preserved separately from the executable skill implementation. The implementation has landed and satisfies this contract. It remains an analyst aid, not an input to the Maker or Checker.
 
 **Job to be done.** After the analyst has a deal record (and, when available, a draft), provide a disciplined adversarial second look. It asks “what could be wrong, incomplete or weaker than the narrative suggests?” rather than producing a general risk summary, a verdict, or a second policy engine. It is an aid to analyst thinking, not a formal decision step.
 
@@ -522,10 +523,13 @@ would enforce it.
 | The mutation-triage report skill is typed, forked, read-only (no `Bash`), pre-approves no command, never touches the mutation scope or target, and says every class is a candidate | `tests/test_mutation_triage_skill.py` |
 | The page is linked from the index; links, anchors and cited paths resolve | `tests/test_docs.py`, `tests/test_docs_contracts.py` |
 
-Each skill's own contract is tested in `tests/test_skills.py`: its frontmatter (typed by a person, forked, the write tools
-removed, and only read-only tools or deterministic read-only scripts pre-approved as applicable; `allowed-tools` pre-approves
-and is not an allowlist, so this is a procedure plus permission settings, not a sandbox; the frontmatter is checked by a
-strict parser for the small YAML subset it uses), that its commands leave a deal byte-for-byte unchanged or that it has
-no command surface, that every path it cites exists and every flag it passes is real, and that its files carry no real name or figure. What a model does with the
-instructions is not tested here, and no test can say a skill's prose is a good procedure; it is a prompt expectation, like
-a command's (see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
+The skill contracts are pinned in the test files for their respective surfaces. `tests/test_skills.py` checks
+the report skills `information-gaps`, `evidence-discipline`, `financial-analysis` and `policy-fit`, including their
+frontmatter, read-only script calls, cited paths, flags and absence of real names or figures. `tests/test_maintainer_skills.py`
+covers `cam-change-verification`; `tests/test_docs_maintenance_skill.py` covers `docs-maintenance`;
+`tests/test_mutation_triage_skill.py` covers `mutation-triage`; and `tests/test_credit_challenge_skill.py` and
+`tests/test_credit_risk_skill.py` exercise the two credit reports against synthetic scenarios, including a deliberately
+broken report for each. `tests/test_skill_inventory.py` keeps the registry, skill folders, invocations and design inventory
+aligned, including `prompt-change-gate`. Frontmatter checks use a strict parser for the small YAML subset in use.
+These are contract tests, not live Claude Code runs: they cannot establish that a model follows a skill's prose or that
+its procedure is a good one (see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).

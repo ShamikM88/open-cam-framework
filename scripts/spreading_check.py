@@ -22,7 +22,7 @@ import json
 import sys
 
 from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
-from state_manager import StateError, read_state, write_state
+from state_manager import read_state, write_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
@@ -197,19 +197,31 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     multi_period_financials = None
-    if args.financials:
-        with open(args.financials, encoding="utf-8") as f:
-            multi_period_financials = json.load(f)
-
     stress_assumptions = None
-    if args.stress_assumptions:
-        with open(args.stress_assumptions, encoding="utf-8") as f:
-            stress_assumptions = json.load(f)
+    input_path = None
+    try:
+        if args.financials:
+            input_path = args.financials
+            with open(args.financials, encoding="utf-8") as f:
+                multi_period_financials = json.load(f)
+        if args.stress_assumptions:
+            input_path = args.stress_assumptions
+            with open(args.stress_assumptions, encoding="utf-8") as f:
+                stress_assumptions = json.load(f)
+    except UnicodeDecodeError as exc:
+        sys.exit(f"error: {input_path} is not UTF-8 text: {exc}")
+    except json.JSONDecodeError as exc:
+        sys.exit(f"error: invalid JSON in {input_path}: {exc}")
+    except OSError as exc:
+        sys.exit(f"error: cannot read {input_path}: {exc}")
+    for path, data in ((args.financials, multi_period_financials), (args.stress_assumptions, stress_assumptions)):
+        if path and not isinstance(data, dict):
+            sys.exit(f"error: {path} must contain a JSON object, found {type(data).__name__}")
 
     try:
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
                          update_financials_source=args.update_financials_source)
-    except StateError as exc:
+    except ValueError as exc:
         sys.exit(f"error: {exc}")
     print(json.dumps({
         "financials": state.get("financials"),

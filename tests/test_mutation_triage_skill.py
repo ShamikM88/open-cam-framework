@@ -28,7 +28,7 @@ NAME = "mutation-triage"
 SKILL = f".claude/skills/{NAME}/SKILL.md"
 
 READ_TOOLS = {"Read", "Glob", "Grep"}
-REMOVED_TOOLS = {"Write", "Edit", "NotebookEdit", "Bash"}
+REMOVED_TOOLS = {"Write", "Edit", "NotebookEdit", "Bash", "WebFetch", "WebSearch"}
 ALLOWED_KEYS = {"name", "description", "argument-hint", "disable-model-invocation", "context", "background",
                 "allowed-tools", "disallowed-tools"}
 
@@ -48,6 +48,20 @@ def tools(fields, key):
     return TOOL_TOKEN.findall(fields.get(key, ""))
 
 
+def remove_network_tool(text, tool):
+    """Start from valid frontmatter then remove one enforced network-tool deny."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("disallowed-tools:"):
+            tokens = line.partition(":")[2].split()
+            if not {"WebFetch", "WebSearch"} <= set(tokens):
+                tokens.extend(tool_name for tool_name in ("WebFetch", "WebSearch") if tool_name not in tokens)
+            tokens.remove(tool)
+            lines[index] = "disallowed-tools: " + " ".join(tokens)
+            return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    raise AssertionError("frontmatter has no disallowed-tools line")
+
+
 # ---------------------------------------------------------------------------
 # The inventory row and the frontmatter
 # ---------------------------------------------------------------------------
@@ -56,6 +70,19 @@ def test_mutation_triage_is_an_implemented_maintainer_skill_of_phase_4():
     row = next(r for r in inventory_rows(read(REGISTRY)) if r["name"] == NAME)
     assert (row["kind"], row["audience"], row["status"], row["invocation"], row["role"], row["headless"]) == \
         ("skill", "maintainer", "implemented: phase 4", "user", "None (aid)", "no")
+
+
+def skill_text_with_network_denies():
+    """Return a valid baseline for isolated mutation cases, even before the skill file is updated."""
+    text = skill_text()
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("disallowed-tools:"):
+            tokens = line.partition(":")[2].split()
+            tokens.extend(tool for tool in ("WebFetch", "WebSearch") if tool not in tokens)
+            lines[index] = "disallowed-tools: " + " ".join(tokens)
+            return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+    raise AssertionError("frontmatter has no disallowed-tools line")
 
 
 def frontmatter_problems(text, name=NAME):
@@ -108,12 +135,14 @@ FRONTMATTER_MUTATIONS = [
     ("a bare Bash pre-approved", lambda t: t.replace("  - Grep\n", "  - Grep\n  - Bash\n", 1), "no command"),
     ("an edit pre-approved", lambda t: t.replace("  - Grep\n", "  - Grep\n  - Edit\n", 1), "no command"),
     ("a read tool dropped", lambda t: t.replace("  - Glob\n", "", 1), "exactly Read, Glob and Grep"),
-    ("Bash not removed", lambda t: t.replace("disallowed-tools: Write Edit NotebookEdit Bash", "disallowed-tools: Write Edit NotebookEdit"),
+    ("Bash not removed", lambda t: t.replace("Write Edit NotebookEdit Bash WebFetch WebSearch", "Write Edit NotebookEdit WebFetch WebSearch"),
      "does not remove ['Bash']"),
-    ("Write not removed", lambda t: t.replace("disallowed-tools: Write Edit NotebookEdit Bash", "disallowed-tools: Edit NotebookEdit Bash"),
+    ("Write not removed", lambda t: t.replace("Write Edit NotebookEdit Bash WebFetch WebSearch", "Edit NotebookEdit Bash WebFetch WebSearch"),
      "does not remove ['Write']"),
-    ("NotebookEdit not removed", lambda t: t.replace("Write Edit NotebookEdit Bash", "Write Edit Bash"),
+    ("NotebookEdit not removed", lambda t: t.replace("Write Edit NotebookEdit Bash WebFetch WebSearch", "Write Edit Bash WebFetch WebSearch"),
      "does not remove ['NotebookEdit']"),
+    ("WebFetch not removed", lambda t: remove_network_tool(t, "WebFetch"), "does not remove ['WebFetch']"),
+    ("WebSearch not removed", lambda t: remove_network_tool(t, "WebSearch"), "does not remove ['WebSearch']"),
     ("no argument hint", lambda t: re.sub(r"argument-hint: .*\n", "", t, count=1), "argument-hint is missing"),
     ("unquoted colon", lambda t: t.replace('argument-hint: "', "argument-hint: path: ", 1).replace('"\n', "\n", 1),
      "not valid YAML"),
@@ -122,8 +151,9 @@ FRONTMATTER_MUTATIONS = [
 
 @pytest.mark.parametrize(("label", "change", "expected"), FRONTMATTER_MUTATIONS, ids=[m[0] for m in FRONTMATTER_MUTATIONS])
 def test_the_frontmatter_check_fails_for_each_way_the_report_could_stop_being_read_only(label, change, expected):
-    changed = change(skill_text())
-    assert changed != skill_text(), "the mutation changed nothing"
+    baseline = skill_text_with_network_denies()
+    changed = change(baseline)
+    assert changed != baseline, "the mutation changed nothing"
     assert any(expected in p for p in frontmatter_problems(changed)), frontmatter_problems(changed)
 
 
@@ -340,7 +370,7 @@ def test_the_runbook_it_follows_still_has_the_steps_and_classes_it_mirrors():
 
 def test_the_pages_describe_it_as_implemented_read_only_and_a_candidate_report():
     skills, design = flat(read("docs/skills.md")), flat(read("docs/skill-design.md"))
-    for needle in ("mutation-triage", "forked and read-only", "Write, Edit, NotebookEdit and Bash are removed while it runs",
+    for needle in ("mutation-triage", "forked and read-only", "Bash, WebFetch and WebSearch are removed while it runs",
                    "every class is a candidate", "never calls a mutant equivalent until you have seen the mutated line",
                    "It never changes the mutation scope, the 75% diagnostic target, the configuration or the workflow"):
         assert needle in skills, needle

@@ -43,11 +43,14 @@ What the design does about that, and what it does not:
 - The Underwriter must cite a source for every qualitative claim, and the source document of record is saved beside the deal (`sources/manifest.json`), so a reviewer can read what a claim rested on rather than trust the citation.
 - The Risk Reviewer is a separate pass in a context of its own (a separate model call headless; a fresh, read-only sub-agent started by `/review` in a session), so a planted instruction has to get past two passes rather than one. Its context is isolated from the Maker's conversation, not from the documents: it reads the same saved sources and draft, so an instruction embedded in one reaches both passes. This is a design intent, not a measured property.
 - The three commands that run Bash through a pre-approved call (`/assemble`, `/review`, `/research`) pre-approve only the named scripts in `allowed-tools` (`/review` also pre-approves starting the `risk-reviewer` sub-agent, whose tools are Read, Glob and Grep only); nothing broader is pre-approved by the command files.
+- Several skills also pre-approve narrowly scoped Bash calls: the report skills `information-gaps`, `evidence-discipline`, `financial-analysis` and `policy-fit`, plus the maintainer procedures `cam-change-verification`, `docs-maintenance` and `prompt-change-gate`. Their `allowed-tools` entries pre-approve only the listed script or command forms; `allowed-tools` is not an allowlist and does not sandbox other Bash use.
 - A person reads the memo and the Reviewer's notes. This is the control that does not depend on the model.
 
 Whether the agent prompts instruct the model to treat source content as *data, not instructions* is tracked in #150, and whether the models obey is not yet measurable until a baseline exists; check the prompts and the [project status](README.md#project-status), not this page, for the current position. The reasoning is in [AI assurance](ai-assurance.md#why-prompt-hardening-150-waits-for-a-baseline). Until then, treat every external source as untrusted, read the draft against the saved sources, and be suspicious of a memo whose tone or rating departs from its figures.
 
 Model-written Markdown is also untrusted input to the export: an image line can name any local path, so the document builder embeds only a real local png/jpg/gif/bmp, never touches the network, and turns anything else into a visible placeholder; an image path outside the deal's `sources/` folder deserves a second look in review ([outputs](outputs.md)).
+
+The same builder sanitizes XML-invalid control characters in Markdown before writing WordprocessingML, replaces each with U+FFFD, and emits one aggregate warning. This is resilience against malformed text, not a guarantee that the narrative itself is trustworthy. It also creates clickable Word hyperlinks only for `http`, `https` and `mailto` targets. File paths, UNC shares, script/protocol-handler URLs and relative targets stay plain text with a warning to avoid turning untrusted Markdown into an active local or application link.
 
 ## If something confidential was committed
 
@@ -117,3 +120,5 @@ IT, NL), by shape only, added for issue #111) pattern scan for likely-real curre
 company names left over in a calibrated `templates/local/cam/*.md` override -- the second line
 of defense (after a by-hand review) before promoting one upstream to the shared `templates/cam/`
 defaults; see the "Promoting a local override upstream" rule in `CLAUDE.md`'s confidentiality section.
+
+Currency and date patterns include the selected ISO codes GBP, USD, EUR, CHF, JPY, CAD and AUD adjacent to amount-shaped numbers; common trailing currency symbols after dot- or space-grouped amounts; the yen symbol before an amount; numeric dates in slash-separated day/month or month/day order and dot-separated day/month order; and full or abbreviated month names in day-first or month-first dates. These checks are intentionally shape-based and narrow. **This is not an international detector**: unsupported currencies, date conventions and other national identifiers may not be recognized.

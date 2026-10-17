@@ -15,7 +15,7 @@ known. Nothing here gates anything.
 No `anthropic` dependency and no I/O beyond reading the JSON files it is handed.
 """
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from eval_report import DISCLAIMER, HARNESS_VERSION, pass_rate, stop_state
 
@@ -104,7 +104,7 @@ def _export_baseline(record, allow_partial=False):
     return {
         "kind": BASELINE_KIND,
         "harness_version": record.get("harness_version", HARNESS_VERSION),
-        "created": datetime.now(timezone.utc).isoformat(),
+        "created": datetime.now(UTC).isoformat(),
         "source_run_id": record["run_id"],
         "dataset": record["dataset"],
         "models": record["models"],

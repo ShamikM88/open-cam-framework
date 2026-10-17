@@ -34,7 +34,7 @@ from state_manager import (
 )
 from template_resolver import cam_template_path
 from textio import read_text
-from response_utils import EmptyModelResponseError, require_response_text
+from response_utils import EmptyModelResponseError, ModelResponseTruncatedError, require_complete_text
 
 def _load_settings():
     """Read settings; the resolver warns on retired temperature keys and ignores them.
@@ -763,12 +763,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
-    draft = require_response_text(client.messages.create(
+    draft = require_complete_text(client.messages.create(
         **_completion_kwargs(maker_checker_config["maker_model"]),
         max_tokens=4000,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
-    ), "Maker draft")
+    ), "Maker draft", 4000)
     steps_completed = _add_step(steps_completed, "draft")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed,
                 financials_source=financials_source, model_provenance=model_provenance)
@@ -785,12 +785,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             f.write(draft)
 
         print(f"[2/3] Risk Reviewer Agent auditing draft (iteration {iteration}/{max_iterations})...")
-        audit_response = require_response_text(client.messages.create(
+        audit_response = require_complete_text(client.messages.create(
             **_completion_kwargs(maker_checker_config["checker_model"]),
             max_tokens=2000,
             messages=[{"role": "user", "content":
                        f"{checker_prompt}\n{grounding_context}\nDraft to review:\n{draft}"}]
-        ), "Checker audit")
+        ), "Checker audit", 2000)
 
         verdict, notes = parse_verdict(audit_response)
         verdict, notes = _apply_deterministic_policy_checks(
@@ -809,7 +809,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
         if iteration < max_iterations:
             print(f"[Revise] Iteration {iteration} REJECTED: {notes}")
-            draft = require_response_text(client.messages.create(
+            draft = require_complete_text(client.messages.create(
                 **_completion_kwargs(maker_checker_config["maker_model"]),
                 max_tokens=4000,
                 messages=[{"role": "user", "content":
@@ -817,7 +817,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                            f"Previous draft:\n{draft}\n"
                            f"The Risk Reviewer rejected this draft. Address every point below "
                            f"and produce a revised, complete draft:\n{notes}"}]
-            ), "Maker draft")
+            ), "Maker revision", 4000)
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
@@ -889,5 +889,6 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError, EmptyModelResponseError, NonFiniteNumberError) as exc:
+    except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
+            NonFiniteNumberError) as exc:
         sys.exit(f"error: {exc}")

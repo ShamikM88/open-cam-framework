@@ -44,6 +44,19 @@ need no key. An empty `ANTHROPIC_API_KEY` counts as not set. If you do have cred
 SDK found none it could use: check the variable is exported to the process that runs the script, not just set in another
 terminal. Any other error from the SDK, such as a rejected key, is reported as it is and is not this message.
 
+### The headless pipeline stops with "response was truncated"
+
+`orchestrator.py` printed one `error:` line such as `error: Maker draft response was truncated (stop_reason=max_tokens,
+max_tokens=4000); ...` and exited with status 1. The API ended that call at its output-token limit (4000 for the Maker draft
+and each revision, 2000 for the Checker audit), so the text is incomplete and is never used: it is not parsed, saved,
+audited, recorded as a verdict or exported. The check runs before anything from that call is checkpointed. Earlier,
+complete steps stay as they were: a truncated revision leaves the previous `draft_vN.md` and its real Reviewer verdict in
+`review_trail`, and a truncated audit leaves the saved draft with no verdict recorded for it.
+
+Run the command again; a re-run starts a fresh draft. The shipped `max_tokens` value in `config/settings.json` is inert,
+so raising the limits is a separately reviewed code change. Do not use the partial response as an approval or export it
+by hand as if the pipeline had accepted it.
+
 ### A headless run is costing more than expected
 
 Only `calibrate.py` (without `--mock`), `orchestrator.py` and `run_evals.py --live` call the API. The orchestrator

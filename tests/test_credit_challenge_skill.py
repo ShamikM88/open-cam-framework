@@ -414,3 +414,20 @@ def test_only_proper_thousands_grouping_is_normalised(tmp_path, recorded, writte
         "\n> Analyst aid", f"\nThe draft shows {written}.\n\n> Analyst aid")
     problems = [p for p in report_problems(report, folder, SPEC, items=1) if p.startswith("number not in the record")]
     assert (problems == []) is accepted, problems
+
+
+@pytest.mark.parametrize(("recorded", "written", "accepted"), [
+    ("1250.0", "1250", True),
+    ("12.5", "12.50", True),
+    ("12.50", "12.5", True),
+    ("1250", "1250.0", True),
+    ("12.5", "12.6", False),
+    ("1250.0", "125", False),
+])
+def test_trailing_decimal_zeros_do_not_change_a_recorded_number(tmp_path, recorded, written, accepted):
+    """Review pass 2, finding 2 (#262): 1250.0 in state.json is the recorded number 1250."""
+    folder = make_deal(tmp_path, state=BASE_STATE, draft=f"Figure {recorded}.\n")
+    report = _report_with_material_line(material("not present", NO_DRAFT).rstrip("\n")).replace(
+        "\n> Analyst aid", f"\nThe draft shows {written}.\n\n> Analyst aid")
+    problems = [p for p in report_problems(report, folder, SPEC, items=1) if p.startswith("number not in the record")]
+    assert (problems == []) is accepted, problems

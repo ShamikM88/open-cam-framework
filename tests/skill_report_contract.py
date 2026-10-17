@@ -76,7 +76,10 @@ def _normalise_number_token(number):
     """Normalise trailing punctuation and proper thousands grouping (1,234 -> 1234); a mis-grouped token such as 12,34
     keeps its comma, so it cannot match a recorded 1234."""
     number = number.rstrip(".,")
-    return number.replace(",", "") if GROUPED_NUMBER_RE.fullmatch(number) else number
+    number = number.replace(",", "") if GROUPED_NUMBER_RE.fullmatch(number) else number
+    if "." in number and "," not in number:
+        number = number.rstrip("0").rstrip(".")  # 1250.0 is the recorded number 1250; 12.50 is 12.5
+    return number
 
 
 def _mask_verified_manifest_count(text, deal_folder):

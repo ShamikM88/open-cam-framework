@@ -251,8 +251,10 @@ def test_deal_export_writes_the_docx_and_xlsx_into_the_dated_folder(cli):
 def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     draft = cli.workdir / "draft.md"
     draft.write_text("# T\n", encoding="utf-8")
-    bad_date = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", draft, "--date-str", "foo")
-    assert bad_date.returncode == 2 and "YYYY-MM-DD" in bad_date.stderr
+    for bad in ("foo", "2026-02-30"):
+        bad_date = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", draft, "--date-str", bad)
+        assert bad_date.returncode == 1 and bad_date.stderr.startswith("error: --date-str ")
+        assert bad_date.stderr.count("\n") == 1 and "usage:" not in bad_date.stderr and "Traceback" not in bad_date.stderr
     missing = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", "nope.md")
     _assert_a_clean_state_error(missing, "nope.md")
     assert not (cli.workdir / "deals").exists()  # nothing was created for either failure

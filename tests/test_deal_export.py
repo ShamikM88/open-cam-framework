@@ -441,12 +441,16 @@ def test_cli_turns_a_state_error_into_one_error_line_and_exports_nothing(tmp_pat
     assert not (tmp_path / "templates").exists()
 
 
-def test_cli_names_the_bad_date_and_exits_with_the_usage_status(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(("bad", "message"), [
+    ("2026-1-5", "--date-str '2026-1-5' must be a YYYY-MM-DD date"),
+    ("2026-02-30", "--date-str '2026-02-30' is not a valid calendar date"),
+])
+def test_cli_names_the_bad_date_as_one_error_line_and_exits_1(tmp_path, monkeypatch, capsys, bad, message):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as caught:
-        main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--draft", _cli_draft(tmp_path), "--date-str", "2026-1-5"])
-    assert caught.value.code == 2
-    assert "--date-str '2026-1-5' must be a YYYY-MM-DD date" in capsys.readouterr().err
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--draft", _cli_draft(tmp_path), "--date-str", bad])
+    assert caught.value.code == f"error: {message}"
+    assert capsys.readouterr().err == ""  # sys.exit(str) prints the one line; no argparse usage block
 
 
 def test_cli_rejects_an_unsafe_proposal_before_the_deals_tree_is_searched_as_it_does_a_company(tmp_path, monkeypatch):

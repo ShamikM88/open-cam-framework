@@ -230,13 +230,9 @@ def main(argv=None):
              "else today's date for a brand-new deal.",
     )
     args = parser.parse_args(argv)
-    if args.date_str is not None:
-        try:
-            validate_iso_date_str(args.date_str, field_name="--date-str")
-        except ValueError as exc:
-            parser.error(str(exc))
-
     try:
+        if args.date_str is not None:
+            validate_iso_date_str(args.date_str, field_name="--date-str")
         with open(args.draft, encoding="utf-8") as f:
             draft_markdown = f.read()
 

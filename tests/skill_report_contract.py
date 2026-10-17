@@ -47,6 +47,7 @@ CONCLUSION_RE = re.compile(
     r"|\b(?:overall\s+)?(?:rating|grade|score)\s*[:=]|\bcleared\b|\blend/decline\b")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+MANIFEST_COUNT_RE = re.compile(r"\bmanifest:\s*(\d+)\s+entries?\b", re.IGNORECASE)
 
 
 def record_text(deal_folder):
@@ -68,6 +69,29 @@ def _without_quotes(text):
     return CODE_SPAN_RE.sub(" ", text)
 
 
+def _normalise_number_token(number):
+    """Normalise presentation-only comma grouping and trailing punctuation."""
+    return number.rstrip(".,").replace(",", "")
+
+
+def _mask_verified_manifest_count(text, deal_folder):
+    """Mask the generated manifest-entry count only when it matches the saved manifest."""
+    manifest_path = Path(deal_folder) / "sources" / "manifest.json"
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return text
+    if not isinstance(manifest, list):
+        return text
+
+    chars = list(text)
+    for match in MANIFEST_COUNT_RE.finditer(text):
+        if int(match.group(1)) == len(manifest):
+            start, end = match.span(1)
+            chars[start:end] = " " * (end - start)
+    return "".join(chars)
+
+
 def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     """The problems found in `report`; an empty list means it meets the contract.
 
@@ -83,6 +107,7 @@ def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
             problems.append("a refusal or stop must open with Refused or Stopped and say why")
         return problems
     recorded = record_text(deal_folder)
+    recorded_numbers = {_normalise_number_token(number) for number in NUMBER_RE.findall(recorded)}
     if not text.startswith("**Material reviewed:**"):
         problems.append("the report must open with a Material reviewed line")
     for line in spec.required_lines:
@@ -113,8 +138,11 @@ def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     scan = re.sub(r"(?m)^### \w+ \d+", "", prose)
     scan = re.sub(r"(?m)^\s*\d+\.\s", "", scan)
     scan = scan.replace(spec.caveat, "")
+    # The report's manifest summary is generated metadata rather than a financial claim.
+    # Permit its count only when it exactly matches the saved manifest's actual entry count.
+    scan = _mask_verified_manifest_count(scan, deal_folder)
     for number in NUMBER_RE.findall(scan):
-        if number.rstrip(".,") not in recorded and number.replace(",", "") not in recorded.replace(",", ""):
+        if _normalise_number_token(number) not in recorded_numbers:
             problems.append(f"number not in the record: {number}")
     if VERDICT_RE.search(prose) or VERDICT_CONCLUSION_RE.search(prose) or VERDICT_STANDALONE_RE.search(prose):
         problems.append("a verdict word appears outside a quoted recorded value")

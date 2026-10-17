@@ -578,3 +578,33 @@ def test_corrupt_image_file_does_not_crash_the_export(tmp_path):
     assert "Still here." in texts
     assert "" not in texts  # no stray empty paragraph left behind by the failed insert
     assert not any(t.endswith("()]") for t in texts)  # the reason is never an empty "()"
+
+
+# ---------------------------------------------------------------------------
+# Unsupported Markdown constructs are deliberately characterized rather than
+# silently implying that the exporter supports the full Markdown language.
+# Issue #277 documents this narrower subset; the exporter itself is unchanged.
+# ---------------------------------------------------------------------------
+
+def test_star_bullets_are_characterized_as_plain_text(tmp_path):
+    doc = _build(tmp_path, "* Star bullet one\n* Star bullet two\n")
+
+    assert len(doc.paragraphs) == 1
+    assert doc.paragraphs[0].text == "* Star bullet one * Star bullet two"
+    assert doc.paragraphs[0].style.name == "Normal"
+
+
+def test_nested_bullets_are_characterized_as_merged_parent_text(tmp_path):
+    doc = _build(tmp_path, "- Top level\n  - Nested level\n")
+
+    assert len(doc.paragraphs) == 1
+    assert doc.paragraphs[0].text == "Top level - Nested level"
+    assert doc.paragraphs[0].style.name == "List Bullet"
+
+
+def test_inline_markdown_in_heading_is_characterized_as_literal_text(tmp_path):
+    doc = _build(tmp_path, "## Risk **Mitigants**\n")
+
+    assert len(doc.paragraphs) == 1
+    assert doc.paragraphs[0].text == "Risk **Mitigants**"
+    assert doc.paragraphs[0].style.name == "Heading 2"

@@ -44,6 +44,24 @@ need no key. An empty `ANTHROPIC_API_KEY` counts as not set. If you do have cred
 SDK found none it could use: check the variable is exported to the process that runs the script, not just set in another
 terminal. Any other error from the SDK, such as a rejected key, is reported as it is and is not this message.
 
+### The headless pipeline warns that a model response was truncated at `max_tokens`
+
+A `warning:` line naming `Maker draft`, `Maker revision` or `Checker audit` and showing
+`stop_reason=max_tokens` means the API returned a response that reached the call's output-token limit. Do not treat
+the partial text as a complete draft or audit.
+
+- A truncated Maker draft is recorded as a `REJECTED` review-trail entry and the pipeline exits before saving that
+  draft or calling the Checker.
+- A truncated Checker audit is recorded as `REJECTED`; the pipeline may request a revision if an iteration remains,
+  but the incomplete audit can never approve the deal.
+- A truncated Maker revision is recorded as a separate `REJECTED` entry and the pipeline exits without saving or
+  auditing the incomplete revision.
+
+Inspect the dated deal's `state.json` and `review_trail` to see the recorded reason. The shipped
+`max_tokens` value in `config/settings.json` is inert; changing it does not change the three call limits. If
+truncation recurs, address it through a separately reviewed change that preserves the complete-record and review
+requirements. Do not use the partial response as an approval or export it manually as if the pipeline had accepted it.
+
 ### A headless run is costing more than expected
 
 Only `calibrate.py` (without `--mock`), `orchestrator.py` and `run_evals.py --live` call the API. The orchestrator

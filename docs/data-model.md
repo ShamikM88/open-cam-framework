@@ -55,10 +55,30 @@ shortened):
 | `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries; `{"provider", "type", "amount"}` entries |
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
+| `deal_structure_notes.review_cap` | `/research` review checkpoint, when the analyst sets a lower maximum | Optional lower per-deal REJECTED-pass threshold; it takes precedence over the default third-pass checkpoint and is recorded when set. This is an optional nested deal note, not a schema-version bump |
+| `review_stopped_by_analyst` | `research_export.py --analyst-release-unapproved` (`/research`, after explicit analyst choice) | An append-only list of `{"date": "YYYY-MM-DD", "passes": N, "reason": "..."}` records, one per release: the date, the trailing consecutive REJECTED review count and the analyst's reason for releasing the brief for manual review. No record is cleared or overwritten, and a later approved export leaves the list as it is; `review_verdict` carries the current verdict |
+| `analyst_terms` | `/research` and `/assemble`, when the analyst defines a term | A list of `{term, meaning, date}` records checkpointed immediately so the definition is not lost if the conversation is compacted; entries become learning candidates only on explicit confirmation |
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
+| `approved_draft_path` | `/assemble` | Repository-relative path to the approved Markdown draft retained as `draft_approved.md` in the same dated deal folder |
+
+The `financials_source` value describes the whole deal, not one period. If it is `"analyst-supplied"`, the
+default framework-computed `spreading_check.py` path refuses to overwrite the label or recompute figures in the other
+mode. Continue using `/spread`'s analyst-supplied mode for updates; one deal never mixes the two modes.
 
 Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
 floor.
+
+`analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.
+
+### Reviewer view files
+
+For an interactive `/review`, `state_manager.py --export-reviewer-view` derives two files under
+`deals/<Company>/<Proposal>_<Date>/review_view/`: `state_for_review.json` is a copy of the deal record without
+`review_trail` and `review_verdict`, while `review_trail.json` contains the history list (or `[]` when absent).
+Each successful export overwrites both derived copies. They are **not records**; `state.json` remains the source of
+truth and is the file `/review` updates in its `State: write` stage. No other script may consume these view files as
+a deal record. This removes the default path to earlier verdicts during the Reviewer's first pass, but it does not
+prevent a determined Reviewer from globbing to the combined `state.json`; see [AI assurance](ai-assurance.md#the-interactive-checker-is-a-separate-context-204).
 
 ### Two raw-figure stores, never blended
 
@@ -120,7 +140,9 @@ plain local files, not a trained model.
 ## State manager and state.json
 
 **`scripts/state_manager.py`** — no `anthropic` dependency, same testability pattern as
-`template_resolver.py`. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
+`template_resolver.py`. Its mutually exclusive `--check-steps` mode keeps its existing output; `--export-reviewer-view`
+validates state and writes the history-free first-pass copy and separate history copy described above, refusing invalid,
+newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
 `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
 an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
 today, so a deal resumed on a later calendar day still finds its original file. (This is
@@ -167,9 +189,9 @@ validates only that those two raw-figure keys are objects, that an object `downs
 read). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
 other: earlier code silently read it as empty. `export_deal()` reads and validates state before it creates the
 output folder or auto-saves a template, so a refusal leaves nothing behind; for a bare call with no `date_str`
-this also means a deal whose state sits in an earlier dated folder is now found (before, the freshly created
-empty folder was discovered first and the workbook came out blank); the CLI and the orchestrator always pass
-the date, so they are unaffected. Every CLI that reads state (`spreading_check`,
+this also means a bare call still finds the deal's existing state before creating today's output folder.
+When an explicit date is supplied, that same date selects the state read as well as the output folder; this is how
+the CLI and orchestrator keep export figures tied to the selected review. Every CLI that reads state (`spreading_check`,
 `policy_check`, `deal_export`, `orchestrator`, `state_manager --check-steps`, `source_manifest --check-sources`)
 catches `StateError` and prints one `error: ...` line to stderr with exit status 1, never a traceback; the "always
 exits 0" of the two `--check-*` modes is about their *results* (a missing step or source is not an error), not

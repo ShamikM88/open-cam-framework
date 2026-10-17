@@ -16,7 +16,7 @@ import sys
 
 from policy_checks import check_draft_compliance, ground_truth_figures
 from policy_engine import evaluate_deal_policy
-from state_manager import StateError, read_state
+from state_manager import read_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
@@ -110,5 +110,5 @@ if __name__ == "__main__":
 
     try:
         print(json.dumps(compute(args.company, args.proposal, draft_path=args.draft), indent=2))
-    except StateError as exc:
+    except (OSError, ValueError) as exc:
         sys.exit(f"error: {exc}")

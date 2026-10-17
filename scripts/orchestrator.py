@@ -19,8 +19,9 @@ from policy_checks import (
     check_reported_figures as _check_reported_figures,
 )
 from policy_engine import evaluate_deal_policy
-from spreading_builder import evaluate_downside_case, evaluate_financial_model
 from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
+from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -33,6 +34,7 @@ from state_manager import (
 )
 from template_resolver import cam_template_path
 from textio import read_text
+from response_utils import EmptyModelResponseError, require_response_text
 
 def _load_settings():
     """config/settings.json's full contents -- the documented single
@@ -592,8 +594,85 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 f"--stress-assumptions; nothing was written.")
 
     if multi_period_financials:
-        model_data = evaluate_financial_model(multi_period_financials)
-        financials, ratios = model_data["financials"], model_data["ratios"]
+        # Match the interactive /spread path: merge the supplied period/field deltas
+        # into recorded raw data, then recompute only the periods touched this run.
+        # A shallow state write would otherwise replace the history that was not
+        # repeated in this invocation (issue #246).
+        # A fresh framework recomputation supersedes any previously analyst-supplied
+        # forecast. Remove those forward periods from the planning input first so
+        # plan_fields does not reject the fresh figures as an attempt to overwrite
+        # analyst data, and so stale supplied forward years cannot survive a
+        # historical-only recomputation while the source flag is cleared below.
+        planning_state = existing_state
+        if existing_state.get("forecast_source") == "analyst-supplied":
+            planning_state = dict(existing_state)
+            planning_state["forecast_source"] = None
+            for field in ("multi_period_financials", "financials", "ratios"):
+                planning_state[field] = {
+                    period: value
+                    for period, value in (existing_state.get(field) or {}).items()
+                    if period not in FORWARD_PERIOD_KEYS
+                }
+
+        # financials_source is a whole-deal flag. Clearing an analyst-supplied
+        # flag is only defensible if every preserved period is recomputed from
+        # raw lines in this run. Refuse before any model call/write when a
+        # recorded period has no raw inputs; when raw history exists, recompute
+        # all of it rather than only the fresh delta so stale supplied outputs
+        # cannot be relabelled framework-computed (review finding on #297).
+        if existing_state.get("financials_source") == "analyst-supplied":
+            # Decision D2 (#246): historical figures never recompute or relabel an analyst-supplied deal headlessly.
+            historical_inputs = sorted(period for period in multi_period_financials
+                                       if period not in FORWARD_PERIOD_KEYS)
+            if historical_inputs:
+                raise StateError(
+                    "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
+                    f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
+                    "analyst-supplied mode; nothing was written."
+                )
+            recorded_periods = {
+                period
+                for field in ("financials", "ratios")
+                for period, value in (planning_state.get(field) or {}).items()
+                if isinstance(value, dict) and value
+            }
+            existing_raw = planning_state.get("multi_period_financials") or {}
+            incoming_raw = multi_period_financials or {}
+            available_raw_periods = {
+                period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
+            } | {
+                period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
+            }
+            missing_raw_periods = sorted(recorded_periods - available_raw_periods)
+            if missing_raw_periods:
+                raise StateError(
+                    "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
+                    f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
+                    "line items for every preserved period so all figures can be recomputed, or keep the "
+                    "analyst-supplied state; nothing was written."
+                )
+
+            recompute_inputs = {
+                period: dict(raw)
+                for period, raw in existing_raw.items()
+                if isinstance(raw, dict) and raw
+            }
+            for period, raw in incoming_raw.items():
+                merged_period = dict(recompute_inputs.get(period) or {})
+                merged_period.update(raw or {})
+                recompute_inputs[period] = merged_period
+            multi_period_financials = recompute_inputs
+            # This branch is the explicit clearing of the flag (forward-year input only, raw lines for every preserved
+            # period). Plan it as the framework-computed run it becomes, so plan_fields()'s analyst-supplied guard
+            # (decision D3, #271) -- which protects the interactive path -- does not refuse the existing rule here.
+            planning_state = {**planning_state, "financials_source": "framework-computed"}
+
+        planned_fields = plan_fields(
+            planning_state, multi_period_financials, update_financials_source=False,
+        )
+        financials = planned_fields["financials"]
+        ratios = planned_fields["ratios"]
+        multi_period_financials = planned_fields["multi_period_financials"]
         steps_completed = _add_step(steps_completed, "spread")
         # This call just independently recomputed every ratio from raw
         # line items -- "analyst-supplied" (see #55's /spread alternative
@@ -702,12 +781,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")
-    draft = client.messages.create(
+    draft = require_response_text(client.messages.create(
         **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
         max_tokens=4000,
         messages=[{"role": "user", "content":
                    f"{maker_prompt}\nStyle:\n{style_guide}\n{template_section}{grounding_context}"}]
-    ).content[0].text
+    ), "Maker draft")
     steps_completed = _add_step(steps_completed, "draft")
     write_state(company, proposal, deal_type=deal_type, date_str=date_str, steps_completed=steps_completed,
                 financials_source=financials_source, model_provenance=model_provenance)
@@ -724,12 +803,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             f.write(draft)
 
         print(f"[2/3] Risk Reviewer Agent auditing draft (iteration {iteration}/{max_iterations})...")
-        audit_response = client.messages.create(
+        audit_response = require_response_text(client.messages.create(
             **_completion_kwargs(maker_checker_config["checker_model"], maker_checker_config["checker_temperature"]),
             max_tokens=2000,
             messages=[{"role": "user", "content":
                        f"{checker_prompt}\n{grounding_context}\nDraft to review:\n{draft}"}]
-        ).content[0].text
+        ), "Checker audit")
 
         verdict, notes = parse_verdict(audit_response)
         verdict, notes = _apply_deterministic_policy_checks(
@@ -748,7 +827,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
 
         if iteration < max_iterations:
             print(f"[Revise] Iteration {iteration} REJECTED: {notes}")
-            draft = client.messages.create(
+            draft = require_response_text(client.messages.create(
                 **_completion_kwargs(maker_checker_config["maker_model"], maker_checker_config["maker_temperature"]),
                 max_tokens=4000,
                 messages=[{"role": "user", "content":
@@ -756,7 +835,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                            f"Previous draft:\n{draft}\n"
                            f"The Risk Reviewer rejected this draft. Address every point below "
                            f"and produce a revised, complete draft:\n{notes}"}]
-            ).content[0].text
+            ), "Maker draft")
 
     if verdict != "APPROVED":
         write_state(company, proposal, deal_type=deal_type, review_verdict="REJECTED",
@@ -815,9 +894,12 @@ if __name__ == "__main__":
                               "already has a dated folder always resumes the most recent one.")
     args = parser.parse_args()
 
-    multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
-    collateral_data = _load_json_file(args.collateral)
-    stress_assumptions = _load_json_file(args.stress_assumptions)
+    try:
+        multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
+        collateral_data = _load_json_file(args.collateral)
+        stress_assumptions = _load_json_file(args.stress_assumptions)
+    except (OSError, ValueError) as exc:    # a missing, non-UTF-8 or malformed input file
+        sys.exit(f"error: {exc}")
 
     try:
         run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,
@@ -825,5 +907,5 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError, NonFiniteNumberError) as exc:
+    except (StateError, MissingCredentialsError, EmptyModelResponseError, NonFiniteNumberError) as exc:
         sys.exit(f"error: {exc}")

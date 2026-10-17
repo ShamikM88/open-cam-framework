@@ -208,16 +208,14 @@ def test_plan_fields_refuses_a_call_that_adds_no_period_and_no_stress_even_when_
         plan_fields(existing)
 
 
-def test_plan_fields_takes_historical_raw_years_on_an_analyst_supplied_forecast_deal_only_without_relabelling_it():
-    """The analyst-supplied forecast guard stops two things: a recomputed forward year, and stamping the deal
-    framework-computed. A historical year passed with update_financials_source=False (what /project passes) does neither,
-    so it is accepted and the basis label is left alone; the same call that would relabel the deal is refused."""
+def test_plan_fields_refuses_historical_raw_years_on_an_analyst_supplied_forecast_deal_whatever_the_source_flag():
+    """The analyst-supplied forecast guard stops a recomputed forward year and stamping the deal framework-computed.
+    Since decision D3 (#271) a historical year is also refused when update_financials_source=False (what /project passes):
+    the deal is analyst-supplied, so its history is never recomputed here."""
     existing = {"forecast_source": "analyst-supplied", "financials_source": "analyst-supplied"}
     historical = {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}}
-    fields = plan_fields(existing, historical, update_financials_source=False)
-    assert "financials_source" not in fields, "the basis label is not rewritten"
-    assert fields["financials"]["FY-Current"]["raw"]["revenue"] == 1000
-    assert fields["multi_period_financials"] == historical
+    with pytest.raises(ValueError, match="analyst-supplied.*historical"):
+        plan_fields(existing, historical, update_financials_source=False)
     with pytest.raises(ValueError, match="would stamp the whole deal framework-computed"):
         plan_fields(existing, historical, update_financials_source=True)
     assert existing == {"forecast_source": "analyst-supplied", "financials_source": "analyst-supplied"}, "input untouched"
@@ -328,14 +326,14 @@ def test_main_turns_a_state_error_into_one_error_line_and_changes_nothing(tmp_pa
 def test_main_with_nothing_to_compute_writes_no_state(tmp_path, monkeypatch):
     """No --financials and nothing on file is refused (as compute() does), and no deal folder is created for it."""
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(ValueError, match="Nothing to compute"):
+    with pytest.raises(SystemExit, match="error: Nothing to compute"):
         main(["--company", "Acme Corp", "--proposal", "Fleet Loan"])
     assert not (tmp_path / "deals").exists()
 
 
 def test_main_with_a_missing_financials_file_fails_before_writing_anything(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(SystemExit, match="error: "):
         main(["--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", str(tmp_path / "nope.json")])
     assert not (tmp_path / "deals").exists()
 
@@ -371,3 +369,75 @@ def test_main_rejects_an_unknown_flag_and_help_lists_every_flag(capsys):
     text = capsys.readouterr().out
     for flag in ("--company", "--proposal", "--financials", "--stress-assumptions", "--no-update-financials-source"):
         assert flag in text, flag
+
+
+def test_compute_refuses_framework_mode_for_analyst_supplied_financials_without_writing_state(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials_source_note="Synthetic institution convention.",
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+        financials={"FY-Current": {"raw": {"revenue": 5000, "cost_of_sales": 3000}}},
+    )
+    state_path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    before = state_path.read_bytes()
+
+    with pytest.raises(ValueError, match="one deal never mixes the two modes"):
+        compute(
+            "Acme Corp", "Fleet Loan",
+            multi_period_financials={
+                "FY-Current": {"revenue": 5100, "cost_of_sales": 3050, "admin_expenses": 1000},
+            },
+        )
+
+    assert state_path.read_bytes() == before
+
+
+def _analyst_supplied_deal(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 4001}},
+        financials={"FY-Current": {"ebitda": 300, "gross_profit": 999}},
+        ratios={"FY-Current": {"dscr": 1.3}},
+        steps_completed=["spread"],
+    )
+    return next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+
+
+@pytest.mark.parametrize("historical", [
+    {"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+    {"FY-1": {"revenue": 4000}},
+    {"FY-2": {"revenue": 3500}, "FY+1": {"revenue": 5200, "cost_of_sales": 3100}},
+], ids=["current", "prior-year", "historical-and-forward"])
+def test_historical_input_on_an_analyst_supplied_deal_is_refused_whatever_the_source_flag_says(
+    tmp_path, monkeypatch, historical,
+):
+    """Decision D3 (#271): --no-update-financials-source (what /project passes) must not let historical raw figures
+    overwrite analyst-supplied subtotals or create a multi_period_financials store beside analyst_supplied_financials."""
+    path = _analyst_supplied_deal(tmp_path, monkeypatch)
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError, match="analyst-supplied.*historical"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials=historical, update_financials_source=False)
+
+    assert path.read_bytes() == before
+    assert "multi_period_financials" not in json.loads(before)
+
+
+def test_forward_only_input_on_an_analyst_supplied_deal_is_still_allowed_with_no_update_financials_source(
+    tmp_path, monkeypatch,
+):
+    path = _analyst_supplied_deal(tmp_path, monkeypatch)
+
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY+1": {"revenue": 5200, "cost_of_sales": 3100}}, update_financials_source=False)
+
+    state = json.loads(path.read_text(encoding="utf-8"))
+    assert state["financials_source"] == "analyst-supplied"
+    assert state["financials"]["FY-Current"] == {"ebitda": 300, "gross_profit": 999}, "history is untouched"
+    assert set(state["multi_period_financials"]) == {"FY+1"}

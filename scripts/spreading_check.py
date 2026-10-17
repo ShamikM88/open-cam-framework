@@ -22,8 +22,13 @@ import json
 import sys
 
 from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
-from state_manager import StateError, read_state, write_state
 from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+from state_manager import read_state, write_state
+
+
+class FinancialSourceModeError(ValueError):
+    """The requested calculation would relabel analyst-supplied figures as framework-computed."""
+
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
@@ -52,6 +57,19 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
                 "This deal's forecast was supplied by the analyst, so its basis is analyst-supplied for the whole "
                 "deal; spreading historical years in framework-computed mode here would stamp the whole deal "
                 "framework-computed over it. Record the historical years in /spread's analyst-supplied mode.")
+
+    if existing_state.get("financials_source") == "analyst-supplied":
+        # Decision D3 (#271): the default mode may not touch an analyst-supplied deal at all, and a historical period
+        # is refused whatever --no-update-financials-source says, so supplied subtotals are never overwritten and
+        # no framework-computed store (multi_period_financials) appears next to analyst_supplied_financials. Only a
+        # forward-year-only call (/project) stays allowed.
+        historical = sorted(p for p in (multi_period_financials or {}) if p not in FORWARD_PERIOD_KEYS)
+        if update_financials_source or historical:
+            raise FinancialSourceModeError(
+                "This deal is analyst-supplied; one deal never mixes the two modes"
+                + (f", so historical periods ({', '.join(historical)}) cannot be recomputed here" if historical else "")
+                + ". Use /spread's analyst-supplied mode to record financial figures."
+            )
 
     merged_multi_period = dict(existing_multi_period)
     touched_periods = {}
@@ -198,21 +216,33 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     multi_period_financials = None
-    if args.financials:
-        with open(args.financials, encoding="utf-8") as f:
-            multi_period_financials = json.load(f)
-
     stress_assumptions = None
-    if args.stress_assumptions:
-        with open(args.stress_assumptions, encoding="utf-8") as f:
-            stress_assumptions = json.load(f)
+    input_path = None
+    try:
+        if args.financials:
+            input_path = args.financials
+            with open(args.financials, encoding="utf-8") as f:
+                multi_period_financials = json.load(f)
+        if args.stress_assumptions:
+            input_path = args.stress_assumptions
+            with open(args.stress_assumptions, encoding="utf-8") as f:
+                stress_assumptions = json.load(f)
+    except UnicodeDecodeError as exc:
+        sys.exit(f"error: {input_path} is not UTF-8 text: {exc}")
+    except json.JSONDecodeError as exc:
+        sys.exit(f"error: invalid JSON in {input_path}: {exc}")
+    except OSError as exc:
+        sys.exit(f"error: cannot read {input_path}: {exc}")
+    for path, data in ((args.financials, multi_period_financials), (args.stress_assumptions, stress_assumptions)):
+        if path and not isinstance(data, dict):
+            sys.exit(f"error: {path} must contain a JSON object, found {type(data).__name__}")
 
     try:
         validate_finite_numbers(multi_period_financials, path="financial inputs")
         validate_finite_numbers(stress_assumptions, path="stress assumptions")
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
                          update_financials_source=args.update_financials_source)
-    except (StateError, NonFiniteNumberError) as exc:
+    except ValueError as exc:
         sys.exit(f"error: {exc}")
     print(json.dumps({
         "financials": state.get("financials"),

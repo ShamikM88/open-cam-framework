@@ -460,12 +460,14 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     Returns a list of {"year", "metric", "base_actual", "downside_actual",
     "threshold", "breach_id", "downside_status", "reason"}. `breach_id` is built from _slugify() (the
     same stable-identifier convention as `cp_id`), so a downside breach for
-    "FY+2"/"dscr" always slugifies to the same id (e.g.
+    "FY+2"/"dscr" always slugifies to the same base id (e.g.
     "DOWNSIDE-FY-2-DSCR" -- "+" is not alphanumeric, so it slugifies to
-    "-", the same as every other cp_id in this module) across repeated
-    calls with the same input.
+    "-", the same as every other cp_id in this module). Multiple covenants
+    on the same metric in one year receive a stable numeric suffix (e.g.
+    "DOWNSIDE-FY-1-DSCR-2"); a single covenant keeps its existing ID.
     """
     breaches = []
+    used_ids = set()
     for period in sorted(downside_ratios or {}):
         if period not in (all_ratios or {}):
             continue
@@ -488,7 +490,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "base_actual": base_result["actual"],
                     "downside_actual": downside_result["actual"],
                     "threshold": base_result["threshold"],
-                    "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                    "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
                     "downside_status": downside_result["status"],
                     "reason": downside_result["reason"],
                 })
@@ -509,7 +511,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "base_actual": base_result["actual"],
                     "downside_actual": None,
                     "threshold": base_result["threshold"],
-                    "breach_id": f"DOWNSIDE-{_slugify(period)}-{_slugify(metric)}",
+                    "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
                     "downside_status": "UNRESOLVABLE",
                     "reason": f"downside analysis unavailable for {period}: {unavailable[period]}",
                 })

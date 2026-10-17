@@ -125,7 +125,7 @@ Put the table of medians on the pull request or its issue so the next tuning has
 
 ### Reproducible dependency set
 
-`requirements*.txt` retain minimum compatibility floors. `constraints.txt` pins the exact versions used by the repository's Python 3.11 runtime, dev-test, security and mutation profiles, including transitive packages. Each CI installation uses `-c constraints.txt`; the security audit resolves all four requirements files against the same constraints. The constraints file does not install packages on its own.
+`requirements*.txt` retain minimum compatibility floors. `constraints.txt` pins the exact versions used by the repository's Python 3.11 runtime, dev-test, security and mutation profiles, including transitive packages. Each CI installation uses `-c constraints.txt`; the security audit resolves all four requirements files against the same constraints. The constraints file does not install packages on its own. The weekly `model-freshness` workflow is the one deliberate exception: it installs the requirements without constraints, because its report is only useful if it reflects the newest SDK's model lists.
 
 **Refreshing the pins is a deliberate dependency change**, not an automatic consequence of changing a floor:
 

@@ -659,3 +659,11 @@ def test_the_mutation_config_mutates_exactly_the_critical_modules_plus_the_named
     assert config["mutmut"]["source_paths"] == ["src"]
     for module in config["opencam"]["coverage"]["critical_modules"]:
         assert (REPO_ROOT / "scripts" / f"{module}.py").is_file(), module
+
+
+def test_the_model_freshness_workflow_is_the_documented_unpinned_exception():
+    """Every other install uses constraints.txt; this one must not, and the operations guide says so."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "model-freshness.yml").read_text(encoding="utf-8")
+    assert "constraints.txt" not in workflow, "the freshness report must see the newest SDK, not the pinned one"
+    operations = " ".join((REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8").split())
+    assert "`model-freshness` workflow is the one deliberate exception" in operations

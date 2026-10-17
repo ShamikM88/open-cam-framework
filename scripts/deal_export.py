@@ -15,7 +15,8 @@ from datetime import datetime
 from docx_builder import export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import (
-    StateError, read_state, resolve_export_date_str, sanitize_path_component, validate_iso_date_str,
+    StateError, existing_state_date_str, read_state, resolve_export_date_str, sanitize_path_component,
+    state_path, validate_iso_date_str,
 )
 from template_resolver import cam_template_path, local_cam_template_path
 
@@ -174,6 +175,15 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     # their historical default of writing output to today's folder. Read
     # (and validate) BEFORE anything is created: unusable state (issue #171)
     # must not leave an empty output folder or auto-saved template behind.
+    if state_date_str and not os.path.isfile(state_path(company, proposal, date_str=state_date_str, base_dir=base_dir)):
+        # Decision D1 (#248): an explicit date that names a folder with no state.json is an error when the deal has state
+        # in another dated folder -- otherwise the workbook would come out blank. A deal with no state anywhere keeps
+        # exporting into the named folder.
+        elsewhere = existing_state_date_str(company, proposal, base_dir=base_dir)
+        if elsewhere:
+            raise StateError(
+                f"no state.json in the dated folder {proposal}_{state_date_str}, but this deal has state in "
+                f"{proposal}_{elsewhere}; name that date, or leave the date out; nothing was written.")
     state = read_state(
         company, proposal, date_str=state_date_str, base_dir=base_dir, keys=STATE_KEYS_READ,
     ) or {}

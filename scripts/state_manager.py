@@ -308,6 +308,13 @@ def _existing_date_str(company, proposal, base_dir=None):
     return dates[-1] if dates else None
 
 
+def existing_state_date_str(company, proposal, base_dir=None):
+    """Public form of _existing_date_str(): the date of this deal's newest folder that holds a state.json, or None
+    when the deal has no state anywhere. Lets an exporter tell "a brand-new deal" from "a deal whose state is in
+    another dated folder"."""
+    return _existing_date_str(company, proposal, base_dir=base_dir)
+
+
 def resolve_export_date_str(company, proposal, date_str=None, base_dir=None):
     """Choose a standalone export folder without changing state discovery.
 

@@ -144,7 +144,9 @@ folder containing `state.json`, so an explicit export-only folder cannot hijack 
 A present malformed `state.json` remains selected so its existing corruption error is surfaced.
 Only a folder named exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims
 another deal's `Fleet_Q2_2026-05-01`, and `--date-str` must be a real calendar date in `YYYY-MM-DD` format, so an
-impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1. A bare library call that
+impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1. An explicit date that names a dated folder with no `state.json` is an error (one `error:` line, exit status 1, nothing
+written) when the deal has state in another dated folder; a deal with no state anywhere still exports into the named
+folder. A bare library call that
 omits `date_str` retains its existing state auto-discovery, while its output folder still defaults to today.
 Without this a deal
 finished days after it started exported into a new folder, disconnected from its own

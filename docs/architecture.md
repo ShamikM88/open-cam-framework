@@ -112,7 +112,7 @@ the narrative is sound.
   and the deal's saved evidence, and returns a verdict; `/review` keeps the deterministic checks and writes the record
   ([AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)).
 - **Slash commands** (`.claude/commands/`): the interactive implementation of each step, described by
-  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; three analyst aids are implemented, see [Skills](skills.md),
+  `config/skills_registry.md`, which is also the inventory of skills (analyst and maintainer aids; six analyst aids are implemented, see [Skills](skills.md),
   and none is ever input to the Maker or the Checker, see [Skill design](skill-design.md)). They run the deterministic scripts through Bash steps and hand the model's
   drafting work back to the session.
 - **Scripts** (`scripts/`): the deterministic core and the headless entry points. Most have no `anthropic`
@@ -129,7 +129,7 @@ the narrative is sound.
 | Agent | File | Role |
 | :--- | :--- | :--- |
 | Underwriter ("Maker") | [`agents/underwriter_agent.md`](../agents/underwriter_agent.md) | Drafts the CAM: calculates TNW, EBITDA, DSCR, Gross Leverage, Working Capital Days; cites sources for every qualitative claim; never invents figures; discloses when spreading was analyst-supplied rather than independently recomputed; drafts with awareness of a calibrated credit policy and any persisted deal learnings once they exist. |
-| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Audits the draft in a context that holds none of the Maker's reasoning (a separate call headless; in a session a fresh read-only sub-agent started by `/review`, see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)): re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. |
+| Risk Reviewer ("Checker") | [`agents/risk_reviewer_agent.md`](../agents/risk_reviewer_agent.md) | Audits the draft in a context that holds none of the Maker's reasoning (a separate call headless; in a session a fresh read-only sub-agent started by `/review`, see [AI assurance](ai-assurance.md#where-the-enforcement-runs-matters)): re-verifies ratio calculations, flags ungrounded assertions or missing sources, challenges weak mitigants, flags any violation of a calibrated credit policy (mandatory, once one exists), and returns `APPROVED` or `REJECTED` with revision notes. For `/research` briefs it also checks closing Sources-list completeness, citation-key definitions for short-form references, and that any analyst-override footnote states a reason and date; the override itself is not a rejection reason, but unsupported claims remain findings; a listed source that no claim cites is a minor point, not a reason to reject on its own. |
 
 The two prompts are kept deliberately independent — the Reviewer's value comes from auditing
 the Maker's work cold, not from sharing its reasoning. What is shared on purpose is the evidence: both work from the
@@ -172,6 +172,7 @@ open-cam-framework/
 │   ├── triage.md, research.md, spread.md, commercial.md, collateral.md, project.md
 │   ├── assemble.md
 │   └── review.md
+├── .claude/skills/               Person-invoked analyst and maintainer aids; see [Skills](skills.md) and the registry
 ├── agents/                      Maker-Checker agent prompts (see Maker-Checker agents above)
 │   ├── underwriter_agent.md
 │   └── risk_reviewer_agent.md
@@ -210,6 +211,7 @@ open-cam-framework/
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json (`--write` updates the file by hand) -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)
 │   ├── check_coverage.py        Checks coverage.py's JSON report against the floors in pyproject.toml -- overall plus a higher per-module floor for the eight governance modules; CI's code-enforced coverage gate (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
 │   ├── mutation_report.py       Per-module mutation score + completeness report from `mutmut results --all true`, run by the weekly mutation workflow -- diagnostic only, never fails over a score (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
+│   ├── check_model_freshness.py  Reports newer/deprecated/unknown configured Claude model IDs from installed SDK metadata; weekly/manual diagnostic, never auto-upgrades (no API call)
 │   ├── docx_builder.py          Markdown -> .docx export helper
 │   ├── spreading_builder.py     Financial spreading -> .xlsx export helper
 │   ├── spreading_check.py       Standalone CLI wrapper around spreading_builder.py's formula evaluation -- compute(); callable from /spread's and /project's own Bash steps so the slash-command interface gets the same code-enforced subtotal/ratio computation orchestrator.py's headless pipeline does (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)
@@ -231,6 +233,7 @@ open-cam-framework/
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eight governance modules (diagnostic report, never a merge gate)
+├── .github/workflows/model-freshness.yml  Weekly + manual diagnostic of SDK model/deprecation metadata; updates one tech-debt issue, never a required check
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`
 ├── .github/workflows/ci-parallelism-benchmark.yml  Manual-only timing of the suite with 1, 2 and 4 workers, for re-choosing CI's worker counts (never a gate; see the operations runbook)
 └── README.md

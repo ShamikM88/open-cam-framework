@@ -26,8 +26,13 @@ however many days the work took. Exporting never changes `state.json`'s figures;
 
 ## The CAM document (`.docx`)
 
+The exporter replaces characters forbidden by XML 1.0 (for example NUL, form feed and vertical tab) with the visible replacement character U+FFFD before rendering. It emits one aggregate warning to standard error and continues, rather than losing the whole export.
+
+
 The draft is Markdown; `scripts/docx_builder.py` turns it into a Word document you can edit. The rendering rules are
 the ones that surprise authors:
+
+Body rows wider than the header are preserved by widening the table and emit a warning on standard error. Escape a literal pipe within a cell as `\|` (a single backslash); the exported cell contains `|`.
 
 | In the Markdown | In the Word document |
 | :--- | :--- |
@@ -35,8 +40,9 @@ the ones that surprise authors:
 | `- item` | a bullet (List Bullet style) |
 | `1. item` | an ordinary paragraph that begins `1.` (not an automatic numbered list) |
 | a pipe table | a Word table; the header row is bold and `:---:` / `---:` alignment markers are honoured |
+| `A \\| B` within a table cell | a literal `|` inside one cell |
 | `**bold**`, `*italic*`, `` `code` `` | bold, italic, and monospace text |
-| `[text](url)` | a real hyperlink |
+| `[text](url)` | a real hyperlink only for `http`, `https` or `mailto`; other targets remain visible as plain text with a warning |
 | a fenced block (no tag, or any tag except `json`) | monospace lines, whitespace kept exactly (the ownership-tree diagram uses this) |
 | a fenced block tagged `json` | **removed**: it is reserved for the Underwriter's structured-output block, never shown to a client |
 | `![caption](path.png)` on its own line | an embedded image, scaled down (never up) to the page's text width, with the caption in italics; see below |
@@ -90,6 +96,10 @@ copy of the layout.
 `/research` exports a standalone `.docx` from a Markdown brief (a short header as a bullet list, the Go/No-Go verdict
 with its rationale, then the company and sector sections), using the same rendering rules as the CAM. It has no
 workbook, no structured JSON block and no template side effects.
+
+The export requires a populated final `Sources` or `References` section. For `/research`, keep this as a flat `## Sources` list of every document the brief relies on, include URLs where available, and define short-form citation keys used in the body. The exporter checks for at least one list item or HTTP(S) URL and refuses a missing or empty section before it creates output. A nested list is not suitable because the DOCX builder does not render nested bullets as intended.
+
+Only after the analyst explicitly authorises export without sources in chat and supplies a non-empty reason may the session pass `--analyst-override-no-sources "<reason>"`. That exception appears as a dated final paragraph in the DOCX and is not written to `state.json`; a source-complete brief gets no override footnote.
 
 ## Templates in practice
 

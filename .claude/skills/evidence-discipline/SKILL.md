@@ -10,7 +10,7 @@ allowed-tools:
   - Glob
   - Grep
   - Bash(python scripts/source_manifest.py --check-sources *)
-disallowed-tools: Write Edit NotebookEdit
+disallowed-tools: Write Edit NotebookEdit WebFetch WebSearch
 ---
 
 # evidence-discipline

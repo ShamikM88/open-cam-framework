@@ -17,4 +17,4 @@ by its current chair; the parent, Synthetic Parent Holdings, owns 100% of the sh
 
 ## Sources
 
-- Synthetic registry extract (saved to the deal's `sources/` folder).
+- Synthetic registry extract (saved to the deal's `sources/` folder): https://example.invalid/registry

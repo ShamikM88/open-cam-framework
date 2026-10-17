@@ -6,6 +6,7 @@ import argparse
 from anthropic import Anthropic
 from pypdf import PdfReader
 from template_resolver import local_cam_template_path
+from response_utils import EmptyModelResponseError, require_response_text
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
@@ -145,13 +146,27 @@ def _sample_pdf_paths():
 
 
 def _read_sample_text():
-    text_content = ""
+    """Read extractable text and warn about PDFs that contain none."""
+    text_parts = []
     for path in _sample_pdf_paths():
         reader = PdfReader(path)
+        pdf_parts = []
         for page in reader.pages:
-            text_content += page.extract_text() + "\n"
-    return text_content
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                # Preserve the historical trailing newline per text-bearing page.
+                pdf_parts.append(page_text + "\n")
 
+        pdf_text = "".join(pdf_parts)
+        if not pdf_text.strip():
+            print(
+                f"[WARN] {path}: no extractable text; it may be scanned. "
+                "Use /calibrate, which reads PDFs natively, or OCR it first."
+            )
+            continue
+        text_parts.append(pdf_text)
+
+    return "".join(text_parts)
 
 def _split_into_chunks(text, limit=CHUNK_CHAR_LIMIT):
     """Split `text` into consecutive pieces of at most `limit` characters,
@@ -242,7 +257,7 @@ def _complete(model, prompt, max_tokens=3000):
         # guards against: a cut-off result flowing on without a word.
         print(f"[WARN] A response was cut off at the {max_tokens}-token output limit; "
               "the style guide/template may be incomplete.")
-    return response.content[0].text
+    return require_response_text(response, "Calibration")
 
 
 def _merge_parts(parts, merge_prompt, model, label):
@@ -300,9 +315,15 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
     # the length check below is the first decision point of the run -- see
     # _choose_overflow_mode().
     text_content = _read_sample_text()
-    if not text_content:
-        print("No sample PDFs found in inputs/calibration_samples/")
-        return
+    if not text_content.strip():
+        if not _sample_pdf_paths():
+            print("No sample PDFs found in inputs/calibration_samples/")
+            return
+        sys.exit(
+            "error: calibration PDFs contain no extractable text; no model call "
+            "was made and no output files were written. Use /calibrate, which "
+            "reads PDFs natively, or OCR the samples first."
+        )
 
     total_chars = len(text_content)
     mode = "split"
@@ -356,9 +377,8 @@ def run_calibration(deal_type, mock=False, on_overflow="ask"):
           f"shipped default for '{deal_type}' deals until you remove it.")
 
 
-if __name__ == "__main__":
-    from textio import configure_stdio
-    configure_stdio()
+def main(argv=None):
+    """CLI entry point, separated from process startup so error contracts can be tested."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--type", default="corporate_credit",
@@ -378,5 +398,14 @@ if __name__ == "__main__":
              "'ignore' uses only the first part and discards the rest; 'ask' (default) "
              "prompts on a terminal and falls back to 'split' when there is none.",
     )
-    args = parser.parse_args()
-    run_calibration(args.type, mock=args.mock, on_overflow=args.on_overflow)
+    args = parser.parse_args(argv)
+    try:
+        run_calibration(args.type, mock=args.mock, on_overflow=args.on_overflow)
+    except EmptyModelResponseError as exc:
+        sys.exit(f"error: {exc}")
+
+
+if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
+    main()

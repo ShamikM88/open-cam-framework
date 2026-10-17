@@ -11,13 +11,14 @@ reference. Why skills are shaped this way, what they may never become, and what 
 - **Typed by a person.** Each is marked `disable-model-invocation`, so the model never starts one on its own, and no
   command, agent prompt or `CLAUDE.md` line names one.
 - **Read-only by procedure, and tested for the surface it shows.** It runs in a forked subagent that cannot see your
-  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed while it runs (`disallowed-tools`). Script-backed
-  skills pre-approve only their read-only script calls; `credit-challenge` pre-approves only `Read`, `Glob` and `Grep` and
-  has no shell/script surface. `allowed-tools` pre-approves; it is not an
-  allowlist, so any unlisted tool, such as `Bash` with another command, stays subject to your permission settings and
-  would ask you. What keeps a skill read-only is therefore its procedure plus those settings, and the tests check that the
-  commands it shows leave a deal unchanged. It is not an operating-system sandbox. It reads the deal's `state.json` (the
-  record, not the conversation) and writes nothing by design: no `state.json` key, no `steps_completed` entry, no file.
+  conversation. The `Write`, `Edit` and `NotebookEdit` tools are removed for all skills; `WebFetch` and `WebSearch` are
+  also removed while every report skill runs (`disallowed-tools`). `mutation-triage` additionally removes `Bash`; script-backed
+  analyst skills pre-approve only their read-only script calls, while `credit-challenge` and `credit-risk` pre-approve only
+  `Read`, `Glob` and `Grep` and have no shell/script surface. `allowed-tools` pre-approves; it is not an allowlist,
+  so any unlisted tool that is not removed stays subject to your permission settings. What keeps a skill read-only is therefore
+  its procedure plus those settings, and the tests check that the commands it shows leave a deal unchanged. It is not an
+  operating-system sandbox. It reads the deal's `state.json` (the record, not the conversation) and writes nothing by design:
+  no `state.json` key, no `steps_completed` entry, no file.
 - **An aid, not a step.** What it says is not part of the deal and is not provenance. It does not replace `/assemble`'s
   gates, the policy check or `/review`, and it never approves, rates or recommends.
 - **Interactive only.** The headless pipeline (`orchestrator.py`, `calibrate.py`) cannot load a skill and has no
@@ -284,10 +285,11 @@ score is.
   it is `tests/test_forward_covenants.py`, which is not in the selection. That is a finding about the selection, reported
   for a reviewed change, and a candidate *missing assertion* for the behaviour no selected test checks. Both are
   [#219](https://github.com/ShamikM88/open-cam-framework/issues/219)'s groups.
-- **Read-only, and what that rests on.** It pre-approves only `Read`, `Glob` and `Grep`, and `Write`, `Edit`, `NotebookEdit`
-  and `Bash` are removed while it runs, so it runs no `mutmut`, no test and no script, and edits and files nothing. A tool
-  that is not removed stays under your permission settings, so its own rule is to use only the three read tools; a deny rule
-  would enforce that. It never changes the mutation scope, the 75% diagnostic target, the configuration or the workflow.
+- **Read-only, and what that rests on.** It pre-approves only `Read`, `Glob` and `Grep`, and `Write`, `Edit`, `NotebookEdit`,
+  `Bash`, `WebFetch` and `WebSearch` are removed while it runs, so it runs no `mutmut`, no test and no script, cannot
+  browse or fetch external sources, and edits and files nothing. Other tools remain subject to your permission settings;
+  the enforced list is the frontmatter's `disallowed-tools`. It never changes the mutation scope, the 75% diagnostic target,
+  the configuration or the workflow.
 - **Limits.** The artifact lists mutant names and statuses, not the mutated source, so every class is a candidate:
   it never calls a mutant equivalent until you have seen the mutated line (`mutmut show <id>` after a local `mutmut run`, on
   Linux or macOS). The link from a function to its tests is by name, so a function reached only through its caller looks

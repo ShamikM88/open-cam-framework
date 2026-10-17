@@ -675,6 +675,36 @@ def test_orchestrator_on_a_missing_input_file_fails_before_starting(tmp_path):
     assert not (work / "deals").exists()
 
 
+@pytest.mark.parametrize(("flag", "content"), [
+    ("--financials", b"{not json"),
+    ("--spread", b"\xff\xfe not text"),
+    ("--collateral", b"{not json"),
+    ("--stress-assumptions", b"\xff\xfe not text"),
+])
+def test_orchestrator_reports_an_unusable_input_file_as_one_error_line(tmp_path, flag, content):
+    work = tmp_path / "orchestrator-cwd"
+    work.mkdir()
+    (work / "input.json").write_bytes(content)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "A", "--proposal", "P", flag, "input.json"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("error: ") and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (work / "deals").exists()
+
+
+def test_orchestrator_on_a_missing_input_file_is_one_error_line(tmp_path):
+    work = tmp_path / "orchestrator-cwd"
+    work.mkdir()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "A", "--proposal", "P",
+         "--collateral", "nope.json"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 1 and result.stderr.startswith("error: ") and "nope.json" in result.stderr
+    assert "Traceback" not in result.stderr and len(result.stderr.strip().splitlines()) == 1
+
+
 # ---------------------------------------------------------------------------
 # A state.json the code cannot use is an error message and exit status 1, never a traceback (issues #170, #171)
 # ---------------------------------------------------------------------------

@@ -154,6 +154,28 @@ def test_resolve_maker_checker_config_checker_model_independent_of_maker(project
     assert config["checker_temperature"] == 0.0
 
 
+def test_resolve_maker_checker_config_warns_and_ignores_legacy_temperature_settings(
+    project_root, capsys,
+):
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-maker-model",
+        "checker_model": "claude-checker-model",
+        "maker_temperature": 0.3,
+        "checker_temperature": 0.2,
+    }), encoding="utf-8")
+
+    config = _resolve_maker_checker_config()
+
+    assert config == {
+        "maker_model": "claude-maker-model",
+        "checker_model": "claude-checker-model",
+    }
+    warning = capsys.readouterr().err
+    assert "maker_temperature" in warning
+    assert "checker_temperature" in warning
+    assert "ignored" in warning.lower()
+
+
 def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, monkeypatch):
     config_dir = tmp_path / "config"
     config_dir.mkdir()

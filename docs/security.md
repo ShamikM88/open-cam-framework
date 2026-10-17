@@ -10,7 +10,6 @@ This repository's issue tracker is public. Read the root [`SECURITY.md`](../SECU
 
 The intended channel is GitHub private vulnerability reporting (`Security` → `Report a vulnerability`). This is a repository setting that the maintainer must enable; a pull request cannot enable it. If the private-reporting option is unavailable, do not disclose details publicly. Use a private maintainer contact already provided to you, or ask the maintainer—without any sensitive details—to enable the private channel.
 
-
 ## Where the protection comes from
 
 Security here is a few layers, and they are not equally visible. Know which ones are files you can review and which are settings you have to check.

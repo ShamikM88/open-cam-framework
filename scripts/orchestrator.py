@@ -659,6 +659,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 merged_period.update(raw or {})
                 recompute_inputs[period] = merged_period
             multi_period_financials = recompute_inputs
+            # This branch is the explicit clearing of the flag (forward-year input only, raw lines for every preserved
+            # period). Plan it as the framework-computed run it becomes, so plan_fields()'s analyst-supplied guard
+            # (decision D3, #271) -- which protects the interactive path -- does not refuse the existing rule here.
+            planning_state = {**planning_state, "financials_source": "framework-computed"}
 
         planned_fields = plan_fields(
             planning_state, multi_period_financials, update_financials_source=False,

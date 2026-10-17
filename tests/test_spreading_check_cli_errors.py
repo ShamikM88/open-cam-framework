@@ -68,3 +68,28 @@ def test_malformed_financials_json_is_one_controlled_error(tmp_path):
     _assert_one_error(result)
     assert "invalid JSON in" in result.stderr and "bad-financials.json" in result.stderr
     assert not (tmp_path / "deals").exists()
+
+
+def test_a_financials_file_that_is_not_utf8_is_one_controlled_error(tmp_path):
+    (tmp_path / "financials.json").write_bytes(b"\xff\xfe not text")
+
+    result = _run_spreading_check(
+        tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", "--financials", "financials.json",
+    )
+
+    _assert_one_error(result)
+    assert "financials.json is not UTF-8 text" in result.stderr
+    assert not (tmp_path / "deals").exists()
+
+
+def test_a_json_file_that_is_not_an_object_is_one_controlled_error(tmp_path):
+    for name, content in (("financials.json", "[1, 2]"), ("stress.json", "42")):
+        (tmp_path / name).write_text(content, encoding="utf-8")
+
+    for flag, name in (("--financials", "financials.json"), ("--stress-assumptions", "stress.json")):
+        result = _run_spreading_check(
+            tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", flag, name,
+        )
+        _assert_one_error(result)
+        assert f"{name} must contain a JSON object" in result.stderr
+    assert not (tmp_path / "deals").exists()

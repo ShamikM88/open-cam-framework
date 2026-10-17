@@ -18,12 +18,14 @@ import ast
 import atexit
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+import docx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,8 +34,9 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_test_count", "conventions", "deal_export", "mutation_report", "orchestrator",
-    "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest", "spreading_check", "state_manager",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "conventions", "deal_export",
+    "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest",
+    "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check",
 )
 
@@ -141,15 +144,45 @@ def test_pii_scan_reports_findings_as_json(cli):
     assert findings, "an email address and a currency figure must be reported"
 
 
+def test_pii_scan_on_a_file_that_is_not_utf8_is_one_error_line(cli):
+    binary = cli.workdir / "binary.md"
+    binary.write_bytes(b"\xff\xfe not text")
+    _assert_a_clean_state_error(cli("pii_scan", binary), "codec can't decode")
+
+
 def test_pii_scan_on_a_missing_file_fails(cli):
     result = cli("pii_scan", "no-such-file.md")
     _assert_a_clean_state_error(result, "no-such-file.md")
+
+
+
+
+def test_check_model_freshness_real_cli_reports_installed_sdk_shape_offline(cli, tmp_path):
+    report_path = tmp_path / "model-freshness.json"
+    result = cli("check_model_freshness", "--json", report_path, cwd=REPO_ROOT)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert "only as fresh as the installed Anthropic SDK" in result.stdout
+    assert "does not query the API" in result.stdout
+    with open(report_path, encoding="utf-8") as f:
+        report = json.load(f)
+    assert set(report) == {
+        "report_version", "sdk_version", "freshness_note", "sdk_tables", "models", "findings", "summary"
+    }
+    assert report["report_version"] == 1
+    assert report["models"] and report["summary"]["models_checked"] == len(report["models"])
+    assert report["summary"]["finding_count"] == len(report["findings"])
+    assert report["summary"]["has_findings"] is bool(report["findings"])
+    assert set(report["sdk_tables"]) == {"known_models", "deprecated_models"}
+    assert all(item["status"] in {"available", "SDK table not found"}
+               for item in report["sdk_tables"].values())
 
 
 def test_state_manager_check_steps_reports_missing_steps_and_always_exits_zero(cli):
     result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan",
                  "--required", "spread, collateral")
     assert result.returncode == 0
+    assert result.stdout == '{\n  "missing_steps": [\n    "spread",\n    "collateral"\n  ],\n  "ok": false\n}\n'
     assert json.loads(result.stdout) == {"missing_steps": ["spread", "collateral"], "ok": False}
 
 
@@ -218,20 +251,71 @@ def test_deal_export_writes_the_docx_and_xlsx_into_the_dated_folder(cli):
 def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     draft = cli.workdir / "draft.md"
     draft.write_text("# T\n", encoding="utf-8")
-    bad_date = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", draft, "--date-str", "foo")
-    assert bad_date.returncode == 2 and "YYYY-MM-DD" in bad_date.stderr
+    for bad in ("foo", "2026-02-30"):
+        bad_date = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", draft, "--date-str", bad)
+        assert bad_date.returncode == 1 and bad_date.stderr.startswith("error: --date-str ")
+        assert bad_date.stderr.count("\n") == 1 and "usage:" not in bad_date.stderr and "Traceback" not in bad_date.stderr
     missing = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", "nope.md")
     _assert_a_clean_state_error(missing, "nope.md")
     assert not (cli.workdir / "deals").exists()  # nothing was created for either failure
 
 
+def test_research_export_help_documents_the_analyst_override_flag(cli):
+    result = cli("research_export", "--help")
+    assert result.returncode == 0, result.stderr
+    assert "--analyst-override-no-sources" in result.stdout and "REASON" in result.stdout
+    assert "--analyst-release-unapproved" in result.stdout
+    assert "explicit analyst authorisation" in result.stdout
+
+
 def test_research_export_writes_the_brief_docx(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n", encoding="utf-8")
+    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n\n## Sources\n\n- Synthetic registry: https://example.invalid/registry\n", encoding="utf-8")
     result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
     assert result.returncode == 0, result.stderr
     assert "Research brief exported to" in result.stdout
     assert list(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+
+
+def test_research_export_without_sources_fails_cleanly_without_writing(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Synthetic brief\n\nFindings refer to sources but give no list.\n", encoding="utf-8")
+    result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
+    assert result.returncode == 1
+    assert len(result.stderr.splitlines()) == 1 and result.stderr.startswith("error: ")
+    assert "populated Sources or References section" in result.stderr
+    assert "Traceback" not in result.stderr and result.stdout == ""
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_research_export_override_succeeds_and_discloses_the_reason(cli):
+    import docx
+
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Synthetic brief\n\nSynthetic findings only.\n", encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-override-no-sources", "Synthetic analyst-authorised reason",
+    )
+    assert result.returncode == 0, result.stderr
+    output = next(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+    footnote = docx.Document(output).paragraphs[-1].text
+    assert footnote.startswith("Footnote: No sources list is included in this brief. Exported under analyst override on ")
+    assert footnote.endswith(": Synthetic analyst-authorised reason.")
+
+
+def test_research_export_override_without_a_reason_fails_cleanly(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text("# Synthetic brief\n\nSynthetic findings only.\n", encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-override-no-sources",
+    )
+    assert result.returncode == 1
+    assert len(result.stderr.splitlines()) == 1 and result.stderr.startswith("error: ")
+    assert "reason must not be empty" in result.stderr
+    assert "Traceback" not in result.stderr and result.stdout == ""
+    assert not (cli.workdir / "deals").exists()
 
 
 def test_research_export_on_a_missing_brief_fails_cleanly(cli):
@@ -280,7 +364,8 @@ def test_deal_export_reports_unsafe_names_as_one_error_line(cli, name):
 
 def test_research_export_reports_unsafe_names_as_one_error_line(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Research brief\n", encoding="utf-8")
+    # A populated Sources section, so the exporter's sources check passes and the unsafe name is what fails.
+    brief.write_text("# Research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/a\n", encoding="utf-8")
     result = cli("research_export", "--company", "a/b", "--proposal", "Brief", "--brief", brief)
     _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
     assert not (cli.workdir / "deals").exists()
@@ -526,6 +611,23 @@ def test_calibrate_without_the_mock_flag_and_without_a_key_falls_back_to_mock(cl
         encoding="utf-8") == MOCK_TEMPLATE
 
 
+def test_calibrate_with_only_a_scanned_pdf_is_one_error_line_on_stderr(cli):
+    from pypdf import PdfWriter
+
+    samples = cli.workdir / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with (samples / "scanned.pdf").open("wb") as handle:
+        writer.write(handle)
+    result = cli("calibrate", "--mock", "--type", "corporate_credit")
+    assert result.returncode == 1
+    assert result.stderr.startswith("error: ") and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "no extractable text" in result.stderr and "Traceback" not in result.stderr
+    assert "scanned.pdf" in result.stdout, "the per-PDF warning names the file on stdout"
+    assert not (cli.workdir / "config").exists() and not (cli.workdir / "templates").exists()
+
+
 def test_calibrate_without_sample_pdfs_says_so_and_writes_nothing(cli):
     result = cli("calibrate", "--mock")
     assert "No sample PDFs found" in result.stdout
@@ -590,6 +692,36 @@ def test_orchestrator_on_a_missing_input_file_fails_before_starting(tmp_path):
         cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert result.returncode != 0 and "nope.json" in result.stderr
     assert not (work / "deals").exists()
+
+
+@pytest.mark.parametrize(("flag", "content"), [
+    ("--financials", b"{not json"),
+    ("--spread", b"\xff\xfe not text"),
+    ("--collateral", b"{not json"),
+    ("--stress-assumptions", b"\xff\xfe not text"),
+])
+def test_orchestrator_reports_an_unusable_input_file_as_one_error_line(tmp_path, flag, content):
+    work = tmp_path / "orchestrator-cwd"
+    work.mkdir()
+    (work / "input.json").write_bytes(content)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "A", "--proposal", "P", flag, "input.json"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("error: ") and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (work / "deals").exists()
+
+
+def test_orchestrator_on_a_missing_input_file_is_one_error_line(tmp_path):
+    work = tmp_path / "orchestrator-cwd"
+    work.mkdir()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "A", "--proposal", "P",
+         "--collateral", "nope.json"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 1 and result.stderr.startswith("error: ") and "nope.json" in result.stderr
+    assert "Traceback" not in result.stderr and len(result.stderr.strip().splitlines()) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -659,6 +791,47 @@ def test_deal_export_reports_a_malformed_state_cleanly(cli):
     (cli.workdir / "draft.md").write_text("# Draft\n", encoding="utf-8")
     result = cli("deal_export", "--company", "Acme", "--proposal", "Loan", "--draft", "draft.md")
     _assert_a_clean_state_error(result, '"financials_source" must be "framework-computed" or "analyst-supplied"')
+
+
+
+
+
+def test_state_manager_exports_reviewer_view_with_a_real_cli_subprocess(cli):
+    source = _write_state(cli.workdir, {
+        "company": "Acme", "proposal": "Loan", "date": "2026-01-01", "schema_version": "1.1.0",
+        "steps_completed": ["triage"], "review_verdict": "REJECTED",
+        "review_trail": [{"iteration": 1, "verdict": "REJECTED", "notes": "synthetic finding",
+                          "timestamp": "2026-01-01T10:00:00"}],
+    })
+    before = source.read_bytes()
+    result = cli("state_manager", "--export-reviewer-view", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    assert set(paths) == {"state_for_review", "review_trail"}
+    assert paths["state_for_review"].replace("\\", "/") == "deals/Acme/Loan_2026-01-01/review_view/state_for_review.json"
+    assert paths["review_trail"].replace("\\", "/") == "deals/Acme/Loan_2026-01-01/review_view/review_trail.json"
+    record = json.loads((cli.workdir / paths["state_for_review"]).read_text(encoding="utf-8"))
+    trail = json.loads((cli.workdir / paths["review_trail"]).read_text(encoding="utf-8"))
+    assert "review_trail" not in record and "review_verdict" not in record
+    assert trail[0]["verdict"] == "REJECTED"
+    assert source.read_bytes() == before
+
+
+def test_state_manager_reviewer_view_refuses_bad_state_without_creating_view(cli):
+    source = _write_state(cli.workdir, {"schema_version": "9.9.9", "review_trail": ["malformed"]})
+    before = source.read_bytes()
+    result = cli("state_manager", "--export-reviewer-view", "--company", "Acme", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "9.9.9")
+    assert source.read_bytes() == before
+    assert not (source.parent / "review_view").exists()
+
+
+
+def test_state_manager_check_steps_still_requires_required(cli):
+    result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan")
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "error: --required is required with --check-steps" in result.stderr
 
 
 def test_state_manager_check_steps_reports_a_malformed_state_cleanly(cli):
@@ -820,3 +993,142 @@ def test_source_manifest_save_refuses_a_dangling_link_manifest_and_copies_nothin
                  "legal identity", "--file", source)
     _assert_a_clean_state_error(result, "manifest.json", "target does not exist", "the file was not modified")
     assert [p.name for p in sources.iterdir()] == ["manifest.json"], "no copy of the document was left behind"
+
+
+def test_spreading_check_default_mode_refuses_analyst_supplied_deal_without_writing(cli):
+    deal_dir = cli.workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    deal_dir.mkdir(parents=True)
+    state_path = deal_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "company": "Acme",
+        "proposal": "Loan",
+        "date": "2026-01-01",
+        "schema_version": "1.1.0",
+        "financials_source": "analyst-supplied",
+        "financials_source_note": "Synthetic institution convention.",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000, "cost_of_sales": 3000},
+        },
+        "financials": {
+            "FY-Current": {"raw": {"revenue": 5000, "cost_of_sales": 3000}},
+        },
+    }), encoding="utf-8")
+    before = state_path.read_bytes()
+    financials = cli.workdir / "fin.json"
+    financials.write_text(json.dumps({
+        "FY-Current": {"revenue": 5100, "cost_of_sales": 3050, "admin_expenses": 1000},
+    }), encoding="utf-8")
+
+    result = cli(
+        "spreading_check", "--company", "Acme", "--proposal", "Loan", "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert result.stderr.count("\n") == 1
+    assert "one deal never mixes the two modes" in result.stderr
+    assert state_path.read_bytes() == before
+
+
+def test_research_export_release_unapproved_is_real_cli_and_records_state(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Synthetic research brief\n\n## Findings\nSynthetic analyst notes.\n\n"
+        "## Sources\n\n- Synthetic source: https://example.invalid/research\n",
+        encoding="utf-8",
+    )
+    state_dir = cli.workdir / "deals" / "Acme" / "Brief_2026-10-14"
+    state_dir.mkdir(parents=True)
+    state_path = state_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "company": "Acme", "proposal": "Brief", "date": "2026-10-14",
+        "review_trail": [
+            {"iteration": 1, "verdict": "APPROVED", "notes": "previous cycle"},
+            {"iteration": 2, "verdict": "REJECTED", "notes": "synthetic finding one"},
+            {"iteration": 3, "verdict": "REJECTED", "notes": "synthetic finding two"},
+            {"iteration": 4, "verdict": "REJECTED", "notes": "synthetic finding three"},
+        ],
+    }), encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-release-unapproved", "analyst requested manual review",
+    )
+    assert result.returncode == 0, result.stderr
+    output_path = next(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+    paragraphs = [p.text for p in docx.Document(output_path).paragraphs]
+    assert paragraphs[1].startswith(
+        "Review status: Not approved by the independent Risk Reviewer. 3 review passes returned REJECTED."
+    )
+    # The CLI stamps the release with the day it runs; the date is read back from the document and the record must
+    # agree with it, so the test depends on neither the day it runs nor a midnight rollover during the run.
+    released_on = re.search(r"at the analyst's request on (\d{4}-\d{2}-\d{2}): ", paragraphs[1]).group(1)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["review_stopped_by_analyst"] == [
+        {"date": released_on, "passes": 3, "reason": "analyst requested manual review"},
+    ]
+
+
+def test_research_export_release_unapproved_cli_refuses_a_deal_without_a_rejection(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Synthetic research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/source\n",
+        encoding="utf-8",
+    )
+    state_dir = cli.workdir / "deals" / "Acme" / "Brief_2026-10-14"
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "company": "Acme", "proposal": "Brief", "date": "2026-10-14",
+        "review_trail": [{"iteration": 1, "verdict": "APPROVED", "notes": "clean"}],
+    }), encoding="utf-8")
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-release-unapproved", "analyst asked",
+    )
+    assert result.returncode == 1 and result.stderr.startswith("error: ")
+    assert result.stderr.count("\n") == 1 and "no trailing REJECTED entry" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not list(state_dir.glob("*.docx"))
+    assert "review_stopped_by_analyst" not in (state_dir / "state.json").read_text(encoding="utf-8")
+
+
+def test_research_export_release_unapproved_cli_rejects_blank_reason_without_output(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Synthetic research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/source\n",
+        encoding="utf-8",
+    )
+    result = cli(
+        "research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief,
+        "--analyst-release-unapproved", "   ",
+    )
+    assert result.returncode == 1 and result.stderr.startswith("error: ")
+    assert "Analyst release reason must not be empty" in result.stderr and "Traceback" not in result.stderr
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_history(cli):
+    """Decision D3 (#271): the exact scenario /project's flag used to allow - historical raw figures on an
+    analyst-supplied deal - is one error line, exit 1, state byte-identical, no multi_period_financials."""
+    deal_dir = cli.workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    deal_dir.mkdir(parents=True)
+    state_path = deal_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "company": "Acme", "proposal": "Loan", "date": "2026-01-01", "schema_version": "1.1.0",
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {"FY-Current": {"revenue": 5000, "cost_of_sales": 4001}},
+        "financials": {"FY-Current": {"ebitda": 300, "gross_profit": 999}},
+        "ratios": {"FY-Current": {"dscr": 1.3}},
+    }), encoding="utf-8")
+    before = state_path.read_bytes()
+    financials = cli.workdir / "hist.json"
+    financials.write_text(json.dumps({"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}}), encoding="utf-8")
+
+    result = cli("spreading_check", "--company", "Acme", "--proposal", "Loan", "--financials", financials,
+                 "--no-update-financials-source")
+
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("error: ") and result.stderr.count("\n") == 1
+    assert "historical" in result.stderr and "Traceback" not in result.stderr
+    assert state_path.read_bytes() == before
+    assert "multi_period_financials" not in state_path.read_text(encoding="utf-8")

@@ -52,7 +52,7 @@ from spreading_builder import (
     evaluate_financial_model,
 )
 from spreading_builder import FIELD_LABELS as RAW_FIELD_LABELS
-from state_manager import StateError, read_state, state_path, write_state
+from state_manager import StateError, StateShapeError, read_state, state_path, write_state
 
 RAW_FIELDS = tuple(RAW_FIELD_LABELS)
 STRESS_KEYS = ("revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps")
@@ -414,6 +414,13 @@ def record(company, proposal, supplied, stress_in, note):
     schema version before touching the file). Returns the fields written."""
     try:
         existing = read_state(company, proposal, keys=STATE_KEYS) or {}
+    except StateShapeError as exc:
+        # Preserve /project's public error contract for malformed recorded shocks.
+        # The generic state guard detects NaN/Infinity before this command can
+        # validate its inputs, so translate only this command's stress-state case.
+        if "stress_assumptions" in str(exc):
+            raise ForecastError(f"state.json has unusable stress_assumptions: {exc}") from exc
+        raise
     except OSError as exc:
         raise StateError(f"could not read the deal's state: {' '.join(str(exc).split())}; nothing was recorded") from exc
     source = existing.get("forecast_source")

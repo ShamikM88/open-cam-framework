@@ -118,7 +118,11 @@ def test_ground_truth_figures_ignores_non_dict_period_values():
     """Malformed/legacy state.json (financials or ratios period value isn't
     a dict) must not crash -- it degrades to no figures for that source
     rather than raising."""
-    truth = ground_truth_figures({"FY-Current": "not a dict"}, {"FY-Current": "also not a dict"}, [])
+    truth = ground_truth_figures(
+        {"FY-Current": "not a dict", "FY-1": "not a dict", "FY+1": "not a dict"},
+        {"FY-Current": "also not a dict", "FY-1": "not a dict", "FY+1": "not a dict"},
+        [],
+    )
     assert truth == {}
 
 
@@ -470,3 +474,76 @@ def test_check_draft_compliance_downside_figure_within_tolerance_passes():
 
     reasons = check_draft_compliance(draft, policy_state, ground_truth)
     assert reasons == []
+
+
+def test_ground_truth_figures_checks_historical_and_forward_base_case_figures():
+    financials = {
+        "FY-1": {"raw": {"revenue": 4200}, "ebitda": 850},
+        "FY-Current": {"raw": {"revenue": 5000}, "ebitda": 1000},
+        "FY+1": {"raw": {"revenue": 4800}, "ebitda": 550},
+    }
+    ratios = {
+        "FY-1": {"dscr": 1.3},
+        "FY-Current": {"dscr": 1.5},
+        "FY+1": {"dscr": 1.1},
+    }
+
+    truth = ground_truth_figures(financials, ratios, [])
+
+    assert truth["ebitda"] == 1000
+    assert truth["dscr"] == 1.5
+    assert truth["ebitda_FY-1"] == 850
+    assert truth["dscr_FY-1"] == 1.3
+    assert truth["ebitda_FY+1"] == 550
+    assert truth["dscr_FY+1"] == 1.1
+    assert "ebitda_FY-1_downside" not in truth
+    assert "dscr_FY+1_downside" not in truth
+    assert "raw_FY-1" not in truth
+    assert check_reported_figures({
+        "ebitda_FY-1": 850,
+        "dscr_FY+1": 1.1,
+        "ebitda": 1000,
+        "dscr": 1.5,
+    }, truth) == []
+
+
+def test_check_reported_figures_flags_wrong_historical_and_forward_base_case_values():
+    truth = ground_truth_figures(
+        {"FY-1": {"raw": {}, "ebitda": 850}, "FY+1": {"raw": {}, "ebitda": 550}},
+        {"FY-1": {"dscr": 1.3}, "FY+1": {"dscr": 1.1}},
+        [],
+    )
+
+    reasons = check_reported_figures({"ebitda_FY-1": 900, "dscr_FY+1": 1.4}, truth)
+
+    assert any(
+        "Narrative/Ground-Truth Mismatch: reported ebitda_FY-1 900 vs computed 850" in r
+        for r in reasons
+    )
+    assert any(
+        "Narrative/Ground-Truth Mismatch: reported dscr_FY+1 1.4 vs computed 1.1" in r
+        for r in reasons
+    )
+
+
+def test_ground_truth_figures_excludes_undefined_non_current_base_case_figures():
+    truth = ground_truth_figures(
+        {
+            "FY-1": {"raw": {}, "ebitda": None},
+            "FY-Current": {"raw": {}, "ebitda": 1000},
+            "FY+1": {"raw": {}, "ebitda": None},
+        },
+        {
+            "FY-1": {"dscr": None},
+            "FY-Current": {"dscr": 1.5},
+            "FY+1": {"dscr": None},
+        },
+        [],
+    )
+
+    assert "ebitda_FY-1" not in truth
+    assert "dscr_FY-1" not in truth
+    assert "ebitda_FY+1" not in truth
+    assert "dscr_FY+1" not in truth
+    assert truth["ebitda"] == 1000
+    assert truth["dscr"] == 1.5

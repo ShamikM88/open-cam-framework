@@ -535,6 +535,40 @@ def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
         return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
 
 
+def export_reviewer_view(company, proposal, base_dir=None):
+    """Write derived review-only copies beside a deal's state.json.
+
+    The source of truth remains state.json. These files are a convenience for
+    the interactive Reviewer, not records for any other script to consume.
+    Validate the entire state and its schema version before creating or
+    replacing either derived file.
+    """
+    source_path = state_path(company, proposal, base_dir=base_dir)
+    state = read_state(company, proposal, base_dir=base_dir)
+    if state is None:
+        raise StateShapeError(
+            f"Cannot export the Reviewer view: no state.json exists at {source_path}; nothing was written.")
+
+    validate_state(state, path=source_path)
+    _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION), source_path)
+
+    review_trail = state.get("review_trail") or []
+    state_for_review = dict(state)
+    state_for_review.pop("review_trail", None)
+    state_for_review.pop("review_verdict", None)
+
+    review_view_dir = os.path.join(os.path.dirname(source_path), "review_view")
+    state_for_review_path = os.path.join(review_view_dir, "state_for_review.json")
+    review_trail_path = os.path.join(review_view_dir, "review_trail.json")
+    os.makedirs(review_view_dir, exist_ok=True)
+    with open(state_for_review_path, "w", encoding="utf-8") as f:
+        json.dump(state_for_review, f, indent=2)
+    with open(review_trail_path, "w", encoding="utf-8") as f:
+        json.dump(review_trail, f, indent=2)
+
+    return {"state_for_review": state_for_review_path, "review_trail": review_trail_path}
+
+
 def required_steps_completed(steps_completed, required):
     """Return the subset of `required` that is missing from `steps_completed`
     (empty list if nothing is missing).
@@ -569,31 +603,35 @@ if __name__ == "__main__":
     from textio import configure_stdio
     configure_stdio()
     parser = argparse.ArgumentParser(
-        description="Check whether a deal's state.json has recorded all of a given set of "
-                     "required steps in steps_completed. Prints JSON ({\"missing_steps\": [...], "
-                     "\"ok\": true/false}) to stdout and exits 0 whatever the result (a state.json it cannot read is an error instead: one 'error:' line, exit 1) -- this project doesn't "
-                     "use exit codes as its enforcement mechanism (see policy_check.py); the "
-                     "caller (a slash command's Bash step, read by the Claude session running "
-                     "it) is the one that decides whether to stop and tell the user what's "
-                     "missing. No Anthropic dependency -- callable from a slash command's Bash "
-                     "step."
+        description="Manage a deal's persisted state without an Anthropic dependency. "
+                    "--check-steps reports missing required steps; --export-reviewer-view writes "
+                    "derived copies with review history separated from the first-pass record."
     )
-    parser.add_argument("--check-steps", action="store_true", required=True,
-                         help="The only supported mode right now -- reserved so future "
-                              "state_manager CLI subcommands don't have to guess this flag's "
-                              "absence means something else.")
+    modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--check-steps", action="store_true",
+                       help="Report which required steps are missing from steps_completed.")
+    modes.add_argument("--export-reviewer-view", action="store_true",
+                       help="Write state_for_review.json and review_trail.json under review_view/.")
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
-    parser.add_argument("--required", required=True,
-                         help="Comma-separated list of steps that must appear in this deal's "
-                              "steps_completed, e.g. spread,collateral")
+    parser.add_argument("--required",
+                        help="Comma-separated list of steps that must appear in this deal's "
+                             "steps_completed, e.g. spread,collateral")
     args = parser.parse_args()
 
-    required = [s.strip() for s in args.required.split(",") if s.strip()]
-    try:
-        state = read_state(args.company, args.proposal, keys=("steps_completed",)) or {}
-    except StateError as exc:
-        sys.exit(f"error: {exc}")    # a state it cannot read is an error, not a "missing steps" result
-    missing = required_steps_completed(state.get("steps_completed") or [], required)
-
-    print(json.dumps({"missing_steps": missing, "ok": len(missing) == 0}, indent=2))
+    if args.check_steps:
+        if args.required is None:
+            parser.error("--required is required with --check-steps")
+        required = [s.strip() for s in args.required.split(",") if s.strip()]
+        try:
+            state = read_state(args.company, args.proposal, keys=("steps_completed",)) or {}
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")    # unreadable state or unsafe names are errors, not a "missing steps" result
+        missing = required_steps_completed(state.get("steps_completed") or [], required)
+        print(json.dumps({"missing_steps": missing, "ok": len(missing) == 0}, indent=2))
+    else:
+        try:
+            paths = export_reviewer_view(args.company, args.proposal)
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(paths, indent=2))

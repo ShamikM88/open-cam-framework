@@ -1,6 +1,7 @@
 import struct
 import zlib
 
+import pytest
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
@@ -459,6 +460,27 @@ def test_multiple_links_in_one_paragraph(tmp_path):
     paragraph = doc.paragraphs[0]
     assert paragraph.text == "See A and B."
     assert _hyperlink_targets(doc, paragraph) == ["https://example.com/a", "https://example.com/b"]
+
+
+def test_mailto_link_renders_as_a_real_hyperlink(tmp_path):
+    doc = _build(tmp_path, "Contact [the team](mailto:credit@example.invalid).\n")
+    assert _hyperlink_targets(doc, doc.paragraphs[0]) == ["mailto:credit@example.invalid"]
+
+
+@pytest.mark.parametrize("target", [
+    "file://synthetic-host/share/extract.pdf",
+    r"\\synthetic-host\share\annex.docx",
+    "ms-word:ofe|u|https://synthetic.invalid/x.docx",
+    "javascript:synthetic.invalid",
+    "http://[::1",  # urlsplit raises ValueError for an unterminated IPv6 literal
+])
+def test_unsupported_hyperlink_targets_are_plain_text_with_warning(tmp_path, capsys, target):
+    doc = _build(tmp_path, f"See [source]({target}).\n")
+    paragraph = doc.paragraphs[0]
+
+    assert paragraph.text == f"See source ({target})."
+    assert _hyperlink_targets(doc, paragraph) == []
+    assert target in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

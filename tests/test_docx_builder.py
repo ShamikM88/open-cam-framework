@@ -213,8 +213,9 @@ def test_bold_in_bullet_list_renders_as_a_bold_run(tmp_path):
     assert paragraph.runs[0].bold is True
 
 
-def test_horizontal_rule_is_skipped(tmp_path):
-    doc = _build(tmp_path, "First.\n\n---\n\nSecond.\n")
+@pytest.mark.parametrize("marker", ["---", "***", "___"])
+def test_horizontal_rule_is_skipped(tmp_path, marker):
+    doc = _build(tmp_path, f"First.\n\n{marker}\n\nSecond.\n")
     assert [p.text for p in doc.paragraphs] == ["First.", "Second."]
 
 

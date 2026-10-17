@@ -132,6 +132,11 @@ point interest rise: revenue 4600 becomes 4370, interest 150 becomes 150 + 1650 
 must address it. The `FY+1` DSCR already failed in the base case, so it is reported once, as a forward result, not
 again as a downside breach.
 
+Each downside breach has its own stable `breach_id`. If two covenants use the same metric in the same year, the
+IDs are disambiguated with numeric suffixes (`DOWNSIDE-FY-1-DSCR`, `DOWNSIDE-FY-1-DSCR-2`). A single covenant keeps
+the existing unsuffixed ID. The draft must acknowledge each breach separately; acknowledging one does not acknowledge
+the other.
+
 ## Analyst-supplied figures
 
 By default every subtotal and ratio is recomputed from raw line items. An institution may instead supply its own
@@ -373,7 +378,9 @@ extracts the Underwriter's trailing structured JSON block (`cp_ids_included`,
 `risk_categories_covered`, `reported_figures`, `sources`, `financials_source_disclosed`,
 `credit_policy_considered`, etc. -- see `agents/underwriter_agent.md`'s Structured Output
 guideline); `ground_truth_figures(financials, ratios, collateral, downside_case)` flattens the
-deal's actual computed figures into one lookup dict; `check_draft_compliance(draft_text,
+deal's actual computed figures into one lookup dict. FY-Current retains plain metric keys (for example,
+`ebitda` and `dscr`); every other base-case period uses `{metric}_{period}` (for example,
+`ebitda_FY-1` and `dscr_FY+1`). Downside keys retain their distinct `{metric}_{period}_downside` suffix; `check_draft_compliance(draft_text,
 policy_state, ground_truth_figures_dict, financials_source=None, credit_policy_present=None)` is
 the single source of truth for "why would this draft be code-enforced-REJECTED" -- covenant/
 security/CP/CS completeness, risk-taxonomy coverage (`REQUIRED_RISK_TAXONOMY`), narrative-vs-

@@ -839,6 +839,39 @@ def test_a_failing_downside_year_is_recorded_with_every_field_the_draft_check_an
         "breach_id": "DOWNSIDE-FY-1-GROSS-LEVERAGE", "downside_status": "FAIL", "reason": None}]
 
 
+def test_two_downside_covenants_on_one_metric_get_distinct_stable_ids():
+    covenants = [
+        {"metric": "dscr", "type": "minimum", "threshold": 1.2},
+        {"metric": "dscr", "type": "minimum", "threshold": 1.5},
+    ]
+    base = {"FY+1": {"dscr": 1.6}}
+    downside = {"FY+1": {"dscr": 1.0}}
+
+    first = _evaluate_downside_covenants(covenants, base, downside)
+    second = _evaluate_downside_covenants(covenants, base, downside)
+
+    assert [breach["breach_id"] for breach in first] == [
+        "DOWNSIDE-FY-1-DSCR", "DOWNSIDE-FY-1-DSCR-2"]
+    assert first == second
+
+
+def test_two_covenants_on_one_metric_get_distinct_ids_when_downside_is_unavailable():
+    covenants = [
+        {"metric": "dscr", "type": "minimum", "threshold": 1.2},
+        {"metric": "dscr", "type": "minimum", "threshold": 1.5},
+    ]
+    breaches = _evaluate_downside_covenants(
+        covenants,
+        {"FY+1": {"dscr": 1.6}},
+        {},
+        unavailable={"FY+1": "no downside scenario was supplied for this year"},
+    )
+
+    assert [breach["breach_id"] for breach in breaches] == [
+        "DOWNSIDE-FY-1-DSCR", "DOWNSIDE-FY-1-DSCR-2"]
+    assert [breach["downside_status"] for breach in breaches] == ["UNRESOLVABLE", "UNRESOLVABLE"]
+
+
 def test_a_downside_ratio_that_cannot_be_computed_is_an_unresolvable_breach_not_a_pass():
     """Base PASS -> stressed UNRESOLVABLE is enforced exactly like FAIL, with the reason naming why the ratio is N/A."""
     breaches = _evaluate_downside_covenants(

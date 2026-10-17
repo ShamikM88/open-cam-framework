@@ -322,9 +322,10 @@ def input_hashes(workdir):
     return hashes
 
 
-def describe_inputs(repo_root, work_root):
+def describe_inputs(repo_root, work_root, *, suppress_temperature_warning=False):
     """Models, prompt hashes and input hashes a run WOULD use, taken from an isolated copy.
-    Run once before any call is spent, so a missing settings file fails the run early."""
+    Run once before any call is spent, so a missing settings file fails the run early.
+    The CLI's plan phase may already have emitted the legacy-settings warning."""
     import orchestrator
     os.makedirs(work_root, exist_ok=True)
     workdir = tempfile.mkdtemp(prefix="inputs-", dir=work_root)
@@ -332,7 +333,11 @@ def describe_inputs(repo_root, work_root):
     try:
         prepare_workdir(None, repo_root, workdir)
         os.chdir(workdir)
-        config = orchestrator._resolve_maker_checker_config()
+        if suppress_temperature_warning:
+            with redirect_stderr(_RepeatedTemperatureWarningFilter(sys.stderr)):
+                config = orchestrator._resolve_maker_checker_config()
+        else:
+            config = orchestrator._resolve_maker_checker_config()
         hashes = input_hashes(workdir)
     finally:
         os.chdir(original)
@@ -455,7 +460,8 @@ def _client_base_url(client):
     return None if url is None else re.sub(r"//[^/@]*@", "//", str(url))
 
 
-def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False, progress=None):
+def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False, progress=None,
+             temperature_warning_already_emitted=False):
     """Run `cases` x `repeats` live, serially. Returns the run record (not yet written).
     Stops early -- recording why -- if the cap is spent, MAX_CONSECUTIVE_ERRORS runs in a row
     errored, or the operator presses Ctrl-C (the record is still returned, marked aborted, so what
@@ -465,7 +471,8 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
     repo_root = repo_root or REPO_ROOT
     run_dir = os.path.abspath(run_dir)  # a relative --out must survive the per-run chdir
     work_root = os.path.join(run_dir, "work")
-    inputs = describe_inputs(repo_root, work_root)
+    inputs = describe_inputs(repo_root, work_root,
+                              suppress_temperature_warning=temperature_warning_already_emitted)
 
     budget = CallBudget(max_calls)
     live_client = BudgetedClient(client, budget)

@@ -46,8 +46,13 @@ truncation) it may be incomplete: say that the latest dated folder could not be 
 only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
-rule). Read its `state.json` (you need its `review_trail` and `steps_completed` to record the result), and note the folder. If there is none, there is no record: carry on without one only for a
-standalone review (below), and say so.
+rule). Read its `state.json` (you need its `review_trail` and `steps_completed` to record the result), and note the folder.
+
+**No matching record is a stop, not an empty record.** If `--company`/`--proposal` were given and no matching dated
+`state.json` exists, **stop here, before the reviewer-view export and before step 3**. Do not run `policy_check.py`, delegate to
+the Reviewer, or write anything; record nothing. Tell the analyst plainly: `No deal record exists for company "<company>" and
+proposal "<proposal>". Check the spelling and confirm the deal has been created before reviewing it.` This command has no
+supported listing of a company's existing deals, so do not invent a list. Do not create a deal folder or state file.
 
 Run `python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"`. It writes
 `review_view/state_for_review.json` (the deal record without `review_trail` and `review_verdict`) and
@@ -63,7 +68,7 @@ If `--research-brief` was given, skip this whole section -- there is no CAM draf
 to check against; this deal never ran `/spread`. The delegation tells the Reviewer that this is a `/research` brief, not a
 full CAM (see the role prompt's own preamble note on this).
 
-If `--company`/`--proposal` were given (and `--research-brief` wasn't), run:
+If `--company`/`--proposal` were given, step 2 found a matching state record, and `--research-brief` wasn't given, run:
 ```
 python scripts/policy_check.py --company "<company>" --proposal "<proposal>" --draft "<the draft path from step 1>"
 ```
@@ -145,9 +150,9 @@ persisted here. Only this command, after the analyst's yes, ever writes that fil
 
 ## State: write
 
-Only after a valid verdict (step 5) and step 6. If `--company`/`--proposal` were given: update this deal's state file
-(merge with whatever you read above — never drop a field another step already recorded). If no state file existed yet,
-create `deals/<company>/<proposal>_<today's date>/state.json`. A standalone review writes nothing.
+Only after a valid verdict (step 5) and step 6. If `--company`/`--proposal` were given: update only the existing state
+file found in step 2 (merge with whatever you read above — never drop a field another step already recorded). If it is
+missing at write time, stop without writing; never create a deal folder or state file. A standalone review writes nothing.
 
 - **`review_trail` is append-only — never replace it.** Take the `review_trail` list you read above (an empty list if
   there wasn't one), and append exactly one new entry to it for this completed review:

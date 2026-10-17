@@ -235,8 +235,10 @@ worked examples are in [Workflows](workflows.md).
   first, and only then reads the deal's earlier `review_trail`. `/review` checks that a valid verdict came back (if not,
   it stops and records nothing), makes the result `REJECTED` with every code-enforced reason quoted verbatim whenever
   there is one, and records the result. With `--research-brief` the code check is skipped and credit-policy and
-  risk-mitigant items do not apply. A standalone review with `--draft` and no deal identity has no state and no code
-  check, so the Reviewer verifies whatever it can by hand.
+  risk-mitigant items do not apply. If a named company/proposal has no matching dated `state.json`, `/review` stops before
+  the reviewer-view export, the deterministic check and Reviewer delegation, records nothing, and tells the analyst no deal record exists so the
+  spelling can be checked. `/review` never creates a missing deal record. A standalone review with `--draft` and no deal
+  identity has no state and no code check, so the Reviewer verifies whatever it can by hand.
 - **State:** only `/review` writes: it appends one entry to `review_trail` (never replaces it), sets `review_verdict`, adds
   `review` to `steps_completed`. The Reviewer writes nothing. It may offer to persist a policy-interpretation
   correction, only on an explicit yes.

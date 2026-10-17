@@ -472,7 +472,7 @@ def test_the_skills_explain_a_null_ratio_by_basis_and_not_by_an_assumed_denomina
 ], ids=["triage", "commercial", "blank", "one-unrelated-entry", "file-not-checked", "research-key", "top-level", "inputs"])
 def test_check_sources_is_a_deal_level_floor_over_triage_and_commercial_citations(state, manifest,
                                                                                  declared_but_nothing_saved):
-    """The whole guarantee the skills may rely on: `true` only when `triage` or `commercial` declares a citation and
+    """The whole guarantee the skills may rely on for a known declaration shape: `true` only when `triage` or `commercial` declares a citation and
     the manifest has no entries at all. `false` does not mean every citation is backed."""
     from source_manifest import missing_saved_sources
     assert missing_saved_sources(state, manifest) is declared_but_nothing_saved

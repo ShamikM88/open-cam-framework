@@ -91,9 +91,28 @@ worked examples are in [Workflows](workflows.md).
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
   template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
-  `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later.
-- **Can go wrong:** a `REJECTED` review (revise, overwrite, review again); no saved sources (same check as
-  `/triage`). It may afterwards offer end-of-deal learnings, written only on your explicit yes.
+  `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later. If the analyst
+  defines a term in the step, it is checkpointed immediately in `analyst_terms` in `state.json`.
+- **Can go wrong:** a `REJECTED` review means revise, overwrite and review again with a new Reviewer. After three consecutive
+  `REJECTED` passes and each later rejection, `/research` asks a structured three-choice question before another
+  pass: Run another review pass; Stop and export for manual review (unapproved, disclosed); or Stop without exporting.
+  The pass count comes from the on-disk `review_trail`; silence, ambiguity or “carry on” is not permission to export.
+  Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which inserts a dated
+  not-approved status near the top of the DOCX and appends a record to the append-only `review_stopped_by_analyst` list in state. No saved sources
+  (same check as `/triage`) or a missing/empty Sources/References section still blocks export before output is written.
+  A populated final `## Sources` list is required, including document URLs and citation keys for short-form references. If the analyst sets a lower per-deal review maximum, `/research` uses that threshold and records it under `deal_structure_notes.review_cap` in `state.json`.
+  Export without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote;
+  the command never offers or infers this override. For a group borrower or related-party links, open the primary charge
+  instruments and the borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect
+  PSC history including ceased entries. Read each year's available accounts, not only the latest, and make
+  register/accounts disagreements analyst follow-ups. Save each relied-on document and report any inaccessible
+  document as an evidence gap. After a manual-review release the session carries on with the
+  remaining export steps as for an approved export; after “Stop without exporting” nothing is exported, but the
+  end-of-deal learnings step still runs. It may afterwards offer end-of-deal learnings, written only on
+  your explicit yes.
+- **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
+  an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
+  analyst says the term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
 - **Headless equivalent:** none. Export only: `scripts/research_export.py`.
 
 ### /spread
@@ -191,10 +210,14 @@ worked examples are in [Workflows](workflows.md).
 - **Produces:** `<Company>_<Proposal>_CAM.docx` and `<Company>_<Proposal>_Spreading.xlsx` in the deal's dated folder; a
   new local template if the deal type had none.
 - **State:** `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path`, `policy_state`, `assemble` in `steps_completed`
-  (`/review` writes `review_verdict` and `review_trail`).
+  (`/review` writes `review_verdict` and `review_trail`). If the analyst defines a term during the step, it is
+  checkpointed immediately in `analyst_terms` in `state.json`.
 - **Can go wrong:** `spread` missing (it stops before drafting); a code-enforced rejection that the Reviewer cannot
   override (fix the draft, or the recorded structure if the reason is a security gap or covenant); a deal type with no
   template, which is treated as new.
+- **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
+  an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
+  analyst says the term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
 
 ### /review
 
@@ -213,7 +236,7 @@ worked examples are in [Workflows](workflows.md).
   it stops and records nothing), makes the result `REJECTED` with every code-enforced reason quoted verbatim whenever
   there is one, and records the result. With `--research-brief` the code check is skipped and credit-policy and
   risk-mitigant items do not apply. If a named company/proposal has no matching dated `state.json`, `/review` stops before
-  the deterministic check and Reviewer delegation, records nothing, and tells the analyst no deal record exists so the
+  the reviewer-view export, the deterministic check and Reviewer delegation, records nothing, and tells the analyst no deal record exists so the
   spelling can be checked. `/review` never creates a missing deal record. A standalone review with `--draft` and no deal
   identity has no state and no code check, so the Reviewer verifies whatever it can by hand.
 - **State:** only `/review` writes: it appends one entry to `review_trail` (never replaces it), sets `review_verdict`, adds
@@ -222,7 +245,9 @@ worked examples are in [Workflows](workflows.md).
 - **Can go wrong:** no saved draft (it stops; save the draft and pass `--draft`); a stale draft file (the caller must
   overwrite it before re-reviewing, since `/review` does not write the draft); the sub-agent cannot be started, or it
   returns no valid verdict (the review stops, and an unapproved draft is never exported); a saved source the Reviewer
-  cannot open (it reports that as an evidence gap rather than verifying the claim).
+  cannot open (it reports that as an evidence gap rather than verifying the claim). For a `/research` brief, the Reviewer
+  also checks closing Sources-list completeness and citation-key definitions, or that an override footnote replacing
+  Sources has a reason and date. The authorised override is not itself a rejection reason; untraceable claims remain findings. A listed source that no claim cites is a minor point, not a reason to reject on its own.
 
 ## Implementation notes
 
@@ -258,7 +283,7 @@ files and `CLAUDE.md`'s "Slash commands" section remain the authority for how th
   ever) need a full CAM: combines `/triage`'s Go/No-Go screen and `/commercial`'s company/sector
   research into one step, writing the exact same `triage`/`commercial` state.json keys those two
   commands would (so the deal can still continue into the full pipeline later without redoing
-  anything). Loops `/review --research-brief` until APPROVED before exporting (issue #87), mirroring
+  anything). Loops `/review --research-brief` until APPROVED before exporting (issue #87), with an analyst checkpoint after the third consecutive rejection (see `/research` above), mirroring
   `/assemble`'s own review loop but scoped to what applies before any credit structuring exists —
   then exports a standalone brief via
   `python scripts/research_export.py --company ... --proposal ... --brief ...` as its Bash step.

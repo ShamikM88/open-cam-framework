@@ -1,7 +1,7 @@
 ---
 description: Audit a saved CAM draft or (with --research-brief) a saved /research brief by running the deterministic checks and delegating the qualitative review to a fresh, read-only Risk Reviewer ("Checker") sub-agent (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [--research-brief, if auditing a /research brief rather than a full CAM draft] [--draft \"<path to the saved draft>\"]"
-allowed-tools: Bash(python scripts/policy_check.py *), Agent(risk-reviewer)
+allowed-tools: Bash(python scripts/policy_check.py *), Bash(python scripts/state_manager.py *), Agent(risk-reviewer)
 ---
 
 ## Task: /review
@@ -46,14 +46,18 @@ truncation) it may be incomplete: say that the latest dated folder could not be 
 only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
 two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
-rule). Read its `state.json` (you need its `review_trail` and `steps_completed` to record the result), and note the folder:
-the Reviewer is told this exact path.
+rule). Read its `state.json` (you need its `review_trail` and `steps_completed` to record the result), and note the folder.
 
 **No matching record is a stop, not an empty record.** If `--company`/`--proposal` were given and no matching dated
-`state.json` exists, **stop here, before step 3**. Do not run `policy_check.py`, delegate to the Reviewer, or write anything;
-record nothing. Tell the analyst plainly: `No deal record exists for company "<company>" and proposal "<proposal>". Check
-the spelling and confirm the deal has been created before reviewing it.` This command has no supported listing of a company's
-existing deals, so do not invent a list. Do not create a deal folder or state file.
+`state.json` exists, **stop here, before the reviewer-view export and before step 3**. Do not run `policy_check.py`, delegate to
+the Reviewer, or write anything; record nothing. Tell the analyst plainly: `No deal record exists for company "<company>" and
+proposal "<proposal>". Check the spelling and confirm the deal has been created before reviewing it.` This command has no
+supported listing of a company's existing deals, so do not invent a list. Do not create a deal folder or state file.
+
+Run `python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"`. It writes
+`review_view/state_for_review.json` (the deal record without `review_trail` and `review_verdict`) and
+`review_view/review_trail.json`. If it prints an `error:` line or exits non-zero, stop and delegate nothing. Never give
+the Reviewer the combined `state.json` path.
 
 A **standalone review** (`--draft` given with no `--company`/`--proposal`) has no deal: there is no `state.json`, no
 deterministic check and nothing to record. The Reviewer is told so and follows the role's full manual-verification path.
@@ -87,7 +91,9 @@ Call the Agent tool **once per review**, with `subagent_type` set to exactly `ri
   not fall back to reviewing in this conversation, and do not record a verdict.
 
 The message you send contains **only** the following, with the paths filled in, and no draft text, no summary of the draft
-or of this conversation, no Maker explanation, no analyst remark and no earlier review notes:
+or of this conversation, no Maker explanation, no analyst remark and no earlier review notes. Replace both dated-folder
+path placeholders below with the exact paths returned by the CLI; for a standalone review with no deal, use
+`none (standalone review)` for both. Never send the combined `state.json` path to the Reviewer:
 
 ```
 Review one saved draft. Everything you need is on disk at the paths below; open it yourself.
@@ -95,7 +101,8 @@ Mode: <full CAM | /research brief (no CAM data, no deterministic check)>
 Company: <company>
 Proposal: <proposal>
 Draft: <path from step 1>
-Deal record: <the dated folder's state.json path, or "none (standalone review)">
+Deal record (without review history): <path to state_for_review.json, or "none (standalone review)">
+Review history (read only after your first pass): <path to review_trail.json, or "none">
 Source manifest: <sources/manifest.json path in the dated folder, or "none">
 Credit policy: config/credit_policy.md (<exists | does not exist>)
 Policy interpretation notes: config/credit_policy_notes.md (<exists | does not exist>)

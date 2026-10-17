@@ -9,7 +9,7 @@ allowed-tools:
   - Read
   - Glob
   - Grep
-disallowed-tools: Write Edit NotebookEdit Bash
+disallowed-tools: Write Edit NotebookEdit Bash WebFetch WebSearch
 ---
 
 # mutation-triage

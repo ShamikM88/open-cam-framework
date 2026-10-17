@@ -418,6 +418,7 @@ def test_the_documented_lookup_guard_detects_a_deliberately_wrong_date_rule():
     assert wrong != correct, "the mutation must change the text the guard checks"
     assert "missing latest-by-date selection" in documented_state_lookup_problems(wrong)
 
+
 def test_public_issue_reporting_surfaces_private_security_policy_and_synthetic_data_only():
     security = read("SECURITY.md")
     security_guide = read("docs/security.md")
@@ -434,4 +435,3 @@ def test_public_issue_reporting_surfaces_private_security_policy_and_synthetic_d
     assert "public issue" in bug_template.lower() and "synthetic data only" in bug_template.lower()
     for heading in ("## Problem", "## Concrete scenario", "## Proposed fix", "## Acceptance criteria"):
         assert heading in bug_template
-

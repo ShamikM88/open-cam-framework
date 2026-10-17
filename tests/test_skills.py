@@ -515,11 +515,16 @@ def test_the_folder_the_rule_selects_is_the_one_state_manager_and_its_scripts_us
     for proposal, date_str, steps in [
         (PROPOSAL, "2025-12-31", ["triage"]), (PROPOSAL, "2026-01-05", ["triage", "spread"]),
         (PROPOSAL, "2026-02-01", ["spread", "collateral"]),                       # the latest
-        (PROPOSAL, "2026-9-1", ["project"]), (PROPOSAL, "2026-02-01.bak", ["project"]), (PROPOSAL, "latest", ["project"]),
         (PROPOSAL + "_B", "2026-09-09", ["project"]), ("Synthetic Fleet", "2027-01-01", ["project"]),
     ]:
         write_state(COMPANY, proposal, date_str=date_str, steps_completed=steps)
-    names = [p.name for p in (workdir / "deals" / COMPANY).iterdir()]
+
+    # Legacy/malformed folder names can still exist on disk, but strict state APIs must
+    # no longer create them. Seed these names directly to test that discovery ignores them.
+    deal_root = workdir / "deals" / COMPANY
+    for suffix in ("2026-9-1", "2026-02-01.bak", "latest"):
+        (deal_root / f"{PROPOSAL}_{suffix}").mkdir(parents=True)
+    names = [p.name for p in deal_root.iterdir()]
     assert len(names) == 8
     chosen = documented_folder(names, PROPOSAL)
     assert chosen == f"{PROPOSAL}_2026-02-01"

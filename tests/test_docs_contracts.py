@@ -340,10 +340,25 @@ STATE_LOOKUP_COMMANDS = (
 )
 
 
+# The maintainer-authorised paragraph (issue #251, comment 6229146299), identical in all seven commands. A PR may change
+# placement and formatting only; any other change to this text needs a fresh authorisation on that issue.
+AUTHORISED_STATE_LOOKUP = (
+    "Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files, newest-modified first, which is not "
+    "the same as latest by date; if the list reaches 100 files (the tool also flags truncation) it may be incomplete: "
+    "say that the latest dated folder could not be established, and stop. Otherwise consider only a folder named "
+    "exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and two-digit "
+    "day); ignore every other folder, including another proposal that merely starts with the same words. Take the "
+    "latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the "
+    "same rule). Read its `state.json` and note the folder."
+)
+
+
 def dated_state_lookup_problems(text):
     """Report when a command does not use /review's exact dated-folder lookup and write-back rule."""
     body = " ".join(text.split())
     problems = []
+    if AUTHORISED_STATE_LOOKUP not in body:
+        problems.append("the lookup paragraph is not the maintainer-authorised text")
     if re.search(r"there should be at most one, regardless of date", body, re.I):
         problems.append("still claims there is at most one state file regardless of date")
     required = {
@@ -378,6 +393,7 @@ def test_the_dated_state_lookup_guard_detects_a_deliberately_wrong_glob_rule():
     )
     assert wrong != correct, "the mutation must change the text the guard checks"
     assert "missing exact-folder naming rule" in dated_state_lookup_problems(wrong)
+    assert "the lookup paragraph is not the maintainer-authorised text" in dated_state_lookup_problems(wrong)
 
 
 def documented_state_lookup_problems(text):

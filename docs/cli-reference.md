@@ -16,7 +16,8 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
-| `state_manager.py` | Checks which steps a deal has completed | No | [State manager](#state-manager) |
+| `state_manager.py` | Checks completed steps and exports derived Reviewer-view files with history separated | No | [State manager](#state-manager) |
+| `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
@@ -52,6 +53,8 @@ writing style/tone into `config/style_guide.md`; the other derives a genericized
 (explicitly instructed to strip all real data to `[placeholder]`s) written to
 `templates/local/cam/<deal_type>_cam.md`. `<deal_type>` defaults to `corporate_credit` and
 should match the value later passed to `orchestrator.py --type`.
+
+Each PDF is checked for extractable non-whitespace text. A PDF with none (often an image-only scan) is named in a warning and skipped; if no sample PDF contains extractable text, calibration exits with an error before any model call or output write. Use `/calibrate`, which reads PDFs natively, or OCR the scans first.
 ```
 python scripts/calibrate.py --type asset_finance
 ```
@@ -145,6 +148,12 @@ patch to re-home `state.json`.
 
 ## Research export
 
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
+
+An explicitly authorised release of a brief the Reviewer did not approve uses `--analyst-release-unapproved "<reason>"`. The non-empty reason is collapsed to one line. The flag is refused, with one `error:` line, exit status 1 and nothing written, when the saved `review_trail` has no trailing `REJECTED` entry (no review yet, or the latest verdict is not `REJECTED`). The exporter counts consecutive trailing `REJECTED` entries in the saved `review_trail`, inserts a `Review status: Not approved by the independent Risk Reviewer...` paragraph immediately after the first document heading, and, after writing the DOCX, appends one `{date, passes, reason}` record to the `review_stopped_by_analyst` list in `state.json`. The list is append-only: no release clears or overwrites an earlier record, a later approved export leaves it untouched, and `review_verdict` keeps carrying the current verdict. A `review_stopped_by_analyst` that is already present but is not a list is refused with one `error:` line before anything is written. This is not an automatic fallback: the slash-command session may pass the flag only after the analyst explicitly chooses the disclosed manual-review option. When both release flags are used, the review status remains near the top and the missing-sources footnote remains last.
+
 `scripts/research_export.py --company ... --proposal ... --brief <path>` exports a drafted research brief (Markdown)
 to `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder, reusing the folder that exists or creating
 one. It is deliberately separate from `deal_export.py`, so a research-only deal never triggers a CAM's side effects
@@ -158,6 +167,10 @@ python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic
 ```text
 Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
 ```
+
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
 
 ## Spreading check
 
@@ -255,13 +268,24 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 ## State manager
 
-`scripts/state_manager.py --check-steps --company ... --proposal ... --required <step,step>` checks that every named
-step appears in the deal's `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. It exits `0`
-whatever the result (an unreadable `state.json` is an error: one `error:` line, exit `1`). `--check-steps` is the only
-mode.
+`scripts/state_manager.py` has two mutually exclusive modes:
+
+- `--check-steps --company ... --proposal ... --required <step,step>` checks every named step against
+  `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. A valid result always exits `0`;
+  an unreadable or malformed state is one `error:` line and exit `1`. Its JSON output is unchanged.
+- `--export-reviewer-view --company ... --proposal ...` validates the saved state and writes
+  `review_view/state_for_review.json` (the record without `review_trail` or `review_verdict`) and
+  `review_view/review_trail.json` (the history list, or `[]` when absent) into the deal's dated folder. A successful
+  run overwrites both derived files and prints one JSON object with their paths. Invalid state, or a newer or malformed
+  schema version, produces one `error:` line, exit `1`, and writes nothing.
+
+The two review-view files are derived copies for the interactive Reviewer, not records of the deal; no other script may
+read them as a record. The source of truth remains the real `state.json`, which `/review` updates in its `State: write`
+stage. See the [data model](data-model.md).
 
 ```bash
 python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
+python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
 ```
 
 ## Source manifest
@@ -314,11 +338,29 @@ python scripts/pii_scan.py templates/local/cam/asset_finance_cam.md
 - `scripts/check_test_count.py <pytest_output> [--badge-path <path>] [--write]` compares pytest's passed count with
   `badges/test-count.json` (exit `1` on a mismatch); `--write` updates the file from a complete green run (never used
   in CI).
+- `scripts/check_model_freshness.py [--json PATH]` reports configured-model freshness from local SDK tables; findings never fail the report.
 - `scripts/mutation_report.py <results> [--config <pyproject.toml>] [--top <n>] [--json <path>]` prints the
   per-module mutation score from `mutmut results --all true`; exit `0` whenever a report is produced, `2` for an
   unreadable file.
 
 Their rules and the reasoning are in [Testing](testing.md).
+
+## Model freshness check
+
+`python scripts/check_model_freshness.py [--json PATH]` prints a Markdown report of model IDs configured in
+`config/settings.json` (`maker_model`, `checker_model`, and `calibrate_model` when set) and the string literal
+`_DEFAULT_MODEL` in `scripts/calibrate.py`. The default is read with `ast`, not by importing `calibrate.py`.
+The installed `anthropic.types.Model` and
+`anthropic.resources.messages.messages.DEPRECATED_MODELS` tables supply known IDs and deprecation dates.
+
+The report suggests a newer stable ID only from the same family. Dated variants, `-latest` and `-preview` aliases are
+not used for version comparison. An ID that cannot be parsed or found is marked `unknown`; a missing or reshaped SDK
+table is reported as `SDK table not found` without a guess. With `--json PATH`, report data is written as JSON
+(`report_version`, `sdk_version`, `freshness_note`, `sdk_tables`, `models`, `findings` and `summary`).
+Exit `0` whenever a report is produced, including when it contains findings; exit `2` for unreadable configuration.
+It does not read an API key, call the API, or make a model call. It is only as fresh as the installed Anthropic SDK.
+A model change remains a separate reviewed PR with an evaluation statement; the script never upgrades one automatically.
+See [Model freshness report](operations.md#model-freshness-report).
 
 ## Evaluation harness
 

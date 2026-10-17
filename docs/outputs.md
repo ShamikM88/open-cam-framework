@@ -46,7 +46,7 @@ Body rows wider than the header are preserved by widening the table and emit a w
 | a fenced block (no tag, or any tag except `json`) | monospace lines, whitespace kept exactly (the ownership-tree diagram uses this) |
 | a fenced block tagged `json` | **removed**: it is reserved for the Underwriter's structured-output block, never shown to a client |
 | `![caption](path.png)` on its own line | an embedded image, scaled down (never up) to the page's text width, with the caption in italics; see below |
-| `---` horizontal rule | **Dropped**: no paragraph border or visible rule is emitted |
+| Markdown horizontal rules (`---`, `***`, or `___`) | **Dropped**: no paragraph border or visible rule is emitted |
 | `* item` star bullets | Not treated as a list; consecutive lines merge into one Normal paragraph with literal asterisks |
 | `  - nested item` | Not rendered as a nested list; the child marker and text are joined to the parent bullet (for example, `Top level - Nested level`) |
 | `## Risk **Mitigants**` | Heading style is applied, but inline Markdown is not parsed in headings, so the `**` markers remain literal |

@@ -37,6 +37,7 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 
+from numeric_validation import validate_finite_numbers
 from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
@@ -589,6 +590,13 @@ def evaluate_deal_policy(state_dict):
                                       "headroom_pct", "reason"}, ...],
     }
     """
+    if state_dict:
+        for key in (
+            "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
+            "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
+        ):
+            if key in state_dict:
+                validate_finite_numbers(state_dict[key], path=f"policy state[{key!r}]")
     state_dict = state_dict or {}
     all_ratios = state_dict.get("ratios") or {}
     ratios = all_ratios.get("FY-Current") or {}

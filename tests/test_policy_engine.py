@@ -7,6 +7,8 @@ of `cp_id`s, so scripts/orchestrator.py can enforce it as a hard governance
 gate rather than a suggestion. Most tests below assert on that determinism
 directly, not just on the individual rule outcomes.
 """
+import json
+
 import pytest
 
 from policy_engine import (
@@ -1018,3 +1020,44 @@ def test_the_forward_record_is_empty_when_no_year_has_a_usable_ratio_set(ratios)
 def test_the_forward_evaluator_itself_returns_nothing_for_ratios_that_are_not_an_object(ratios):
     """evaluate_deal_policy's callers validate the state first; the helper still must not raise on a malformed mapping."""
     assert _evaluate_forward_covenants([LEVERAGE_MAX], ratios) == []
+
+
+# ---------------------------------------------------------------------------
+# Non-finite ratios or thresholds must be refused, never compared into PASS
+# or FAIL (issue #244).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_non_finite_ratio_is_rejected_before_covenant_evaluation(value):
+    state = {
+        "ratios": {"FY-Current": {"gross_leverage": value}},
+        "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+    }
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        evaluate_deal_policy(state)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
+                         ids=["nan", "positive-infinity", "negative-infinity"])
+def test_non_finite_covenant_threshold_is_rejected_before_comparison(value):
+    state = {
+        "ratios": {"FY-Current": {"gross_leverage": 3.2}},
+        "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": value}],
+    }
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        evaluate_deal_policy(state)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), json.loads("1e999")],
+                         ids=["nan", "positive-infinity", "negative-infinity", "overflow-1e999"])
+@pytest.mark.parametrize("key", ["collateral", "security_package"])
+def test_non_finite_collateral_or_security_is_rejected_before_policy_evaluation(key, value):
+    """Decision D4 (#244): the policy engine's guard covers the collateral figures as well."""
+    state = {
+        "ratios": {"FY-Current": {"gross_leverage": 3.2}},
+        "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+        key: [{"asset_id": "A1", "secures_asset_id": "A1", "exposure": value, "collateral_value": 80, "value": value}],
+    }
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        evaluate_deal_policy(state)

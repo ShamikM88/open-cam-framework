@@ -33,6 +33,8 @@ import tempfile
 import time
 from datetime import date, datetime
 
+from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+
 DEALS_DIR = "deals"
 
 # Bumped whenever state.json's schema gains a new top-level shape a reader
@@ -83,6 +85,23 @@ STATE_SHAPES = {
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
 FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
+# State fields whose numeric contents participate in framework-computed financial or policy decisions.
+FINITE_NUMERIC_STATE_KEYS = (
+    "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
+    "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
+)
+
+
+def validate_finite_state_numbers(state, path="state.json"):
+    """Reject non-finite numbers in financial/policy data, without inspecting unrelated state keys."""
+    if not isinstance(state, dict):
+        return state  # validate_state() reports the existing top-level shape error
+    for key in FINITE_NUMERIC_STATE_KEYS:
+        if key in state:
+            validate_finite_numbers(state[key], path=f"{path}[{key!r}]")
+    return state
+
+
 _SHAPE_DESCRIPTIONS = {
     "object": "an object ({...})",
     "periods": 'an object keyed by period whose values are objects (e.g. {"FY-Current": {...}})',
@@ -438,6 +457,12 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
                 "It may have been left partial by an interrupted write. Restore it "
                 "from a backup or fix it by hand before continuing."
             ) from e
+    try:
+        validate_finite_state_numbers(state, path=path)
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"state.json at {path} contains {exc}. Fix it by hand or restore it from a backup; nothing was changed."
+        ) from exc
     validate_state(state, keys=keys, path=path)
     state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
     return state
@@ -467,6 +492,14 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
 
     Returns the full state dict that was written.
     """
+    # Reject invalid numeric values before path creation or state mutation.
+    try:
+        validate_finite_state_numbers(fields, path="state update")
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"Refusing to write state.json: {exc}. No state was changed."
+        ) from exc
+
     # Sanitize before the first direct use below (_resolve_date_str's own
     # os.path.join) -- state_path() sanitizes again for its own join, but
     # that's just a redundant, harmless re-validation of the same strings.
@@ -518,6 +551,12 @@ def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     state["date"] = date_str
     state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
+    try:
+        validate_finite_state_numbers(state, path=path)
+    except NonFiniteNumberError as exc:
+        raise StateShapeError(
+            f"Refusing to write state.json: {exc}. No state was changed."
+        ) from exc
 
     # Atomic: write to a temp file in the same directory (so os.replace() is
     # a same-filesystem rename, not a cross-device copy) and swap it into

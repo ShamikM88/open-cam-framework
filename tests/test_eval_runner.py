@@ -249,6 +249,21 @@ def _dataset(*case_ids):
     return {"version": "v1", "description": "", "cases": cases}, cases
 
 
+def test_retired_temperature_warning_is_emitted_once_per_evaluation_invocation(env, capsys):
+    settings_path = Path(env["repo"]) / "config" / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    settings.update({"maker_temperature": 0.2, "checker_temperature": 0.4})
+    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+
+    dataset, cases = _dataset("fab-no-financials")
+    record = run_live(dataset, cases, 2, 10, env["run_dir"],
+                      FakeClient(lambda kwargs: good_maker_text(cases[0])), repo_root=env["repo"])
+
+    assert not record["aborted"]
+    warning = "warning: unsupported sampling setting(s) in config/settings.json are ignored:"
+    assert capsys.readouterr().err.count(warning) == 1
+
+
 def test_run_live_records_models_hashes_usage_and_a_per_case_run_list(env):
     dataset, cases = _dataset("fab-no-financials", "chk-clean-control")
 

@@ -51,24 +51,28 @@ OpenCAM does not load a `.env` file or fetch application configuration from the 
 
 ## Overview
 
-[`config/settings.json`](../config/settings.json) sets `maker_model` (required), plus optional
-`checker_model`/`maker_temperature`/`checker_temperature` to independently configure the Risk
-Reviewer vs. the Underwriter. It also accepts `max_tokens`/`default_currency`/`output_directory`/
-`template_directory`/`spreading_template_directory`, though no script reads them -- they have no
-effect (see "Which settings are read" below). Agent behaviour is set by `agents/*.md` alone; there is no shared
-system-prompt file.
+[`config/settings.json`](../config/settings.json) sets `maker_model` (required), optional `checker_model` to
+choose the Reviewer model independently, and optional `calibrate_model` for calibration. The legacy
+`maker_temperature` and `checker_temperature` keys are retired: if a fork still contains them,
+`orchestrator.py` warns that they are ignored and omits temperature from every request. The shipped Claude
+Sonnet 5 and Opus 5 models reject non-default sampling parameters with HTTP 400; use prompting to guide model
+behaviour instead ([Anthropic migration guidance](https://platform.claude.com/docs/en/about-claude/models/migration-guide)).
+It also accepts `max_tokens`/`default_currency`/`output_directory`/`template_directory`/
+`spreading_template_directory`, though no script reads them -- they have no effect (see below). Agent behaviour is
+set by `agents/*.md` alone; there is no shared system-prompt file.
 
 ## Which settings are read
 
-Only the model and temperature keys are read; the other keys the shipped file carries are **inert** -- editing them
-changes nothing, because the corresponding values are constants in the code (issue #108). An operator who raises
+Only model-selection keys have an effect. The retired temperature keys are checked only to print an explicit warning;
+their values are not passed to the Anthropic API. The other keys the shipped file carries are **inert** -- editing
+them changes nothing, because the corresponding values are constants in the code (issue #108). An operator who raises
 `max_tokens` because drafts are cut off must change the code, not this file.
 
 | Key | Read by | Effect |
 | --- | --- | --- |
 | `maker_model` (required) | `orchestrator.py` (`_resolve_maker_checker_config`), `calibrate.py` (fallback) | Model that drafts; missing = the pipeline refuses to start |
 | `checker_model` | `orchestrator.py` | Model that audits; defaults to `maker_model` |
-| `maker_temperature`, `checker_temperature` | `orchestrator.py` | Optional sampling temperature per agent; unset = the API default |
+| `maker_temperature`, `checker_temperature` | `orchestrator.py` (warning only) | Retired and ignored. If either key is present in a legacy/fork config, one warning names the keys; no temperature is sent to the API |
 | `calibrate_model` | `calibrate.py` | Model for `calibrate.py`; defaults to `maker_model` |
 | `max_tokens` | **nothing** | No effect. Real values: `orchestrator.py` 4000 (draft and revision) and 2000 (audit) at the three `messages.create` calls, `calibrate.py` 3000 per call and `MERGE_MAX_TOKENS` = 6000; the eval harness mirrors 4000/2000 in `eval_runner.py` for its budget |
 | `default_currency` | **nothing** | No effect; no script labels a currency |

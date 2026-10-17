@@ -29,7 +29,7 @@ however many days the work took. Exporting never changes `state.json`'s figures;
 The draft is Markdown; `scripts/docx_builder.py` turns it into a Word document you can edit. The rendering rules are
 the ones that surprise authors:
 
-Body rows wider than the header are preserved by widening the table and emit a warning on standard error. Escape a literal pipe within a cell as `\\|`; the exported cell contains `|`.
+Body rows wider than the header are preserved by widening the table and emit a warning on standard error. Escape a literal pipe within a cell as `\|` (a single backslash); the exported cell contains `|`.
 
 | In the Markdown | In the Word document |
 | :--- | :--- |

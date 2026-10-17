@@ -18,6 +18,7 @@ deliberately triggered code-enforced) REJECTED path don't need one.
 """
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,7 +49,7 @@ from orchestrator import (
     run_pipeline,
 )
 from state_manager import StateError, read_state, state_path, write_state
-from response_utils import EmptyModelResponseError
+from response_utils import EmptyModelResponseError, ModelResponseTruncatedError
 
 
 class MockClient:
@@ -106,8 +107,8 @@ def project_root(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------------------
 # _resolve_maker_checker_config()/_completion_kwargs(): the Maker and
-# Checker are independently configurable model/temperature knobs, read from
-# config/settings.json fresh on every call rather than a hardcoded constant.
+# Checker may use independent model identifiers. Unsupported legacy
+# temperature settings are warned about and never reach the API.
 # ---------------------------------------------------------------------------
 
 def test_resolve_maker_checker_config_raises_when_no_config_file_at_all(tmp_path, monkeypatch):
@@ -143,15 +144,58 @@ def test_resolve_maker_checker_config_checker_model_independent_of_maker(project
     (project_root / "config" / "settings.json").write_text(json.dumps({
         "maker_model": "claude-maker-model",
         "checker_model": "claude-checker-model",
-        "maker_temperature": 0.2,
-        "checker_temperature": 0.0,
     }), encoding="utf-8")
 
     config = _resolve_maker_checker_config()
     assert config["maker_model"] == "claude-maker-model"
     assert config["checker_model"] == "claude-checker-model"
-    assert config["maker_temperature"] == 0.2
-    assert config["checker_temperature"] == 0.0
+
+
+def test_resolve_maker_checker_config_warns_and_ignores_legacy_temperature_settings(
+    project_root, capsys,
+):
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-maker-model",
+        "checker_model": "claude-checker-model",
+        "maker_temperature": 0.3,
+        "checker_temperature": 0.2,
+    }), encoding="utf-8")
+
+    config = _resolve_maker_checker_config()
+    assert config == {
+        "maker_model": "claude-maker-model",
+        "checker_model": "claude-checker-model",
+    }
+    capsys.readouterr()  # the direct call above warned once; the pipeline run below is counted on its own
+
+    # Exercise actual request kwargs as well as the config resolver: neither
+    # legacy temperature may be passed through to the Maker or Checker call.
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    assert len(client.calls) == 2
+    assert all("extra_body" not in call for call in client.calls)
+    assert all("temperature" not in call for call in client.calls)
+
+    warning = capsys.readouterr().err
+    assert "maker_temperature" in warning
+    assert "checker_temperature" in warning
+    assert "claude-maker-model" in warning and "claude-checker-model" in warning, "the warning names the models"
+    assert "ignored" in warning.lower()
+    assert warning.count("warning:") == 1, "one warning for the whole run, not one per call or iteration"
+
+
+def test_a_single_legacy_temperature_key_warns_naming_only_that_key_and_its_model(project_root, capsys):
+    (project_root / "config" / "settings.json").write_text(json.dumps({
+        "maker_model": "claude-maker-model", "checker_model": "claude-checker-model", "checker_temperature": 0.2,
+    }), encoding="utf-8")
+
+    config = _resolve_maker_checker_config()
+
+    assert config == {"maker_model": "claude-maker-model", "checker_model": "claude-checker-model"}
+    warning = capsys.readouterr().err
+    assert warning.count("warning:") == 1
+    assert "checker_temperature" in warning and "claude-checker-model" in warning
+    assert "maker_temperature" not in warning
 
 
 def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, monkeypatch):
@@ -164,21 +208,8 @@ def test_resolve_maker_checker_config_raises_on_malformed_settings(tmp_path, mon
         _resolve_maker_checker_config()
 
 
-def test_completion_kwargs_omits_temperature_when_none():
-    assert _completion_kwargs("some-model", None) == {"model": "some-model"}
-
-
-def test_completion_kwargs_includes_temperature_via_extra_body_when_given():
-    """Routed through extra_body, not a direct temperature= kwarg -- the
-    anthropic SDK (>=1.x) dropped temperature/top_p/top_k from
-    Messages.create()'s own typed signature; a direct kwarg raises
-    TypeError before any request is sent. extra_body is the SDK's own
-    documented escape hatch for this. This project's own test suite can't
-    catch a regression back to the direct-kwarg form on its own (MockClient
-    accepts arbitrary **kwargs), so this test pins the exact shape."""
-    assert _completion_kwargs("some-model", 0.3) == {
-        "model": "some-model", "extra_body": {"temperature": 0.3},
-    }
+def test_completion_kwargs_uses_provider_default_sampling_only():
+    assert _completion_kwargs("some-model") == {"model": "some-model"}
 
 
 def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project_root):
@@ -1027,14 +1058,23 @@ def test_evaluate_financial_model_usable_from_orchestrator():
 # Governance loop: export gating, per-iteration checkpointing.
 # ---------------------------------------------------------------------------
 
-def test_run_pipeline_exports_when_approved_on_first_iteration(project_root):
+def test_run_pipeline_exports_when_approved_on_first_iteration(project_root, capsys):
+    # Normal `end_turn` responses are complete and must not be mistaken for truncation.
+    def complete_response(text):
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=text)],
+            stop_reason="end_turn",
+        )
+
     client = MockClient([
-        _compliant_draft(),      # [1/3] Underwriter draft
-        _approved_json(),        # [2/3] Risk Reviewer audit, iteration 1
+        complete_response(_compliant_draft()),  # [1/3] Underwriter draft
+        complete_response(_approved_json()),    # [2/3] Risk Reviewer audit, iteration 1
     ])
 
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client)
+    assert client.call_count == 2  # no revision call for a normal end_turn response
+    assert "truncated" not in capsys.readouterr().err.lower()
 
     deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
     assert os.path.isfile(os.path.join(deal_dir, "draft_v1.md"))
@@ -1104,6 +1144,110 @@ def test_run_pipeline_exits_nonzero_and_skips_export_after_max_rejections(projec
     assert len(state["review_trail"]) == MAX_REVIEW_ITERATIONS
     assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
     assert client.call_count == 6  # 1 initial draft + 3 audits + 2 revisions, no 3rd revision
+
+
+def _truncated(text="# Incomplete"):
+    return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], stop_reason="max_tokens")
+
+
+def _deal_state_and_dir():
+    deal_dir = os.path.dirname(state_path("Acme Corp", "Fleet Loan"))
+    return deal_dir, read_state("Acme Corp", "Fleet Loan") or {}
+
+
+def test_a_truncated_maker_draft_stops_the_run_before_anything_is_checkpointed(project_root):
+    client = MockClient([_truncated()])
+
+    with pytest.raises(ModelResponseTruncatedError, match=r"Maker draft response was truncated.*max_tokens=4000"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    deal_dir, state = _deal_state_and_dir()
+    assert client.call_count == 1
+    assert "draft" not in state.get("steps_completed", []) and "audit" not in state.get("steps_completed", [])
+    assert "review_verdict" not in state and "review_trail" not in state
+    assert not os.path.exists(os.path.join(deal_dir, "draft_v1.md"))
+    assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+
+
+def test_a_truncated_checker_audit_stops_the_run_even_when_iterations_remain(project_root):
+    """The audit never becomes a REJECTED verdict that triggers a paid revision: nothing is recorded, nothing exported."""
+    client = MockClient([_compliant_draft(), _truncated(_approved_json()), _compliant_draft(), _approved_json()])
+
+    with pytest.raises(ModelResponseTruncatedError, match=r"Checker audit response was truncated.*max_tokens=2000"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=client, max_iterations=3)
+
+    deal_dir, state = _deal_state_and_dir()
+    assert client.call_count == 2, "no revision call and no second audit after the truncated audit"
+    assert "audit" not in state.get("steps_completed", [])
+    assert "review_verdict" not in state and "review_trail" not in state
+    assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+
+
+def test_a_truncated_maker_revision_stops_the_run_without_another_audit(project_root):
+    client = MockClient([_compliant_draft("# Draft v1"), _rejected_json("Fix the EBITDA figure."), _truncated()])
+
+    with pytest.raises(ModelResponseTruncatedError, match=r"Maker revision response was truncated.*max_tokens=4000"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    deal_dir, state = _deal_state_and_dir()
+    assert client.call_count == 3
+    assert [entry["verdict"] for entry in state["review_trail"]] == ["REJECTED"], "only the real Reviewer verdict"
+    assert state["review_trail"][0]["notes"] == "Fix the EBITDA figure."
+    assert not os.path.exists(os.path.join(deal_dir, "draft_v2.md"))
+    assert not os.path.exists(os.path.join(deal_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+
+
+def test_a_rerun_after_a_truncated_draft_starts_clean(project_root):
+    with pytest.raises(ModelResponseTruncatedError):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=MockClient([_truncated()]))
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert [entry["verdict"] for entry in state["review_trail"]] == ["APPROVED"]
+    assert client.call_count == 2
+
+
+@pytest.mark.parametrize("response", [
+    SimpleNamespace(content=[SimpleNamespace(type="text", text="x")], stop_reason="end_turn"),
+    SimpleNamespace(content=[SimpleNamespace(type="text", text="x")], stop_reason=None),
+    SimpleNamespace(content=[SimpleNamespace(type="text", text="x")]),
+    SimpleNamespace(content=[SimpleNamespace(type="thinking", thinking="..."), SimpleNamespace(type="text", text="x")],
+                    stop_reason="end_turn"),
+    SimpleNamespace(content=[SimpleNamespace(type="tool_use", id="t"), SimpleNamespace(type="text", text="x")],
+                    stop_reason="tool_use"),
+], ids=["end_turn", "stop_reason-none", "no-stop_reason", "thinking-block", "tool_use-stop"])
+def test_responses_that_are_not_max_tokens_are_not_treated_as_truncated(response):
+    from response_utils import require_complete_text
+    assert require_complete_text(response, "Maker draft", 4000) == "x"
+
+
+def test_a_truncated_response_with_no_visible_text_is_reported_as_truncated():
+    from response_utils import require_complete_text
+    response = SimpleNamespace(content=[SimpleNamespace(type="thinking", thinking="...")], stop_reason="max_tokens")
+    with pytest.raises(ModelResponseTruncatedError, match="Checker audit response was truncated"):
+        require_complete_text(response, "Checker audit", 2000)
+
+
+def test_the_cli_reports_a_truncated_response_as_one_error_line_and_exit_1(project_root, monkeypatch, capsys):
+    """The real __main__ path (run as a script) with a scripted client: one `error:` line, status 1, no traceback."""
+    import runpy
+
+    import anthropic
+
+    client = MockClient([_truncated()])
+    client.default_headers = {"x-api-key": "synthetic"}
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: client)
+    monkeypatch.setattr(sys, "argv", ["orchestrator.py", "--company", "Acme Corp", "--proposal", "Fleet Loan"])
+    scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "scripts")
+
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_path(os.path.join(scripts_dir, "orchestrator.py"), run_name="__main__")
+
+    message = str(exit_info.value.code)
+    assert message.startswith("error: Maker draft response was truncated") and "\n" not in message
+    assert client.call_count == 1
 
 
 def test_run_pipeline_stores_financials_and_ratios_on_state(project_root):

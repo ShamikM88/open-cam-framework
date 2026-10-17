@@ -195,7 +195,7 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
   checker model, which may be a larger one), each call's `max_tokens`, the resulting bound on *output*
   tokens, and the endpoint requests will go to (`ANTHROPIC_BASE_URL` is honoured by the SDK). Input
   tokens are not bounded by the plan; they depend on each case's prompt.
-- **Recorded per run:** model IDs and temperatures from the isolated `settings.json`, prompt hashes and
+- **Recorded per run:** model IDs from the isolated `settings.json` (the retired temperature fields stay in the recorded `models` block as `null`, so earlier baselines remain comparable), prompt hashes and
   input hashes of the files actually used (computed with orchestrator's own `_content_hash`, so they
   equal `model_provenance`), the dataset version *and content hash*, each live prompt's hash, and the
   call's `stop_reason` and input/output token counts. A run whose output stopped at `max_tokens` is

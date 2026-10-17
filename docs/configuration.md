@@ -13,7 +13,7 @@ material and never committed (see [Security](security.md)).
 
 | File | Written by | Read by | Effect |
 | :--- | :--- | :--- | :--- |
-| `config/settings.json` (tracked) | you | `orchestrator.py`, `calibrate.py` | Which model drafts and audits, optional temperatures. Only the model and temperature keys do anything; see [Which settings are read](#which-settings-are-read) |
+| `config/settings.json` (tracked) | you | `orchestrator.py`, `calibrate.py`, `check_model_freshness.py` | Which model drafts and audits, optional temperatures. The freshness diagnostic reads model IDs to report stale or deprecated choices; only the model and temperature keys affect model calls. See [Which settings are read](#which-settings-are-read) |
 | `config/style_guide.md` *git-ignored* | `/calibrate`, `calibrate.py` | the Underwriter (the orchestrator puts it in the Maker's prompt only; in Claude Code the Underwriter role is told to follow it) | House tone and layout. Absent means the neutral default tone |
 | `templates/local/cam/<type>_cam.md` *git-ignored* | `/calibrate`, `calibrate.py`, or auto-saved for a new deal type | `/assemble`, the orchestrator | A calibrated CAM template; **takes precedence** over the shipped one for that type |
 | `templates/cam/<type>_cam.md` (tracked) | the project | the same | The shipped default templates (`corporate_credit`, `asset_finance`) |
@@ -28,11 +28,13 @@ material and never committed (see [Security](security.md)).
 
 | Variable | Read by | Meaning |
 | :--- | :--- | :--- |
-| `ANTHROPIC_API_KEY` | `calibrate.py`, `orchestrator.py`, `run_evals.py --live` | Your Anthropic API key. Without it `calibrate.py` falls back to `--mock`, and the others fail. Never needed by the slash commands. See [Credentials](#credentials) |
-| `ANTHROPIC_BASE_URL` | the `anthropic` SDK | If set, the SDK sends requests there; `run_evals.py` shows it in the plan it prints before a live run. Leave it unset unless you route API traffic through your own gateway |
-| `HYPOTHESIS_PROFILE` | the test suite | `ci` (default, fixed seed) or `explore` (searches harder with random seeds), for `tests/test_properties.py` |
+| `ANTHROPIC_API_KEY` | `calibrate.py`, `orchestrator.py`, `run_evals.py --live` | Explicit API-key input. Without it, `calibrate.py` falls back to `--mock` and `run_evals.py --live` refuses to start. `orchestrator.py` passes `None` to the SDK when it is absent, so SDK credential discovery may still apply. Never needed by slash commands. See [Credentials](#credentials). |
+| `ANTHROPIC_BASE_URL` | the `anthropic` SDK | If set, the SDK sends requests there; `run_evals.py` shows it in the plan it prints before a live run. Leave it unset unless you route API traffic through your own gateway. |
+| `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_PROFILE`, `ANTHROPIC_IDENTITY_TOKEN` | the installed `anthropic` SDK, when supported by that version | SDK-level alternatives for authentication/profile selection. These are not read directly by OpenCAM's CLI code; inspect the installed SDK's documented credential precedence before use. |
+| `ANTHROPIC_CUSTOM_HEADERS` | the installed `anthropic` SDK, when supported by that version | SDK-level request configuration; it can affect request behavior and is not read directly by OpenCAM's CLI code. |
+| `HYPOTHESIS_PROFILE` | the test suite | `ci` (default, fixed seed) or `explore` (searches harder with random seeds), for `tests/test_properties.py`. |
 
-There are no other environment variables, no `.env` loading, and no configuration read from the network.
+OpenCAM does not load a `.env` file or fetch application configuration from the network. The `anthropic` SDK may read additional environment variables or on-disk credentials/profile configuration; the examples above are not an exhaustive inventory for every SDK version. Review the SDK version and credential sources used by your environment before running a headless command.
 
 ### Rules that decide which file or value is used
 
@@ -78,11 +80,29 @@ Wiring these keys in is deliberately not done: one `max_tokens` could not stand 
 limits, and the evaluation harness's budgets and baselines assume the current values. The five inert keys stay in the
 shipped file so existing forks keep a valid config; do not rely on them.
 
+## Model freshness diagnostic
+
+Run `python scripts/check_model_freshness.py [--json PATH]` to compare the configured `maker_model`,
+`checker_model` and optional `calibrate_model`, plus the literal `_DEFAULT_MODEL` in `scripts/calibrate.py`, with the
+known-model and deprecation tables packaged in the installed Anthropic SDK. The calibration default is read using
+Python's AST parser; the script does not import `calibrate.py`. It does not call the API, need a key, or access the
+network. It only reports; it never edits `config/settings.json` or changes a model.
+
+The report lists newer stable IDs only within the same family, deprecation dates and IDs it cannot parse or find. A
+missing or reshaped SDK table is reported as `SDK table not found` rather than guessed around. The report is only as
+fresh as the installed SDK version, which Dependabot refreshes through the normal dependency-update process. See the
+[CLI reference](cli-reference.md#model-freshness-check) and [operations runbook](operations.md#model-freshness-report).
+
 ## Credentials
 
-The only credential the framework uses is the `ANTHROPIC_API_KEY` environment variable, and only the headless
-scripts read it (`scripts/calibrate.py`, `scripts/orchestrator.py` and the live mode of `scripts/run_evals.py`).
-The slash commands use your Claude Code login and need no key.
+OpenCAM explicitly reads `ANTHROPIC_API_KEY` in its headless scripts (`scripts/calibrate.py`,
+`scripts/orchestrator.py` and the live mode of `scripts/run_evals.py`). Their behavior differs when it is absent:
+calibration selects `--mock`, live evaluation requires the key, and the orchestrator passes `api_key=None` to the
+SDK rather than refusing at that point. The SDK can then resolve credentials/profile settings through its own
+supported environment variables or on-disk configuration (depending on its installed version). Therefore,
+`ANTHROPIC_API_KEY` is the framework's explicit key input, **not a guarantee that no other SDK credential source
+can be used**. The slash commands use your Claude Code login and do not need this API key for their normal
+interactive workflow.
 
 - **Where to set it:** in your own shell or your scheduler's secret store (for example `export
   ANTHROPIC_API_KEY=...` on macOS/Linux, `$env:ANTHROPIC_API_KEY="..."` in PowerShell, `set

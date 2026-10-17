@@ -249,3 +249,50 @@ def test_the_scanner_still_says_it_is_not_an_international_detector():
     import pii_scan
     doc = " ".join(pii_scan.__doc__.split())
     assert "not an international PII detector" in doc and "clean result" in doc
+
+
+# Currency codes and suffix symbols need to be adjacent to an amount; do not infer amounts from arbitrary numbers.
+def test_detects_currency_codes_and_symbols_before_or_after_amounts():
+    examples = [
+        "Facility of GBP 1,250,000",
+        "USD 1,250,000",
+        "Limit EUR 2.5m",
+        "Limit 1.250.000 EUR",
+        "Kreditlinie 1.250.000 €",
+        "Kreditlinie 1 250 000 €",
+        "Limit CHF 750,000",
+        "Limit 750 JPY",
+        "Limit CAD 1,250",
+        "Limit 1,250 AUD",
+        "¥1,000,000",
+    ]
+    missed = [example for example in examples if not scan_for_likely_real_data(example)]
+    assert missed == [], f"currency examples not flagged: {missed}"
+
+
+def test_detects_numeric_and_month_name_dates_in_both_common_orders():
+    examples = [
+        "Signed January 12, 2026",
+        "Signed 12/01/2026",
+        "Signed 01/12/2026",
+        "Signed 12.01.2026",
+        "Signed 12 Jan 2026",
+        "Signed Jan 12, 2026",
+    ]
+    missed = [example for example in examples if not scan_for_likely_real_data(example)]
+    assert missed == [], f"date examples not flagged: {missed}"
+
+
+def test_currency_and_date_patterns_leave_common_numeric_references_and_placeholders_clean():
+    examples = [
+        "Version 1.25.3",
+        "Ratio 1.25x",
+        "Page 12; clause 4.2",
+        "Plain year 2026",
+        "Version 2026.10",
+        "Facility amount [GBP 1,250,000]",
+        "Signed date [12/01/2026]",
+        "Currency and amount [Currency] [Amount]",
+    ]
+    for example in examples:
+        assert scan_for_likely_real_data(example) == [], example

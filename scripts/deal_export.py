@@ -235,21 +235,17 @@ def main(argv=None):
         # state_manager's date discovery (correctly) ignores forever after.
         parser.error(f"--date-str {args.date_str!r} must be a YYYY-MM-DD date")
 
-    with open(args.draft, encoding="utf-8") as f:
-        draft_markdown = f.read()
-
-    # Reject path-unsafe company/proposal values before resolving, so nothing
-    # unsafe reaches the deals/ glob or the folder path built from them
-    # (export_deal() would reject them too, but only after resolution; note
-    # sanitize_path_component() deliberately allows "[" and "]", which
-    # _existing_date_str() glob-escapes).
-    company = sanitize_path_component(args.company, "company")
-    proposal = sanitize_path_component(args.proposal, "proposal")
-    date_str = resolve_date_str(company, proposal, date_str=args.date_str)
-
     try:
+        with open(args.draft, encoding="utf-8") as f:
+            draft_markdown = f.read()
+
+        # Reject unsafe names before folder discovery; export_deal() repeats the
+        # validation at its own boundary.
+        company = sanitize_path_component(args.company, "company")
+        proposal = sanitize_path_component(args.proposal, "proposal")
+        date_str = resolve_date_str(company, proposal, date_str=args.date_str)
         output_dir = export_deal(company, proposal, args.type, draft_markdown, date_str=date_str)
-    except StateError as exc:
+    except (OSError, ValueError) as exc:
         sys.exit(f"error: {exc}")
     print(f"Done! Files generated in {output_dir}")
 

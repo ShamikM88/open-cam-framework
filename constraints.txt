@@ -1,14 +1,14 @@
-# Exact Python package set observed in green repository workflows, Python 3.11.
-# Sources:
-# - CI and runtime-smoke records: workflow run 38272772882 (head 74bff188392bd2206b2819ba274f76be92247941).
-# - Mutation dependencies: workflow run 38133890089 (head 59e383666c29cdf1968b56da338a990865439c8e).
-# - Security tools: security-job install log from run 38272772882.
+# Exact Python package set for the repository's Python 3.11 workflows: the union of the runtime, dev-test, security
+# and mutation profiles.
+# Source: regenerated from clean Python 3.11 environments (pip 26.2.1) built from the requirements files on main
+# (b9919a2), without the previous constraints, then 'pip freeze'd and combined (docs/operations.md, "Reproducible
+# dependency set"). No distribution differed between profiles. The pip pin is the version CI bootstraps.
 # The base requirements files keep compatibility floors; this file pins the tested CI environment.
 # Update intentionally from fresh, green records for each job profile, including transitive packages.
 # Pins constrain installation but do not themselves install a package.
 
 annotated-types==0.8.0
-anthropic==1.13.0
+anthropic==1.15.0
 anyio==4.15.1
 bandit==1.9.4
 boolean.py==5.0
@@ -24,11 +24,11 @@ diff-cover==10.6.0
 docstring-parser==0.18.0
 et-xmlfile==2.0.0
 execnet==2.1.2
-filelock==4.1.1
+filelock==4.2.0
 h11==0.16.0
 httpcore2==2.13.1
 httpx2==2.13.1
-hypothesis==6.169.0
+hypothesis==6.170.1
 idna==3.20
 iniconfig==2.3.1
 jinja2==3.1.6
@@ -44,20 +44,21 @@ mdurl==0.1.2
 msgpack==1.2.3
 mutmut==3.8.0
 openpyxl==3.1.5
-packaging==26.3
+opentelemetry-api==1.45.1
 packageurl-python==0.17.6
+packaging==26.3
 pip==26.2.1
 pip-api==0.0.35
 pip-audit==2.10.1
 pip-requirements-parser==32.0.1
-platformdirs==4.13.0
-pluggy==1.6.0
+platformdirs==4.13.3
+pluggy==1.7.0
+py-serializable==2.1.0
 pydantic==2.14.1
 pydantic-core==2.50.1
-py-serializable==2.1.0
 pygments==2.21.0
 pyparsing==3.3.3
-pypdf==6.20.0
+pypdf==6.21.0
 pytest==9.1.1
 pytest-cov==7.1.0
 pytest-socket==0.8.1
@@ -67,7 +68,7 @@ python-docx==1.2.0
 pyyaml==6.0.3
 requests==2.34.2
 rich==15.0.0
-ruff==0.17.0
+ruff==0.17.1
 setproctitle==1.3.8
 sniffio==1.3.1
 sortedcontainers==2.4.0
@@ -75,8 +76,8 @@ stevedore==5.9.1
 textual==8.2.8
 tomli==2.5.0
 tomli-w==1.2.0
-truststore==0.10.4
-typing-inspection==0.4.4
+truststore==0.10.5
 typing-extensions==4.16.0
+typing-inspection==0.4.4
 urllib3==2.8.0
-zizmor==1.30.1
+zizmor==1.31.1

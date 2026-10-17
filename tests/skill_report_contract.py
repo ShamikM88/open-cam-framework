@@ -68,11 +68,6 @@ def _without_quotes(text):
     return CODE_SPAN_RE.sub(" ", text)
 
 
-def _normalise_number_token(number):
-    """Remove presentation-only comma grouping and trailing punctuation from one numeric token."""
-    return number.rstrip(".,").replace(",", "")
-
-
 def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     """The problems found in `report`; an empty list means it meets the contract.
 
@@ -118,9 +113,8 @@ def report_problems(report, deal_folder, spec, *, items=None, stopped=False):
     scan = re.sub(r"(?m)^### \w+ \d+", "", prose)
     scan = re.sub(r"(?m)^\s*\d+\.\s", "", scan)
     scan = scan.replace(spec.caveat, "")
-    recorded_numbers = {_normalise_number_token(number) for number in NUMBER_RE.findall(recorded)}
     for number in NUMBER_RE.findall(scan):
-        if _normalise_number_token(number) not in recorded_numbers:
+        if number.rstrip(".,") not in recorded and number.replace(",", "") not in recorded.replace(",", ""):
             problems.append(f"number not in the record: {number}")
     if VERDICT_RE.search(prose) or VERDICT_CONCLUSION_RE.search(prose) or VERDICT_STANDALONE_RE.search(prose):
         problems.append("a verdict word appears outside a quoted recorded value")

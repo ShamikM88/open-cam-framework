@@ -370,7 +370,7 @@ def test_the_runbook_it_follows_still_has_the_steps_and_classes_it_mirrors():
 
 def test_the_pages_describe_it_as_implemented_read_only_and_a_candidate_report():
     skills, design = flat(read("docs/skills.md")), flat(read("docs/skill-design.md"))
-    for needle in ("mutation-triage", "forked and read-only", "Write, Edit, NotebookEdit and Bash are removed while it runs",
+    for needle in ("mutation-triage", "forked and read-only", "Bash, WebFetch and WebSearch are removed while it runs",
                    "every class is a candidate", "never calls a mutant equivalent until you have seen the mutated line",
                    "It never changes the mutation scope, the 75% diagnostic target, the configuration or the workflow"):
         assert needle in skills, needle

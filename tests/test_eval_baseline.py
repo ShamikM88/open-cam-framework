@@ -89,7 +89,7 @@ def test_the_model_comparison_label_does_not_claim_temperature_support():
 
 
 @pytest.mark.parametrize("override, expected", [
-    ({"models": {**MODELS, "maker_model": "m-NEW"}}, "model / temperatures"),
+    ({"models": {**MODELS, "maker_model": "m-NEW"}}, "model"),
     ({"hashes": {**HASHES, "underwriter_prompt_hash": "NEW"}}, "agent prompt hashes"),
     ({"inputs": {**INPUTS, "config/settings.json": "NEW"}}, "template and settings hashes"),
     ({"dataset_hash": "d2"}, "dataset content"),

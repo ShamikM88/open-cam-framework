@@ -25,7 +25,7 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from eval_oracles import run_passed
 
@@ -69,7 +69,7 @@ def dataset_hash(dataset):
 
 
 def new_run_id(now=None):
-    return (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%S%fZ")
+    return (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def clip(text, limit=EXCERPT_LIMIT):
@@ -148,7 +148,7 @@ def build_record(mode, dataset, cases, run_id, models=None, hashes=None, planned
         "harness_version": HARNESS_VERSION,
         "run_id": run_id,
         "mode": mode,  # "dry-run" (no model) or "live"
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "dataset": {"version": dataset["version"], "case_count": len(dataset["cases"]),
                     "content_hash": dataset_hash(dataset)},
         "models": models or {"maker_model": None, "checker_model": None},

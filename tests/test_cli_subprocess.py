@@ -1105,3 +1105,30 @@ def test_research_export_release_unapproved_cli_rejects_blank_reason_without_out
     assert result.returncode == 1 and result.stderr.startswith("error: ")
     assert "Analyst release reason must not be empty" in result.stderr and "Traceback" not in result.stderr
     assert not (cli.workdir / "deals").exists()
+
+
+def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_history(cli):
+    """Decision D3 (#271): the exact scenario /project's flag used to allow - historical raw figures on an
+    analyst-supplied deal - is one error line, exit 1, state byte-identical, no multi_period_financials."""
+    deal_dir = cli.workdir / "deals" / "Acme" / "Loan_2026-01-01"
+    deal_dir.mkdir(parents=True)
+    state_path = deal_dir / "state.json"
+    state_path.write_text(json.dumps({
+        "company": "Acme", "proposal": "Loan", "date": "2026-01-01", "schema_version": "1.1.0",
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {"FY-Current": {"revenue": 5000, "cost_of_sales": 4001}},
+        "financials": {"FY-Current": {"ebitda": 300, "gross_profit": 999}},
+        "ratios": {"FY-Current": {"dscr": 1.3}},
+    }), encoding="utf-8")
+    before = state_path.read_bytes()
+    financials = cli.workdir / "hist.json"
+    financials.write_text(json.dumps({"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}}), encoding="utf-8")
+
+    result = cli("spreading_check", "--company", "Acme", "--proposal", "Loan", "--financials", financials,
+                 "--no-update-financials-source")
+
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("error: ") and result.stderr.count("\n") == 1
+    assert "historical" in result.stderr and "Traceback" not in result.stderr
+    assert state_path.read_bytes() == before
+    assert "multi_period_financials" not in state_path.read_text(encoding="utf-8")

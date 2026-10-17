@@ -57,11 +57,18 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
                 "deal; spreading historical years in framework-computed mode here would stamp the whole deal "
                 "framework-computed over it. Record the historical years in /spread's analyst-supplied mode.")
 
-    if update_financials_source and existing_state.get("financials_source") == "analyst-supplied":
-        raise FinancialSourceModeError(
-            "This deal is analyst-supplied; one deal never mixes the two modes. "
-            "Use /spread's analyst-supplied mode to record financial figures."
-        )
+    if existing_state.get("financials_source") == "analyst-supplied":
+        # Decision D3 (#271): the default mode may not touch an analyst-supplied deal at all, and a historical period
+        # is refused whatever --no-update-financials-source says, so supplied subtotals are never overwritten and
+        # no framework-computed store (multi_period_financials) appears next to analyst_supplied_financials. Only a
+        # forward-year-only call (/project) stays allowed.
+        historical = sorted(p for p in (multi_period_financials or {}) if p not in FORWARD_PERIOD_KEYS)
+        if update_financials_source or historical:
+            raise FinancialSourceModeError(
+                "This deal is analyst-supplied; one deal never mixes the two modes"
+                + (f", so historical periods ({', '.join(historical)}) cannot be recomputed here" if historical else "")
+                + ". Use /spread's analyst-supplied mode to record financial figures."
+            )
 
     merged_multi_period = dict(existing_multi_period)
     touched_periods = {}

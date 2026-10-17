@@ -157,9 +157,9 @@ def test_the_settings_check_reports_each_kind_of_disagreement():
 def test_the_table_parser_separates_read_keys_from_inert_ones():
     table = ("## Which settings are read\n\n| Key | Read by | Effect |\n| --- | --- | --- |\n"
              "| `maker_model` (required) | `orchestrator.py` | x |\n"
-             "| `maker_temperature`, `checker_temperature` | `orchestrator.py` | y |\n"
+             "| `maker_temperature`, `checker_temperature` | **nothing** | y |\n"
              "| `max_tokens` | **nothing** | z |\n\n## Credentials\n| `other` | `x.py` | no |\n")
-    assert documented_settings(table) == ({"maker_model", "maker_temperature", "checker_temperature"}, {"max_tokens"})
+    assert documented_settings(table) == ({"maker_model"}, {"maker_temperature", "checker_temperature", "max_tokens"})
 
 
 # ---------------------------------------------------------------------------

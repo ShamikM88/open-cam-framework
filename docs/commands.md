@@ -80,7 +80,7 @@ worked examples are in [Workflows](workflows.md).
   (it never invents a registration detail, charge or ownership link).
 - **State:** a `triage` key, bureau and registry figures under `inputs` (for example `inputs.experian_score`), and
   `triage` in `steps_completed`. It saves source documents and then runs `source_manifest.py --check-sources`; if
-  citations were declared but nothing saved, it must go back and save one or tell you why not.
+  citations were declared but nothing saved, it must go back and save one or tell you why not; if the check reports `sources_declared: "unknown"` (a completed step has no valid `sources` list), it must restore the list in state and rerun the check.
 - **Can go wrong:** missing inputs (it asks); an unsaveable source (it must say so rather than skip silently).
 
 ### /research

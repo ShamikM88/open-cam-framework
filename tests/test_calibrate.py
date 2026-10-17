@@ -17,6 +17,7 @@ from pypdf import PdfWriter
 
 import calibrate
 from calibrate import _resolve_calibrate_model, run_calibration
+from response_utils import EmptyModelResponseError
 
 
 @pytest.fixture
@@ -38,8 +39,10 @@ class MockClient:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        text = self.responses.pop(0)
-        return SimpleNamespace(content=[SimpleNamespace(text=text)])
+        response = self.responses.pop(0)
+        if hasattr(response, "content"):
+            return response
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=response)])
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +52,17 @@ class MockClient:
 # fail-loud _resolve_maker_checker_config(), since calibration is a one-time
 # setup step, not drafting a real credit memo.
 # ---------------------------------------------------------------------------
+
+def test_main_reports_an_empty_model_response_as_a_single_cli_error(monkeypatch, capsys):
+    def empty_response(*args, **kwargs):
+        raise EmptyModelResponseError("the model returned no visible text")
+
+    monkeypatch.setattr(calibrate, "run_calibration", empty_response)
+    with pytest.raises(SystemExit) as caught:
+        calibrate.main(["--type", "corporate_credit"])
+    assert str(caught.value.code) == "error: the model returned no visible text"
+    assert capsys.readouterr().out == ""
+
 
 def test_resolve_calibrate_model_defaults_when_no_config_file(project_root):
     assert _resolve_calibrate_model() == calibrate._DEFAULT_MODEL
@@ -99,6 +113,29 @@ def test_run_calibration_uses_the_configured_model_in_both_api_calls(project_roo
     assert mock_client.calls[0]["model"] == "claude-configured-model"
     assert mock_client.calls[1]["model"] == "claude-configured-model"
     assert os.path.isfile(project_root / "config" / "style_guide.md")
+
+
+
+def test_run_calibration_rejects_no_visible_text_and_keeps_outputs_untouched(project_root, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate, "_read_sample_text", lambda: "Sample CAM text content.")
+    (project_root / "config" / "style_guide.md").write_text("existing style", encoding="utf-8")
+    template = calibrate.local_cam_template_path("corporate_credit")
+    os.makedirs(os.path.dirname(template), exist_ok=True)
+    with open(template, "w", encoding="utf-8") as f:
+        f.write("existing template")
+    client = MockClient([SimpleNamespace(content=[
+        SimpleNamespace(type="thinking", thinking="hidden only"),
+    ])])
+    monkeypatch.setattr(calibrate, "client", client)
+
+    with pytest.raises(EmptyModelResponseError, match="Calibration response contained no text block"):
+        run_calibration("corporate_credit")
+
+    assert (project_root / "config" / "style_guide.md").read_text(encoding="utf-8") == "existing style"
+    with open(template, encoding="utf-8") as f:
+        assert f.read() == "existing template"
+    assert len(client.calls) == 1
 
 # ---------------------------------------------------------------------------
 # Sample-length overflow (issue #109): samples beyond the per-call limit are

@@ -18,6 +18,9 @@ def test_readme_and_ruff_config_declare_python_311_as_the_minimum():
     if "requires-python" in project:
         assert project["requires-python"] == ">=3.11"
 
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert 'python-version: "3.11"' in ci
+
 
 @pytest.mark.parametrize("script_name", ["check_coverage.py", "mutation_report.py"])
 def test_toml_readers_use_stdlib_without_python_310_fallbacks(script_name):

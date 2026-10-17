@@ -1,6 +1,6 @@
 # Configuration
 
-> The sections "Overview" and "Which settings are read" were moved from the README and `CLAUDE.md` (unchanged apart from the fixes in the [move ledger](move-ledger.md)); the rest of the page is written for readers.
+> The sections "Overview" and "Which settings are read" originated in the README and `CLAUDE.md`; this reference is kept aligned with implementation changes, including the retirement of temperature overrides in issue #274.
 
 Everything that changes how a run behaves: the configuration files, the environment variables, the rules that decide which file or value wins, which settings are really read, and where credentials go.
 
@@ -13,7 +13,7 @@ material and never committed (see [Security](security.md)).
 
 | File | Written by | Read by | Effect |
 | :--- | :--- | :--- | :--- |
-| `config/settings.json` (tracked) | you | `orchestrator.py`, `calibrate.py`, `check_model_freshness.py` | Which model drafts and audits, optional temperatures. The freshness diagnostic reads model IDs to report stale or deprecated choices; only the model and temperature keys affect model calls. See [Which settings are read](#which-settings-are-read) |
+| `config/settings.json` (tracked) | you | `orchestrator.py`, `calibrate.py`, `check_model_freshness.py` | Which model drafts and audits. Legacy temperature keys are unsupported, warned about and ignored; model calls use provider-default sampling. The freshness diagnostic reads model IDs to report stale or deprecated choices. See [Which settings are read](#which-settings-are-read) |
 | `config/style_guide.md` *git-ignored* | `/calibrate`, `calibrate.py` | the Underwriter (the orchestrator puts it in the Maker's prompt only; in Claude Code the Underwriter role is told to follow it) | House tone and layout. Absent means the neutral default tone |
 | `templates/local/cam/<type>_cam.md` *git-ignored* | `/calibrate`, `calibrate.py`, or auto-saved for a new deal type | `/assemble`, the orchestrator | A calibrated CAM template; **takes precedence** over the shipped one for that type |
 | `templates/cam/<type>_cam.md` (tracked) | the project | the same | The shipped default templates (`corporate_credit`, `asset_finance`) |
@@ -39,8 +39,8 @@ OpenCAM does not load a `.env` file or fetch application configuration from the 
 ### Rules that decide which file or value is used
 
 - **Model:** `maker_model` is required (a missing one stops the orchestrator with an error rather than guessing);
-  `checker_model` defaults to the Maker's model; `calibrate_model` defaults to `maker_model`; a temperature that is not
-  set is not sent, so the API default applies.
+  `checker_model` defaults to the Maker's model; `calibrate_model` defaults to `maker_model`. Temperature overrides
+  are unsupported: legacy temperature keys are ignored with a warning and the provider default applies.
 - **Template:** `templates/local/cam/<type>_cam.md` if it exists, else `templates/cam/<type>_cam.md`, else the deal
   type is new and the first draft's structure is saved as a local template.
 - **Dated folder:** the most recent `<Proposal>_<YYYY-MM-DD>` folder for that company and proposal; a new deal, or
@@ -51,24 +51,27 @@ OpenCAM does not load a `.env` file or fetch application configuration from the 
 
 ## Overview
 
-[`config/settings.json`](../config/settings.json) sets `maker_model` (required), plus optional
-`checker_model`/`maker_temperature`/`checker_temperature` to independently configure the Risk
-Reviewer vs. the Underwriter. It also accepts `max_tokens`/`default_currency`/`output_directory`/
-`template_directory`/`spreading_template_directory`, though no script reads them -- they have no
-effect (see "Which settings are read" below). Agent behaviour is set by `agents/*.md` alone; there is no shared
+[`config/settings.json`](../config/settings.json) sets `maker_model` (required) and optional
+`checker_model` to choose the models used by the Underwriter and Risk Reviewer. Legacy
+`maker_temperature`/`checker_temperature` entries are unsupported; the orchestrator warns and ignores them,
+using the provider's default sampling behaviour. It also carries inert `max_tokens`/`default_currency`/
+`output_directory`/`template_directory`/`spreading_template_directory` keys (see "Which settings are read").
+Agent behaviour is set by `agents/*.md` alone; there is no shared
 system-prompt file.
 
 ## Which settings are read
 
-Only the model and temperature keys are read; the other keys the shipped file carries are **inert** -- editing them
-changes nothing, because the corresponding values are constants in the code (issue #108). An operator who raises
-`max_tokens` because drafts are cut off must change the code, not this file.
+Only `maker_model` and optional `checker_model` are read by the orchestrator for model routing; `calibrate_model`
+is read by `calibrate.py`. Legacy `maker_temperature`/`checker_temperature` keys are no longer supported:
+if present, the orchestrator warns and ignores them so no unsupported non-default sampling parameter reaches the API.
+The other non-model keys the shipped file carries are **inert** -- editing them changes nothing (issue #108).
+An operator who raises `max_tokens` because drafts are cut off must change the code, not this file.
 
 | Key | Read by | Effect |
 | --- | --- | --- |
 | `maker_model` (required) | `orchestrator.py` (`_resolve_maker_checker_config`), `calibrate.py` (fallback) | Model that drafts; missing = the pipeline refuses to start |
 | `checker_model` | `orchestrator.py` | Model that audits; defaults to `maker_model` |
-| `maker_temperature`, `checker_temperature` | `orchestrator.py` | Optional sampling temperature per agent; unset = the API default |
+| `maker_temperature`, `checker_temperature` | **nothing** | Unsupported; warning if present, then ignored. Calls use provider-default sampling |
 | `calibrate_model` | `calibrate.py` | Model for `calibrate.py`; defaults to `maker_model` |
 | `max_tokens` | **nothing** | No effect. Real values: `orchestrator.py` 4000 (draft and revision) and 2000 (audit) at the three `messages.create` calls, `calibrate.py` 3000 per call and `MERGE_MAX_TOKENS` = 6000; the eval harness mirrors 4000/2000 in `eval_runner.py` for its budget |
 | `default_currency` | **nothing** | No effect; no script labels a currency |

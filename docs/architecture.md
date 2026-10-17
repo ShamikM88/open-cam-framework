@@ -177,10 +177,10 @@ open-cam-framework/
 │   ├── underwriter_agent.md
 │   └── risk_reviewer_agent.md
 ├── config/
-│   ├── settings.json            maker_model (required) -- also optional checker_model/maker_temperature/
-│   │                            checker_temperature to independently configure the Risk Reviewer vs the
-│   │                            Underwriter (both default to the Underwriter's own model/no override when
-│   │                            unset), and an optional calibrate_model for scripts/calibrate.py (defaults
+│   ├── settings.json            maker_model (required) -- also an optional checker_model to
+│   │                            configure the Risk Reviewer's model independently of the Underwriter's
+│   │                            (it defaults to the Underwriter's model when unset; legacy
+│   │                            maker_temperature/checker_temperature are ignored with a warning), and an optional calibrate_model for scripts/calibrate.py (defaults
 │   │                            to maker_model when unset -- calibration has no need for a structurally
 │   │                            different model the way the Checker does). max_tokens/default_currency/
 │   │                            output_directory/template_directory/spreading_template_directory are also

@@ -11,7 +11,7 @@ How one run works
 `run_pipeline()` reads everything relative to the current directory (agents/, config/,
 templates/, deals/) and resumes any earlier state for the same company/proposal, so each run
 gets its own temporary directory under the run's git-ignored `work/` folder, seeded with ONLY:
-the shipped agent prompts, `config/settings.json` (the models/temperatures a real run would use),
+the shipped agent prompts, `config/settings.json` (the models a real run would use),
 `templates/cam/` (never `templates/local/`, so a developer's calibrated override cannot leak
 in), the case's own `config_files`, and the case's `state.json` extras. The process `chdir`s
 into it, so runs are strictly serial.

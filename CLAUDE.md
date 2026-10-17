@@ -489,13 +489,17 @@ model configured in `config/settings.json`.
 
 ### What `config/settings.json` actually controls
 
-Only the model and temperature keys are read: `maker_model` (required), and optional `checker_model`,
-`maker_temperature`, `checker_temperature` and `calibrate_model`. The other keys the shipped file carries
-(`max_tokens`, `default_currency`, `output_directory`, `template_directory`, `spreading_template_directory`) are
-**inert**: editing them changes nothing, because the values are constants in the code (issue #108). Wiring them in
-is deliberately not done: one `max_tokens` could not stand for three call sites with different limits, and the
-evaluation harness's budgets and baselines assume the current values. The full table, with where each key is read
-and the real values, is in [docs/configuration.md](docs/configuration.md#which-settings-are-read).
+Only model-routing keys are supported: `maker_model` (required) and optional `checker_model` for
+`orchestrator.py`, plus `calibrate_model` for `calibrate.py`. Sampling temperatures are not configurable: if
+a fork's `config/settings.json` still includes `maker_temperature` or `checker_temperature`, the orchestrator
+prints a warning and ignores them; configured requests use the provider's default sampling behaviour.
+
+The other keys the shipped file carries (`max_tokens`, `default_currency`, `output_directory`,
+`template_directory`, `spreading_template_directory`) are **inert**: editing them changes nothing, because the
+values are constants in the code (issue #108). Wiring them in is deliberately not done: one `max_tokens` could
+not stand for three call sites with different limits, and the evaluation harness's budgets and baselines assume the
+current values. The full table, with where each key is read and the real values, is in
+[docs/configuration.md](docs/configuration.md#which-settings-are-read).
 
 ## Testing and static analysis
 

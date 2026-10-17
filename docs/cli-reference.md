@@ -113,6 +113,19 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
 - `--financials` is a JSON file of raw line items per period (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`,
   any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
   own forecast, never derived by the tool.
+  Periods are merged into the deal's recorded `multi_period_financials` rather than replacing the whole
+  history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
+  `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
+  matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
+  **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
+  (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
+  nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
+  For forward-year input only, `financials_source` is a deal-level flag. If a run would clear
+  `analyst-supplied` while preserving any non-empty period whose raw line items are missing, the run is refused
+  before a model call or write. If raw line items exist for every preserved period, all preserved raw periods are
+  recomputed alongside the new input before the flag is changed to `framework-computed`. Supply raw inputs for
+  every preserved period to recompute, or keep the analyst-supplied basis; a partial update must not relabel stale
+  analyst-supplied figures as framework-computed.
 - `--collateral` is a JSON file holding a flat list of asset objects.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
@@ -134,14 +147,21 @@ just needs it turned into deal output files. `export_deal()` creates the dated
 `deals/[Company]/[Proposal]_[Date]/` folder, auto-saves the draft as a new
 `templates/local/cam/<type>_cam.md` if that deal type had no template at all yet (never into
 the git-tracked `templates/cam/` -- see the confidentiality rule in `CLAUDE.md`), and exports
-`.docx`/`.xlsx`. **Which dated folder:** `export_deal()` itself still defaults to today when
-`date_str` isn't given (a bare library call has nothing else to go on), so every caller that
-has a deal in progress must resolve the date itself: `orchestrator.py` passes the `date_str`
-it already resolved at the start of its run, and the CLI takes an optional `--date-str` that
-otherwise falls back to `state_manager.resolve_date_str()`'s auto-discovery (the deal's
-existing dated folder, most recent wins, else today for a brand-new deal; only a folder named
-exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims another deal's
-`Fleet_Q2_2026-05-01`, and `--date-str` must be a real calendar date in `YYYY-MM-DD` format, so an impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1). Without this a deal
+`.docx`/`.xlsx`. **Which dated folder and state:** an explicit `date_str` selects both the output
+folder and the `state.json` read for the workbook, so an older review cannot be populated from a newer
+review's figures. `orchestrator.py` passes the `date_str` it resolved at the start of its run; the CLI takes an
+optional `--date-str`. Without it, `state_manager.resolve_export_date_str()` prefers the latest state-bearing
+folder, then reuses the latest date-shaped output folder if no state exists yet, else uses today.
+State auto-resume remains separate: `state_manager.resolve_date_str()` selects only the latest
+folder containing `state.json`, so an explicit export-only folder cannot hijack later state reads.
+A present malformed `state.json` remains selected so its existing corruption error is surfaced.
+Only a folder named exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims
+another deal's `Fleet_Q2_2026-05-01`, and `--date-str` must be a real calendar date in `YYYY-MM-DD` format, so an
+impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1. An explicit date that names a dated folder with no `state.json` is an error (one `error:` line, exit status 1, nothing
+written) when the deal has state in another dated folder; a deal with no state anywhere still exports into the named
+folder. A bare library call that
+omits `date_str` retains its existing state auto-discovery, while its output folder still defaults to today.
+Without this a deal
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
 patch to re-home `state.json`.

@@ -127,17 +127,18 @@ def ground_truth_figures(financials, ratios, collateral, downside_case=None):
     "EBIT/Interest"/"EBITDA/Interest" aliases) and subtotal (ebitda,
     tangible_net_worth, gross_profit, operating_profit, net_profit,
     profit_before_tax, fcf, total_debt, total_assets, total_liabilities,
-    total_equity) already computed by evaluate_financial_model() -- this
-    docstring is descriptive, not a closed allowlist: every key
-    evaluate_financial_model() returns flows through automatically, so a
-    future new ratio/subtotal needs no change here -- plus an aggregate
+    total_equity) already computed by evaluate_financial_model(), under plain
+    metric names for FY-Current and as `f"{metric}_{period}"` for every other
+    base-case period (e.g. `ebitda_FY-1`, `dscr_FY+1`); plus an aggregate
     collateral_cover_pct derived from the collateral list, plus -- if
     `downside_case` is given -- every downside (stressed forward-year)
     ratio/subtotal, keyed as `f"{metric}_{period}_downside"` (e.g.
-    `"dscr_FY+2_downside"`) so it can never collide with a base-case key
-    above. A pure function of the same data already checkpointed to
-    state.json -- never a new calculation the Underwriter couldn't already
-    see.
+    `"dscr_FY+2_downside"`). The suffix keeps downside keys distinct from
+    base-case keys. This is not a closed allowlist: every key
+    evaluate_financial_model() returns flows through automatically, so a
+    future new ratio/subtotal needs no change here. A pure function of the
+    same data already checkpointed to state.json -- never a new calculation
+    the Underwriter couldn't already see.
 
     A ratio evaluate_financial_model() left as `None` (e.g. a debt-free
     company's DSCR -- a zero denominator makes the ratio undefined, not
@@ -162,6 +163,28 @@ def ground_truth_figures(financials, ratios, collateral, downside_case=None):
     current_financials = dict(current_financials) if isinstance(current_financials, dict) else {}
     current_financials.pop("raw", None)  # a nested dict of raw inputs, not a figure itself
     truth.update({k: v for k, v in current_financials.items() if v is not None})
+
+    # FY-Current keeps its existing unsuffixed names. Every other base-case
+    # period gets an explicit suffix so figures cannot be checked against a
+    # different period or collide with the separate downside-key scheme.
+    for period, period_ratios in (ratios or {}).items():
+        if period == "FY-Current":
+            continue
+        if not isinstance(period_ratios, dict):
+            continue
+        for metric, value in period_ratios.items():
+            if value is not None:
+                truth[f"{metric}_{period}"] = value
+
+    for period, period_financials in (financials or {}).items():
+        if period == "FY-Current":
+            continue
+        if not isinstance(period_financials, dict):
+            continue
+        for metric, value in period_financials.items():
+            if metric == "raw" or value is None:
+                continue
+            truth[f"{metric}_{period}"] = value
 
     collateral_cover_pct = compute_collateral_cover_pct(collateral)
     if collateral_cover_pct is not None:

@@ -39,7 +39,7 @@ import os
 import re
 import shutil
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -85,6 +85,36 @@ class RunnerSetupError(RuntimeError):
 
 class StopRun(Exception):
     """Control flow: raised by the routing client to end run_pipeline() right after the live call."""
+
+_TEMPERATURE_WARNING_PREFIX = (
+    "warning: unsupported sampling setting(s) in config/settings.json are ignored:"
+)
+
+
+class _RepeatedTemperatureWarningFilter:
+    """Suppress the already-reported legacy-settings warning during individual runs."""
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.pending = ""
+
+    def write(self, text):
+        self.pending += text
+        while "\n" in self.pending:
+            line, self.pending = self.pending.split("\n", 1)
+            if not line.startswith(_TEMPERATURE_WARNING_PREFIX):
+                self.stream.write(line + "\n")
+        return len(text)
+
+    def flush(self):
+        if self.pending:
+            if not self.pending.startswith(_TEMPERATURE_WARNING_PREFIX):
+                self.stream.write(self.pending)
+            self.pending = ""
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
 
 
 def short_hash(text):
@@ -448,7 +478,11 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
             if aborted:
                 break
             try:
-                run = run_case_once(case, f"repeat-{repeat}", ctx, live_client, repo_root, work_root, keep_work)
+                # describe_inputs() has already emitted any retired-temperature warning for
+                # this invocation. Keep other stderr output live, but filter that duplicate
+                # from every individual pipeline run.
+                with redirect_stderr(_RepeatedTemperatureWarningFilter(sys.stderr)):
+                    run = run_case_once(case, f"repeat-{repeat}", ctx, live_client, repo_root, work_root, keep_work)
             except CallCapExceeded as exc:
                 aborted, abort_reason, abort_category = True, f"call cap: {exc}", "call cap"
                 break

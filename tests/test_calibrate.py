@@ -13,9 +13,11 @@ import os
 from types import SimpleNamespace
 
 import pytest
+from pypdf import PdfWriter
 
 import calibrate
 from calibrate import _resolve_calibrate_model, run_calibration
+from response_utils import EmptyModelResponseError
 
 
 @pytest.fixture
@@ -37,8 +39,10 @@ class MockClient:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
-        text = self.responses.pop(0)
-        return SimpleNamespace(content=[SimpleNamespace(text=text)])
+        response = self.responses.pop(0)
+        if hasattr(response, "content"):
+            return response
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=response)])
 
 
 # ---------------------------------------------------------------------------
@@ -48,6 +52,17 @@ class MockClient:
 # fail-loud _resolve_maker_checker_config(), since calibration is a one-time
 # setup step, not drafting a real credit memo.
 # ---------------------------------------------------------------------------
+
+def test_main_reports_an_empty_model_response_as_a_single_cli_error(monkeypatch, capsys):
+    def empty_response(*args, **kwargs):
+        raise EmptyModelResponseError("the model returned no visible text")
+
+    monkeypatch.setattr(calibrate, "run_calibration", empty_response)
+    with pytest.raises(SystemExit) as caught:
+        calibrate.main(["--type", "corporate_credit"])
+    assert str(caught.value.code) == "error: the model returned no visible text"
+    assert capsys.readouterr().out == ""
+
 
 def test_resolve_calibrate_model_defaults_when_no_config_file(project_root):
     assert _resolve_calibrate_model() == calibrate._DEFAULT_MODEL
@@ -98,6 +113,29 @@ def test_run_calibration_uses_the_configured_model_in_both_api_calls(project_roo
     assert mock_client.calls[0]["model"] == "claude-configured-model"
     assert mock_client.calls[1]["model"] == "claude-configured-model"
     assert os.path.isfile(project_root / "config" / "style_guide.md")
+
+
+
+def test_run_calibration_rejects_no_visible_text_and_keeps_outputs_untouched(project_root, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate, "_read_sample_text", lambda: "Sample CAM text content.")
+    (project_root / "config" / "style_guide.md").write_text("existing style", encoding="utf-8")
+    template = calibrate.local_cam_template_path("corporate_credit")
+    os.makedirs(os.path.dirname(template), exist_ok=True)
+    with open(template, "w", encoding="utf-8") as f:
+        f.write("existing template")
+    client = MockClient([SimpleNamespace(content=[
+        SimpleNamespace(type="thinking", thinking="hidden only"),
+    ])])
+    monkeypatch.setattr(calibrate, "client", client)
+
+    with pytest.raises(EmptyModelResponseError, match="Calibration response contained no text block"):
+        run_calibration("corporate_credit")
+
+    assert (project_root / "config" / "style_guide.md").read_text(encoding="utf-8") == "existing style"
+    with open(template, encoding="utf-8") as f:
+        assert f.read() == "existing template"
+    assert len(client.calls) == 1
 
 # ---------------------------------------------------------------------------
 # Sample-length overflow (issue #109): samples beyond the per-call limit are
@@ -740,3 +778,66 @@ def test_the_progress_line_states_the_parts_and_groups_that_the_round_then_makes
     lines = capsys.readouterr().out.splitlines()
     assert lines == ["  merging 5 style part(s) in 2 group(s)...", "  merging 2 style part(s) in 1 group(s)..."]
     assert len(merge_calls.calls) == 3
+
+
+# Empty/scanned samples must be refused before calls or output writes (issue #255).
+def _write_blank_pdf(path):
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    with path.open("wb") as handle:
+        writer.write(handle)
+
+
+@pytest.mark.parametrize("mock", [False, True])
+def test_pdfs_without_extractable_text_refuse_before_writing_outputs(
+    project_root, monkeypatch, capsys, mock,
+):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    samples = project_root / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    _write_blank_pdf(samples / "scanned.pdf")
+
+    style_guide = project_root / "config" / "style_guide.md"
+    original_style = b"existing style guide\r\n"
+    style_guide.write_bytes(original_style)
+    template = project_root / "templates" / "local" / "cam" / "corporate_credit_cam.md"
+    client = RecordingClient()
+    monkeypatch.setattr(calibrate, "client", client)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_calibration("corporate_credit", mock=mock)
+
+    # sys.exit(<message>): the message goes to stderr and the status is 1; the per-PDF [WARN] stays on stdout.
+    message = str(exc_info.value.code)
+    assert message.startswith("error: ") and "\n" not in message
+    assert client.calls == []
+    assert style_guide.read_bytes() == original_style
+    assert not template.exists()
+    assert "scanned.pdf" in capsys.readouterr().out
+    assert "no extractable text" in message.lower()
+    assert "/calibrate" in message
+    assert "OCR" in message
+
+
+def test_mixed_text_and_blank_pdfs_warns_and_processes_extractable_content(
+    project_root, monkeypatch, capsys,
+):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(False))
+    samples = project_root / "inputs" / "calibration_samples"
+    samples.mkdir(parents=True)
+    _write_pdf(samples / "text-sample.pdf", "EXTRACTABLE", pages=1, lines_per_page=1)
+    _write_blank_pdf(samples / "blank-sample.pdf")
+
+    client = RecordingClient()
+    monkeypatch.setattr(calibrate, "client", client)
+
+    run_calibration("corporate_credit")
+
+    output = capsys.readouterr().out
+    assert "blank-sample.pdf" in output
+    assert "no extractable text" in output.lower()
+    assert len(client.calls) == 2
+    assert any("EXTRACTABLE" in prompt for prompt in client.prompts())
+    assert (project_root / "config" / "style_guide.md").exists()
+    assert (project_root / "templates" / "local" / "cam" / "corporate_credit_cam.md").exists()

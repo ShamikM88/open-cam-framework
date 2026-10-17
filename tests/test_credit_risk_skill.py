@@ -186,6 +186,10 @@ BREAKAGES = [
      "missing field Residual risk / uncertainty"),
     ("an overall verdict is added", lambda r: r.replace("\n> Analyst aid", "\nOverall: REJECTED.\n\n> Analyst aid"),
      "a verdict word appears"),
+    ("a bold mixed-case verdict label is added", lambda r: r.replace("\n> Analyst aid", "\nOverall decision: **PaSs**.\n\n> Analyst aid"),
+     "a verdict word appears"),
+    ("a standalone mixed-case verdict is added", lambda r: r.replace("\n> Analyst aid", "\nReJeCtEd\n\n> Analyst aid"),
+     "a verdict word appears"),
     ("a risk grade is added", lambda r: r.replace("\n> Analyst aid", "\nBorrower risk grade: B.\n\n> Analyst aid"),
      "a rating, score, recommendation or clearance appears"),
     ("a probability is invented", lambda r: r.replace("\n> Analyst aid", "\nThe chance of default is 3.5%.\n\n> Analyst aid"),
@@ -207,6 +211,22 @@ def test_each_breakage_of_a_clean_report_is_caught(label, breakage, expected, tm
     broken = breakage(report)
     assert broken != report
     assert any(expected in p for p in report_problems(broken, folder, SPEC, items=1)), (label, report_problems(broken, folder, SPEC))
+
+
+@pytest.mark.parametrize("sentence", [
+    "The deal is approved.",
+    "The facility is rejected.",
+    "Overall decision: pass.",
+    "Overall decision: PaSsEd.",
+    "Overall decision: fail.",
+    "Overall decision: fAiLeD.",
+])
+def test_lowercase_and_mixed_case_verdicts_are_rejected(sentence, tmp_path):
+    name = "contradictory_evidence"
+    folder = build(tmp_path, name)
+    report = SCENARIOS[name][1]
+    broken = report.replace("\n> Analyst aid", f"\n{sentence}\n\n> Analyst aid")
+    assert any("verdict word" in problem for problem in report_problems(broken, folder, SPEC, items=1)), sentence
 
 
 def test_a_quotation_from_a_draft_like_file_that_was_not_chosen_is_caught(tmp_path):

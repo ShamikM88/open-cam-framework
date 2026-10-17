@@ -48,6 +48,7 @@ from eval_oracles import RunOutput, build_context, evaluate_case
 from eval_report import REPO_ROOT, append_run_line, build_record, live_run
 from policy_checks import FENCED_JSON_RE
 from textio import TextEncodingError, read_text
+from response_utils import response_text
 
 MAX_CONSECUTIVE_ERRORS = 3
 # The SDK's per-phase httpx timeout (connect / read / write each), NOT a wall-clock cap on a call.
@@ -166,19 +167,6 @@ def make_client():
     import anthropic  # lazy: the rest of the harness never imports it
     return anthropic.Anthropic(api_key=key, max_retries=0, timeout=CLIENT_TIMEOUT_SECONDS)
 
-
-def response_text(response):
-    """The text of a model response: every text block, joined. Not `content[0].text`, which breaks on a
-    refusal with no content or a response that opens with a thinking block. None when there is no text."""
-    parts = []
-    for block in getattr(response, "content", None) or []:
-        if getattr(block, "type", "text") != "text":
-            continue
-        text = getattr(block, "text", None)
-        if isinstance(text, str):
-            parts.append(text)
-    joined = "".join(parts)
-    return joined if joined.strip() else None
 
 
 def verdict_parsed(raw_text):

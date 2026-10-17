@@ -263,6 +263,17 @@ def test_retired_temperature_warning_is_emitted_once_per_evaluation_invocation(e
     warning = "warning: unsupported sampling setting(s) in config/settings.json are ignored:"
     assert capsys.readouterr().err.count(warning) == 1
 
+    # The stderr filter must suppress only this duplicate line and pass other output through.
+    import io
+    stream = io.StringIO()
+    filtered = eval_runner._RepeatedTemperatureWarningFilter(stream)
+    filtered.write("ordinary diagnostic\\n")
+    filtered.write(warning + " duplicate\\n")
+    filtered.write("partial diagnostic")
+    filtered.flush()
+    assert stream.getvalue() == "ordinary diagnostic\\npartial diagnostic"
+    assert not filtered.closed
+
 
 def test_run_live_records_models_hashes_usage_and_a_per_case_run_list(env):
     dataset, cases = _dataset("fab-no-financials", "chk-clean-control")

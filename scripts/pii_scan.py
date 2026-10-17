@@ -159,7 +159,7 @@ if __name__ == "__main__":
         with open(args.path, encoding="utf-8") as f:
             content = f.read()
         findings = scan_for_likely_real_data(content)
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         sys.exit(f"error: {exc}")
 
     print(json.dumps({"findings": findings}, indent=2))

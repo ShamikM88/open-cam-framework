@@ -144,6 +144,12 @@ def test_pii_scan_reports_findings_as_json(cli):
     assert findings, "an email address and a currency figure must be reported"
 
 
+def test_pii_scan_on_a_file_that_is_not_utf8_is_one_error_line(cli):
+    binary = cli.workdir / "binary.md"
+    binary.write_bytes(b"\xff\xfe not text")
+    _assert_a_clean_state_error(cli("pii_scan", binary), "codec can't decode")
+
+
 def test_pii_scan_on_a_missing_file_fails(cli):
     result = cli("pii_scan", "no-such-file.md")
     _assert_a_clean_state_error(result, "no-such-file.md")

@@ -26,6 +26,7 @@ so in its Related line) when a later decision supersedes it.
 - [D13. Mutation testing and coverage are diagnostics and floors, not a scoring game](#d13-mutation-testing-and-coverage-are-diagnostics-and-floors-not-a-scoring-game)
 - [D14. The test-count badge is checked by CI and never corrected by it](#d14-the-test-count-badge-is-checked-by-ci-and-never-corrected-by-it)
 - [D15. Skills are interactive aids and never input to the Maker or the Checker](#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker)
+- [D16. Deprecated sampling overrides are omitted from model requests](#d16-deprecated-sampling-overrides-are-omitted-from-model-requests)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -245,3 +246,11 @@ so in its Related line) when a later decision supersedes it.
   interactive Reviewer is a fresh sub-agent that reads files, not the conversation (D1's update). See
   [Skill design](skill-design.md).
 - **Related.** #196 (the initiative), #203 (`annual-review` needs new primitives), #204 (the interactive Checker's context, settled in D1's update).
+
+## D16. Deprecated sampling overrides are omitted from model requests
+
+- **Context.** The shipped headless models are Claude Sonnet 5 and Opus 5. Anthropic's migration guidance says non-default `temperature`, `top_p` and `top_k` values return HTTP 400 on these model generations; the Python SDK no longer exposes those parameters as named request arguments.
+- **Choice.** The headless Maker–Checker request builder omits temperature. The legacy `maker_temperature` and `checker_temperature` config keys are retired; if either is still present in a fork's settings, startup warns that the key is ignored. Prompting, not sampling overrides, is the supported way to guide these models.
+- **Why.** A documented option must not cause every configured model call to fail at request time, and the code must not pass unsupported sampling controls through an escape hatch that avoids the SDK's type checks.
+- **Consequences.** Remove the retired keys from forked settings files. Their presence no longer changes request behavior; the warning makes the stale configuration visible. The change does not guarantee deterministic output, and any prompt change remains subject to the project's normal evaluation discipline.
+- **Related.** #274; [Anthropic model migration guidance](https://platform.claude.com/docs/en/about-claude/models/migration-guide).

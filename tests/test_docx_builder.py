@@ -1,6 +1,7 @@
 import struct
 import zlib
 
+import pytest
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
@@ -52,6 +53,28 @@ def test_plain_paragraph(tmp_path):
     assert doc.paragraphs[0].text == "Just a sentence."
 
 
+def test_xml_invalid_controls_are_replaced_in_prose_tables_and_link_targets(tmp_path, capsys):
+    markdown = (
+        "Revenue\x0c grew.\n\n"
+        "| Metric | Value |\n"
+        "| --- | --- |\n"
+        "| Loss\x00 marker | 1.5x |\n\n"
+        "See [source](https://synthetic.invalid/path\x0b).\n"
+    )
+    doc = _build(tmp_path, markdown)
+
+    assert doc.paragraphs[0].text == "Revenue\uFFFD grew."
+    assert [cell.text for cell in doc.tables[0].rows[1].cells] == ["Loss\uFFFD marker", "1.5x"]
+    rel_targets = [
+        rel.target_ref for rel in doc.part.rels.values()
+        if rel.reltype.endswith("/hyperlink")
+    ]
+    assert len(rel_targets) == 1
+    assert "\uFFFD" in rel_targets[0]
+    warning = capsys.readouterr().err
+    assert "Replaced 3 XML-invalid character(s)" in warning
+
+
 def test_blank_lines_are_skipped(tmp_path):
     doc = _build(tmp_path, "First.\n\n\nSecond.\n")
     assert [p.text for p in doc.paragraphs] == ["First.", "Second."]
@@ -100,17 +123,24 @@ def test_content_after_table_continues_as_a_paragraph(tmp_path):
     assert doc.paragraphs[-1].text == "After the table."
 
 
-def test_ragged_table_rows_do_not_crash(tmp_path):
+def test_ragged_table_rows_preserve_extra_cells_and_warn(tmp_path, capsys):
     markdown = (
         "| A | B |\n"
         "| --- | --- |\n"
         "| 1 |\n"          # missing a column -> padded with a blank cell
-        "| 2 | 3 | 4 |\n"  # extra column -> silently dropped
+        "| 2 | 3 | 4 |\n"  # extra column -> preserved by widening the table
     )
     doc = _build(tmp_path, markdown)
     table = doc.tables[0]
-    assert [c.text for c in table.rows[1].cells] == ["1", ""]
-    assert [c.text for c in table.rows[2].cells] == ["2", "3"]
+    assert len(table.columns) == 3
+    assert [c.text for c in table.rows[1].cells] == ["1", "", ""]
+    assert [c.text for c in table.rows[2].cells] == ["2", "3", "4"]
+    assert "body row 2 has 3 cells but its header has 2" in capsys.readouterr().err
+
+
+def test_escaped_pipe_stays_inside_one_table_cell(tmp_path):
+    doc = _build(tmp_path, "| Metric | Value |\n| --- | --- |\n| A \\| B split | 1.5x |\n")
+    assert [cell.text for cell in doc.tables[0].rows[1].cells] == ["A | B split", "1.5x"]
 
 
 def test_multiple_tables_in_one_document(tmp_path):
@@ -430,6 +460,27 @@ def test_multiple_links_in_one_paragraph(tmp_path):
     paragraph = doc.paragraphs[0]
     assert paragraph.text == "See A and B."
     assert _hyperlink_targets(doc, paragraph) == ["https://example.com/a", "https://example.com/b"]
+
+
+def test_mailto_link_renders_as_a_real_hyperlink(tmp_path):
+    doc = _build(tmp_path, "Contact [the team](mailto:credit@example.invalid).\n")
+    assert _hyperlink_targets(doc, doc.paragraphs[0]) == ["mailto:credit@example.invalid"]
+
+
+@pytest.mark.parametrize("target", [
+    "file://synthetic-host/share/extract.pdf",
+    r"\\synthetic-host\share\annex.docx",
+    "ms-word:ofe|u|https://synthetic.invalid/x.docx",
+    "javascript:synthetic.invalid",
+    "http://[::1",  # urlsplit raises ValueError for an unterminated IPv6 literal
+])
+def test_unsupported_hyperlink_targets_are_plain_text_with_warning(tmp_path, capsys, target):
+    doc = _build(tmp_path, f"See [source]({target}).\n")
+    paragraph = doc.paragraphs[0]
+
+    assert paragraph.text == f"See source ({target})."
+    assert _hyperlink_targets(doc, paragraph) == []
+    assert target in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

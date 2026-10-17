@@ -11,8 +11,10 @@ from state_manager import (
     LEGACY_SCHEMA_VERSION,
     SCHEMA_VERSION,
     SchemaVersionError,
+    StateShapeError,
     _FileLock,
     append_review_trail,
+    export_reviewer_view,
     parse_schema_version,
     read_state,
     required_steps_completed,
@@ -901,3 +903,95 @@ def test_date_discovery_matches_bracketed_names_literally(tmp_path):
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == today
     os.makedirs(os.path.join(base, "deals", "[A]cme", "Fleet_2026-02-02"))
     assert resolve_date_str("[A]cme", "Fleet", base_dir=base) == "2026-02-02"
+
+
+# ---------------------------------------------------------------------------
+# Reviewer view: derived copies for the interactive first pass, never a new record.
+# ---------------------------------------------------------------------------
+
+def test_export_reviewer_view_separates_history_without_changing_state_json(tmp_path):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+                inputs={"pd": "0.20%"}, review_verdict="REJECTED",
+                review_trail=[{"iteration": 1, "verdict": "REJECTED", "notes": "synthetic finding",
+                               "timestamp": "2026-01-15T10:00:00"}])
+    source_path = state_path("Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base)
+    with open(source_path, "rb") as f:
+        source_before = f.read()
+
+    paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+
+    with open(paths["state_for_review"], encoding="utf-8") as f:
+        record = json.load(f)
+    with open(paths["review_trail"], encoding="utf-8") as f:
+        trail = json.load(f)
+    assert record["inputs"] == {"pd": "0.20%"}
+    assert "review_trail" not in record and "review_verdict" not in record
+    assert trail == [{"iteration": 1, "verdict": "REJECTED", "notes": "synthetic finding",
+                      "timestamp": "2026-01-15T10:00:00"}]
+    with open(source_path, "rb") as f:
+        assert f.read() == source_before
+
+
+def test_export_reviewer_view_writes_an_empty_list_when_no_trail_exists(tmp_path):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+                deal_type="asset_finance")
+    paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+    with open(paths["state_for_review"], encoding="utf-8") as f:
+        record = json.load(f)
+    with open(paths["review_trail"], encoding="utf-8") as f:
+        trail = json.load(f)
+    assert record["deal_type"] == "asset_finance"
+    assert "review_trail" not in record and "review_verdict" not in record
+    assert trail == []
+
+
+def test_export_reviewer_view_overwrites_both_derived_files_on_each_run(tmp_path):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+                review_verdict="REJECTED",
+                review_trail=[{"iteration": 1, "verdict": "REJECTED", "notes": "first",
+                               "timestamp": "2026-01-15T10:00:00"}])
+    first_paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+    write_state("Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+                review_verdict="APPROVED",
+                review_trail=[{"iteration": 1, "verdict": "APPROVED", "notes": None,
+                               "timestamp": "2026-01-15T11:00:00"}], note="updated")
+    second_paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+    assert second_paths == first_paths
+    with open(second_paths["state_for_review"], encoding="utf-8") as f:
+        record = json.load(f)
+    with open(second_paths["review_trail"], encoding="utf-8") as f:
+        trail = json.load(f)
+    assert record["note"] == "updated"
+    assert "review_verdict" not in record and "review_trail" not in record
+    assert trail[0]["verdict"] == "APPROVED"
+
+
+def test_export_reviewer_view_rejects_invalid_state_without_writing(tmp_path):
+    base = str(tmp_path)
+    path, before = _write_raw_state(base, SCHEMA_VERSION, review_trail="not-a-list")
+    with pytest.raises(StateShapeError, match="review_trail"):
+        export_reviewer_view("Acme Corp", "Fleet Loan", base_dir=base)
+    with open(path, "rb") as f:
+        assert f.read() == before
+    assert not os.path.exists(os.path.join(os.path.dirname(path), "review_view"))
+
+
+@pytest.mark.parametrize("version", ["9.9.9", "v1.1.0", None])
+def test_export_reviewer_view_refuses_newer_or_malformed_schema_without_writing(tmp_path, version):
+    base = str(tmp_path)
+    path, before = _write_raw_state(base, version)
+    with pytest.raises(SchemaVersionError):
+        export_reviewer_view("Acme Corp", "Fleet Loan", base_dir=base)
+    with open(path, "rb") as f:
+        assert f.read() == before
+    assert not os.path.exists(os.path.join(os.path.dirname(path), "review_view"))
+
+
+def test_export_reviewer_view_rejects_missing_state_without_creating_deal_folder(tmp_path):
+    base = str(tmp_path)
+    with pytest.raises(StateShapeError, match="no state.json"):
+        export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+    assert not os.path.exists(os.path.join(base, "deals"))

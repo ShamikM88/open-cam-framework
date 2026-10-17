@@ -15,10 +15,15 @@ $ARGUMENTS
 
 ## State: read
 
-Glob `deals/<company>/<proposal>_*/state.json` (there should be at most one, regardless of
-date). If found, read it and treat every figure already recorded there as the source of truth —
-never re-derive a number from a summarized/compacted conversation when state.json already has
-it. If none exists, this is the first step run for this deal.
+Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files,
+newest-modified first, which is not the same as latest by date; if the list reaches 100 files (the tool also flags
+truncation) it may be incomplete: say that the latest dated folder could not be established, and stop. Otherwise consider
+only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
+two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
+latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
+rule). Read its `state.json` and note the folder.
+If found, treat every figure already recorded there as the source of truth — never re-derive a number from a summarized/compacted conversation when state.json already has it.
+If none exists, this is the first step run for this deal.
 
 ### Check for a persisted convention
 
@@ -223,7 +228,7 @@ this deal's `state.json` — nothing left to write for those fields. Just make s
 **Analyst-supplied mode:** update this deal's state file with this step's results yourself
 (merge with whatever you read above — never drop a field another step already recorded):
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
-  otherwise write back to the file you found.
+  otherwise write back to that same file.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), and a `financials` object
   keyed by period (`"FY-2"`, `"FY-1"`, `"FY-Current"` — whichever periods you were given), each
   holding exactly the subtotals the analyst's own template supplied — **use these exact field

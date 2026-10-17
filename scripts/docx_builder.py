@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+from urllib.parse import urlsplit
 
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -17,6 +18,7 @@ FENCE_OPEN_RE = re.compile(r"^\s*```(\S*)")
 IMAGE_RE = re.compile(r"^\s*!\[([^\]]*)\]\((.+?)\)\s*$")
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*://")
+ALLOWED_HYPERLINK_SCHEMES = {"http", "https", "mailto"}
 HEADING_RE = re.compile(r"^(#{1,6}) ")
 BULLET_RE = re.compile(r"^- ")
 NUMBERED_RE = re.compile(r"^\d+\.\s")
@@ -44,13 +46,29 @@ def _is_table_row(line):
 
 
 def _split_row(line):
-    """Split a markdown table row into its cell strings, dropping the outer pipes."""
+    """Split a Markdown table row, treating an escaped pipe as cell content."""
     inner = line.strip()
     if inner.startswith("|"):
         inner = inner[1:]
     if inner.endswith("|"):
         inner = inner[:-1]
-    return [cell.strip() for cell in inner.split("|")]
+
+    cells, current = [], []
+    i = 0
+    while i < len(inner):
+        char = inner[i]
+        if char == "\\" and i + 1 < len(inner) and inner[i + 1] == "|":
+            current.append("|")
+            i += 2
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+        i += 1
+    cells.append("".join(current).strip())
+    return cells
 
 
 def _is_separator_row(cells):
@@ -127,7 +145,19 @@ def _add_inline_runs(paragraph, text, base_bold=False):
             run.bold = base_bold
             run.font.name = "Consolas"
         else:
-            _add_hyperlink_run(paragraph, link_url, link_text, bold=base_bold)
+            try:
+                scheme = urlsplit(link_url.strip()).scheme.lower()
+            except ValueError:
+                scheme = ""
+            if scheme in ALLOWED_HYPERLINK_SCHEMES:
+                _add_hyperlink_run(paragraph, link_url, link_text, bold=base_bold)
+            else:
+                print(
+                    f"[docx_builder] Unsupported hyperlink target rendered as text: {link_url}",
+                    file=sys.stderr,
+                )
+                run = paragraph.add_run(f"{link_text} ({link_url})")
+                run.bold = base_bold
         pos = match.end()
     if pos < len(text):
         run = paragraph.add_run(text[pos:])
@@ -145,16 +175,26 @@ def _set_cell_text(cell, text, alignment, bold=False):
 
 
 def _add_table(doc, header_cells, alignments, body_rows):
-    table = doc.add_table(rows=1, cols=len(header_cells))
+    column_count = max([len(header_cells), *(len(row) for row in body_rows)])
+    for row_number, row_cells in enumerate(body_rows, start=1):
+        if len(row_cells) > len(header_cells):
+            print(
+                f"[docx_builder] Table body row {row_number} has {len(row_cells)} cells "
+                f"but its header has {len(header_cells)}; preserving all cells by widening the table.",
+                file=sys.stderr,
+            )
+
+    table = doc.add_table(rows=1, cols=column_count)
     table.style = "Table Grid"
     table.autofit = True
 
     for idx, text in enumerate(header_cells):
-        _set_cell_text(table.rows[0].cells[idx], text, alignments[idx], bold=True)
+        alignment = alignments[idx] if idx < len(alignments) else "left"
+        _set_cell_text(table.rows[0].cells[idx], text, alignment, bold=True)
 
     for row_cells in body_rows:
         row = table.add_row()
-        for idx in range(len(row.cells)):
+        for idx in range(column_count):
             text = row_cells[idx] if idx < len(row_cells) else ""
             alignment = alignments[idx] if idx < len(alignments) else "left"
             _set_cell_text(row.cells[idx], text, alignment)
@@ -274,6 +314,31 @@ def _is_block_boundary(line):
     )
 
 
+def _sanitize_xml_invalid_characters(text):
+    """Replace characters forbidden by XML 1.0 and report one aggregate warning."""
+    safe = []
+    replaced = 0
+    for char in text:
+        codepoint = ord(char)
+        allowed = (
+            codepoint in (0x09, 0x0A, 0x0D)
+            or 0x20 <= codepoint <= 0xD7FF
+            or 0xE000 <= codepoint <= 0xFFFD
+            or 0x10000 <= codepoint <= 0x10FFFF
+        )
+        if allowed:
+            safe.append(char)
+        else:
+            safe.append("\uFFFD")
+            replaced += 1
+    if replaced:
+        print(
+            f"[docx_builder] Replaced {replaced} XML-invalid character(s) with U+FFFD before export.",
+            file=sys.stderr,
+        )
+    return "".join(safe)
+
+
 def export_to_docx(markdown_text, output_path):
     """Render `markdown_text` as a .docx at `output_path`.
 
@@ -289,6 +354,7 @@ def export_to_docx(markdown_text, output_path):
     bullet list or genuinely blank-line-separated paragraphs for anything
     meant to read as distinct lines/fields.
     """
+    markdown_text = _sanitize_xml_invalid_characters(markdown_text)
     doc = docx.Document()
     lines = markdown_text.split("\n")
     i, n = 0, len(lines)

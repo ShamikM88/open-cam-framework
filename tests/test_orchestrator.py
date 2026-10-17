@@ -48,6 +48,7 @@ from orchestrator import (
     run_pipeline,
 )
 from state_manager import StateError, read_state, state_path, write_state
+from response_utils import EmptyModelResponseError
 
 
 class MockClient:
@@ -68,8 +69,10 @@ class MockClient:
         self.calls.append(kwargs)
         if not self.responses:
             raise AssertionError("MockClient received more calls than responses were queued")
-        text = self.responses.pop(0)
-        return SimpleNamespace(content=[SimpleNamespace(text=text)])
+        response = self.responses.pop(0)
+        if hasattr(response, "content"):
+            return response
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=response)])
 
 
 # config/settings.json ships checked into the real repo with maker_model
@@ -192,6 +195,42 @@ def test_run_pipeline_uses_a_different_model_for_maker_and_checker_calls(project
 
     assert client.calls[0]["model"] == "claude-maker-model"   # [1/3] draft
     assert client.calls[1]["model"] == "claude-checker-model"  # [2/3] audit
+
+
+
+def test_run_pipeline_extracts_visible_text_after_a_thinking_block(project_root):
+    response = SimpleNamespace(content=[
+        SimpleNamespace(type="thinking", thinking="hidden"),
+        SimpleNamespace(type="text", text=_compliant_draft()),
+    ])
+    client = MockClient([response, _approved_json()])
+
+    _run_once(client)
+
+    # Resolve the actual generated dated folder rather than assuming today's date.
+    draft_files = list((project_root / "deals" / "Acme Corp").glob("Fleet Loan_*/draft_v1.md"))
+    assert len(draft_files) == 1
+    assert "# Draft CAM" in draft_files[0].read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("empty_response", [
+    SimpleNamespace(content=[SimpleNamespace(type="thinking", thinking="hidden only")]),
+    SimpleNamespace(content=[]),
+])
+def test_run_pipeline_rejects_no_text_maker_response_without_recording_draft_or_verdict(
+    project_root, empty_response,
+):
+    client = MockClient([empty_response])
+
+    with pytest.raises(EmptyModelResponseError, match="Maker draft response contained no text block"):
+        _run_once(client)
+
+    deal_dir = project_root / "deals" / "Acme Corp"
+    assert not list(deal_dir.glob("Fleet Loan_*/draft_v*.md"))
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert "review_verdict" not in state
+    assert "draft" not in state.get("steps_completed", [])
+    assert client.call_count == 1
 
 
 # ---------------------------------------------------------------------------

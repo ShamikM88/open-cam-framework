@@ -47,7 +47,7 @@ CONCLUSION_RE = re.compile(
     r"|\b(?:overall\s+)?(?:rating|grade|score)\s*[:=]|\bcleared\b|\blend/decline\b")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
-MANIFEST_COUNT_RE = re.compile(r"\bmanifest:\s*(\d+)\s+entries?\b", re.IGNORECASE)
+MANIFEST_COUNT_RE = re.compile(r"\bmanifest:\s*(\d+)\s+entr(?:y|ies)\b", re.IGNORECASE)
 
 
 def record_text(deal_folder):

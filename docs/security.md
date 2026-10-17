@@ -4,6 +4,8 @@
 
 The operating rule for adding a confidential location, and the rule for promoting a local template upstream, stay in `CLAUDE.md` under "Confidentiality rule for new features"; CI's security job, the advisory-ignore procedure and the workflow rules are in [testing and CI](testing.md). Credentials: [configuration](configuration.md#credentials).
 
+For vulnerability reports or accidental exposure, follow the [security policy](../SECURITY.md). Do not open a public issue or pull request containing vulnerability details, credentials, real borrower information or other confidential material. The private-reporting control is a maintainer-managed GitHub setting; the policy explains the route and what to do if its reporting control is not available.
+
 ## Where the protection comes from
 
 Security here is a few layers, and they are not equally visible. Know which ones are files you can review and which are settings you have to check.

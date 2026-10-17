@@ -23,10 +23,7 @@ import json
 import sys
 from pathlib import Path
 
-try:
-    import tomllib
-except ModuleNotFoundError:   # pragma: no cover - Python 3.10 only; CI and the dev environment run 3.11+
-    import tomli as tomllib
+import tomllib
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "pyproject.toml"
 REQUIRED_KEYS = ("overall", "critical", "critical_modules")

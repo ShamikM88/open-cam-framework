@@ -144,9 +144,15 @@ def test_pii_scan_reports_findings_as_json(cli):
     assert findings, "an email address and a currency figure must be reported"
 
 
+def test_pii_scan_on_a_file_that_is_not_utf8_is_one_error_line(cli):
+    binary = cli.workdir / "binary.md"
+    binary.write_bytes(b"\xff\xfe not text")
+    _assert_a_clean_state_error(cli("pii_scan", binary), "codec can't decode")
+
+
 def test_pii_scan_on_a_missing_file_fails(cli):
     result = cli("pii_scan", "no-such-file.md")
-    assert result.returncode != 0 and "no-such-file.md" in result.stderr
+    _assert_a_clean_state_error(result, "no-such-file.md")
 
 
 
@@ -248,7 +254,7 @@ def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     bad_date = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", draft, "--date-str", "foo")
     assert bad_date.returncode == 2 and "YYYY-MM-DD" in bad_date.stderr
     missing = cli("deal_export", "--company", "A", "--proposal", "P", "--draft", "nope.md")
-    assert missing.returncode != 0 and "nope.md" in missing.stderr
+    _assert_a_clean_state_error(missing, "nope.md")
     assert not (cli.workdir / "deals").exists()  # nothing was created for either failure
 
 
@@ -310,9 +316,9 @@ def test_research_export_override_without_a_reason_fails_cleanly(cli):
     assert not (cli.workdir / "deals").exists()
 
 
-def test_research_export_on_a_missing_brief_fails(cli):
+def test_research_export_on_a_missing_brief_fails_cleanly(cli):
     result = cli("research_export", "--company", "A", "--proposal", "P", "--brief", "nope.md")
-    assert result.returncode != 0 and "nope.md" in result.stderr
+    _assert_a_clean_state_error(result, "nope.md")
 
 
 def test_spreading_check_recomputes_and_checkpoints_the_figures(cli):
@@ -337,9 +343,61 @@ def test_spreading_check_no_update_financials_source_leaves_the_flag_alone(cli):
     assert json.loads(result.stdout)["financials_source"] is None
 
 
-def test_spreading_check_on_a_missing_input_fails(cli):
+def test_spreading_check_on_a_missing_input_fails_cleanly(cli):
     result = cli("spreading_check", "--company", "A", "--proposal", "P", "--financials", "nope.json")
-    assert result.returncode != 0 and "nope.json" in result.stderr
+    _assert_a_clean_state_error(result, "nope.json")
+
+
+@pytest.mark.parametrize("name", ["a/b", "..", "a\\b"])
+def test_deal_export_reports_unsafe_names_as_one_error_line(cli, name):
+    draft = cli.workdir / "draft.md"
+    draft.write_text("# Draft\n", encoding="utf-8")
+    for flag in ("--company", "--proposal"):
+        args = ["--company", "Acme", "--proposal", "Loan", "--draft", draft]
+        args[args.index(flag) + 1] = name
+        result = cli("deal_export", *args)
+        _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_research_export_reports_unsafe_names_as_one_error_line(cli):
+    brief = cli.workdir / "brief.md"
+    # A populated Sources section, so the exporter's sources check passes and the unsafe name is what fails.
+    brief.write_text("# Research brief\n\n## Sources\n\n- Synthetic source: https://example.invalid/a\n", encoding="utf-8")
+    result = cli("research_export", "--company", "a/b", "--proposal", "Brief", "--brief", brief)
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_policy_check_reports_missing_draft_as_one_error_line(cli):
+    result = cli("policy_check", "--company", "Acme", "--proposal", "Loan", "--draft", "nope.md")
+    _assert_a_clean_state_error(result, "nope.md")
+
+
+def test_policy_check_reports_unsafe_names_as_one_error_line(cli):
+    result = cli("policy_check", "--company", "a/b", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_state_manager_reports_unsafe_names_as_one_error_line(cli):
+    for flag, name in (("--company", "a/b"), ("--proposal", "a/b")):
+        result = cli("state_manager", "--check-steps", "--company", "Acme", "--proposal", "Loan",
+                     "--required", "spread", flag, name)
+        _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_conventions_reports_unsafe_company_as_one_error_line(cli):
+    result = cli("conventions", "--company", "a/b", "--read")
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_spreading_check_reports_unsafe_names_as_one_error_line(cli):
+    result = cli("spreading_check", "--company", "a/b", "--proposal", "Loan")
+    _assert_a_clean_state_error(result, "isn't safe to use as a filesystem path component")
+    assert not (cli.workdir / "deals").exists()
 
 
 def _staged_transcription(cli, revenue="1,000"):
@@ -615,6 +673,36 @@ def test_orchestrator_on_a_missing_input_file_fails_before_starting(tmp_path):
         cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert result.returncode != 0 and "nope.json" in result.stderr
     assert not (work / "deals").exists()
+
+
+@pytest.mark.parametrize(("flag", "content"), [
+    ("--financials", b"{not json"),
+    ("--spread", b"\xff\xfe not text"),
+    ("--collateral", b"{not json"),
+    ("--stress-assumptions", b"\xff\xfe not text"),
+])
+def test_orchestrator_reports_an_unusable_input_file_as_one_error_line(tmp_path, flag, content):
+    work = tmp_path / "orchestrator-cwd"
+    work.mkdir()
+    (work / "input.json").write_bytes(content)
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "A", "--proposal", "P", flag, "input.json"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr.startswith("error: ") and len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (work / "deals").exists()
+
+
+def test_orchestrator_on_a_missing_input_file_is_one_error_line(tmp_path):
+    work = tmp_path / "orchestrator-cwd"
+    work.mkdir()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "A", "--proposal", "P",
+         "--collateral", "nope.json"],
+        cwd=work, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120)
+    assert result.returncode == 1 and result.stderr.startswith("error: ") and "nope.json" in result.stderr
+    assert "Traceback" not in result.stderr and len(result.stderr.strip().splitlines()) == 1
 
 
 # ---------------------------------------------------------------------------

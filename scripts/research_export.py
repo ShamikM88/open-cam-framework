@@ -224,7 +224,7 @@ def main(argv=None):
             analyst_override_no_sources=args.analyst_override_no_sources,
             analyst_release_unapproved=args.analyst_release_unapproved,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         sys.exit(f"error: {exc}")
     print(f"Done! Research brief exported to {output_path}")
 

@@ -625,8 +625,8 @@ if __name__ == "__main__":
         required = [s.strip() for s in args.required.split(",") if s.strip()]
         try:
             state = read_state(args.company, args.proposal, keys=("steps_completed",)) or {}
-        except StateError as exc:
-            sys.exit(f"error: {exc}")    # a state it cannot read is an error, not a "missing steps" result
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")    # unreadable state or unsafe names are errors, not a "missing steps" result
         missing = required_steps_completed(state.get("steps_completed") or [], required)
         print(json.dumps({"missing_steps": missing, "ok": len(missing) == 0}, indent=2))
     else:

@@ -631,7 +631,9 @@ def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -
                 continue
             name = raw.decode("utf-8", "surrogateescape")
             if name not in tree:
-                if _run_git(["rm", "-q", "--", name], cwd=clone).returncode != 0:
+                # :\u0028literal\u0029 disables pathspec magic, so a name that IS magic (a leading colon)
+                # is removed as the literal path it is; -- only stops option parsing.
+                if _run_git(["rm", "-q", "--", f":(literal){name}"], cwd=clone).returncode != 0:
                     raise WikiPublishError(f"removing the stale wiki file {name} failed")
         # A tracked (or stray) entry at a generated name can be a symlink, and a plain
         # open() follows it: unlink first, so every generated page is written as a fresh

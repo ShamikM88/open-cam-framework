@@ -1054,6 +1054,21 @@ class TestPublish:
         # the complete replacement: exactly the generated set, nothing stale left behind
         assert sorted(self.remote_files(remote)) == ["Home.md", "_Sidebar.md", "source.md"]
 
+    def test_a_stale_filename_that_greets_pathspec_magic_is_removed_literally(self, tmp_path):
+        remote = self.bare_remote(tmp_path)
+        # A tracked stale file whose name is itself pathspec magic (a leading colon):
+        # `git rm -- <name>` reads it as `:(top)<rest>` and matches nothing.
+        seed = tmp_path / "seed"
+        (seed / ":stale.md").write_text("stale\n", encoding="utf-8")
+        self._git(seed, "add", "-A")
+        self._git(seed, "commit", "-q", "-m", "Add a magic-named file")
+        self._git(None, "--git-dir", str(remote), "fetch", "-q", str(seed), "master:master")
+        assert ":stale.md" in self.remote_files(remote)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote) == 0
+        assert ":stale.md" not in self.remote_files(remote)
+        assert sorted(self.remote_files(remote)) == ["Home.md", "_Sidebar.md", "source.md"]
+
     def test_an_empty_wiki_repository_is_published_too(self, tmp_path):
         remote = tmp_path / "empty.git"
         self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))

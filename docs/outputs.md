@@ -78,8 +78,15 @@ returns `N/A` when its denominator is not positive, matching `state.json`'s `nul
 `Cap / Model Value`, `Non-Recovery`, `Costs`, `Collateral Value`, `CV % of Exposure` (a formula) and `Perfection
 Status`, filled from the deal's `collateral` list.
 
-For an analyst-supplied deal the raw-input cells are filled from `analyst_supplied_financials` for whichever labels
-match. When `financials_source` is `analyst-supplied`, recorded historical subtotals and ratios are also written as
+For an analyst-supplied historical basis, the historical raw-input cells are filled from
+`analyst_supplied_financials`. Forward raw inputs are selected per period: when `forecast_source` is
+`analyst-supplied`, the exporter keeps that supplied-forecast path; otherwise the forward raw lines come from
+`financials[period]["raw"]`, as recorded by `spreading_check.py`, even if `financials_source` remains
+`analyst-supplied` for the historical years. Each period uses one raw store; the exporter never blends the two
+stores within a period. This keeps computed `/project` forward columns populated without changing the deal's
+historical basis or the analyst-supplied forecast behavior.
+
+When `financials_source` is `analyst-supplied`, recorded historical subtotals and ratios are also written as
 values, not recomputed by workbook formulas from potentially incomplete raw lines; the header is labelled
 `FY-Current (analyst-supplied)`. A computed row whose figure was not recorded stays blank, while a recorded null ratio
 is `N/A`. This preserves the figures in `state.json` and avoids a formula producing a different-looking value.

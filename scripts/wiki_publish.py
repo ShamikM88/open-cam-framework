@@ -375,6 +375,13 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
         raise WikiPublishError(f"{repo!r}: --repo must look like owner/name")
     repo_url = f"https://github.com/{repo}"
     pages = discover_pages(root)
+    if "docs/README.md" not in {
+        path.relative_to(root).as_posix() for path in pages.values()
+    }:
+        raise WikiPublishError(
+            "docs/README.md: the docs index is required (Home and the sidebar "
+            "are generated from it)"
+        )
     page_names = {
         path.relative_to(root).as_posix(): name for name, path in pages.items()
     }
@@ -431,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
         write_tree(Path(args.out), tree)
         print(f"wrote {len(tree)} pages to {args.out}")
         return 0
-    except WikiPublishError as error:
+    except (WikiPublishError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
 

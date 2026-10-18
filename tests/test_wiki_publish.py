@@ -403,6 +403,14 @@ class TestValidationFailures:
         with pytest.raises(WikiPublishError, match="not valid UTF-8"):
             build_tree(tmp_path, "example/repo")
 
+    def test_a_missing_docs_index_is_an_error(self, tmp_path):
+        # Home and the sidebar both come from docs/README.md; a corpus without
+        # it must fail loudly, not crash.
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "a.md").write_text("# x\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="README"):
+            build_tree(tmp_path, "example/repo")
+
     def test_a_bad_repo_argument_is_an_error(self, tmp_path):
         (tmp_path / "docs").mkdir()
         write_index(tmp_path, rows=("source",))
@@ -527,6 +535,22 @@ class TestCli:
         assert code == 0
         assert not (out / "stale.md").exists()
         assert (out / "notes.txt").exists()
+
+    def test_a_file_system_failure_is_one_error_line(self, tmp_path, capsys):
+        # --out pointing at a regular file cannot be written to; the failure
+        # must be one error line and exit 1, not a traceback.
+        make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n",
+        })
+        blocker = tmp_path / "blocker"
+        blocker.write_text("a file, not a directory\n", encoding="utf-8")
+        code = self.run(["--repo", "example/repo", "--root", str(tmp_path),
+                         "--out", str(blocker)])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert captured.err.count("error:") == 1
+        assert "traceback" not in captured.err.lower()
 
     def test_a_validation_failure_writes_nothing_and_prints_one_error_line(self, tmp_path, capsys):
         out = tmp_path / "out"

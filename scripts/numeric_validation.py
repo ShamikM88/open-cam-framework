@@ -73,6 +73,28 @@ def validate_raw_line_items(value, field_names, path="financial inputs"):
     """
     if not isinstance(value, dict):
         return value
+
+
+def validate_period_objects(value, path="financial inputs"):
+    """Require every supplied period to be an object of raw line items.
+
+    A period with a string/list/scalar previously reached a dict update or
+    arithmetic, producing a traceback or misleading lower-level error.
+    Validate the shape before any merge or state mutation.
+    """
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise InvalidFinancialInputError(
+            f"{path} must be an object keyed by period; found {type(value).__name__}"
+        )
+    for period, line_items in value.items():
+        if not isinstance(line_items, dict):
+            raise InvalidFinancialInputError(
+                f"{path}: period {period!r} must be an object of line items; "
+                f"found {type(line_items).__name__}"
+            )
+    return value
     known_fields = set(field_names)
     for period, raw in value.items():
         if not isinstance(raw, dict):

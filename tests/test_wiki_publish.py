@@ -1077,6 +1077,24 @@ class TestPublish:
         assert ":stale.md" not in self.remote_files(remote)
         assert sorted(self.remote_files(remote)) == ["Home.md", "_Sidebar.md", "source.md"]
 
+    @pytest.mark.skipif(sys.platform.startswith("win32"),
+                        reason="a colon is not a legal Windows filename, so the docs/ corpus "
+                               "this test needs cannot exist there; the publish itself is "
+                               "covered on Windows by the other tests")
+    def test_a_generated_page_greeting_pathspec_magic_is_staged_literally(self, tmp_path):
+        # The mirror of the removal case: a docs page whose own generated name is
+        # pathspec magic (a leading colon -- a legal POSIX filename). `git add -- <name>`
+        # would read it as `:(top)<rest>` and stage nothing, so the publish must stage
+        # it literally. Shown red before the fix.
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        (tmp_path / "docs" / ":magic.md").write_text("# M\n", encoding="utf-8")
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n| Document | Contents |\n| :--- | :--- |\n"
+            "| [source.md](source.md) | x |\n| [:magic.md](:magic.md) | x |\n", encoding="utf-8")
+        assert self.publish(tmp_path, remote) == 0
+        assert ":magic.md" in self.remote_files(remote)
+
     def test_an_empty_wiki_repository_is_published_too(self, tmp_path):
         remote = tmp_path / "empty.git"
         self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))

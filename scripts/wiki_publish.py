@@ -644,7 +644,9 @@ def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -
                 target.unlink()
         write_tree(clone, tree)
         for name in sorted(tree):
-            if _run_git(["add", "--", name], cwd=clone).returncode != 0:
+            # :\u0028literal\u0029 here too: a generated name that IS pathspec magic (a docs page
+            # whose filename starts with a colon -- legal on POSIX) must stage literally.
+            if _run_git(["add", "--", f":(literal){name}"], cwd=clone).returncode != 0:
                 raise WikiPublishError(f"staging the generated page {name} failed")
         has_head = _run_git(["rev-parse", "--verify", "-q", "HEAD"], cwd=clone).returncode == 0
         if has_head and _run_git(["diff", "--cached", "--quiet", "HEAD"], cwd=clone).returncode == 0:

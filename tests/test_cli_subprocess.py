@@ -1602,6 +1602,6 @@ def test_supplied_forecast_names_a_period_whose_value_is_not_an_object_of_line_i
     assert result.stderr.startswith("error:")
     assert len(result.stderr.strip().splitlines()) == 1
     assert "forecast.FY+1" in result.stderr
-    assert "must be an object" in result.stderr
+    assert "must be an object of line items" in result.stderr
     assert "Traceback" not in result.stderr
     assert saved_path.read_bytes() == before

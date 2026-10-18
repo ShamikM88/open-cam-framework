@@ -686,7 +686,7 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
     assert state["financials_source"] == "analyst-supplied"
     assert state.get("forecast_source") != "analyst-supplied"
     expected_forward_raw = state["financials"]["FY+1"]["raw"]
-    expected_downside_raw = state["downside_case"]["financials"]["FY+1"]["raw"]
+    downside_financials = state["downside_case"]["financials"]
 
     output_dir = export_deal(
         "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic Co CAM",
@@ -699,20 +699,31 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
     assert ws.cell(row=1, column=4).value == "FY-Current (analyst-supplied)"
     assert ws.cell(row=1, column=5).value == "FY+1"
     assert ws.cell(row=1, column=8).value == "FY+1 (Downside)"
+    assert ws.cell(row=1, column=9).value == "FY+2 (Downside)"
+    assert ws.cell(row=1, column=10).value == "FY+3 (Downside)"
     assert ws.cell(row=label_to_row["Revenue"], column=4).value == 5000
     assert ws.cell(row=label_to_row["EBITDA"], column=4).value == 1300
-    from spreading_builder import FIELD_LABELS
+    from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS
 
-    # Every recorded raw input with a workbook row must survive in its own
-    # base-case period column; the downside source/column is independently pinned.
+    # Every recorded raw input must survive in its own base-case period column.
     assert set(expected_forward_raw).issubset(FIELD_LABELS)
     for raw_key, expected in expected_forward_raw.items():
         row_label = FIELD_LABELS[raw_key]
         assert ws.cell(row=label_to_row[row_label], column=5).value == expected, row_label
-    for raw_key, expected in expected_downside_raw.items():
-        if raw_key in FIELD_LABELS:
-            row_label = FIELD_LABELS[raw_key]
-            assert ws.cell(row=label_to_row[row_label], column=8).value == expected, row_label
+
+    # The source-selection fix must not change any downside raw cells: compare
+    # every period already recorded in state.json, not only FY+1.
+    assert "FY+1" in downside_financials
+    for offset, period in enumerate(FORWARD_PERIOD_KEYS):
+        period_data = downside_financials.get(period)
+        if not isinstance(period_data, dict):
+            continue
+        for raw_key, expected in period_data.get("raw", {}).items():
+            if raw_key in FIELD_LABELS:
+                row_label = FIELD_LABELS[raw_key]
+                assert ws.cell(row=label_to_row[row_label], column=8 + offset).value == expected, (
+                    period, row_label
+                )
 
 
 

@@ -569,6 +569,25 @@ def _fresh_work_dir(root: Path) -> Path:
     return work
 
 
+def _push_failure_message(stderr: str) -> str:
+    """One sanitized error line for a failed push, classified from git's captured
+    stderr (which is read for the classification and never echoed): an authorisation
+    rejection is the documented maintainer decision; a transport problem is retried;
+    anything else stays inconclusive rather than speculating about the token."""
+    detail = stderr or ""
+    if re.search(r"(?i)authentication failed|forbidden|permission|denied|\b403\b", detail):
+        return (
+            "pushing to the wiki failed with an authorisation rejection: the repository token "
+            "cannot write to the wiki (a maintainer decision; never a fallback token)"
+        )
+    if re.search(r"(?i)could not resolve|connection|ssl|timed out|network", detail):
+        return (
+            "pushing to the wiki failed with a transport error "
+            "(re-run the workflow; publishing is idempotent)"
+        )
+    return "pushing to the wiki failed (cause not identified; inconclusive, not evidence about the token)"
+
+
 def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -> None:
     """Generate the wiki tree and publish it to the repository's wiki.
 
@@ -634,10 +653,7 @@ def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -
             raise WikiPublishError("committing the generated wiki pages failed")
         push = _run_git(["push", "--quiet", "origin", f"HEAD:refs/heads/{branch}"], cwd=clone, token=token)
         if push.returncode != 0:
-            raise WikiPublishError(
-                "pushing to the wiki failed (the common cause is authorisation: the repository "
-                "token cannot write to the wiki)"
-            )
+            raise WikiPublishError(_push_failure_message(push.stderr))
         print(f"published {len(tree)} pages to {repo} wiki (branch {branch})")
     finally:
         shutil.rmtree(work, ignore_errors=True)

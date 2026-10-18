@@ -652,16 +652,18 @@ class TestCli:
                       "--check", "--out", str(tmp_path / "out")])
         assert raised.value.code == 2
 
-    def test_publish_requires_source_sha(self, tmp_path):
+    def test_publish_requires_source_sha(self, tmp_path, capsys):
         with pytest.raises(SystemExit) as raised:
             self.run(["--repo", "example/repo", "--root", str(tmp_path), "--publish"])
         assert raised.value.code == 2
+        assert "--publish requires --source-sha" in capsys.readouterr().err
 
-    def test_remote_requires_publish(self, tmp_path):
+    def test_remote_requires_publish(self, tmp_path, capsys):
         with pytest.raises(SystemExit) as raised:
             self.run(["--repo", "example/repo", "--root", str(tmp_path),
                       "--check", "--remote", str(tmp_path / "r.git")])
         assert raised.value.code == 2
+        assert "--remote is only valid with --publish" in capsys.readouterr().err
 
     def test_repo_is_required(self, tmp_path):
         with pytest.raises(SystemExit) as raised:
@@ -894,22 +896,87 @@ class TestPublish:
         assert kwargs["capture_output"] is True  # git's own output is captured, never passed through
         assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
 
+    def test_the_token_authenticates_both_the_clone_and_the_push(self, tmp_path, monkeypatch, capsys):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.setenv("GITHUB_TOKEN", "ghs_header_test_token")
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            index = 0
+            while argv[index] == "-c":  # skip the -c <value> pairs before the subcommand
+                index += 2
+            calls.append((argv[index], argv))
+            if argv[index] == "symbolic-ref":
+                return subprocess.CompletedProcess(argv, 0, "master\n", "")
+            if argv[index] == "diff":
+                return subprocess.CompletedProcess(argv, 1, "", "")  # differences exist
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        monkeypatch.setattr(wiki_publish.subprocess, "run", fake_run)
+        code = wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish", "--source-sha", self.SHA1])
+        assert code == 0
+        captured = capsys.readouterr()
+        assert "ghs_header_test_token" not in captured.out + captured.err
+        header = base64.b64encode(b"x-access-token:ghs_header_test_token").decode("ascii")
+        for head, argv in calls:
+            if head in ("clone", "push"):  # both remote operations carry the header
+                assert f"http.extraheader=Authorization: Basic {header}" in argv
+        assert not any("ghs_header_test_token" in str(part) for _, argv in calls for part in argv)
+
+    @pytest.mark.parametrize("stderr,expected", [
+        ("fatal: Authentication failed for 'https://github.com/x/y.wiki.git/'", "authorisation rejection"),
+        ("remote: Permission to x/y.wiki.git denied to user", "authorisation rejection"),
+        ("fatal: unable to access 'https://github.com/x/y.wiki.git/': Could not resolve host: github.com",
+         "transport error"),
+        ("fatal: the remote end hung up unexpectedly", "cause not identified"),
+    ])
+    def test_push_failures_are_classified_without_echoing_git(self, tmp_path, monkeypatch, capsys,
+                                                              stderr, expected):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+
+        def fake_run_git(args, cwd=None, token=None):
+            index = 0
+            while args[index] == "-c":
+                index += 2
+            head = args[index]
+            if head == "push":
+                return subprocess.CompletedProcess(args, 1, "", stderr)
+            if head == "symbolic-ref":
+                return subprocess.CompletedProcess(args, 0, "master\n", "")
+            if head == "diff":
+                return subprocess.CompletedProcess(args, 1, "", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(wiki_publish, "_run_git", fake_run_git)
+        code = self.publish(tmp_path, "unused-remote")
+
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert expected in captured.err
+        assert stderr not in captured.err  # git's raw output stays out of the message
+
     def test_a_git_timeout_is_one_sanitized_error_line(self, tmp_path, capsys, monkeypatch):
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.setenv("GITHUB_TOKEN", "ghs_timeout_token")  # the real-remote path: the header is built
 
         def slow(argv, **kwargs):
             raise subprocess.TimeoutExpired(argv, 300)
 
         monkeypatch.setattr(wiki_publish.subprocess, "run", slow)
         code = wiki_publish.main([
-            "--repo", "example/repo", "--root", str(tmp_path), "--publish",
-            "--source-sha", self.SHA1, "--remote", str(tmp_path / "r.git")])
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish", "--source-sha", self.SHA1])
         assert code == 1
         captured = capsys.readouterr()
         assert len(captured.err.splitlines()) == 1
         assert captured.err.startswith("error:")
         assert "timed out" in captured.err
-        assert "ghs" not in captured.err and "extraheader" not in captured.err
+        # the command line the exception would echo carries the authentication header: neither it
+        # nor the raw token may reach the message
+        header = base64.b64encode(b"x-access-token:ghs_timeout_token").decode("ascii")
+        assert header not in captured.err and "ghs_timeout_token" not in captured.err
+        assert "extraheader" not in captured.err
 
     def test_a_work_dir_inside_the_repository_is_refused(self, tmp_path, monkeypatch, capsys):
         remote = self.bare_remote(tmp_path)

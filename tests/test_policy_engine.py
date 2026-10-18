@@ -82,6 +82,58 @@ def test_maximum_covenant_fail():
     assert covenant["headroom_pct"] == pytest.approx((3.0 - 3.2) / 3.0)
 
 
+@pytest.mark.parametrize(
+    "actual, threshold, bad_value",
+    [(87, 1.0, "actual"), (0.87, 80, "threshold")],
+    ids=["actual-written-as-percent", "threshold-written-as-percent"],
+)
+def test_percent_type_ratio_unit_mismatch_is_unresolvable(actual, threshold, bad_value):
+    state = {
+        "ratios": {"FY-Current": {"gearing": actual}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": threshold}],
+    }
+
+    result = evaluate_deal_policy(state)["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["headroom_pct"] is None
+    assert bad_value in result["reason"]
+    assert "percent" in result["reason"].lower()
+    assert "fraction" in result["reason"].lower()
+
+
+@pytest.mark.parametrize(
+    "threshold, expected",
+    [(1.0, "PASS"), (0.8, "FAIL")],
+    ids=["fraction-passes", "fraction-fails"],
+)
+def test_genuine_fractional_gearing_keeps_existing_covenant_result(threshold, expected):
+    state = {
+        "ratios": {"FY-Current": {"gearing": 0.87}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": threshold}],
+    }
+
+    result = evaluate_deal_policy(state)["covenant_results"][0]
+
+    assert result["status"] == expected
+    assert result["actual"] == 0.87
+
+
+def test_nonpositive_gearing_denominator_keeps_existing_unresolvable_reason_before_unit_check():
+    state = {
+        "ratios": {"FY-Current": {"gearing": 0.87}},
+        "financials": {"FY-Current": {"total_equity": 0}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 80}],
+    }
+
+    result = evaluate_deal_policy(state)["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert "total equity is zero" in result["reason"]
+    assert "fraction" not in result["reason"].lower()
+
+
 def test_boundary_actual_equals_threshold_is_pass_for_minimum():
     state = {"ratios": RATIOS, "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.5}]}
     covenant = evaluate_deal_policy(state)["covenant_results"][0]

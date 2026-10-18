@@ -12,7 +12,7 @@ from deal_export import (
     export_deal,
     main,
 )
-from state_manager import resolve_date_str, write_state
+from state_manager import read_state, resolve_date_str, write_state
 
 
 def _write(path, content="content"):
@@ -149,10 +149,10 @@ def test_financial_data_from_state_ignores_non_dict_period_value():
 
 
 # ---------------------------------------------------------------------------
-# _financial_data_from_state()'s financials_source branch (issue #121): an
-# analyst-supplied deal's raw figures live in their own separate
-# analyst_supplied_financials store, never blended with the
-# framework-computed path's financials[period]["raw"].
+# _financial_data_from_state()'s historical-period rule (issue #121): raw
+# inputs for analyst-supplied historical periods come from their own
+# analyst_supplied_financials store. Issue #249 adds the separate per-period
+# rule for framework-computed forward periods in the same deal.
 # ---------------------------------------------------------------------------
 
 def test_financial_data_from_state_reads_analyst_supplied_store_when_flagged():
@@ -650,3 +650,115 @@ def test_bare_export_still_uses_auto_discovered_state(tmp_path):
     assert folder_date != "2026-01-10"
     assert 9999 in _exported_revenue(base, folder_date)
     assert 1000 not in _exported_revenue(base, folder_date)
+
+
+
+def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_path, monkeypatch):
+    """A computed /project forecast must use its own raw store even when history is analyst-supplied (#249)."""
+    from spreading_check import main as spreading_check_main
+
+    base = str(tmp_path)
+    date_str = "2026-10-04"
+    monkeypatch.chdir(base)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+    write_state(
+        "Synthetic Co", "Credit Facility", date_str=date_str, base_dir=base,
+        financials_source="analyst-supplied",
+        analyst_supplied_financials={
+            "FY-Current": {"revenue": 5000, "cost_of_sales": 3300, "admin_expenses": 1000},
+        },
+        financials={
+            "FY-Current": {"gross_profit": 1700, "ebitda": 1300, "total_equity": 2300},
+        },
+        ratios={"FY-Current": {"gross_leverage": 1.54, "dscr": 2.6, "gearing": 0.87}},
+    )
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    examples = os.path.join(repo_root, "docs", "examples", "synthetic_co")
+    spreading_check_main([
+        "--company", "Synthetic Co", "--proposal", "Credit Facility",
+        "--financials", os.path.join(examples, "forward_input.json"),
+        "--stress-assumptions", os.path.join(examples, "stress_input.json"),
+        "--no-update-financials-source",
+    ])
+    state = read_state("Synthetic Co", "Credit Facility", date_str=date_str, base_dir=base)
+
+    assert state["financials_source"] == "analyst-supplied"
+    assert state.get("forecast_source") != "analyst-supplied"
+    expected_forward_raw = state["financials"]["FY+1"]["raw"]
+    downside_financials = state["downside_case"]["financials"]
+
+    output_dir = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic Co CAM",
+        date_str=date_str, base_dir=base,
+    )
+    wb = openpyxl.load_workbook(os.path.join(output_dir, "Synthetic Co_Credit Facility_Spreading.xlsx"))
+    ws = wb["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+
+    assert ws.cell(row=1, column=4).value == "FY-Current (analyst-supplied)"
+    assert ws.cell(row=1, column=5).value == "FY+1"
+    assert ws.cell(row=1, column=8).value == "FY+1 (Downside)"
+    assert ws.cell(row=1, column=9).value == "FY+2 (Downside)"
+    assert ws.cell(row=1, column=10).value == "FY+3 (Downside)"
+    assert ws.cell(row=label_to_row["Revenue"], column=4).value == 5000
+    assert ws.cell(row=label_to_row["EBITDA"], column=4).value == 1300
+    from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS
+
+    # Every recorded raw input must survive in its own base-case period column.
+    assert set(expected_forward_raw).issubset(FIELD_LABELS)
+    for raw_key, expected in expected_forward_raw.items():
+        row_label = FIELD_LABELS[raw_key]
+        assert ws.cell(row=label_to_row[row_label], column=5).value == expected, row_label
+
+    # The source-selection fix must not change any downside raw cells: compare
+    # every period already recorded in state.json, not only FY+1.
+    assert "FY+1" in downside_financials
+    for offset, period in enumerate(FORWARD_PERIOD_KEYS):
+        period_data = downside_financials.get(period)
+        if not isinstance(period_data, dict):
+            continue
+        for raw_key, expected in period_data.get("raw", {}).items():
+            if raw_key in FIELD_LABELS:
+                row_label = FIELD_LABELS[raw_key]
+                assert ws.cell(row=label_to_row[row_label], column=8 + offset).value == expected, (
+                    period, row_label
+                )
+
+
+
+def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_store():
+    state = {
+        "financials_source": "analyst-supplied",
+        "forecast_source": "analyst-supplied",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000},
+            "FY+1": {"revenue": 4600},
+        },
+        # Even if another source has a raw record, the supplied forecast path
+        # stays in the supplied store and is not replaced by computed figures.
+        "financials": {"FY+1": {"raw": {"revenue": 9999}}},
+    }
+
+    assert _financial_data_from_state(state) == {
+        "FY-Current": {"revenue": 5000},
+        "FY+1": {"revenue": 4600},
+    }
+
+
+def test_financial_data_from_state_drops_supplied_forward_period_without_computed_counterpart():
+    """A forward period only in the supplied store is dropped, never used as a fallback (PX354-2, #249)."""
+    state = {
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000},
+            "FY+1": {"revenue": 4600},
+            "FY+2": {"revenue": 4700},
+        },
+        "financials": {"FY+2": {"raw": {"revenue": 4800}}},
+    }
+
+    assert _financial_data_from_state(state) == {
+        "FY-Current": {"revenue": 5000},
+        "FY+2": {"revenue": 4800},
+    }

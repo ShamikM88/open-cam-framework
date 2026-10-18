@@ -100,8 +100,10 @@ strings), booleans, lists and objects are refused rather than coerced, with one 
 field, exit status 1, and no state write. `null` keeps the existing unavailable-input behavior for an individual
 raw line item, and omitted fields still default to zero. Each period supplied in `--financials` or `--spread` must
 itself map to an object of raw line items; a period mapped to a string, number, `null`, list or other non-object
-value is refused by the command-line entry points with one period-naming `error:` line and no state write. Stress
-assumption values follow a stricter rule: every supplied shock must be a finite JSON number. Strings (including
+value is refused by the command-line entry points with one period-naming `error:` line and no state write. For
+`supplied_forecast.py`, non-object values in the `forecast` or `downside.periods` map are refused with one `error:` line
+naming the period and saying it must be an object of line items, also before any state write. Stress assumption values
+follow a stricter rule: every supplied shock must be a finite JSON number. Strings (including
 numeric strings), booleans, `null`, lists and objects are refused with one `error:` line naming the stress key,
 exit status 1, before any state write. The shared rule is used by spreading, supplied-forecast and headless
 orchestrator paths; formulas and valid-input outputs are unchanged. The spreading and stress paths also reject

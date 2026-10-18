@@ -1055,14 +1055,22 @@ class TestPublish:
         assert sorted(self.remote_files(remote)) == ["Home.md", "_Sidebar.md", "source.md"]
 
     def test_a_stale_filename_that_greets_pathspec_magic_is_removed_literally(self, tmp_path):
-        remote = self.bare_remote(tmp_path)
         # A tracked stale file whose name is itself pathspec magic (a leading colon):
-        # `git rm -- <name>` reads it as `:(top)<rest>` and matches nothing.
-        seed = tmp_path / "seed"
-        (seed / ":stale.md").write_text("stale\n", encoding="utf-8")
-        self._git(seed, "add", "-A")
-        self._git(seed, "commit", "-q", "-m", "Add a magic-named file")
-        self._git(None, "--git-dir", str(remote), "fetch", "-q", str(seed), "master:master")
+        # `git rm -- <name>` reads it as `:(top)<rest>` and matches nothing. The seed tree
+        # is built with plumbing (hash-object/mktree/commit-tree), like the symlink test --
+        # no filesystem file with that name is needed, so this also runs on Windows,
+        # where a colon is not a legal filename character.
+        remote = tmp_path / "wiki.git"
+        self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))
+        content = tmp_path / "magic-content"
+        content.write_text("stale\n", encoding="utf-8")
+        blob = self._git(None, "--git-dir", str(remote),
+                        "hash-object", "-w", str(content)).stdout.strip()
+        tree = self._git(None, "--git-dir", str(remote), "mktree",
+                        stdin=f"100644 blob {blob}\t:stale.md").stdout.strip()
+        commit = self._git(None, "--git-dir", str(remote), "commit-tree", tree,
+                          "-m", "Add a magic-named file").stdout.strip()
+        self._git(None, "--git-dir", str(remote), "update-ref", "refs/heads/master", commit)
         assert ":stale.md" in self.remote_files(remote)
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
         assert self.publish(tmp_path, remote) == 0

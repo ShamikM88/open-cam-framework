@@ -27,10 +27,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-try:
-    import tomllib
-except ModuleNotFoundError:   # pragma: no cover - Python 3.10 only; CI and the dev environment run 3.11+
-    import tomli as tomllib
+import tomllib
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "pyproject.toml"
 LINE_RE = re.compile(r"^\s*([A-Za-z0-9_]+)\.(\S+?)__mutmut_(\d+):\s*(\S.*?)\s*$")

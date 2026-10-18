@@ -15,13 +15,13 @@ known. Nothing here gates anything.
 No `anthropic` dependency and no I/O beyond reading the JSON files it is handed.
 """
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from eval_report import DISCLAIMER, HARNESS_VERSION, pass_rate, stop_state
 
 BASELINE_KIND = "evaluation-baseline-summary"
 REGRESSION_DROP = 0.4  # informational: an observed pass-rate drop of 40 points or more
-COMPARED_FIELDS = (("models", "model / temperatures"), ("prompt_hashes", "agent prompt hashes"),
+COMPARED_FIELDS = (("models", "model"), ("prompt_hashes", "agent prompt hashes"),
                    ("input_hashes", "template and settings hashes"))
 
 
@@ -104,7 +104,7 @@ def _export_baseline(record, allow_partial=False):
     return {
         "kind": BASELINE_KIND,
         "harness_version": record.get("harness_version", HARNESS_VERSION),
-        "created": datetime.now(timezone.utc).isoformat(),
+        "created": datetime.now(UTC).isoformat(),
         "source_run_id": record["run_id"],
         "dataset": record["dataset"],
         "models": record["models"],

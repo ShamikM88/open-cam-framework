@@ -39,7 +39,7 @@ CLI_SCRIPTS = (
     "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "conventions", "deal_export",
     "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
-    "supplied_forecast", "transcription_check",
+    "supplied_forecast", "transcription_check", "wiki_publish",
 )
 
 
@@ -1279,3 +1279,23 @@ def test_orchestrator_rejects_non_numeric_raw_line_items_before_model_or_write(c
     assert "financial inputs" in result.stderr
     assert "FY-Current" in result.stderr and "revenue" in result.stderr
     assert saved_path.read_bytes() == before
+
+
+def test_wiki_publish_generates_the_real_docs_tree(cli, tmp_path):
+    out = tmp_path / "wiki"
+    result = cli("wiki_publish", "--repo", "example/repo", "--root", REPO_ROOT, "--out", out)
+    assert result.returncode == 0, result.stderr
+    assert (out / "Home.md").is_file()
+    assert (out / "_Sidebar.md").is_file()
+    assert not list(out.glob("*.md")) or all(p.suffix == ".md" for p in out.glob("*.md"))
+
+
+def test_wiki_publish_on_a_broken_corpus_fails_cleanly(cli, tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "README.md").write_text("# Index\n", encoding="utf-8")
+    (tmp_path / "docs" / "source.md").write_text("[gone](gone.md)\n", encoding="utf-8")
+    result = cli("wiki_publish", "--repo", "example/repo", "--root", tmp_path, "--out", tmp_path / "out")
+    assert result.returncode == 1
+    assert result.stderr.count("error:") == 1
+    assert "gone.md" in result.stderr
+    assert not (tmp_path / "out").exists()

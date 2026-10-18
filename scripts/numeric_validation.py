@@ -31,11 +31,14 @@ def validate_stress_assumptions(value):
         return value
 
     for key in STRESS_KEYS:
-        item = value.get(key)
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
+        if key not in value:
             continue
-        if isinstance(item, float) and not math.isfinite(item):
-            continue
+        item = value[key]
+        if (isinstance(item, bool) or not isinstance(item, (int, float))
+                or (isinstance(item, float) and not math.isfinite(item))):
+            raise StressAssumptionsError(
+                f"stress assumptions: {key} must be a finite JSON number; found {item!r}"
+            )
         if item < 0:
             raise StressAssumptionsError(
                 f"stress assumptions: {key} must be non-negative; found {item!r}"

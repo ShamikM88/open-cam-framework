@@ -130,8 +130,10 @@ worked examples are in [Workflows](workflows.md).
 - **Produces (default mode):** run through `scripts/spreading_check.py`, never recalculated by hand: TNW, EBITDA,
   DSCR, EBIT/interest, gross leverage, net debt / EBITDA, gearing, current ratio, FCF conversion and the working
   capital days. See the [financial model](financial-model.md).
-- **Produces (analyst-supplied mode):** your subtotals and ratios exactly as given, `financials_source:
+- **Produces (analyst-supplied mode):** your subtotals and ratios as supplied, `financials_source:
   "analyst-supplied"`, and a `financials_source_note`; the CAM must then disclose the reduced audit guarantee.
+  The fraction convention for `gearing`, `fcf_conversion_pct` and their covenant thresholds is defined in the
+  [financial model](financial-model.md#percent-type-ratios-are-stored-as-fractions).
 - **State:** `financials`, `ratios`, `multi_period_financials`, `financials_source`, `spread` in `steps_completed`;
   in analyst-supplied mode also `analyst_supplied_financials` if you gave a raw breakdown. Before asking which mode
   applies it reads any persisted convention (`conventions.py --enterprise --read`, `--company ... --read`), tells you

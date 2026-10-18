@@ -27,7 +27,7 @@ from numeric_validation import (
     validate_stress_assumptions,
 )
 from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
-from spreading_check import plan_fields
+from spreading_check import FinancialSourceModeError, plan_fields
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -488,8 +488,6 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     validate_stress_assumptions(stress_assumptions)
     validate_finite_numbers(collateral_data, path="collateral")
-    client = client or _default_client()
-
     # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly
     # (issue #137). The user-owned files below also accept legacy cp1252 -- with
     # a warning -- since calibrate.py used to write config/style_guide.md that way.
@@ -620,46 +618,22 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                     f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
                     "analyst-supplied mode; nothing was written."
                 )
-            recorded_periods = {
-                period
-                for field in ("financials", "ratios")
-                for period, value in (planning_state.get(field) or {}).items()
-                if isinstance(value, dict) and value
-            }
-            existing_raw = planning_state.get("multi_period_financials") or {}
-            incoming_raw = multi_period_financials or {}
-            available_raw_periods = {
-                period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
-            } | {
-                period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
-            }
-            missing_raw_periods = sorted(recorded_periods - available_raw_periods)
-            if missing_raw_periods:
-                raise StateError(
-                    "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
-                    f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
-                    "line items for every preserved period so all figures can be recomputed, or keep the "
-                    "analyst-supplied state; nothing was written."
-                )
+            # The historical-input case was refused above. The remaining case is a forward-only
+            # headless update: unlike the interactive /project path, the headless orchestrator would
+            # recompute and replace every recorded period and then change the deal-wide basis flag.
+            # Raw lines being available does not make that relabelling an analyst-approved change.
+            raise StateError(
+                "refused: a headless run cannot recompute or reset an analyst-supplied deal, even "
+                "for forward-year-only input; use /spread's analyst-supplied mode to record financial "
+                "figures; nothing was written."
+            )
 
-            recompute_inputs = {
-                period: dict(raw)
-                for period, raw in existing_raw.items()
-                if isinstance(raw, dict) and raw
-            }
-            for period, raw in incoming_raw.items():
-                merged_period = dict(recompute_inputs.get(period) or {})
-                merged_period.update(raw or {})
-                recompute_inputs[period] = merged_period
-            multi_period_financials = recompute_inputs
-            # This branch is the explicit clearing of the flag (forward-year input only, raw lines for every preserved
-            # period). Plan it as the framework-computed run it becomes, so plan_fields()'s analyst-supplied guard
-            # (decision D3, #271) -- which protects the interactive path -- does not refuse the existing rule here.
-            planning_state = {**planning_state, "financials_source": "framework-computed"}
-
-        planned_fields = plan_fields(
-            planning_state, multi_period_financials, update_financials_source=False,
-        )
+        try:
+            planned_fields = plan_fields(
+                planning_state, multi_period_financials, update_financials_source=False,
+            )
+        except FinancialSourceModeError as exc:
+            raise StateError(str(exc)) from exc
         financials = planned_fields["financials"]
         ratios = planned_fields["ratios"]
         multi_period_financials = planned_fields["multi_period_financials"]
@@ -742,6 +716,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # within one run), so this is computed once and reused rather than
     # per-iteration.
     ground_truth_figures = _ground_truth_figures(financials, ratios, collateral, downside_case)
+
+    # Resolve credentials only after all deterministic input/state checks above have passed,
+    # but before the first state write. A refused domain-risk input must not be masked by a missing key.
+    client = client or _default_client()
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these

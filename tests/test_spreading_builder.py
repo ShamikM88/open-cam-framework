@@ -561,8 +561,6 @@ def test_evaluate_financial_model_keeps_null_raw_line_items_allowed():
     assert result["financials"]["FY-Current"]["gross_profit"] == -100
 
 
-
-
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
                          ids=["nan", "positive-infinity", "negative-infinity"])
 def test_evaluate_downside_case_rejects_non_finite_stress_assumptions(value):

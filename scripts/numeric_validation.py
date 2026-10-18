@@ -6,7 +6,6 @@ class NonFiniteNumberError(ValueError):
     """A financial input or computed value contains NaN or infinity."""
 
 
-
 class StressAssumptionsError(ValueError):
     """A downside stress assumption violates the agreed unit/range rules."""
 

@@ -21,8 +21,8 @@ STRESS_PERCENT_KEYS = ("revenue_haircut_pct", "opex_increase_pct")
 def validate_stress_assumptions(value):
     """Refuse downside shocks that invert the stress or make revenue negative.
 
-    The caller remains responsible for its existing JSON/object and numeric
-    validation. This shared domain validator deliberately adds no upper bounds
+    Present values must be finite JSON numbers (booleans, strings, nulls and
+    containers are refused). This shared domain validator adds no upper bounds
     beyond the revenue-haircut ceiling. Warnings are emitted only after all
     domain errors have been checked, so a refused input produces one error
     line rather than a warning followed by an error.

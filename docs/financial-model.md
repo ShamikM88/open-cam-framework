@@ -51,7 +51,7 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 `gearing` and `fcf_conversion_pct` are the two percent-type ratios. Both ratio values and any covenant threshold on
 either metric use the fraction convention: `0.87` represents `87%`. In image transcription, an explicit trailing
 percent sign on one of these ratios is converted to its fraction while the source text remains visible in the
-read-back; a trailing sign on other ratios keeps its existing behavior. A bare number is never automatically divided
+read-back; a trailing `x` or `%` on other ratios keeps its existing behavior. A bare number is never automatically divided
 by 100.
 
 For `supplied_forecast.py` and `transcription_check.py`, a percent-type value whose absolute magnitude is greater

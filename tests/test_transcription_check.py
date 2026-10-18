@@ -101,6 +101,44 @@ def test_ratio_suffixes_are_accepted_only_for_ratios_and_the_number_is_recorded_
         tc.parse_figure("1.35x", "line")
 
 
+def test_percent_type_ratio_percent_suffix_records_fraction_and_keeps_source_text(deal):
+    data = analyst_data(deal)
+    data["periods"]["FY-Current"]["ratios"] = {
+        "dscr": "1.35x", "gearing": "87%", "fcf_conversion_pct": "35%",
+    }
+
+    staged_ = tc.validate(data)
+    gearing = staged_["periods"]["FY-Current"]["ratios"]["gearing"]
+    assert gearing.value == Decimal("0.87")
+    assert gearing.written_value == Decimal("87")
+    assert gearing.text == "87%"
+
+    run_commit(data, source_note="Synthetic ratio convention")
+    saved = read_state("Synthetic Co", "Fleet Loan")
+    assert saved["ratios"]["FY-Current"] == {
+        "dscr": 1.35, "gearing": 0.87, "fcf_conversion_pct": 0.35,
+    }
+
+
+def test_transcription_percent_type_ratio_over_ten_warns_once_without_conversion(tmp_path, capsys):
+    data = analyst_data(tmp_path)
+    data["periods"]["FY-Current"]["ratios"] = {
+        "dscr": "1.35x", "gearing": "87", "fcf_conversion_pct": "35",
+    }
+    staged_path = tmp_path / "transcription.json"
+    staged_path.write_text(json.dumps(data), encoding="utf-8")
+
+    tc.main(["--transcription", str(staged_path)])
+
+    captured = capsys.readouterr()
+    assert captured.err.count("warning:") == 1
+    assert "gearing" in captured.err and "fcf_conversion_pct" in captured.err
+    assert "fraction" in captured.err.lower()
+    parsed = tc.validate(data)
+    assert parsed["periods"]["FY-Current"]["ratios"]["gearing"].number() == 87
+    assert parsed["periods"]["FY-Current"]["ratios"]["fcf_conversion_pct"].number() == 35
+
+
 def test_a_figure_is_recorded_as_an_int_without_decimals_and_a_float_with_them():
     assert tc.parse_figure("1,200", "x").number() == 1200 and isinstance(tc.parse_figure("1,200", "x").number(), int)
     assert tc.parse_figure("1,200.5", "x").number() == 1200.5

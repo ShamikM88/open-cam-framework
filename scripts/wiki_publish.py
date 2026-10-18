@@ -35,9 +35,45 @@ NOTICE_TEMPLATE = (
 # Destinations with spaces are not links this corpus uses (same rule as the
 # documentation tests) and stay untouched rather than being half-rewritten.
 LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(([^)\s]+)(\s+\"[^\"]*\")?\)")
-CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+# A code span: an opening run of backticks, content without a backtick run of
+# the same length, closed by the same run (so ``a ` b`` is one span, and a
+# single isolated backtick can sit inside a double-backtick span).
+CODE_SPAN_RE = re.compile(r"(`+)(?:[^`\n]|`(?!`))*?\1")
 EXTERNAL_RE = re.compile(r"^(https?:|mailto:)", re.IGNORECASE)
 HEADING_RE = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
+# A fenced code block opens with a run of at least three backticks or tildes;
+# a closing fence must use the same character, be at least as long, and be the
+# whole line, so a ``` line inside a ```` fence is code text, not a toggle.
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+
+
+def _fence_delimiter(line: str) -> tuple[str, int] | None:
+    """The (character, length) of the fence run starting this line, if any."""
+    match = FENCE_RE.match(line)
+    if match is None:
+        return None
+    run = match.group(1)
+    return run[0], len(run)
+
+
+def _lines_with_fences(lines: list[str]):
+    """Yield (line number, line, inside a fenced code block) for each line."""
+    fence: tuple[str, int] | None = None
+    for line_no, line in enumerate(lines, start=1):
+        delimiter = _fence_delimiter(line)
+        if fence is not None:
+            if (
+                delimiter is not None
+                and delimiter[0] == fence[0]
+                and delimiter[1] >= fence[1]
+                and line.strip() == delimiter[0] * delimiter[1]
+            ):
+                fence = None
+            yield line_no, line, True
+            continue
+        if delimiter is not None:
+            fence = delimiter
+        yield line_no, line, delimiter is not None
 
 
 def notice_for(source: str) -> str:
@@ -60,11 +96,7 @@ def heading_slugs(text: str) -> set[str]:
     suffixes for repeated headings. Fenced code blocks are ignored."""
     seen: dict[str, int] = {}
     slugs: set[str] = set()
-    in_fence = False
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
+    for _, line, in_fence in _lines_with_fences(text.split("\n")):
         if in_fence:
             continue
         match = HEADING_RE.match(line)
@@ -272,12 +304,7 @@ def _transform_page(
     source = page_path.relative_to(root).as_posix()
     lines = text.replace("\r\n", "\n").split("\n")
     out: list[str] = []
-    in_fence = False
-    for line_no, line in enumerate(lines, start=1):
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            out.append(line)
-            continue
+    for line_no, line, in_fence in _lines_with_fences(lines):
         if in_fence:
             out.append(line)
             continue

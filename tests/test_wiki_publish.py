@@ -32,16 +32,13 @@ U = "https://github.com/example/repo"
 
 def _live_links(content: str) -> list[str]:
     """Every real link destination in a generated page: fenced code blocks are
-    skipped (example links inside them are prose, not links)."""
+    skipped (example links inside them are prose, not links), with the same
+    fence rule the generator uses (tilde fences, longer fences)."""
     dests = []
-    in_fence = False
-    for line in content.split("\n"):
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
+    for _, line, in_fence in wiki_publish._lines_with_fences(content.split("\n")):
         if in_fence:
             continue
-        code_spans = [m.span() for m in re.finditer(r"`[^`\n]*`", line)]
+        code_spans = [m.span() for m in wiki_publish.CODE_SPAN_RE.finditer(line)]
         for match in re.finditer(r"(!?)\[[^\]\n]*\]\(([^)\s]+)\)", line):
             if any(s <= match.start() < e for s, e in code_spans):
                 continue  # a code span hides the link
@@ -296,6 +293,29 @@ class TestLinkRewriting:
             "source.md": "Use `[x](gone.md)` in prose.\n",
         })
         assert "`[x](gone.md)`" in tree["source.md"]
+
+    def test_double_backtick_code_spans_hide_links(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "Use ``[gone](gone.md)`` in prose.\n",
+        })
+        assert "``[gone](gone.md)``" in tree["source.md"]
+
+    def test_tilde_fences_hide_links(self, tmp_path):
+        fenced = "~~~\n[gone](gone.md)\n~~~"
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": f"# S\n\n{fenced}\n",
+        })
+        assert "[gone](gone.md)" in tree["source.md"]
+
+    def test_a_longer_fence_is_not_closed_by_a_shorter_one(self, tmp_path):
+        fenced = "````\n```\n[gone](gone.md)\n```\n````"
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": f"# S\n\n{fenced}\n",
+        })
+        assert "[gone](gone.md)" in tree["source.md"]
 
     def test_mermaid_blocks_and_tables_are_preserved_byte_for_byte(self, tmp_path):
         mermaid = '```mermaid\nflowchart LR\n  A[Start] --> B{"end<br/>x"}\n```'

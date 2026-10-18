@@ -135,8 +135,10 @@ _FIGURE_RE = re.compile(r"(?P<open>\()?(?P<sign>-)?(?P<whole>\d{1,3}(?:,\d{3})+|
 
 
 class Figure:
-    """One figure exactly as written in the image (`text`, read as the number `written_value`) and the number that
-    is recorded (`value`). The two differ only by a declared sign convention, and `note` then says so."""
+    """The source text and numeric reading alongside the value that will be recorded. `text` preserves the source
+    as written, `written_value` is its numeric reading, and `value` is the recorded number. They may differ because of
+    a declared sign convention or the explicit percent suffix on a percent-type ratio; `note` explains sign changes,
+    while `value_is_fraction` marks that unit conversion."""
 
     def __init__(self, text, value, decimals, written_value=None, note="", value_is_fraction=False):
         self.text = text
@@ -162,10 +164,12 @@ class Figure:
 
 
 def parse_figure(text, label, allow_suffix=False):
-    """Read a figure as written. Accepts `1,234.5`, `-1234`, `(1,234)` (parentheses mean negative) and, when
-    `allow_suffix`, a trailing `x` or `%` (a ratio, recorded as the number written). Anything else -- a currency
-    symbol, a comma decimal such as `1,5`, `n/a`, a dash -- is refused rather than guessed at. Whether a negative is a
-    cost shown in brackets or a genuine credit is a separate, declared question (see the module docstring)."""
+    """Read a figure as written, with suffix-aware ratio handling. Accepts `1,234.5`, `-1234`, `(1,234)` (parentheses
+    mean negative) and, when `allow_suffix`, a trailing `x` or `%`. For `gearing` and `fcf_conversion_pct`, `%`
+    explicitly converts the numeric value to a fraction while retaining the source text and as-written value. Other
+    ratios keep the number as written. Anything else -- a currency symbol, comma decimal such as `1,5`, `n/a`, or a
+    dash -- is refused rather than guessed at. Whether a negative is a cost shown in brackets or a genuine credit is a
+    separate, declared question (see the module docstring)."""
     if not isinstance(text, str) or not text.strip():
         raise TranscriptionError(f"{label}: write the figure as text exactly as it appears (for example \"1,234.5\" "
                                  f"or \"(500)\"), found {text!r}")

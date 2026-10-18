@@ -534,7 +534,7 @@ def render_readback(staged, report, digest, source_sha256):
         "",
         f"- Source: {source['file']} ({source['kind']}): {source['description']}",
         f"- Source fingerprint (SHA-256): {source_sha256}",
-        f"- Unit: {source['unit']} (figures are recorded as written; nothing is scaled)",
+        f"- Unit: {source['unit']} (statement figures retain this unit; the explicit percent-ratio conversion below is the only ratio-unit exception)",
         f"- Mode: {staged['mode']}",
         *_convention_lines(staged),
         "- Subtotals are recorded as written. Ratios keep their source text; a trailing '%' on gearing or "

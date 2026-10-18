@@ -199,9 +199,10 @@ _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 def validate_iso_date_str(value, field_name="date_str", require_shape=True):
     """Validate ISO-shaped dates against the calendar.
 
-    The CLI requires the exact YYYY-MM-DD shape. The state-manager API preserves its
-    historical acceptance of non-ISO date suffixes (which discovery deliberately ignores),
-    but refuses impossible real-calendar dates such as 2026-02-31.
+    Strict callers require the exact YYYY-MM-DD shape and a real calendar date. With
+    require_shape=False, a non-shaped value is returned unchanged for callers that
+    explicitly need the legacy permissive behavior; state-manager entry points use
+    strict validation for every supplied date.
     """
     if not isinstance(value, str) or not _ISO_DATE_RE.fullmatch(value):
         if require_shape:
@@ -212,6 +213,16 @@ def validate_iso_date_str(value, field_name="date_str", require_shape=True):
     except ValueError as exc:
         raise ValueError(f"{field_name} {value!r} is not a valid calendar date") from exc
     return value
+
+
+def _validate_explicit_state_date(value):
+    """Validate an explicitly supplied state date and report failures as StateError."""
+    if value is None:
+        return None
+    try:
+        return validate_iso_date_str(value)
+    except ValueError as exc:
+        raise StateError(str(exc)) from exc
 
 
 def _is_valid_iso_date_str(value):
@@ -350,10 +361,8 @@ def resolve_export_date_str(company, proposal, date_str=None, base_dir=None):
     return dates[-1] if dates else datetime.now().strftime("%Y-%m-%d")
 
 def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
-    if date_str:
-        # Preserve the legacy state-manager API for non-ISO suffixes, which discovery
-        # ignores, while refusing ISO-shaped impossible calendar dates at the boundary.
-        return validate_iso_date_str(date_str, require_shape=False)
+    if date_str is not None:
+        return _validate_explicit_state_date(date_str)
     if new_review:
         # Force today's date rather than resuming the most recent existing
         # folder -- e.g. a new annual review for the same company/proposal
@@ -401,15 +410,15 @@ def state_path(company, proposal, date_str=None, base_dir=None, new_review=False
     `company`/`proposal` are sanitized here -- the one place every other
     function in this module (and deal_export.py, via its own call) routes
     through -- since they're used directly as path components below. An
-    explicitly-passed `date_str` is sanitized too (it's embedded in the
-    same "{proposal}_{date_str}" component); an auto-resolved one (the
-    common case -- see _resolve_date_str()) is always either today's own
-    ISO-format date or discovered from an existing directory name, so it
-    never needs this check.
+    explicitly-passed `date_str` must first be a real calendar date in exact
+    YYYY-MM-DD form, then is sanitized as a path component; an auto-resolved
+    one (the common case -- see _resolve_date_str()) is always either today's
+    own ISO-format date or discovered from a valid existing directory name.
     """
+    date_str = _validate_explicit_state_date(date_str)
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
-    if date_str:
+    if date_str is not None:
         date_str = sanitize_path_component(date_str, "date_str")
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
     return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
@@ -442,6 +451,7 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
     the caller is about to rely on; they are checked with validate_state() so a wrongly-typed value fails here, naming
     the key, instead of as an opaque AttributeError/TypeError later. A corrupt file is a StateShapeError too.
     """
+    date_str = _validate_explicit_state_date(date_str)
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
     if not os.path.exists(path):
         return None
@@ -492,6 +502,9 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
 
     Returns the full state dict that was written.
     """
+    # Reject invalid dates before any path handling or directory creation.
+    date_str = _validate_explicit_state_date(date_str)
+
     # Reject invalid numeric values before path creation or state mutation.
     try:
         validate_finite_state_numbers(fields, path="state update")
@@ -505,7 +518,7 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
     # that's just a redundant, harmless re-validation of the same strings.
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
-    if date_str:
+    if date_str is not None:
         date_str = sanitize_path_component(date_str, "date_str")
 
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
@@ -599,11 +612,12 @@ def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
 
     Returns the full state dict that was written.
     """
+    date_str = _validate_explicit_state_date(date_str)
     timestamp = timestamp or datetime.now().isoformat()
 
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
-    if date_str:
+    if date_str is not None:
         date_str = sanitize_path_component(date_str, "date_str")
     date_str = _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir)
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)

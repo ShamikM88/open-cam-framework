@@ -68,7 +68,8 @@ those forward-period raw lines are recorded under `financials[period]["raw"]` an
 The two bases may therefore coexist across different periods; raw figures from the two stores are never blended
 within one period, and a forecast marked analyst-supplied is not recomputed.
 
-Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
+Ratios that cannot be computed are `null`, never `0`. The units for `gearing`, `fcf_conversion_pct` and their
+covenant thresholds follow the [percent-type ratio fraction convention](financial-model.md#percent-type-ratios-are-stored-as-fractions). A step may add keys of its own; this table is a
 floor.
 
 `analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.
@@ -158,7 +159,11 @@ validates state and writes the history-free first-pass copy and separate history
 newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
 `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
 an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
-today, so a deal resumed on a later calendar day still finds its original file. (This is
+today, so a deal resumed on a later calendar day still finds its original file. An explicit
+`date_str` supplied to `state_path()`, `read_state()`, `write_state()` or
+`append_review_trail()` must be a real calendar date in exact `YYYY-MM-DD` form;
+malformed or impossible values raise `StateError` before any deal folder is created.
+Passing `date_str=None` retains the existing auto-discovery/today behavior. (This is
 deliberately different from the bare `deal_export.export_deal()` default, which is still
 today -- so callers resolve the date themselves via `resolve_date_str()`, see that script's entry in the CLI reference and issue #97.) `read_state(company, proposal, keys=())` returns the parsed dict or `None`; it
 raises `StateShapeError` for a corrupt or non-UTF-8 file, a top level that is not an object, or (when `keys`

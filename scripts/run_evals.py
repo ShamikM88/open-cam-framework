@@ -162,7 +162,8 @@ def run_live_command(dataset, args):
     run_dir = prepare_run_dir(new_run_id(), out_root=args.out)
     try:
         record = eval_runner.run_live(dataset, selected, args.repeats, args.max_calls, run_dir, client,
-                                      keep_work=args.keep_work, progress=_progress_line)
+                                      keep_work=args.keep_work, progress=_progress_line,
+                                      temperature_warning_already_emitted=True)
     except BaseException:
         _remove_empty_run_dir(run_dir)
         raise

@@ -82,8 +82,14 @@ def test_a_like_for_like_comparison_reports_deltas_and_flags_a_large_drop():
     assert REGRESSION_DROP == 0.4
 
 
+def test_the_model_comparison_label_does_not_claim_temperature_support():
+    from eval_baseline import COMPARED_FIELDS
+
+    assert dict(COMPARED_FIELDS)["models"] == "model"
+
+
 @pytest.mark.parametrize("override, expected", [
-    ({"models": {**MODELS, "maker_model": "m-NEW"}}, "model / temperatures"),
+    ({"models": {**MODELS, "maker_model": "m-NEW"}}, "model"),
     ({"hashes": {**HASHES, "underwriter_prompt_hash": "NEW"}}, "agent prompt hashes"),
     ({"inputs": {**INPUTS, "config/settings.json": "NEW"}}, "template and settings hashes"),
     ({"dataset_hash": "d2"}, "dataset content"),

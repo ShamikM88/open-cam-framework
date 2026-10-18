@@ -130,8 +130,10 @@ worked examples are in [Workflows](workflows.md).
 - **Produces (default mode):** run through `scripts/spreading_check.py`, never recalculated by hand: TNW, EBITDA,
   DSCR, EBIT/interest, gross leverage, net debt / EBITDA, gearing, current ratio, FCF conversion and the working
   capital days. See the [financial model](financial-model.md).
-- **Produces (analyst-supplied mode):** your subtotals and ratios exactly as given, `financials_source:
+- **Produces (analyst-supplied mode):** your subtotals and ratios as supplied, `financials_source:
   "analyst-supplied"`, and a `financials_source_note`; the CAM must then disclose the reduced audit guarantee.
+  The fraction convention for `gearing`, `fcf_conversion_pct` and their covenant thresholds is defined in the
+  [financial model](financial-model.md#percent-type-ratios-are-stored-as-fractions).
 - **State:** `financials`, `ratios`, `multi_period_financials`, `financials_source`, `spread` in `steps_completed`;
   in analyst-supplied mode also `analyst_supplied_financials` if you gave a raw breakdown. Before asking which mode
   applies it reads any persisted convention (`conventions.py --enterprise --read`, `--company ... --read`), tells you
@@ -180,6 +182,8 @@ worked examples are in [Workflows](workflows.md).
   `revenue_haircut_pct`, `opex_increase_pct` (admin expenses only), `interest_rate_bump_bps` (each optional,
   default no shock); covenants as `{"metric", "type": "minimum"|"maximum", "threshold"}` where `metric` is a ratio
   name; guarantees as `{"provider", "type", "amount"}` (omit `amount` for an uncapped guarantee, never `0`).
+  `gearing`, `fcf_conversion_pct` and covenants on those metrics use the fraction convention in the
+  [financial model](financial-model.md#percent-type-ratios-are-stored-as-fractions).
 - **Produces:** run through `spreading_check.py ... --no-update-financials-source` (always, so forward figures never
   change the deal's `financials_source`): forward ratios and the downside case derived by three deterministic
   shocks. See the [financial model](financial-model.md#the-downside-case).

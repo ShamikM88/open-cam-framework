@@ -545,6 +545,22 @@ def test_evaluate_financial_model_rejects_non_finite_raw_line_items(value):
         evaluate_financial_model({"FY-Current": {"revenue": value}})
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["abc", "1e999", "nan", "1250", True, False, [], {}],
+    ids=["text", "overflow-text", "nan-text", "numeric-text", "true", "false", "list", "object"],
+)
+def test_evaluate_financial_model_rejects_non_numeric_raw_line_items(value):
+    with pytest.raises(ValueError, match="financial inputs.*FY-Current.*revenue"):
+        evaluate_financial_model({"FY-Current": {"revenue": value}})
+
+
+def test_evaluate_financial_model_keeps_null_raw_line_items_allowed():
+    result = evaluate_financial_model({"FY-Current": {"revenue": None, "cost_of_sales": 100}})
+    assert result["financials"]["FY-Current"]["raw"]["revenue"] is None
+    assert result["financials"]["FY-Current"]["gross_profit"] == -100
+
+
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")],
                          ids=["nan", "positive-infinity", "negative-infinity"])
 def test_evaluate_downside_case_rejects_non_finite_stress_assumptions(value):

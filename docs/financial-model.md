@@ -36,15 +36,30 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 | DSCR, debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | Times earnings cover the year's debt service. Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
 | Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
 | Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
-| Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; stored as a fraction, so 0.87 reads as 87% |
+| Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; see [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions) |
 | Current ratio (`current_ratio`) | current assets / current liabilities | Short-term liquidity; above 1 means current assets cover current liabilities |
 | EBIT interest cover (`ebit_interest_cover`, alias `EBIT/Interest`) | operating profit / interest paid | Times profit covers interest |
 | EBITDA interest cover (`ebitda_interest_cover`, alias `EBITDA/Interest`) | EBITDA / interest paid | The same on EBITDA |
-| FCF conversion (`fcf_conversion_pct`) | FCF / EBITDA | The share of EBITDA that becomes free cash; stored as a fraction (0.35 is 35%) |
+| FCF conversion (`fcf_conversion_pct`) | FCF / EBITDA | The share of EBITDA that becomes free cash; see the [percent-type ratio convention](#percent-type-ratios-are-stored-as-fractions) |
 | Trade debtor days (`trade_debtor_days`) | trade debtors / revenue x 365 | How long customers take to pay |
 | Stock days (`stock_days`) | stock / cost of sales x 365 | How long stock sits |
 | Trade creditor days (`trade_creditor_days`) | trade creditors / cost of sales x 365 | How long the company takes to pay suppliers |
 | Working capital cycle (`working_capital_cycle_days`) | debtor days + stock days - creditor days | Days of operating cash tied up |
+
+### Percent-type ratios are stored as fractions
+
+`gearing` and `fcf_conversion_pct` are the two percent-type ratios. Both ratio values and any covenant threshold on
+either metric use the fraction convention: `0.87` represents `87%`. In image transcription, an explicit trailing
+percent sign on one of these ratios is converted to its fraction while the source text remains visible in the
+read-back; a trailing `x` or `%` on other ratios keeps its existing behavior. A bare number is never automatically divided
+by 100.
+
+For `supplied_forecast.py` and `transcription_check.py`, a percent-type value whose absolute magnitude is greater
+than 10 emits one aggregated warning to stderr and is retained as supplied, so the analyst can check its unit rather
+than having the framework guess. The covenant policy engine returns `UNRESOLVABLE` if the absolute value of either
+the recorded actual ratio or its threshold exceeds 10, because it looks like a percentage rather than a stored
+fraction. It does not compare that likely unit mismatch as a `PASS` or `FAIL`. Existing N/A rules take precedence:
+a ratio with a zero or negative denominator remains N/A and its covenant remains UNRESOLVABLE for that reason.
 
 ## Worked example
 
@@ -79,13 +94,17 @@ threshold, so a loss-making borrower would appear to pass "leverage must not exc
 a positive denominator is a real number and is kept (an EBITDA of -100 over debt service of 490 gives a DSCR of
 -0.204, a real shortfall that fails a minimum-DSCR covenant; net cash gives a negative net debt / EBITDA).
 
-**Non-finite values are invalid input, not financial results.** The framework-computed spreading and stress paths reject
-`NaN`, `Infinity` and `-Infinity` in raw figures or stress assumptions before evaluating them. Non-finite values
-already present in persisted state, supplied as covenant thresholds/ratios, or produced by arithmetic overflow are
-also rejected before the state is changed or a policy result is returned. They are never coerced to zero, N/A or a
-large finite substitute. The same guard covers the `collateral` and `security_package` figures in state and the
-`--collateral` input of the headless run (one `error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators remain valid figures, while
-ratios with zero or negative denominators remain N/A.
+**Non-finite and non-numeric values are invalid input, not financial results.** At the framework-computed
+entry points, recognised raw line-item fields must be finite JSON numbers or `null`. Strings (including numeric
+strings), booleans, lists and objects are refused rather than coerced, with one `error:` line naming the period and
+field, exit status 1, and no state write. `null` keeps the existing unavailable-input behavior, and omitted fields
+still default to zero. The spreading and stress paths also reject `NaN`, `Infinity` and `-Infinity` in raw figures
+or stress assumptions before evaluating them. Non-finite values already present in persisted state, supplied as
+covenant thresholds/ratios, or produced by arithmetic overflow are also rejected before the state changes or a
+policy result is returned. They are never coerced to zero, N/A or a large finite substitute. The same guard covers
+the `collateral` and `security_package` figures in state and the `--collateral` input of the headless run (one
+`error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators
+remain valid figures, while ratios with zero or negative denominators remain N/A.
 
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its
@@ -272,8 +291,8 @@ ever amended on its own.
 
 **By mode.** In framework-computed mode the stated subtotals are used only for the cross-foot; every recorded
 subtotal and ratio is recomputed from the lines. In analyst-supplied mode the stated subtotals and ratios are recorded
-exactly as given (a trailing `x` or `%` on a ratio is dropped and the number kept as written), any raw lines go to
-`analyst_supplied_financials`, and the cross-foot still compares the stated subtotals with those lines when both are
+as supplied, subject to the [percent-type ratio convention](#percent-type-ratios-are-stored-as-fractions). Any raw
+lines go to `analyst_supplied_financials`, and the cross-foot still compares the stated subtotals with those lines when both are
 present. Stated differences between an institution's subtotal and the framework's definition are exactly what an
 acknowledgement is for in either mode.
 

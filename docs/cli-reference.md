@@ -25,8 +25,9 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/`, and publishes it to the wiki with `--publish` | No | [Wiki publish](#wiki-publish) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
-Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic, makes no
-network call, and is what the slash commands run in their Bash steps.
+Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic and makes no
+network call -- the one exception is `wiki_publish.py`'s `--publish` mode, whose git clone and push over HTTPS are
+the wiki publish -- and is what the slash commands run in their Bash steps.
 
 ## Conventions common to the scripts
 

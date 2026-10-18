@@ -17,7 +17,7 @@ Security here is a few layers, and they are not equally visible. Know which ones
 | Layer | What it does | Where it lives | Enforced by |
 | :--- | :--- | :--- | :--- |
 | **Keep real material out of git** | Protected paths are ignored and never tracked | `.gitignore`, `tests/test_confidential_paths.py` | A test in the required `test` check |
-| **Keep the pipeline small and local** | Deterministic scripts with no network use; model calls only in the three scripts that need a key | `scripts/`, `--disable-socket` in the tests | Tests and review |
+| **Keep the pipeline small and local** | Deterministic scripts with no network use -- the one exception is the wiki publisher's `--publish` mode (git clone/push over HTTPS); model calls only in the three scripts that need a key | `scripts/`, `--disable-socket` in the tests | Tests and review |
 | **Keep CI least-privilege** | Read-only tokens everywhere except two documented exceptions (the freshness report's `issues: write` and the wiki publisher's one-job `contents: write`), SHA-pinned actions, no `pull_request_target`, no credential left in the checkout | `.github/workflows/`, `tests/test_ci_workflow.py` | A test, and `zizmor` in the `security` job |
 | **Know the dependencies** | Weekly Dependabot pull requests; `pip-audit` on every requirements file | `.github/dependabot.yml`, the `security` job | CI |
 | **Review every change** | A pull request, the `test`, `test-windows` and `runtime-smoke` checks passing and up to date, no force-push or deletion on `main` | GitHub repository ruleset | GitHub, not a file |

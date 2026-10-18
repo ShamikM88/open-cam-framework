@@ -234,6 +234,15 @@ class TestLinkRewriting:
         })
         assert "[google](https://google.com) [mail](mailto:a@b.c)" in tree["source.md"]
 
+    def test_an_external_link_with_an_uppercase_scheme_is_unchanged(self, tmp_path):
+        # URI schemes are case-insensitive in Markdown; the corpus happens to
+        # use lowercase, but an upper-case scheme is still external, not a file.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[docs](HTTPS://example.com/x) [mail](MAILTO:a@b.c)\n",
+        })
+        assert "[docs](HTTPS://example.com/x) [mail](MAILTO:a@b.c)" in tree["source.md"]
+
     def test_links_inside_fenced_code_are_left_alone(self, tmp_path):
         fenced = "```\n[broken](gone.md) and ![img](missing.png)\n```"
         tree = make_corpus(tmp_path, {

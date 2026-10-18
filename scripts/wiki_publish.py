@@ -36,7 +36,7 @@ NOTICE_TEMPLATE = (
 # documentation tests) and stay untouched rather than being half-rewritten.
 LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(([^)\s]+)(\s+\"[^\"]*\")?\)")
 CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
-EXTERNAL_RE = re.compile(r"^(https?:|mailto:)")
+EXTERNAL_RE = re.compile(r"^(https?:|mailto:)", re.IGNORECASE)
 HEADING_RE = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
 
 

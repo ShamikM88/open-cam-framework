@@ -739,7 +739,10 @@ def test_the_wiki_publish_guard_and_path_assertions_can_fail():
 
 
 def test_contents_write_appears_in_no_other_workflow():
-    """wiki-publish is the one workflow allowed to hold a write permission; nothing else may."""
+    """wiki-publish is the only workflow allowed to hold contents: write.
+
+    (model-freshness.yml's issues: write is the other documented write permission,
+    which is why this test pins contents: write specifically.)"""
     for path in all_workflows():
         if path.name == "wiki-publish.yml":
             continue

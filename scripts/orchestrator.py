@@ -488,6 +488,68 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     validate_stress_assumptions(stress_assumptions)
     validate_finite_numbers(collateral_data, path="collateral")
+
+    # Load the targeted deal before credential or prompt loading so a refused
+    # financial-basis transition has a deterministic one-line error even when
+    # no headless API credentials are configured.
+    # Resolved once and threaded through all state operations below so this
+    # run always targets one dated folder.
+    date_str = resolve_date_str(company, proposal, new_review=new_review)
+    existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
+    steps_completed = list(existing_state.get("steps_completed") or [])
+
+    if multi_period_financials and existing_state.get("financials_source") == "analyst-supplied":
+        historical_inputs = sorted(
+            period for period in multi_period_financials if period not in FORWARD_PERIOD_KEYS
+        )
+        if historical_inputs:
+            raise StateError(
+                "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
+                f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
+                "analyst-supplied mode; nothing was written."
+            )
+
+        planning_state = existing_state
+        if existing_state.get("forecast_source") == "analyst-supplied":
+            planning_state = dict(existing_state)
+            planning_state["forecast_source"] = None
+            for field in ("multi_period_financials", "financials", "ratios"):
+                planning_state[field] = {
+                    period: value
+                    for period, value in (existing_state.get(field) or {}).items()
+                    if period not in FORWARD_PERIOD_KEYS
+                }
+
+        recorded_periods = {
+            period
+            for field in ("financials", "ratios")
+            for period, value in (planning_state.get(field) or {}).items()
+            if isinstance(value, dict) and value
+        }
+        existing_raw = planning_state.get("multi_period_financials") or {}
+        incoming_raw = multi_period_financials or {}
+        available_raw_periods = {
+            period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
+        } | {
+            period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
+        }
+        missing_raw_periods = sorted(recorded_periods - available_raw_periods)
+        if missing_raw_periods:
+            raise StateError(
+                "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
+                f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
+                "line items for every preserved period so all figures can be recomputed, or keep the "
+                "analyst-supplied state; nothing was written."
+            )
+
+        raise StateError(
+            "refused: a headless run cannot recompute or reset an analyst-supplied deal, even "
+            "for forward-year-only input; use /spread's analyst-supplied mode to record financial "
+            "figures; nothing was written."
+        )
+
+    client = client or _default_client()
+
     # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly
     # (issue #137). The user-owned files below also accept legacy cp1252 -- with
     # a warning -- since calibrate.py used to write config/style_guide.md that way.
@@ -547,22 +609,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             f"placeholder with grounded, sourced content:\n{read_text(template_path)}\n"
         )
 
-    # Never blindly overwrite what an earlier run of this pipeline (or an
-    # earlier slash-command step, if this deal was previously advanced that
-    # way) already checkpointed: only replace financials/ratios/collateral
-    # when this call was actually given new data for them, and only ever
-    # *add* to steps_completed, never reset it -- see state_manager
-    # .write_state()'s documented shallow-merge contract and CLAUDE.md's
-    # re-hydration rule.
-    # Resolved once, here, and threaded through every read_state()/
-    # write_state()/append_review_trail()/state_path() call below via
-    # date_str -- never via new_review=new_review again -- so every call
-    # in this run is guaranteed to agree on which dated folder, with no
-    # second call site able to silently forget the flag and fall back to
-    # auto-discovery (see resolve_date_str()'s own docstring).
-    date_str = resolve_date_str(company, proposal, new_review=new_review)
-    existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
-    steps_completed = list(existing_state.get("steps_completed") or [])     # `or`: a null value is "not recorded"
+    # Never blindly overwrite prior checkpoints; only update supplied data and add steps.
 
     # An analyst-supplied forecast's downside is the analyst's own scenario (or recorded as unavailable), which this
     # run can neither recompute nor originate. A different stress assumption would be persisted beside a downside
@@ -601,30 +648,6 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                     for period, value in (existing_state.get(field) or {}).items()
                     if period not in FORWARD_PERIOD_KEYS
                 }
-
-        # financials_source is a whole-deal audit-basis flag. A headless run must not
-        # overwrite analyst-supplied figures and then imply they were recomputed.
-        # Historical-input requests get the targeted refusal below; even a
-        # forward-only request is refused rather than resetting the whole-deal basis.
-        if existing_state.get("financials_source") == "analyst-supplied":
-            # Decision D2 (#246): historical figures never recompute or relabel an analyst-supplied deal headlessly.
-            historical_inputs = sorted(period for period in multi_period_financials
-                                       if period not in FORWARD_PERIOD_KEYS)
-            if historical_inputs:
-                raise StateError(
-                    "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
-                    f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
-                    "analyst-supplied mode; nothing was written."
-                )
-            # The historical-input case was refused above. The remaining case is a forward-only
-            # headless update: unlike the interactive /project path, the headless orchestrator would
-            # recompute and replace every recorded period and then change the deal-wide basis flag.
-            # Raw lines being available does not make that relabelling an analyst-approved change.
-            raise StateError(
-                "refused: a headless run cannot recompute or reset an analyst-supplied deal, even "
-                "for forward-year-only input; use /spread's analyst-supplied mode to record financial "
-                "figures; nothing was written."
-            )
 
         planned_fields = plan_fields(
             planning_state, multi_period_financials, update_financials_source=False,
@@ -707,10 +730,6 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # within one run), so this is computed once and reused rather than
     # per-iteration.
     ground_truth_figures = _ground_truth_figures(financials, ratios, collateral, downside_case)
-
-    # Resolve credentials only after all deterministic input/state checks above have passed,
-    # but before the first state write. A refused domain-risk input must not be masked by a missing key.
-    client = client or _default_client()
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these

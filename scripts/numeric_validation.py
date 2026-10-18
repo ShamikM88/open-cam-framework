@@ -73,6 +73,24 @@ def validate_raw_line_items(value, field_names, path="financial inputs"):
     """
     if not isinstance(value, dict):
         return value
+    known_fields = set(field_names)
+    for period, raw in value.items():
+        if not isinstance(raw, dict):
+            continue
+        for field, item in raw.items():
+            if field not in known_fields or item is None:
+                continue
+            is_json_number = (
+                isinstance(item, (int, float))
+                and not isinstance(item, bool)
+                and (not isinstance(item, float) or math.isfinite(item))
+            )
+            if not is_json_number:
+                raise InvalidFinancialInputError(
+                    f"{path}: period {period!r}, field {field!r} must be a finite JSON number or null; "
+                    f"found {item!r}"
+                )
+    return value
 
 
 def validate_period_objects(value, path="financial inputs"):
@@ -94,24 +112,6 @@ def validate_period_objects(value, path="financial inputs"):
                 f"{path}: period {period!r} must be an object of line items; "
                 f"found {type(line_items).__name__}"
             )
-    return value
-    known_fields = set(field_names)
-    for period, raw in value.items():
-        if not isinstance(raw, dict):
-            continue
-        for field, item in raw.items():
-            if field not in known_fields or item is None:
-                continue
-            is_json_number = (
-                isinstance(item, (int, float))
-                and not isinstance(item, bool)
-                and (not isinstance(item, float) or math.isfinite(item))
-            )
-            if not is_json_number:
-                raise InvalidFinancialInputError(
-                    f"{path}: period {period!r}, field {field!r} must be a finite JSON number or null; "
-                    f"found {item!r}"
-                )
     return value
 
 

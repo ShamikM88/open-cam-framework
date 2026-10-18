@@ -46,8 +46,8 @@ shortened):
 | `deal_type`, `inputs` | `/triage`, `/collateral`, `/assemble`, the orchestrator | The CAM type; `pd`, `lgd` (user-supplied, never adjusted) and `experian_score` or another bureau score |
 | `steps_completed` | every step | The names of steps that have finished (`triage`, `spread`, ...); `/assemble` hard-gates on `spread` |
 | `triage`, `commercial` | `/triage`, `/commercial`, `/research` | The Go/No-Go verdict and rationale; the company and sector sections. Each section's `sources` field is a list of citation strings, including `[]` when no citations were used |
-| `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` (run by `/spread` and `/project`) | Per-period subtotals (each with its raw inputs under `raw`) and ratios; the raw inputs as supplied; `"framework-computed"` |
-| `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
+| `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` for computed periods; `supplied_forecast.py` for analyst-supplied forward values | Computed per-period subtotals/ratios with raw inputs under `financials[period]["raw"]`; `multi_period_financials` records computed raw input lines, while `financials_source` remains the deal-wide historical-basis label |
+| `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode; `supplied_forecast.py` for forward raw breakdowns when provided | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
@@ -61,11 +61,15 @@ shortened):
 | `draft_path`, `model_provenance` | `/assemble`; the orchestrator | The exported `.docx` path; which models and which prompt versions (content hashes) drafted and audited this deal |
 | `approved_draft_path` | `/assemble` | Repository-relative path to the approved Markdown draft retained as `draft_approved.md` in the same dated deal folder |
 
-The `financials_source` value describes the whole deal, not one period. If it is `"analyst-supplied"`, the
-default framework-computed `spreading_check.py` path refuses to overwrite the label or recompute figures in the other
-mode. Continue using `/spread`'s analyst-supplied mode for updates; one deal never mixes the two modes.
+`financials_source` is a deal-wide label and audit caveat, not the exporter's routing key for every
+period. When it is `"analyst-supplied"`, framework-computed mode still refuses historical-period recomputation
+and `/project` leaves the label unchanged. A forward-only `/project` run may nevertheless compute its forecast:
+those forward-period raw lines are recorded under `financials[period]["raw"]` and exported from that store.
+The two bases may therefore coexist across different periods; raw figures from the two stores are never blended
+within one period, and a forecast marked analyst-supplied is not recomputed.
 
-Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
+Ratios that cannot be computed are `null`, never `0`. The units for `gearing`, `fcf_conversion_pct` and their
+covenant thresholds follow the [percent-type ratio fraction convention](financial-model.md#percent-type-ratios-are-stored-as-fractions). A step may add keys of its own; this table is a
 floor.
 
 `analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.
@@ -80,19 +84,24 @@ truth and is the file `/review` updates in its `State: write` stage. No other sc
 a deal record. This removes the default path to earlier verdicts during the Reviewer's first pass, but it does not
 prevent a determined Reviewer from globbing to the combined `state.json`; see [AI assurance](ai-assurance.md#the-interactive-checker-is-a-separate-context-204).
 
-### Two raw-figure stores, never blended
+### Two raw-figure stores, never blended within a period
 
-A deal's raw line items live in exactly one of two places, depending on `financials_source`:
+Raw figures have two separate stores. The correct source is selected for each period; having both
+stores in the same deal is permitted when history was analyst-supplied and `/project` later computed
+forward years.
 
-| `financials_source` | Raw figures live in | Written by |
+| Period | Raw figures the exporter reads | Written by |
 | :--- | :--- | :--- |
-| `"framework-computed"` (default) | `multi_period_financials`, and `financials[period]["raw"]` | `spreading_check.py` |
-| `"analyst-supplied"` | `analyst_supplied_financials` | `/spread`, or `/project` for forward years, when the analyst also gives a raw breakdown |
+| Historical period when `financials_source` is `"framework-computed"` | `financials[period]["raw"]` (the raw lines are also tracked in `multi_period_financials`) | `spreading_check.py` |
+| Historical period when `financials_source` is `"analyst-supplied"` | `analyst_supplied_financials[period]` | `/spread`, analyst-supplied mode |
+| Forward period when `forecast_source` is `"analyst-supplied"` | `analyst_supplied_financials[period]`, when a raw breakdown was supplied; recorded subtotals/ratios remain in `financials`/`ratios` as given | `supplied_forecast.py` (`/project`) |
+| Forward period when the forecast is framework-computed (`forecast_source` absent or not `"analyst-supplied"`) | `financials[period]["raw"]`, including when historical `financials_source` remains `"analyst-supplied"` | `spreading_check.py` (`/project`) |
 
-Code that needs "this deal's raw figures" (the workbook exporter, for one) checks `financials_source` first and reads
-the matching store; it never assumes one store is universal. An analyst-supplied deal is not required to supply raw
-figures at all, only its own subtotals.
-
+The workbook exporter, `scripts/deal_export.py`, follows these per-period rules. It never assumes a single
+store is universal, never falls back to the other store when a period's selected store is missing, and
+never blends raw fields from both stores within one period. An analyst-supplied period can have no raw
+breakdown at all; its recorded subtotals and ratios are still preserved rather than reconstructed from
+incomplete raw figures.
 ### Resuming a deal
 
 A step begins by finding the deal's state (the most recent dated folder for that company and proposal; a bare library
@@ -150,7 +159,11 @@ validates state and writes the history-free first-pass copy and separate history
 newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
 `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
 an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
-today, so a deal resumed on a later calendar day still finds its original file. (This is
+today, so a deal resumed on a later calendar day still finds its original file. An explicit
+`date_str` supplied to `state_path()`, `read_state()`, `write_state()` or
+`append_review_trail()` must be a real calendar date in exact `YYYY-MM-DD` form;
+malformed or impossible values raise `StateError` before any deal folder is created.
+Passing `date_str=None` retains the existing auto-discovery/today behavior. (This is
 deliberately different from the bare `deal_export.export_deal()` default, which is still
 today -- so callers resolve the date themselves via `resolve_date_str()`, see that script's entry in the CLI reference and issue #97.) `read_state(company, proposal, keys=())` returns the parsed dict or `None`; it
 raises `StateShapeError` for a corrupt or non-UTF-8 file, a top level that is not an object, or (when `keys`
@@ -190,8 +203,8 @@ tolerances, kept:** a null value is "not recorded" for every key (a null period 
 non-object period inside `financials`/`analyst_supplied_financials` as empty, a non-list `collateral` as no
 collateral (one blank row) and a non-object `downside_case` as no downside case, as it always has, and so
 validates only that those two raw-figure keys are objects, that an object `downside_case`'s inner
-`financials`/`ratios` are objects, and that `financials_source` is a known value (it decides which raw store is
-read). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
+`financials`/`ratios` are objects, and that `financials_source` is a known value (it routes historical raw-input
+selection; forward-period workbook selection also follows `forecast_source`, as described above). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
 other: earlier code silently read it as empty. `export_deal()` reads and validates state before it creates the
 output folder or auto-saves a template, so a refusal leaves nothing behind; for a bare call with no `date_str`
 this also means a bare call still finds the deal's existing state before creating today's output folder.

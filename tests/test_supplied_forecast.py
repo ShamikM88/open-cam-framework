@@ -1040,3 +1040,32 @@ def test_when_the_state_cannot_be_read_back_the_commit_is_treated_as_uncertain(d
     with pytest.raises(StateError) as raised:
         record(forecast={"FY+3": {"ratios": {"dscr": 1.6}}})
     assert "did not complete cleanly" in str(raised.value) and "nothing was recorded" not in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# Percent-type ratios are fraction-stored; implausible magnitudes warn, not coerce.
+# ---------------------------------------------------------------------------
+
+def test_percent_type_ratios_over_ten_warn_once_and_remain_as_supplied(capsys):
+    supplied = sf.validate({
+        "forecast": {
+            "FY+1": {"ratios": {"gearing": 87, "fcf_conversion_pct": 35}},
+            "FY+2": {"ratios": {"gearing": 0.87}},
+        },
+    })
+
+    warning = capsys.readouterr().err
+    assert warning.count("warning:") == 1
+    assert "gearing" in warning and "fcf_conversion_pct" in warning
+    assert "fraction" in warning.lower()
+    assert supplied["forecast"]["FY+1"]["ratios"] == {"gearing": 87, "fcf_conversion_pct": 35}
+    assert supplied["forecast"]["FY+2"]["ratios"]["gearing"] == 0.87
+
+
+def test_percent_type_ratios_at_ten_or_below_do_not_warn(capsys):
+    supplied = sf.validate({
+        "forecast": {"FY+1": {"ratios": {"gearing": 10, "fcf_conversion_pct": 0.87}}},
+    })
+
+    assert capsys.readouterr().err == ""
+    assert supplied["forecast"]["FY+1"]["ratios"] == {"gearing": 10, "fcf_conversion_pct": 0.87}

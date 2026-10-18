@@ -182,7 +182,7 @@ Open this repo in Claude Code (or the desktop app's Code tab) — the commands u
 
 For automation, CI, or running outside an interactive Claude Code session.
 
-1. **Install dependencies** (Python 3.10+ recommended):
+1. **Install dependencies** (Python 3.11+ required):
    ```bash
    python -m venv venv
    venv\Scripts\activate   # on Windows; use `source venv/bin/activate` on macOS/Linux

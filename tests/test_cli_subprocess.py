@@ -39,7 +39,7 @@ CLI_SCRIPTS = (
     "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "conventions", "deal_export",
     "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
-    "supplied_forecast", "transcription_check",
+    "supplied_forecast", "transcription_check", "wiki_publish",
 )
 
 
@@ -1203,6 +1203,102 @@ def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_histor
     assert "historical" in result.stderr and "Traceback" not in result.stderr
     assert state_path.read_bytes() == before
     assert "multi_period_financials" not in state_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "token",
+    ['"abc"', '"1e999"', '"nan"', '"1250"', "true", "1e999"],
+    ids=["text", "overflow-text", "nan-text", "numeric-text", "boolean", "overflow-number"],
+)
+def test_spreading_check_rejects_non_numeric_raw_line_items_before_writing(cli, token):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="framework-computed",
+        financials={"FY-Current": {"raw": {"revenue": 1000}}},
+        multi_period_financials={"FY-Current": {"revenue": 1000}},
+    )
+    saved_path = Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text(
+        '{"FY-Current":{"revenue":' + token + ',"cost_of_sales":600}}',
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "Traceback" not in result.stderr
+    assert "FY-Current" in result.stderr and "revenue" in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("flag", ["--financials", "--spread"])
+@pytest.mark.parametrize(
+    "token",
+    ['"abc"', '"1e999"', '"nan"', '"1250"', "true", "false", "1e999"],
+    ids=["text", "overflow-text", "nan-text", "numeric-text", "true", "false", "overflow-number"],
+)
+def test_orchestrator_rejects_non_numeric_raw_line_items_before_model_or_write(cli, flag, token):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="framework-computed",
+        financials={"FY-Current": {"raw": {"revenue": 1000}}},
+        multi_period_financials={"FY-Current": {"revenue": 1000}},
+    )
+    saved_path = Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text(
+        '{"FY-Current":{"revenue":' + token + ',"cost_of_sales":600}}',
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "orchestrator", "--company", company, "--proposal", proposal,
+        flag, financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "Traceback" not in result.stderr
+    assert "financial inputs" in result.stderr
+    assert "FY-Current" in result.stderr and "revenue" in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+def test_wiki_publish_generates_the_real_docs_tree(cli, tmp_path):
+    out = tmp_path / "wiki"
+    result = cli("wiki_publish", "--repo", "example/repo", "--root", REPO_ROOT, "--out", out)
+    assert result.returncode == 0, result.stderr
+    assert (out / "Home.md").is_file()
+    assert (out / "_Sidebar.md").is_file()
+    assert not list(out.glob("*.md")) or all(p.suffix == ".md" for p in out.glob("*.md"))
+
+
+def test_wiki_publish_on_a_broken_corpus_fails_cleanly(cli, tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "README.md").write_text("# Index\n", encoding="utf-8")
+    (tmp_path / "docs" / "source.md").write_text("[gone](gone.md)\n", encoding="utf-8")
+    result = cli("wiki_publish", "--repo", "example/repo", "--root", tmp_path, "--out", tmp_path / "out")
+    assert result.returncode == 1
+    assert result.stderr.count("error:") == 1
+    assert "gone.md" in result.stderr
+    assert not (tmp_path / "out").exists()
 
 
 STRESS_DOMAIN_CASES = [

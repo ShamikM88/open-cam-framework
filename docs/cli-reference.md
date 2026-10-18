@@ -22,6 +22,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
+| `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/` into a directory (no publishing) | No | [Wiki publish](#wiki-publish) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
 Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic, makes no
@@ -121,6 +122,10 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
   `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
   matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
+  For recognised raw line-item fields, each non-null value must be a finite JSON number: numeric strings are not
+  coerced and booleans are not numbers. Invalid values (including JSON overflow values such as `1e999`) are refused
+  with one `error:` line naming the period and field, exit status 1, before a model call or state write. Null values
+  retain the evaluator's existing behavior and are not rejected; missing fields keep their existing behavior too.
   **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
   (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
   nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
@@ -205,7 +210,11 @@ updated state (`financials`, `ratios`, `downside_case`, `financials_source`). It
 the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
 re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
 what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
-always passes it. The slash commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
+always passes it. For recognised raw line-item fields, non-null values must be finite JSON numbers; numeric strings and
+booleans are refused rather than coerced. An invalid value produces one `error:` line naming its period and field,
+exits 1, and leaves `state.json` unchanged. A `null` value retains the existing evaluator behavior; omitted fields
+are also unchanged. The same rule applies to the orchestrator's `--financials` and `--spread` inputs. The slash
+commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
 
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
@@ -405,3 +414,21 @@ comparing baselines (`--export-baseline`, `--allow-partial`, `--compare`). See [
 ```bash
 python scripts/run_evals.py --dry-run
 ```
+
+## Wiki publish
+
+`python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check)` (no
+`ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus. `--out` writes the
+tree into a directory (which may not be the repository root, `docs/`, a directory inside `docs/` or an ancestor of `docs/`: the paths are resolved first and such an output is one `error:` line, exit `1`, nothing written, so the source pages can never be overwritten); `--check` builds and validates in memory and writes nothing. It publishes
+nothing: no wiki, no token, no network, no git -- publishing to the repository's wiki is a separate,
+later change that also needs the maintainer's one-time wiki setup.
+
+Only the allowlisted pages (`docs/*.md`, dotfiles excluded, and the example pages under `docs/examples/synthetic_co/`)
+are read; linked repository files are checked and rewritten to URLs, never copied. Page names come
+from the file names (`docs/README.md` becomes `Home`, the example pages are flattened with an
+`examples-synthetic_co-` prefix); links are rewritten to wiki, blob, tree or raw-blob URLs; every
+page starts with a generated-source notice saying `docs/` is canonical; `Home` is the docs index and
+`_Sidebar` is its reading order. A missing target, a broken anchor, a symlinked page or a target
+outside the repository is one `error:` line naming the file and line, exit `1`, and nothing is
+written. Deterministic: the same `docs/` tree always gives byte-identical output. See
+[issue #192](https://github.com/ShamikM88/open-cam-framework/issues/192).

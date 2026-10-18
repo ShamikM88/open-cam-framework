@@ -21,8 +21,13 @@ import argparse
 import json
 import sys
 
-from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
-from numeric_validation import NonFiniteNumberError, validate_finite_numbers, validate_stress_assumptions
+from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
+from numeric_validation import (
+    NonFiniteNumberError,
+    validate_finite_numbers,
+    validate_raw_line_items,
+    validate_stress_assumptions,
+)
 from state_manager import read_state, write_state
 
 
@@ -240,6 +245,7 @@ def main(argv=None):
             sys.exit(f"error: {path} must contain a JSON object, found {type(data).__name__}")
 
     try:
+        validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
         validate_finite_numbers(multi_period_financials, path="financial inputs")
         validate_finite_numbers(stress_assumptions, path="stress assumptions")
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,

@@ -44,6 +44,7 @@ import json
 import math
 import sys
 
+from financial_conventions import warn_percent_type_values
 from spreading_builder import (
     FORWARD_PERIOD_KEYS,
     SUPPLIED_RATIOS,
@@ -204,6 +205,11 @@ def validate(data):
                                         "ratios only; raw lines are not accepted for it")
                 periods[period] = block
         downside = {"description": raw["description"].strip(), "periods": periods}
+    ratios_to_check = [(f"forecast.{period}", block["ratios"]) for period, block in forecast.items()]
+    if downside:
+        ratios_to_check.extend((f"downside.{period}", block["ratios"])
+                               for period, block in downside["periods"].items())
+    warn_percent_type_values(ratios_to_check)
     return {"forecast": forecast, "downside": downside}
 
 

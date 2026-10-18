@@ -766,6 +766,28 @@ def test_resolve_date_str_returns_the_given_date_str_unchanged(tmp_path):
                              base_dir=str(tmp_path)) == "2026-01-15"
 
 
+@pytest.mark.parametrize("operation", ["state_path", "read_state", "write_state", "append_review_trail"])
+@pytest.mark.parametrize("date_str", ["foo", "2026-1-5", "", "2026-02-30"])
+def test_state_entry_points_reject_non_iso_explicit_dates_without_creating_folders(tmp_path, operation, date_str):
+    base = tmp_path / operation
+
+    with pytest.raises(state_manager.StateError):
+        if operation == "state_path":
+            state_manager.state_path("Synthetic Company", "Test Proposal",
+                                     date_str=date_str, base_dir=str(base))
+        elif operation == "read_state":
+            state_manager.read_state("Synthetic Company", "Test Proposal",
+                                     date_str=date_str, base_dir=str(base))
+        elif operation == "write_state":
+            state_manager.write_state("Synthetic Company", "Test Proposal",
+                                      date_str=date_str, base_dir=str(base), note="must not write")
+        else:
+            state_manager.append_review_trail("Synthetic Company", "Test Proposal", "REJECTED",
+                                              date_str=date_str, base_dir=str(base))
+
+    assert not base.exists(), f"{operation} created a directory for invalid date_str={date_str!r}"
+
+
 @pytest.mark.parametrize("date_str", ["2026-02-31", "2026-13-01", "2026-00-01"])
 def test_state_path_and_write_state_reject_impossible_explicit_calendar_dates(tmp_path, date_str):
     base = str(tmp_path)

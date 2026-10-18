@@ -27,7 +27,7 @@ from numeric_validation import (
     validate_stress_assumptions,
 )
 from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
-from spreading_check import FinancialSourceModeError, plan_fields
+from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -628,12 +628,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 "figures; nothing was written."
             )
 
-        try:
-            planned_fields = plan_fields(
-                planning_state, multi_period_financials, update_financials_source=False,
-            )
-        except FinancialSourceModeError as exc:
-            raise StateError(str(exc)) from exc
+        planned_fields = plan_fields(
+            planning_state, multi_period_financials, update_financials_source=False,
+        )
         financials = planned_fields["financials"]
         ratios = planned_fields["ratios"]
         multi_period_financials = planned_fields["multi_period_financials"]

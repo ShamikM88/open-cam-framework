@@ -94,13 +94,17 @@ threshold, so a loss-making borrower would appear to pass "leverage must not exc
 a positive denominator is a real number and is kept (an EBITDA of -100 over debt service of 490 gives a DSCR of
 -0.204, a real shortfall that fails a minimum-DSCR covenant; net cash gives a negative net debt / EBITDA).
 
-**Non-finite values are invalid input, not financial results.** The framework-computed spreading and stress paths reject
-`NaN`, `Infinity` and `-Infinity` in raw figures or stress assumptions before evaluating them. Non-finite values
-already present in persisted state, supplied as covenant thresholds/ratios, or produced by arithmetic overflow are
-also rejected before the state is changed or a policy result is returned. They are never coerced to zero, N/A or a
-large finite substitute. The same guard covers the `collateral` and `security_package` figures in state and the
-`--collateral` input of the headless run (one `error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators remain valid figures, while
-ratios with zero or negative denominators remain N/A.
+**Non-finite and non-numeric values are invalid input, not financial results.** At the framework-computed
+entry points, recognised raw line-item fields must be finite JSON numbers or `null`. Strings (including numeric
+strings), booleans, lists and objects are refused rather than coerced, with one `error:` line naming the period and
+field, exit status 1, and no state write. `null` keeps the existing unavailable-input behavior, and omitted fields
+still default to zero. The spreading and stress paths also reject `NaN`, `Infinity` and `-Infinity` in raw figures
+or stress assumptions before evaluating them. Non-finite values already present in persisted state, supplied as
+covenant thresholds/ratios, or produced by arithmetic overflow are also rejected before the state changes or a
+policy result is returned. They are never coerced to zero, N/A or a large finite substitute. The same guard covers
+the `collateral` and `security_package` figures in state and the `--collateral` input of the headless run (one
+`error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators
+remain valid figures, while ratios with zero or negative denominators remain N/A.
 
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its

@@ -54,6 +54,7 @@ def validate_stress_assumptions(value):
                 "it will be applied as written, not treated as a whole-percent value",
                 file=sys.stderr,
             )
+    return value
 
 
 class InvalidFinancialInputError(FinancialInputError):

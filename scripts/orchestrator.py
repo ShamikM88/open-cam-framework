@@ -19,7 +19,13 @@ from policy_checks import (
     check_reported_figures as _check_reported_figures,
 )
 from policy_engine import evaluate_deal_policy
-from numeric_validation import FinancialInputError, validate_finite_numbers, validate_raw_line_items
+from numeric_validation import (
+    FinancialInputError,
+    StressAssumptionsError,
+    validate_finite_numbers,
+    validate_raw_line_items,
+    validate_stress_assumptions,
+)
 from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
 from spreading_check import plan_fields
 from state_manager import (
@@ -480,6 +486,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_financials, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
+    validate_stress_assumptions(stress_assumptions)
     validate_finite_numbers(collateral_data, path="collateral")
     client = client or _default_client()
 
@@ -891,5 +898,5 @@ if __name__ == "__main__":
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
     except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
-            FinancialInputError) as exc:
+            FinancialInputError, StressAssumptionsError) as exc:
         sys.exit(f"error: {exc}")

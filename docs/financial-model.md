@@ -152,6 +152,16 @@ A downside case is a forward year re-run under three deterministic shocks, all o
 - `shocked_admin_expenses = admin_expenses x (1 + opex_increase_pct / 100)` (admin expenses only, never cost of sales)
 - `shocked_interest_paid = interest_paid + total_debt x interest_rate_bump_bps / 10000`
 
+**Stress-assumption units and bounds.** All three assumptions must be non-negative. A
+`revenue_haircut_pct` of 100 or more is refused because it would make revenue zero or negative;
+it must be less than 100. `revenue_haircut_pct` and `opex_increase_pct` are percentages, so 10 means
+10%. A positive value strictly between 0 and 1 for either percentage field is accepted as written but
+prints a warning to stderr because it may be a fraction/percent unit slip; there is no confirmation
+flow and the value is not converted. `interest_rate_bump_bps` is measured in basis points, not
+percent. No other upper bounds are imposed on operating-expense increases or interest-rate basis points.
+The same validation is used by `spreading_check.py`, the analyst-supplied `supplied_forecast.py`
+path, and the headless orchestrator, before any state write or model call.
+
 Every other raw figure carries through unchanged. For the example's `FY+1` with a 5% revenue haircut and a 200 basis
 point interest rise: revenue 4600 becomes 4370, interest 150 becomes 150 + 1650 x 200 / 10000 = 183, EBITDA falls from
 550 to **320**, DSCR falls from 1.1 to **0.600** and gross leverage rises from 3.0 to **5.15625**, which breaches the

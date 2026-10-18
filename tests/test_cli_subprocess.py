@@ -1299,3 +1299,151 @@ def test_wiki_publish_on_a_broken_corpus_fails_cleanly(cli, tmp_path):
     assert result.stderr.count("error:") == 1
     assert "gone.md" in result.stderr
     assert not (tmp_path / "out").exists()
+
+
+STRESS_DOMAIN_CASES = [
+    ("revenue_haircut_pct", -10),
+    ("opex_increase_pct", -50),
+    ("interest_rate_bump_bps", -300),
+    ("revenue_haircut_pct", 100),
+]
+
+
+def _seed_stress_deal(cli):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    raw = {
+        "revenue": 5000, "cost_of_sales": 3000, "admin_expenses": 1200,
+        "interest_paid": 50, "current_debt": 0, "overdraft": 0,
+        "long_term_debt": 2400, "loan_notes": 0, "scheduled_principal": 200,
+    }
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="framework-computed",
+        financials={"FY+1": {"raw": raw}},
+        multi_period_financials={"FY+1": raw},
+    )
+    return company, proposal, Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+
+
+@pytest.mark.parametrize("key,value", STRESS_DOMAIN_CASES)
+def test_spreading_check_refuses_domain_invalid_stress_before_writing(cli, key, value):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    stress = cli.workdir / "stress.json"
+    stress.write_text(json.dumps({key: value}), encoding="utf-8")
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--stress-assumptions", stress,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert key in result.stderr and "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("key,value", STRESS_DOMAIN_CASES)
+def test_orchestrator_refuses_domain_invalid_stress_before_credentials_or_writing(cli, key, value):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text(json.dumps({"FY+1": {
+        "revenue": 5000, "cost_of_sales": 3000, "admin_expenses": 1200,
+        "interest_paid": 50, "current_debt": 0, "overdraft": 0,
+        "long_term_debt": 2400, "loan_notes": 0, "scheduled_principal": 200,
+    }}), encoding="utf-8")
+    stress = cli.workdir / "stress.json"
+    stress.write_text(json.dumps({key: value}), encoding="utf-8")
+
+    result = cli(
+        "orchestrator", "--company", company, "--proposal", proposal,
+        "--financials", financials, "--stress-assumptions", stress,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert key in result.stderr and "stress assumptions" in result.stderr
+    assert "no Anthropic credentials" not in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+def test_spreading_check_warns_for_percent_value_between_zero_and_one_and_keeps_it(cli):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    stress = cli.workdir / "stress.json"
+    stress.write_text('{"revenue_haircut_pct":0.5}', encoding="utf-8")
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--stress-assumptions", stress,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.startswith("warning:")
+    assert "revenue_haircut_pct" in result.stderr and "0.5" in result.stderr
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert json.loads(result.stdout)["downside_case"] is not None
+    assert json.loads(saved_path.read_text(encoding="utf-8"))["stress_assumptions"]["revenue_haircut_pct"] == 0.5
+
+
+def _seed_analyst_supplied_stress_deal(cli):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="analyst-supplied",
+        financials_source_note="Synthetic budget convention.",
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+        financials={"FY-Current": {"ebitda": 800}},
+    )
+    return company, proposal, Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+
+
+@pytest.mark.parametrize("key,value", STRESS_DOMAIN_CASES)
+def test_supplied_forecast_refuses_domain_invalid_stress_before_writing(cli, key, value):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    before = saved_path.read_bytes()
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text('{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}}}', encoding="utf-8")
+    stress = cli.workdir / "stress.json"
+    stress.write_text(json.dumps({key: value}), encoding="utf-8")
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--stress-assumptions", stress, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert key in result.stderr and "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+def test_supplied_forecast_warns_and_continues_for_small_positive_percent_stress(cli):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text('{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}}}', encoding="utf-8")
+    stress = cli.workdir / "stress.json"
+    stress.write_text('{"opex_increase_pct":0.5}', encoding="utf-8")
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--stress-assumptions", stress, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.startswith("warning:")
+    assert "opex_increase_pct" in result.stderr and "0.5" in result.stderr
+    assert len(result.stderr.strip().splitlines()) == 1
+    saved = json.loads(saved_path.read_text(encoding="utf-8"))
+    assert saved["stress_assumptions"]["opex_increase_pct"] == 0.5

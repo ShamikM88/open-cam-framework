@@ -22,7 +22,12 @@ import json
 import sys
 
 from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
-from numeric_validation import NonFiniteNumberError, validate_finite_numbers, validate_raw_line_items
+from numeric_validation import (
+    NonFiniteNumberError,
+    validate_finite_numbers,
+    validate_raw_line_items,
+    validate_stress_assumptions,
+)
 from state_manager import read_state, write_state
 
 
@@ -181,6 +186,8 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     Returns the full merged state dict (same contract as
     state_manager.write_state()).
     """
+    validate_finite_numbers(stress_assumptions, path="stress assumptions")
+    validate_stress_assumptions(stress_assumptions)
     existing_state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
     fields = plan_fields(existing_state, multi_period_financials, stress_assumptions,
                          update_financials_source)

@@ -2323,3 +2323,22 @@ def test_run_pipeline_rejects_non_finite_collateral_before_model_call(project_ro
 
     assert client.call_count == 0
     assert _deal_files() == before
+
+
+def test_run_pipeline_warns_and_continues_for_sub_one_percent_stress_values(project_root, capsys):
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline(
+        "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+        multi_period_financials={"FY+1": dict(FORWARD_PERIOD_BASE)},
+        stress_assumptions={"revenue_haircut_pct": 0.5},
+        client=client,
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("warning:")
+    assert "revenue_haircut_pct" in captured.err and "0.5" in captured.err
+    assert len(captured.err.strip().splitlines()) == 1
+    assert client.call_count == 2
+    assert read_state("Synthetic Co", "Synthetic Facility")["stress_assumptions"] == {
+        "revenue_haircut_pct": 0.5,
+    }

@@ -411,11 +411,11 @@ python scripts/run_evals.py --dry-run
 
 `python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check)` (no
 `ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus. `--out` writes the
-tree into a directory; `--check` builds and validates in memory and writes nothing. It publishes
+tree into a directory (which may not be the repository root, `docs/`, a directory inside `docs/` or an ancestor of `docs/`: the paths are resolved first and such an output is one `error:` line, exit `1`, nothing written, so the source pages can never be overwritten); `--check` builds and validates in memory and writes nothing. It publishes
 nothing: no wiki, no token, no network, no git -- publishing to the repository's wiki is a separate,
 later change that also needs the maintainer's one-time wiki setup.
 
-Only the allowlisted pages (`docs/*.md` and the example pages under `docs/examples/synthetic_co/`)
+Only the allowlisted pages (`docs/*.md`, dotfiles excluded, and the example pages under `docs/examples/synthetic_co/`)
 are read; linked repository files are checked and rewritten to URLs, never copied. Page names come
 from the file names (`docs/README.md` becomes `Home`, the example pages are flattened with an
 `examples-synthetic_co-` prefix); links are rewritten to wiki, blob, tree or raw-blob URLs; every

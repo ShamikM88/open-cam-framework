@@ -147,7 +147,8 @@ def discover_pages(root: Path) -> dict[str, Path]:
     seen: dict[str, str] = {}
     candidates: list[Path] = []
     for pattern in PAGE_GLOBS:
-        candidates.extend(sorted(docs.glob(pattern)))
+        # dotfiles (editor or draft artifacts) are not pages
+        candidates.extend(path for path in sorted(docs.glob(pattern)) if not path.name.startswith("."))
     for path in sorted(candidates):
         walked = root
         for part in path.relative_to(root).parts[:-1]:
@@ -463,6 +464,22 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
     return tree
 
 
+def check_out_dir(root: Path, out_dir: Path) -> None:
+    """Refuse an output directory that overlaps the source tree.
+
+    The write replaces top-level ``*.md`` files in `out_dir`, so an output path that is the repository root, equal to
+    or inside ``docs/``, or any ancestor of ``docs/`` would overwrite or delete the canonical documentation. Both
+    paths are resolved first, so relative paths, ``..`` segments and symlinks cannot hide an overlap.
+    """
+    docs = (root / "docs").resolve()
+    out = out_dir.resolve()
+    if out == docs or docs in out.parents or out in docs.parents:
+        raise WikiPublishError(
+            f"{out_dir}: the output directory must not be the repository root, docs/, a directory inside docs/ "
+            "or an ancestor of docs/ (it would overwrite the source pages)"
+        )
+
+
 def write_tree(out_dir: Path, tree: dict[str, str]) -> None:
     """Write the generated tree into `out_dir`, replacing any stale wiki pages.
 
@@ -496,6 +513,8 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true", help="build and validate in memory, write nothing")
     args = parser.parse_args(argv)
     try:
+        if args.out is not None:
+            check_out_dir(Path(args.root), Path(args.out))
         tree = build_tree(Path(args.root), args.repo)
         if args.check:
             print(f"OK: {len(tree)} pages built from docs/ (nothing written)")

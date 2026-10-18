@@ -758,3 +758,54 @@ class TestEdgeBranches:
         )
         with pytest.raises(WikiPublishError, match="no 'What is in this folder' index table"):
             build_tree(tmp_path, "example/repo")
+
+
+class TestOutputPathSafety:
+    """CG358-1 / PX358-1: --out must never overlap the source tree, or the generator would overwrite or delete the
+    canonical documentation."""
+
+    def corpus(self, tmp_path):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        (tmp_path / "docs" / "examples" / "synthetic_co").mkdir(parents=True, exist_ok=True)
+        return {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+    @pytest.mark.parametrize("relative_out", [
+        ".", "docs", "docs/examples", "docs/examples/synthetic_co", "docs/../docs", "..",
+    ], ids=["root", "docs", "docs-examples", "docs-examples-synthetic_co", "docs-dotdot", "parent-of-root"])
+    def test_an_output_path_that_overlaps_the_source_tree_is_refused_and_writes_nothing(
+            self, tmp_path, capsys, relative_out):
+        root = tmp_path / "repo"
+        root.mkdir()
+        before = self.corpus(root)
+        everything_before = sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*"))
+
+        code = wiki_publish.main(["--repo", "example/repo", "--root", str(root),
+                                  "--out", str(root / relative_out)])
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert len(err.splitlines()) == 1 and err.startswith("error: ") and "output" in err
+        assert {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()} == before
+        assert sorted(p.relative_to(tmp_path).as_posix() for p in tmp_path.rglob("*")) == everything_before
+
+    def test_a_relative_output_path_is_resolved_before_the_overlap_check(self, tmp_path, monkeypatch, capsys):
+        before = self.corpus(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        assert wiki_publish.main(["--repo", "example/repo", "--root", ".", "--out", "docs"]) == 1
+        assert wiki_publish.main(["--repo", "example/repo", "--root", ".", "--out", "."]) == 1
+        capsys.readouterr()
+        assert {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()} == before
+
+    def test_a_separate_output_directory_inside_the_repository_still_works(self, tmp_path):
+        self.corpus(tmp_path)
+        assert wiki_publish.main(["--repo", "example/repo", "--root", str(tmp_path),
+                                  "--out", str(tmp_path / "build" / "wiki")]) == 0
+        assert (tmp_path / "build" / "wiki" / "Home.md").is_file()
+
+
+def test_dotfiles_in_docs_are_not_discovered_as_pages(tmp_path):
+    """PX358-2: an editor or draft artifact must not demand an index row."""
+    make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+    (tmp_path / "docs" / ".draft.md").write_text("# draft\n", encoding="utf-8")
+    assert ".draft" not in discover_pages(tmp_path)
+    assert build_tree(tmp_path, "example/repo")

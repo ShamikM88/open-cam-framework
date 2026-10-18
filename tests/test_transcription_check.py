@@ -94,9 +94,9 @@ def test_a_figure_that_cannot_be_read_with_certainty_is_refused_not_guessed(text
         tc.parse_figure(text, "x")
 
 
-def test_ratio_suffixes_are_accepted_only_for_ratios_and_the_number_is_recorded_as_written():
-    assert tc.parse_figure("1.35x", "r", allow_suffix=True).value == Decimal("1.35")
-    assert tc.parse_figure("45.2%", "r", allow_suffix=True).value == Decimal("45.2")
+def test_suffixes_on_other_ratios_are_accepted_and_the_number_is_recorded_as_written():
+    assert tc.parse_figure("1.35x", "dscr", allow_suffix=True).value == Decimal("1.35")
+    assert tc.parse_figure("45.2%", "gross_leverage", allow_suffix=True).value == Decimal("45.2")
     with pytest.raises(tc.TranscriptionError):
         tc.parse_figure("1.35x", "line")
 
@@ -112,6 +112,7 @@ def test_percent_type_ratio_percent_suffix_records_fraction_and_keeps_source_tex
     assert gearing.value == Decimal("0.87")
     assert gearing.written_value == Decimal("87")
     assert gearing.text == "87%"
+    assert "| Gearing | 87% | 0.87 |" in tc.readback(staged_)["text"]
 
     run_commit(data, source_note="Synthetic ratio convention")
     saved = read_state("Synthetic Co", "Fleet Loan")
@@ -546,7 +547,7 @@ def test_analyst_supplied_commit_records_the_given_figures_exactly_and_never_rec
     result = run_commit(analyst_data(deal), source_note="Depreciation embedded in Cost of Goods Sold")
     state = read_state("Synthetic Co", "Fleet Loan")
     assert state["financials"] == {"FY-Current": {"gross_profit": 400, "ebitda": 300, "tangible_net_worth": 500}}
-    assert state["ratios"] == {"FY-Current": {"dscr": 1.35, "gearing": 45.2}}
+    assert state["ratios"] == {"FY-Current": {"dscr": 1.35, "gearing": 0.452}}
     assert state["analyst_supplied_financials"] == {"FY-Current": {"revenue": 1000, "cost_of_sales": 600}}
     assert state["financials_source"] == "analyst-supplied"
     assert "multi_period_financials" not in state, "the framework-computed store is never populated in this mode"

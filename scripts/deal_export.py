@@ -51,20 +51,27 @@ def _raw_financials(financials):
 
 
 def _financial_data_from_state(state):
-    """The raw multi-period figures to write into the exported workbook's
-    input cells -- sourced from whichever of this deal's two raw-figure
-    stores actually matches its `financials_source` (see issue #121):
-    `analyst_supplied_financials` (already in the plain `{period: {raw}}`
-    shape `export_to_xlsx()` wants, no reduction needed) for an
-    analyst-supplied deal, or `financials`'s own nested `"raw"` sub-key
-    (via `_raw_financials()`) for a framework-computed one -- never a blend
-    of the two, and never guessed from whichever happens to be present.
+    """Select exactly one raw-figure store per period for the workbook.
+
+    Historical periods follow `financials_source`: analyst-supplied historical
+    lines come from `analyst_supplied_financials`, otherwise from
+    `financials[period]["raw"]`. Forward periods follow `forecast_source`:
+    an analyst-supplied forecast keeps its existing supplied-store path, while
+    a computed forecast reads `financials[period]["raw"]` even if the deal's
+    historical basis is analyst-supplied (issue #249). Never blend stores
+    within a period or fall back to the other store for a missing period.
     """
     if state.get("financials_source") == "analyst-supplied":
         analyst_supplied = state.get("analyst_supplied_financials")
-        return analyst_supplied if isinstance(analyst_supplied, dict) else {}
+        raw_by_period = dict(analyst_supplied) if isinstance(analyst_supplied, dict) else {}
+        if state.get("forecast_source") != "analyst-supplied":
+            computed = _raw_financials(state.get("financials"))
+            for period in FORWARD_PERIOD_KEYS:
+                raw_by_period.pop(period, None)
+                if period in computed:
+                    raw_by_period[period] = computed[period]
+        return raw_by_period
     return _raw_financials(state.get("financials"))
-
 
 def _downside_financial_data_from_state(state):
     """state.json's `downside_case` (see spreading_builder.evaluate_downside_case)

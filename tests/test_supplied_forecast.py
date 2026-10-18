@@ -143,6 +143,48 @@ def test_a_refused_input_writes_nothing(deal):
     assert not (deal / "deals").exists()
 
 
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("revenue_haircut_pct", -1),
+        ("opex_increase_pct", -1),
+        ("interest_rate_bump_bps", -1),
+        ("revenue_haircut_pct", 100),
+        ("revenue_haircut_pct", 150),
+    ],
+)
+def test_stress_assumptions_refuse_negative_values_and_haircuts_at_or_above_100(key, value):
+    with pytest.raises(sf.ForecastError, match=key):
+        sf.validate_stress({key: value})
+
+
+@pytest.mark.parametrize("key", ["revenue_haircut_pct", "opex_increase_pct"])
+def test_small_positive_percent_stress_assumption_warns_but_is_kept(key, capsys):
+    assumptions = {key: 0.5}
+    assert sf.validate_stress(assumptions) == assumptions
+    warning = capsys.readouterr().err
+    assert warning.startswith("warning:")
+    assert key in warning and "0.5" in warning
+    assert "%" in warning and len(warning.strip().splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    "assumptions",
+    [
+        {"revenue_haircut_pct": 0},
+        {"revenue_haircut_pct": 1},
+        {"opex_increase_pct": 1},
+        {"interest_rate_bump_bps": 0.5},
+        {"opex_increase_pct": 250},
+        {"interest_rate_bump_bps": 50000},
+    ],
+)
+def test_stress_validation_keeps_boundaries_basis_points_and_unbounded_values(assumptions, capsys):
+    assert sf.validate_stress(assumptions) == assumptions
+    assert capsys.readouterr().err == ""
+
+
 # ---------------------------------------------------------------------------
 # Recorded as supplied, labelled, and reloadable
 # ---------------------------------------------------------------------------

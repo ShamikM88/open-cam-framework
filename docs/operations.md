@@ -181,7 +181,19 @@ See [Configuration](configuration.md#model-freshness-diagnostic) for the fields 
 - **The index** (`docs/README.md`) links every page; its [project status](README.md#project-status) is the only dated statement in the corpus. Re-check that paragraph against issues #150 and #151 whenever it is touched, and when a live evaluation is run or a baseline is committed.
 - **Evergreen pages stay evergreen:** no dates, no "not yet", no current counts. Put status in the index or the tracking issue.
 - **The move ledger is frozen;** it records a past reorganisation.
-- **Wiki publication is a separate workstream** (#192): `docs/` stays the only authored source.
+- **The wiki is generated, not authored** ([Publishing the wiki](#publishing-the-wiki)): `docs/` stays the only authored source; direct wiki edits are overwritten by the next publish.
+
+## Publishing the wiki
+
+**Purpose.** Make the `docs/` corpus discoverable through GitHub's Wiki surface without creating a second documentation source. The `wiki-publish` workflow (`.github/workflows/wiki-publish.yml`, issue #192) publishes `docs/` to the repository's wiki one-way: `docs/` is canonical and authored; the wiki is generated from it and overwritten on every publish.
+
+**What runs and when.** Every push to `main` that changes `docs/**`, `scripts/wiki_publish.py` or the workflow file itself, plus manual dispatches from the Actions tab. One job checks out `main`, runs `python3 scripts/wiki_publish.py --repo "$GITHUB_REPOSITORY" --publish --source-sha "$GITHUB_SHA"` with the runner's own Python (no installs), and pushes the generated pages to the wiki repository's default branch (`master`). The publisher replaces the wiki's entire content with the generated set: wiki files that are not in the generated tree are deleted, so a wiki edit is overwritten by the next publish -- change `docs/`, not the wiki. A publish that would change nothing commits and pushes nothing ("no change"). The one-time setup (enabling the wiki and creating its first page, which initialised `master`) is already done.
+
+**The permission exception.** The `wiki-publish` workflow is the one deliberate write-permission exception (the other documented exception is `model-freshness`'s `issues: write`): its single job holds `contents: write`, because pushing to the wiki is a write the ephemeral per-run `GITHUB_TOKEN` performs with that permission. The guards: the job runs only on `main` (re-checked in the job, because a dispatch can select any ref), never on a fork and never on a pull request; the checkout leaves no credential behind; the token reaches the publisher only through its environment and the script passes it to git only as an HTTP header -- never in a URL, a log line or a file.
+
+**Reading a failed run.** A generator error (a broken link or anchor in `docs/`, named file and line) fails before anything is cloned or pushed; fix the page. A red push step with `pushing to the wiki failed` is usually one of two things: a transport problem (re-run the workflow; publishing is idempotent), or authorisation. A push rejected for authorisation is the signal that the repository's own token cannot write to the wiki: that is a maintainer decision -- accept that the wiki does not publish, or change how the wiki is written to -- and never something to work around with a fallback token or a personal access token. No such credential exists to misuse, and none should be created.
+
+**Turning it off.** Disable the workflow from the Actions tab or delete `.github/workflows/wiki-publish.yml`; nothing else depends on it (it is not a required check), and the wiki then keeps whatever was last published.
 
 ## Live evaluation: execution and baseline boundaries
 

@@ -699,7 +699,7 @@ def test_the_wiki_publish_workflow_publishes_docs_one_way_and_never_runs_on_a_pu
     assert "github.ref == 'refs/heads/main'" in body
     assert "github.event.repository.fork == false" in body
     # one pinned action only; no credentials left in the checkout; no Python setup or install
-    assert uses_lines(text) == [("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "# v7.0.1")]
+    assert uses_lines(text) == [("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1")]
     assert "persist-credentials: false" in body and "fetch-depth: 1" in body
     assert "setup-python" not in text and "pip install" not in text
     # the token reaches the step only through env:, and nothing is interpolated into the shell

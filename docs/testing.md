@@ -102,7 +102,9 @@ python scripts/check_coverage.py coverage.json
 ```
 CI runs four jobs: `test` (Ubuntu), `test-windows`, `runtime-smoke` (installs only `requirements.txt` and
 checks that a fresh clone works) and `security` (`pip-audit`, `zizmor`). All actions are pinned to commit
-SHAs and every job has read-only permissions. A reviewed advisory with no fix available is ignored only through
+SHAs and every job has read-only permissions, with two documented exceptions: `model-freshness`'s weekly report
+holds `issues: write`, and the `wiki-publish` job holds `contents: write` to push the generated wiki.
+A reviewed advisory with no fix available is ignored only through
 a reviewed PR that adds `--ignore-vuln <ID>` and a reason comment to the `pip-audit` command (see CLAUDE.md,
 "Testing and static analysis"); the audit itself is never switched off. Separately, a **weekly mutation-testing run**
 (`.github/workflows/mutation.yml`, Linux only, also startable by hand from the Actions tab) mutates the
@@ -237,7 +239,9 @@ PR that pins a fixed version, and the same advisory dismissed in GitHub's Depend
 reason that links that PR. Findings from `zizmor` are fixed, or silenced with a `# zizmor: ignore[<rule>]` comment
 on the line itself plus the same reason, reviewed the same way. Workflow rules, all tested:
 every third-party action is pinned to a full commit SHA with a `# vX.Y.Z` comment (Dependabot keeps
-them current); `permissions: {}` at the top and `contents: read` per job; `persist-credentials: false`
+them current); `permissions: {}` at the top and `contents: read` per job (the two documented exceptions:
+`model-freshness.yml`'s `issues: write` and `wiki-publish.yml`'s one-job `contents: write`);
+`persist-credentials: false`
 on every checkout; no `pull_request_target`; CI never passes `--write` or `--update-snapshots`.
 
 ### Mutation testing

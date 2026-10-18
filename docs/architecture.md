@@ -117,8 +117,8 @@ the narrative is sound.
   drafting work back to the session.
 - **Scripts** (`scripts/`): the deterministic core and the headless entry points. Most have no `anthropic`
   dependency so they can run from a slash command's Bash step and be tested without a model.
-  `wiki_publish.py` only generates the wiki pages into a directory; publishing them to the GitHub
-  Wiki is a separate, later change that needs the maintainer's one-time wiki setup.
+  `wiki_publish.py` generates the wiki pages from `docs/` and publishes them to the GitHub Wiki one-way
+  (`docs/` stays canonical; see [operations](operations.md#publishing-the-wiki)).
 - **Templates** (`templates/`): shipped generic CAM templates, plus git-ignored local overrides derived from your
   own documents.
 - **State** (`deals/<Company>/<Proposal>_<Date>/state.json`, git-ignored): the checkpoint of every step, with

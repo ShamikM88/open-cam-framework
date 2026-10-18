@@ -86,6 +86,7 @@ and the page is a bug.
 | Tool settings, coverage floors, mutation scope | `pyproject.toml` | [Testing and CI](testing.md) |
 | Security controls | The workflow files, `.gitignore` and the repository settings | [Security](security.md), `CLAUDE.md` |
 | Which settings are read | The code that reads `config/settings.json` | [Configuration](configuration.md) |
+| The GitHub Wiki's content | `docs/` -- the wiki is generated from it and overwritten on every publish; never edit the wiki | [Operations](operations.md#publishing-the-wiki) |
 | Rules Claude Code must follow when changing the repository | `CLAUDE.md` | `CLAUDE.md` |
 
 Some facts are repeated on purpose (a flag in a quick start, a rule in `CLAUDE.md` and the page that explains

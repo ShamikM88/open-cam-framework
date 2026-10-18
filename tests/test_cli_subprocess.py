@@ -1297,7 +1297,6 @@ def test_spreading_check_warns_for_percent_value_between_zero_and_one_and_keeps_
     assert json.loads(saved_path.read_text(encoding="utf-8"))["stress_assumptions"]["revenue_haircut_pct"] == 0.5
 
 
-
 def _seed_analyst_supplied_stress_deal(cli):
     from state_manager import state_path, write_state
 

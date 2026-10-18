@@ -1295,3 +1295,60 @@ def test_spreading_check_warns_for_percent_value_between_zero_and_one_and_keeps_
     assert len(result.stderr.strip().splitlines()) == 1
     assert json.loads(result.stdout)["downside_case"] is not None
     assert json.loads(saved_path.read_text(encoding="utf-8"))["stress_assumptions"]["revenue_haircut_pct"] == 0.5
+
+
+
+def _seed_analyst_supplied_stress_deal(cli):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="analyst-supplied",
+        financials_source_note="Synthetic budget convention.",
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+        financials={"FY-Current": {"ebitda": 800}},
+    )
+    return company, proposal, Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+
+
+@pytest.mark.parametrize("key,value", STRESS_DOMAIN_CASES)
+def test_supplied_forecast_refuses_domain_invalid_stress_before_writing(cli, key, value):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    before = saved_path.read_bytes()
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text('{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}}}', encoding="utf-8")
+    stress = cli.workdir / "stress.json"
+    stress.write_text(json.dumps({key: value}), encoding="utf-8")
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--stress-assumptions", stress, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert key in result.stderr and "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+def test_supplied_forecast_warns_and_continues_for_small_positive_percent_stress(cli):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text('{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}}}', encoding="utf-8")
+    stress = cli.workdir / "stress.json"
+    stress.write_text('{"opex_increase_pct":0.5}', encoding="utf-8")
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--stress-assumptions", stress, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.startswith("warning:")
+    assert "opex_increase_pct" in result.stderr and "0.5" in result.stderr
+    assert len(result.stderr.strip().splitlines()) == 1
+    saved = json.loads(saved_path.read_text(encoding="utf-8"))
+    assert saved["stress_assumptions"]["opex_increase_pct"] == 0.5

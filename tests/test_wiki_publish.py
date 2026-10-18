@@ -381,6 +381,13 @@ class TestValidationFailures:
         with pytest.raises(WikiPublishError, match="owner/name"):
             build_tree(tmp_path, "not a repo")
 
+    def test_a_repo_with_an_empty_owner_or_name_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        for repo in ("/repo", "owner/", "/", "a/b/c"):
+            with pytest.raises(WikiPublishError, match="owner/name"):
+                build_tree(tmp_path, repo)
+
 
 class TestHomeAndSidebar:
     def test_home_is_the_transformed_index_with_blob_links(self, tmp_path):

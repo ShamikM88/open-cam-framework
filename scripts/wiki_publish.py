@@ -354,7 +354,12 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
     tree and the script.
     """
     root = Path(root)
-    if "/" not in repo or repo.count("/") != 1 or any(c.isspace() for c in repo):
+    repo_parts = repo.split("/")
+    if (
+        len(repo_parts) != 2
+        or not all(repo_parts)
+        or any(c.isspace() for c in repo)
+    ):
         raise WikiPublishError(f"{repo!r}: --repo must look like owner/name")
     repo_url = f"https://github.com/{repo}"
     pages = discover_pages(root)

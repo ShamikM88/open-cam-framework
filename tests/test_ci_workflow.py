@@ -434,6 +434,7 @@ def test_the_advisory_ignore_procedure_is_documented_where_a_contributor_looks()
 
 MUTATION_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "mutation.yml"
 MODEL_FRESHNESS_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "model-freshness.yml"
+WIKI_PUBLISH_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "wiki-publish.yml"
 
 
 def all_workflows():
@@ -449,8 +450,14 @@ def test_every_workflow_file_is_sha_pinned_least_privilege_and_credential_free()
         assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M), path.name
         assert "pull_request_target" not in text and "workflow_run" not in text, path.name
         for job_id, body in split_jobs(text).items():
-            expected_permissions = ({"contents": "read", "issues": "write"}
-                                    if path.name == "model-freshness.yml" else {"contents": "read"})
+            # The two documented permission exceptions (like model-freshness's issues: write):
+            # wiki-publish's single publish job holds contents: write to push the generated wiki (#192).
+            if path.name == "model-freshness.yml":
+                expected_permissions = {"contents": "read", "issues": "write"}
+            elif path.name == "wiki-publish.yml":
+                expected_permissions = {"contents": "write"}
+            else:
+                expected_permissions = {"contents": "read"}
             assert job_permissions(body) == expected_permissions, (path.name, job_id)
             assert len(re.findall(r"persist-credentials:\s*false", body)) == body.count("actions/checkout@"), \
                 (path.name, job_id)
@@ -667,3 +674,51 @@ def test_the_model_freshness_workflow_is_the_documented_unpinned_exception():
     assert "constraints.txt" not in workflow, "the freshness report must see the newest SDK, not the pinned one"
     operations = " ".join((REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8").split())
     assert "`model-freshness` workflow is the one deliberate exception" in operations
+
+
+def test_the_wiki_publish_workflow_publishes_docs_one_way_and_never_runs_on_a_pull_request():
+    """The wiki publisher (#192): one job, main-only, never on a fork or a pull request, and not a
+    required check. docs/ is canonical; the wiki is generated and overwritten on every publish."""
+    text = WIKI_PUBLISH_WORKFLOW.read_text(encoding="utf-8")
+    triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"push", "workflow_dispatch"}
+    assert re.search(r'^    branches: \[ "main" \]$', triggers, re.M)
+    for path in ("docs/**", "scripts/wiki_publish.py", ".github/workflows/wiki-publish.yml"):
+        assert path in triggers, path
+    for forbidden in ("pull_request", "workflow_run", "gollum", "schedule"):
+        assert forbidden not in text, forbidden
+    assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M)
+    assert re.search(r"^concurrency:\n  group: wiki-publish\n  cancel-in-progress: false$", text, re.M)
+    jobs = split_jobs(text)
+    assert list(jobs) == ["publish"]
+    body = jobs["publish"]
+    assert "runs-on: ubuntu-latest" in body
+    assert re.search(r"timeout-minutes:\s*10\b", body)
+    assert job_permissions(body) == {"contents": "write"}
+    # the job-level guard: main only, and never a fork (a fork's wiki is not this repository's)
+    assert "github.ref == 'refs/heads/main'" in body
+    assert "github.event.repository.fork == false" in body
+    # one pinned action only; no credentials left in the checkout; no Python setup or install
+    assert uses_lines(text) == [("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "# v7.0.1")]
+    assert "persist-credentials: false" in body and "fetch-depth: 1" in body
+    assert "setup-python" not in text and "pip install" not in text
+    # the token reaches the step only through env:, and nothing is interpolated into the shell
+    assert text.count("${{ github.token }}") == 1
+    step = next(s for s in body.split("\n      - name: ") if s.startswith("Publish the wiki"))
+    assert "GITHUB_TOKEN: ${{ github.token }}" in step
+    assert 'python3 scripts/wiki_publish.py --repo "$GITHUB_REPOSITORY" --publish --source-sha "$GITHUB_SHA"' in step
+    assert "${{" not in step.split("run:", 1)[1]
+
+
+def test_contents_write_appears_in_no_other_workflow():
+    """wiki-publish is the one workflow allowed to hold a write permission; nothing else may."""
+    for path in all_workflows():
+        if path.name == "wiki-publish.yml":
+            continue
+        assert "contents: write" not in path.read_text(encoding="utf-8"), path.name
+
+
+def test_the_wiki_publish_workflow_is_the_documented_write_permission_exception():
+    """Like model-freshness's issues: write, the one-job contents: write is documented in the runbook."""
+    operations = " ".join((REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8").split())
+    assert "`wiki-publish` workflow is the one deliberate write-permission exception" in operations

@@ -454,12 +454,19 @@ class TestValidationFailures:
         with pytest.raises(WikiPublishError, match="not valid UTF-8"):
             build_tree(tmp_path, "example/repo")
 
+    def test_a_page_that_is_not_utf8_names_the_line(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        (tmp_path / "docs" / "source.md").write_bytes(b"# ok\n\n\xff\xfe bad\n")
+        with pytest.raises(WikiPublishError, match=r"docs/source.md:3.*not valid UTF-8"):
+            build_tree(tmp_path, "example/repo")
+
     def test_a_missing_docs_index_is_an_error(self, tmp_path):
         # Home and the sidebar both come from docs/README.md; a corpus without
-        # it must fail loudly, not crash.
+        # it must fail loudly, not crash. File-level errors name line 1.
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "a.md").write_text("# x\n", encoding="utf-8")
-        with pytest.raises(WikiPublishError, match="README"):
+        with pytest.raises(WikiPublishError, match=r"docs/README.md:1:"):
             build_tree(tmp_path, "example/repo")
 
     def test_a_bad_repo_argument_is_an_error(self, tmp_path):
@@ -605,6 +612,7 @@ class TestCli:
                          "--out", str(blocker)])
         assert code == 1
         captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
         assert captured.err.count("error:") == 1
         assert "traceback" not in captured.err.lower()
 
@@ -618,6 +626,7 @@ class TestCli:
         code = self.run(["--repo", "example/repo", "--root", str(tmp_path), "--out", str(out)])
         assert code == 1
         captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
         assert captured.err.count("error:") == 1
         assert "gone.md" in captured.err
         assert "traceback" not in captured.err.lower()

@@ -104,14 +104,20 @@ def heading_slugs(text: str) -> set[str]:
     return slugs
 
 
-def _read_page(path: Path) -> str:
-    """Read a page strictly as UTF-8; a decode failure names the file."""
+def _read_page(path: Path, source: str) -> str:
+    """Read a page strictly as UTF-8; a decode failure names file and line.
+
+    The file is read as bytes and decoded explicitly so the failing line can
+    be named (a text-mode open would raise before any line is known).
+    """
+    with open(path, "rb") as handle:
+        data = handle.read()
     try:
-        with open(path, encoding="utf-8") as handle:
-            return handle.read()
+        return data.decode("utf-8")
     except UnicodeDecodeError as error:
+        line = data.count(b"\n", 0, error.start) + 1
         raise WikiPublishError(
-            f"{path}: is not valid UTF-8 ({error.reason} at byte {error.start})"
+            f"{source}:{line}: is not valid UTF-8 ({error.reason} at byte {error.start})"
         ) from error
 
 
@@ -308,7 +314,7 @@ def _rewrite_link(
     if anchor and target.suffix == ".md":
         target_text = page_texts.get(relative)
         if target_text is None:
-            target_text = _read_page(target)
+            target_text = _read_page(target, relative)
             page_texts[relative] = target_text
         if anchor not in heading_slugs(target_text):
             raise WikiPublishError(
@@ -437,14 +443,15 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
         path.relative_to(root).as_posix() for path in pages.values()
     }:
         raise WikiPublishError(
-            "docs/README.md: the docs index is required (Home and the sidebar "
+            "docs/README.md:1: the docs index is required (Home and the sidebar "
             "are generated from it)"
         )
     page_names = {
         path.relative_to(root).as_posix(): name for name, path in pages.items()
     }
     page_texts = {
-        path.relative_to(root).as_posix(): _read_page(path) for path in sorted(pages.values())
+        path.relative_to(root).as_posix(): _read_page(path, path.relative_to(root).as_posix())
+        for path in sorted(pages.values())
     }
     tree: dict[str, str] = {}
     for name, path in sorted(pages.items()):

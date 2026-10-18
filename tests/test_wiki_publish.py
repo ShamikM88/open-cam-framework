@@ -257,3 +257,74 @@ class TestLinkRewriting:
         first = wiki_publish.build_tree(tmp_path, "example/repo")
         second = wiki_publish.build_tree(tmp_path, "example/repo")
         assert first == second
+
+
+class TestValidationFailures:
+
+    def test_a_missing_target_is_an_error(self, tmp_path):
+        with pytest.raises(WikiPublishError, match=r"docs/source.md:5.*gone.md.*does not exist"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n",
+                "source.md": "# S\n\n## A\n\n[gone](gone.md)\n",
+            })
+
+    def test_a_bad_anchor_on_a_target_page_is_an_error(self, tmp_path):
+        with pytest.raises(WikiPublishError, match=r"docs/source.md:1.*no heading anchor #nope"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n\n## Real\n",
+                "source.md": "[x](README.md#nope)\n",
+            })
+
+    def test_a_bad_same_page_anchor_is_an_error(self, tmp_path):
+        with pytest.raises(WikiPublishError, match=r"docs/source.md:3.*no heading anchor"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n",
+                "source.md": "# S\n\n[x](#nope)\n",
+            })
+
+    def test_a_target_outside_the_repository_is_an_error(self, tmp_path):
+        root = tmp_path / "repo"
+        (root / "docs").mkdir(parents=True)
+        (tmp_path / "outside.md").write_text("# x\n", encoding="utf-8")
+        write_index(root, rows=("source",))
+        (root / "docs" / "source.md").write_text("[x](../../outside.md)\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="outside the repository"):
+            build_tree(root, "example/repo")
+
+    def test_traversal_beyond_the_root_is_an_error(self, tmp_path):
+        root = tmp_path / "repo"
+        (root / "docs").mkdir(parents=True)
+        write_index(root, rows=("source",))
+        (root / "docs" / "source.md").write_text("[x](../../../etc/passwd)\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="outside the repository"):
+            build_tree(root, "example/repo")
+
+    def test_an_absolute_link_target_is_an_error(self, tmp_path):
+        with pytest.raises(WikiPublishError, match="absolute link target"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n",
+                "source.md": "[x](/etc/passwd)\n",
+            })
+
+    def test_a_symlinked_link_target_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source", "page"))
+        (tmp_path / "real.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "source.md").write_text("# S\n", encoding="utf-8")
+        (tmp_path / "docs" / "linked.md").symlink_to(tmp_path / "real.md")
+        (tmp_path / "docs" / "page.md").write_text("[x](linked.md)\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="symlink"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_a_page_that_is_not_utf8_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        (tmp_path / "docs" / "source.md").write_bytes(b"# \xff\xfe bad\n")
+        with pytest.raises(WikiPublishError, match="not valid UTF-8"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_a_bad_repo_argument_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        with pytest.raises(WikiPublishError, match="owner/name"):
+            build_tree(tmp_path, "not a repo")

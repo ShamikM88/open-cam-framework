@@ -200,14 +200,17 @@ def _rewrite_link(
     """The rewritten `[text](dest)` for one link, or None to leave it alone."""
     source = page_path.relative_to(root).as_posix()
     where = f"{source}:{line_no}"
-    if EXTERNAL_RE.match(dest) or dest.startswith("#"):
-        return None
-    file_part, _, anchor = dest.partition("#")
-    if not file_part:
+    if dest.startswith("#"):
         # A same-page anchor: validated against this page's own headings.
+        anchor = dest[1:]
         if anchor not in heading_slugs(page_texts[source]):
             raise WikiPublishError(f"{where}: no heading anchor #{anchor} in {source}")
         return None
+    if EXTERNAL_RE.match(dest):
+        return None
+    file_part, _, anchor = dest.partition("#")
+    if not file_part:
+        raise WikiPublishError(f"{where}: unparseable link destination {dest!r}")
     target, relative = _resolve_target(file_part, page_path, root, line_no)
     if anchor and target.suffix == ".md":
         target_text = page_texts.get(relative)

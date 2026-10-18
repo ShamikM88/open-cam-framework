@@ -149,10 +149,10 @@ def test_financial_data_from_state_ignores_non_dict_period_value():
 
 
 # ---------------------------------------------------------------------------
-# _financial_data_from_state()'s financials_source branch (issue #121): an
-# analyst-supplied deal's raw figures live in their own separate
-# analyst_supplied_financials store, never blended with the
-# framework-computed path's financials[period]["raw"].
+# _financial_data_from_state()'s historical-period rule (issue #121): raw
+# inputs for analyst-supplied historical periods come from their own
+# analyst_supplied_financials store. Issue #249 adds the separate per-period
+# rule for framework-computed forward periods in the same deal.
 # ---------------------------------------------------------------------------
 
 def test_financial_data_from_state_reads_analyst_supplied_store_when_flagged():
@@ -705,3 +705,23 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
                                ("long_term_debt", "Long Term Debt")):
         assert ws.cell(row=label_to_row[row_label], column=5).value == expected_forward_raw[raw_key], row_label
         assert ws.cell(row=label_to_row[row_label], column=8).value == expected_downside_raw[raw_key], row_label
+
+
+
+def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_store():
+    state = {
+        "financials_source": "analyst-supplied",
+        "forecast_source": "analyst-supplied",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000},
+            "FY+1": {"revenue": 4600},
+        },
+        # Even if another source has a raw record, the supplied forecast path
+        # stays in the supplied store and is not replaced by computed figures.
+        "financials": {"FY+1": {"raw": {"revenue": 9999}}},
+    }
+
+    assert _financial_data_from_state(state) == {
+        "FY-Current": {"revenue": 5000},
+        "FY+1": {"revenue": 4600},
+    }

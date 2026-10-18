@@ -138,12 +138,13 @@ class Figure:
     """One figure exactly as written in the image (`text`, read as the number `written_value`) and the number that
     is recorded (`value`). The two differ only by a declared sign convention, and `note` then says so."""
 
-    def __init__(self, text, value, decimals, written_value=None, note=""):
+    def __init__(self, text, value, decimals, written_value=None, note="", value_is_fraction=False):
         self.text = text
         self.value = value
         self.decimals = decimals
         self.written_value = value if written_value is None else written_value
         self.note = note
+        self.value_is_fraction = value_is_fraction
 
     @property
     def unit(self):
@@ -152,11 +153,12 @@ class Figure:
 
     def reversed(self, note=""):
         """The same written figure recorded with the opposite sign (never a negative zero)."""
-        return Figure(self.text, -self.value if self.value else self.value, self.decimals, self.written_value, note)
+        return Figure(self.text, -self.value if self.value else self.value, self.decimals, self.written_value, note,
+                      value_is_fraction=self.value_is_fraction)
 
     def number(self):
-        """The value as it is recorded in state.json: an int when written without decimals, else a float."""
-        return int(self.value) if self.decimals == 0 else float(self.value)
+        """The value as recorded: an int for whole figures, except fractions created by an explicit percent suffix."""
+        return int(self.value) if self.decimals == 0 and not self.value_is_fraction else float(self.value)
 
 
 def parse_figure(text, label, allow_suffix=False):
@@ -185,9 +187,10 @@ def parse_figure(text, label, allow_suffix=False):
         value = -value
     written_value = value
     field_name = label.rsplit(".", 1)[-1]
-    if suffix == "%" and field_name in PERCENT_TYPE_RATIOS:
+    value_is_fraction = suffix == "%" and field_name in PERCENT_TYPE_RATIOS
+    if value_is_fraction:
         value /= Decimal(100)
-    return Figure(written, value, len(frac), written_value=written_value)
+    return Figure(written, value, len(frac), written_value=written_value, value_is_fraction=value_is_fraction)
 
 
 def file_sha256(path):

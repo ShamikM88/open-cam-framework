@@ -53,11 +53,10 @@ from spreading_builder import (
     evaluate_financial_model,
 )
 from spreading_builder import FIELD_LABELS as RAW_FIELD_LABELS
-from numeric_validation import StressAssumptionsError, validate_stress_assumptions
+from numeric_validation import STRESS_KEYS, StressAssumptionsError, validate_stress_assumptions
 from state_manager import StateError, StateShapeError, read_state, state_path, write_state
 
 RAW_FIELDS = tuple(RAW_FIELD_LABELS)
-STRESS_KEYS = ("revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps")
 RECONCILE_TOLERANCE = 0.005         # figures must agree to two decimal places
 STATE_KEYS = ("financials", "ratios", "analyst_supplied_financials", "multi_period_financials",
               "stress_assumptions", "downside_case", "financials_source")

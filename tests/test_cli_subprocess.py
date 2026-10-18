@@ -1207,8 +1207,8 @@ def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_histor
 
 @pytest.mark.parametrize(
     "token",
-    ['"abc"', '"1e999"', '"nan"', "true", "1e999"],
-    ids=["text", "overflow-text", "nan-text", "boolean", "overflow-number"],
+    ['"abc"', '"1e999"', '"nan"', '"1250"', "true", "1e999"],
+    ids=["text", "overflow-text", "nan-text", "numeric-text", "boolean", "overflow-number"],
 )
 def test_spreading_check_rejects_non_numeric_raw_line_items_before_writing(cli, token):
     from state_manager import state_path, write_state
@@ -1245,8 +1245,8 @@ def test_spreading_check_rejects_non_numeric_raw_line_items_before_writing(cli, 
 @pytest.mark.parametrize("flag", ["--financials", "--spread"])
 @pytest.mark.parametrize(
     "token",
-    ['"abc"', '"1e999"', '"nan"', "true", "false", "1e999"],
-    ids=["text", "overflow-text", "nan-text", "true", "false", "overflow-number"],
+    ['"abc"', '"1e999"', '"nan"', '"1250"', "true", "false", "1e999"],
+    ids=["text", "overflow-text", "nan-text", "numeric-text", "true", "false", "overflow-number"],
 )
 def test_orchestrator_rejects_non_numeric_raw_line_items_before_model_or_write(cli, flag, token):
     from state_manager import state_path, write_state

@@ -653,6 +653,17 @@ class TestCli:
                       "--check", "--out", str(tmp_path / "out")])
         assert raised.value.code == 2
 
+    def test_publish_requires_source_sha(self, tmp_path):
+        with pytest.raises(SystemExit) as raised:
+            self.run(["--repo", "example/repo", "--root", str(tmp_path), "--publish"])
+        assert raised.value.code == 2
+
+    def test_remote_requires_publish(self, tmp_path):
+        with pytest.raises(SystemExit) as raised:
+            self.run(["--repo", "example/repo", "--root", str(tmp_path),
+                      "--check", "--remote", str(tmp_path / "r.git")])
+        assert raised.value.code == 2
+
     def test_repo_is_required(self, tmp_path):
         with pytest.raises(SystemExit) as raised:
             self.run(["--root", str(tmp_path), "--check"])
@@ -921,6 +932,46 @@ class TestPublish:
         assert self.publish(tmp_path, remote) == 0
         files = self.remote_files(remote)
         assert "Home.md" in files and "source.md" in files and "_Sidebar.md" in files
+
+    @pytest.mark.parametrize("failing,expected", [
+        (("symbolic-ref",), "no branch to publish to"),
+        (("ls-files",), "listing the wiki repository's files failed"),
+        (("rm",), "removing the stale wiki file"),
+        (("add",), "staging the generated page"),
+        (("commit",), "committing the generated wiki pages failed"),
+    ])
+    def test_git_operation_failures_are_sanitized_error_lines(self, tmp_path, monkeypatch, capsys,
+                                                             failing, expected):
+        """Every git operation can fail; each failure is one error line naming the operation,
+        never the command line, the token or git's raw output."""
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+
+        def fake_run_git(args, cwd=None, token=None):
+            index = 0
+            while args[index] == "-c":  # skip the -c <value> pairs before the subcommand
+                index += 2
+            head = args[index]
+            if head == "clone":
+                return subprocess.CompletedProcess(args, 0, "", "")
+            if head == failing[0]:
+                return subprocess.CompletedProcess(args, 1, "", "simulated failure")
+            if head == "symbolic-ref":
+                return subprocess.CompletedProcess(args, 0, "master\n", "")
+            if head == "ls-files":
+                return subprocess.CompletedProcess(args, 0, "stale.md\n", "")
+            if head == "diff":
+                return subprocess.CompletedProcess(args, 1, "", "")  # differences exist
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(wiki_publish, "_run_git", fake_run_git)
+        code = self.publish(tmp_path, "unused-remote")
+
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert captured.err.count("error:") == 1
+        assert expected in captured.err
+        assert "simulated failure" not in captured.err  # git's raw output stays out
 
 
 class TestRealCorpus:

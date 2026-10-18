@@ -1976,8 +1976,8 @@ def test_partial_recompute_refuses_to_relabel_preserved_analyst_history_without_
     assert _deal_files() == before, "state and every other file remain byte-identical"
 
 
-def test_partial_recompute_recomputes_all_preserved_analyst_periods_when_raw_inputs_exist(project_root):
-    """A safe recomputation includes every preserved historical period with available raw lines, not just the fresh delta."""
+def test_partial_recompute_refuses_to_relabel_analyst_periods_when_raw_inputs_exist(project_root):
+    """A forward-only headless run never changes an analyst-supplied deal's basis."""
     write_state(
         "Acme Corp", "Fleet Loan",
         financials_source="analyst-supplied",
@@ -1987,22 +1987,25 @@ def test_partial_recompute_recomputes_all_preserved_analyst_periods_when_raw_inp
         ratios={"FY-1": {"dscr": 9.99}},
         steps_completed=["spread"],
     )
-    client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
+    before = _deal_files()
+    client = MockClient([])
 
-    run_pipeline(
-        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-        multi_period_financials={"FY+1": {"revenue": 2000, "cost_of_sales": 1000}},
-        client=client,
-    )
+    with pytest.raises(StateError) as refused:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            multi_period_financials={"FY+1": {"revenue": 2000, "cost_of_sales": 1000}},
+            client=client,
+        )
 
+    message = str(refused.value)
+    assert "analyst-supplied" in message and "/spread's analyst-supplied mode" in message
+    assert "nothing was written" in message and "\\n" not in message
+    assert client.call_count == 0
+    assert _deal_files() == before
     state = read_state("Acme Corp", "Fleet Loan")
-    assert state["financials_source"] == "framework-computed"
-    assert state["financials_source_note"] == ""
-    assert state["financials"]["FY-1"]["gross_profit"] == 400
-    assert state["financials"]["FY-1"]["ebitda"] == 400
-    assert state["ratios"]["FY-1"]["dscr"] is None, "the stale supplied ratio was replaced by a fresh computation"
-    assert state["financials"]["FY+1"]["gross_profit"] == 1000
-    assert set(state["financials"]) == {"FY-1", "FY+1"}
+    assert state["financials_source"] == "analyst-supplied"
+    assert state["financials"]["FY-1"]["ebitda"] == 777
+    assert "FY+1" not in state["financials"]
 
 
 @pytest.mark.parametrize("incoming", [
@@ -2038,14 +2041,24 @@ def test_a_headless_run_with_historical_figures_on_an_analyst_supplied_deal_is_r
     assert read_state("Acme Corp", "Fleet Loan")["financials_source"] == "analyst-supplied"
 
 
-def test_a_fresh_recomputation_replaces_the_forward_years_and_clears_the_analyst_forecast_flag(project_root):
+def test_headless_forward_only_run_does_not_clear_analyst_basis_or_forecast_flag(project_root):
     _analyst_forecast_state(forecast_source="analyst-supplied")
-    client = MockClient([_compliant_draft(), _approved_json()])
-    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-                 multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}}, client=client)
+    before = _deal_files()
+    client = MockClient([])
+
+    with pytest.raises(StateError) as refused:
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}}, client=client)
+
+    message = str(refused.value)
+    assert "analyst-supplied" in message and "/spread's analyst-supplied mode" in message
+    assert "nothing was written" in message and "\\n" not in message
+    assert client.call_count == 0
+    assert _deal_files() == before
     state = read_state("Acme Corp", "Fleet Loan")
-    assert state["forecast_source"] is None and state["financials_source"] == "framework-computed"
-    assert set(state["financials"]) == {"FY-Current", "FY+1"}
+    assert state["financials_source"] == "analyst-supplied"
+    assert state["forecast_source"] == "analyst-supplied"
+    assert state["financials"]["FY+1"] == {"ebitda": 300}
 
 
 def test_a_deal_that_never_had_the_flag_does_not_gain_one_from_a_run(project_root):

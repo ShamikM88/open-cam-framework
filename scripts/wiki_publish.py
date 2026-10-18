@@ -599,13 +599,22 @@ def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -
         if branch_result.returncode != 0:
             raise WikiPublishError("the wiki repository has no branch to publish to")
         branch = branch_result.stdout.strip()
-        tracked = _run_git(["ls-files"], cwd=clone)
+        # -z: filenames are NUL-delimited, so a name git would quote (non-ASCII, a
+        # backslash, a newline) still reaches git rm as the literal path it is.
+        tracked = _run_git(["ls-files", "-z"], cwd=clone)
         if tracked.returncode != 0:
             raise WikiPublishError("listing the wiki repository's files failed")
-        for name in tracked.stdout.splitlines():
+        for name in tracked.stdout.split("\0"):
             if name and name not in tree:
                 if _run_git(["rm", "-q", "--", name], cwd=clone).returncode != 0:
                     raise WikiPublishError(f"removing the stale wiki file {name} failed")
+        # A tracked (or stray) entry at a generated name can be a symlink, and a plain
+        # open() follows it: unlink first, so every generated page is written as a fresh
+        # regular file inside the clone and nothing outside it can be written through.
+        for name in sorted(tree):
+            target = clone / name
+            if target.exists() or target.is_symlink():
+                target.unlink()
         write_tree(clone, tree)
         for name in sorted(tree):
             if _run_git(["add", "--", name], cwd=clone).returncode != 0:

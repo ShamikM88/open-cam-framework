@@ -17,7 +17,6 @@ the real `docs/` tree of this repository.
 import base64
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -684,13 +683,13 @@ class TestPublish:
     SHA2 = "2" * 40
     SENTINEL = "ghs_leak_canary_9f1e"
 
-    def _git(self, cwd, *args):
+    def _git(self, cwd, *args, stdin=None):
         """Run git with a fixed identity and no inherited git configuration."""
         env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
         return subprocess.run(
             ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t",
              "-c", "commit.gpgsign=false", *args],
-            cwd=cwd, check=True, capture_output=True, text=True, env=env, timeout=60)
+            cwd=cwd, check=True, capture_output=True, text=True, env=env, timeout=60, input=stdin)
 
     def bare_remote(self, tmp_path):
         """A bare repository standing in for the wiki: default branch `master`, one placeholder commit."""
@@ -702,8 +701,8 @@ class TestPublish:
         self._git(seed, "commit", "-q", "-m", "Initial Home page")
         remote = tmp_path / "wiki.git"
         self._git(tmp_path, "clone", "--quiet", "--bare", str(seed), str(remote))
-        shutil.rmtree(seed)
-        return remote
+        return remote  # the seed directory is left in place: git marks its objects read-only,
+        # and deleting them is a Windows permission problem with nothing to test
 
     def remote_files(self, remote):
         return self._git(None, "--git-dir", str(remote),
@@ -925,6 +924,50 @@ class TestPublish:
         assert captured.err.count("error:") == 1
         assert "temporary" in captured.err
 
+    def test_a_tracked_symlink_at_a_generated_name_cannot_redirect_the_write(self, tmp_path):
+        # A wiki could track Home.md as a symlink; the publish must replace it with a
+        # regular generated page and never write through the link. The seed commit is
+        # built with plumbing (hash-object/mktree/commit-tree) so no filesystem symlink
+        # is needed and the test is meaningful on Windows too.
+        victim = tmp_path / "victim.txt"
+        victim.write_text("precious\n", encoding="utf-8")
+        remote = tmp_path / "wiki.git"
+        self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))
+        link_text = tmp_path / "link-text"
+        link_text.write_text(str(victim), encoding="utf-8")
+        blob = self._git(None, "--git-dir", str(remote), "hash-object", "-w", str(link_text)).stdout.strip()
+        tree = self._git(None, "--git-dir", str(remote), "mktree",
+                          stdin=f"120000 blob {blob}\tHome.md").stdout.strip()
+        commit = self._git(None, "--git-dir", str(remote), "commit-tree", tree,
+                           "-m", "Symlink Home page").stdout.strip()
+        self._git(None, "--git-dir", str(remote), "update-ref", "refs/heads/master", commit)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+
+        assert self.publish(tmp_path, remote) == 0
+
+        assert victim.read_text(encoding="utf-8") == "precious\n"  # never written through the link
+        entry = self._git(None, "--git-dir", str(remote), "ls-tree", "HEAD", "Home.md").stdout.split()
+        assert entry[0] == "100644"  # a regular file, not a symlink
+        home = self._git(None, "--git-dir", str(remote), "show", "HEAD:Home.md").stdout
+        assert home.startswith(notice_for("docs/README.md"))
+
+    def test_full_replacement_handles_filenames_git_quotes(self, tmp_path):
+        # A stale tracked page whose name git quotes in ls-files output (non-ASCII): the
+        # NUL-delimited listing must still remove it, or publication fails instead of it.
+        remote = self.bare_remote(tmp_path)
+        work = tmp_path / "stale-worktree"
+        self._git(tmp_path, "clone", "--quiet", str(remote), str(work))
+        (work / "café.md").write_text("stale\n", encoding="utf-8")
+        self._git(work, "add", "--", "café.md")
+        self._git(work, "commit", "-q", "-m", "add stale page")
+        self._git(work, "push", "--quiet", "origin", "master")
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+
+        assert self.publish(tmp_path, remote) == 0
+
+        assert "café.md" not in self.remote_files(remote)
+        assert "Home.md" in self.remote_files(remote)
+
     def test_an_empty_wiki_repository_is_published_too(self, tmp_path):
         remote = tmp_path / "empty.git"
         self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))
@@ -958,7 +1001,7 @@ class TestPublish:
             if head == "symbolic-ref":
                 return subprocess.CompletedProcess(args, 0, "master\n", "")
             if head == "ls-files":
-                return subprocess.CompletedProcess(args, 0, "stale.md\n", "")
+                return subprocess.CompletedProcess(args, 0, "stale.md\0", "")
             if head == "diff":
                 return subprocess.CompletedProcess(args, 1, "", "")  # differences exist
             return subprocess.CompletedProcess(args, 0, "", "")

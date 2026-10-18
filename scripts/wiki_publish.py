@@ -1,25 +1,39 @@
-"""Generate the GitHub Wiki page tree from the ``docs/`` corpus (issue #192).
+"""Generate and publish the GitHub Wiki page tree from the ``docs/`` corpus (issue #192).
 
-PR1 is the generator only: it reads the allowlisted Markdown pages under
-``docs/``, maps them to wiki page names, rewrites their links to wiki and
-repository URLs, and writes the generated tree into an output directory (or
-validates it in memory with ``--check``). It publishes nothing: no wiki, no
-token, no network, no git, no workflow. The output is a pure function of the
-``docs/`` tree and this script -- no timestamps, run ids or environment data.
+The generator reads the allowlisted Markdown pages under ``docs/``, maps them
+to wiki page names, rewrites their links to wiki and repository URLs, and
+writes the generated tree into an output directory (or validates it in memory
+with ``--check``). The output is a pure function of the ``docs/`` tree and
+this script -- no timestamps, run ids or environment data.
+
+``--publish`` (PR2) then publishes that tree to the repository's wiki: it
+clones the wiki repository (its default branch, whatever it is named), fully
+replaces its content with the generated set, makes one commit carrying the
+source sha (or none at all when nothing changed) and pushes it back to the
+same branch. Generation and validation run before anything is cloned or
+written, so a broken corpus pushes nothing. The authentication token is read
+only from the ``GITHUB_TOKEN`` environment variable and reaches git only as
+an HTTP extra header -- never a URL, a command line shown in logs, an output
+line or a file on disk.
 
 Only regular (non-symlink) files matching ``docs/*.md`` and
 ``docs/examples/synthetic_co/*.md`` are read into the output; linked
 repository files are checked for existence and rewritten to URLs, never
 copied. No ``anthropic`` dependency.
 """
+import base64
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
 class WikiPublishError(Exception):
-    """A validation failure. The message always names the file (and line)."""
+    """A validation or publishing failure. The message names what failed and
+    never echoes a git command line, a token or raw git output."""
 
 
 # The one allowlist: pages under docs/ that may be read into the output.
@@ -498,21 +512,159 @@ def write_tree(out_dir: Path, tree: dict[str, str]) -> None:
             stale.unlink()
 
 
+GIT_TIMEOUT_SECONDS = 300
+
+# The wiki commit's identity: the standard non-person GitHub Actions bot, so
+# the commit never depends on a developer's or a runner's global git config.
+COMMIT_AUTHOR_NAME = "github-actions[bot]"
+COMMIT_AUTHOR_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
+
+
+def _git_environment() -> dict[str, str]:
+    """A git environment with no inherited git configuration or prompting.
+
+    ``GIT_*`` variables (a hook or an outer git process can set them) are
+    dropped, credential prompts are disabled and the empty ``credential.helper``
+    below keeps any configured helper from injecting a different credential.
+    """
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _run_git(
+    args: list[str], cwd: Path | None = None, token: str | None = None
+) -> subprocess.CompletedProcess:
+    """Run one git command as a fixed argument list (no shell), capturing output.
+
+    With a token, authentication travels as an HTTP extra header via ``git -c
+    http.extraheader=...``: the token never appears in a URL, in the
+    repository's configuration or in any file, and git's own output is
+    captured here, never passed through to ours. The command line is never
+    printed; failure messages name the operation, not the command.
+    """
+    argv = ["git", "-c", "commit.gpgsign=false", "-c", "credential.helper="]
+    if token is not None:
+        encoded = base64.b64encode(f"x-access-token:{token}".encode()).decode("ascii")
+        argv += ["-c", f"http.extraheader=Authorization: Basic {encoded}"]
+    argv += list(args)
+    # A fixed `git` argument list, no shell, no untrusted executable name (S603/S607).
+    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True,  # noqa: S603, S607
+                          env=_git_environment(), timeout=GIT_TIMEOUT_SECONDS, check=False)
+
+
+def _fresh_work_dir(root: Path) -> Path:
+    """A fresh temporary directory outside the repository.
+
+    The paths are resolved first, so a ``TMPDIR`` inside the repository cannot
+    put the clone (a whole git repository) into the source tree; that is an
+    error, not a silent write into the checkout.
+    """
+    work = Path(tempfile.mkdtemp(prefix="wiki-publish-")).resolve()
+    if work == root or root in work.parents:
+        raise WikiPublishError(
+            f"{work}: the temporary working directory must not be inside the repository "
+            "(is TMPDIR set to a path inside it?)"
+        )
+    return work
+
+
+def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -> None:
+    """Generate the wiki tree and publish it to the repository's wiki.
+
+    Generation and validation run first: a broken corpus raises before anything
+    is cloned or written. The wiki repository (``https://github.com/<repo>.wiki.git``,
+    or ``remote`` -- tests only, pointing at a local bare repository so no
+    token is needed) is cloned on its default branch, whatever that branch is
+    named; the clone's content is fully replaced with the generated set
+    (tracked files not in the set are removed, ``.git`` is untouched); if the
+    result is identical to what is already published, nothing is committed and
+    nothing is pushed ("no change"). Otherwise one commit -- message
+    ``Publish docs from main <sha>`` with the ``docs-source: <sha>`` trailer --
+    is pushed back to the same default branch. With a real remote the token
+    is read from ``GITHUB_TOKEN`` and reaches git only as an HTTP header.
+    """
+    root = Path(root).resolve()
+    tree = build_tree(root, repo)
+    token = None if remote is not None else os.environ.get("GITHUB_TOKEN")
+    clone_url = remote if remote is not None else f"https://github.com/{repo}.wiki.git"
+    work = _fresh_work_dir(root)
+    try:
+        clone = work / "wiki"
+        if _run_git(["clone", "--quiet", clone_url, str(clone)], token=token).returncode != 0:
+            raise WikiPublishError(
+                "cloning the wiki repository failed (is the wiki initialised and reachable?)"
+            )
+        branch_result = _run_git(["symbolic-ref", "--short", "HEAD"], cwd=clone)
+        if branch_result.returncode != 0:
+            raise WikiPublishError("the wiki repository has no branch to publish to")
+        branch = branch_result.stdout.strip()
+        tracked = _run_git(["ls-files"], cwd=clone)
+        if tracked.returncode != 0:
+            raise WikiPublishError("listing the wiki repository's files failed")
+        for name in tracked.stdout.splitlines():
+            if name and name not in tree:
+                if _run_git(["rm", "-q", "--", name], cwd=clone).returncode != 0:
+                    raise WikiPublishError(f"removing the stale wiki file {name} failed")
+        write_tree(clone, tree)
+        for name in sorted(tree):
+            if _run_git(["add", "--", name], cwd=clone).returncode != 0:
+                raise WikiPublishError(f"staging the generated page {name} failed")
+        has_head = _run_git(["rev-parse", "--verify", "-q", "HEAD"], cwd=clone).returncode == 0
+        if has_head and _run_git(["diff", "--cached", "--quiet", "HEAD"], cwd=clone).returncode == 0:
+            print(f"no change: the wiki already matches docs/ ({len(tree)} pages)")
+            return
+        commit = _run_git(
+            ["-c", f"user.name={COMMIT_AUTHOR_NAME}", "-c", f"user.email={COMMIT_AUTHOR_EMAIL}",
+             "commit", "-q",
+             "-m", f"Publish docs from main {source_sha}",
+             "-m", f"docs-source: {source_sha}"],
+            cwd=clone,
+        )
+        if commit.returncode != 0:
+            raise WikiPublishError("committing the generated wiki pages failed")
+        push = _run_git(["push", "--quiet", "origin", f"HEAD:refs/heads/{branch}"], cwd=clone, token=token)
+        if push.returncode != 0:
+            raise WikiPublishError(
+                "pushing to the wiki failed (the common cause is authorisation: the repository "
+                "token cannot write to the wiki)"
+            )
+        print(f"published {len(tree)} pages to {repo} wiki (branch {branch})")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def main(argv: list[str] | None = None) -> int:
-    """The command line: build (and optionally write) the wiki tree."""
+    """The command line: build (and optionally write or publish) the wiki tree."""
     import argparse
 
     parser = argparse.ArgumentParser(
         prog="wiki_publish.py",
-        description="Generate the GitHub Wiki page tree from the docs/ corpus (no publishing).",
+        description="Generate the GitHub Wiki page tree from the docs/ corpus; optionally publish it.",
     )
     parser.add_argument("--repo", required=True, help="owner/name of the repository the URLs point at")
     parser.add_argument("--root", default=".", help="the repository root (default: the current directory)")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--out", help="write the generated wiki tree into this directory")
     mode.add_argument("--check", action="store_true", help="build and validate in memory, write nothing")
+    mode.add_argument("--publish", action="store_true",
+                      help="clone the repository's wiki, replace its content with the generated tree and push one commit")
+    parser.add_argument("--source-sha",
+                        help="the source commit a publish ran from (required with --publish; carried in the commit message)")
+    parser.add_argument("--remote", help=argparse.SUPPRESS)  # tests only: a local bare repository instead of GitHub
     args = parser.parse_args(argv)
+    if args.publish and not args.source_sha:
+        parser.error("--publish requires --source-sha")
+    if args.remote is not None and not args.publish:
+        parser.error("--remote is only valid with --publish")
     try:
+        if args.publish:
+            if args.remote is None and not os.environ.get("GITHUB_TOKEN"):
+                raise WikiPublishError(
+                    "GITHUB_TOKEN is not set; the wiki cannot be published without it"
+                )
+            publish(Path(args.root), args.repo, args.source_sha, remote=args.remote)
+            return 0
         if args.out is not None:
             check_out_dir(Path(args.root), Path(args.out))
         tree = build_tree(Path(args.root), args.repo)
@@ -522,6 +674,11 @@ def main(argv: list[str] | None = None) -> int:
         write_tree(Path(args.out), tree)
         print(f"wrote {len(tree)} pages to {args.out}")
         return 0
+    except subprocess.TimeoutExpired:
+        # str() of a TimeoutExpired echoes the command line, which carries the
+        # authentication header: the message must stay sanitized.
+        print("error: a git operation timed out", file=sys.stderr)
+        return 1
     except (WikiPublishError, OSError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

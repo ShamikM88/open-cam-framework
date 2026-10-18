@@ -1205,7 +1205,6 @@ def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_histor
     assert "multi_period_financials" not in state_path.read_text(encoding="utf-8")
 
 
-
 STRESS_DOMAIN_CASES = [
     ("revenue_haircut_pct", -10),
     ("opex_increase_pct", -50),

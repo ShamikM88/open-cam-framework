@@ -180,6 +180,8 @@ worked examples are in [Workflows](workflows.md).
   `revenue_haircut_pct`, `opex_increase_pct` (admin expenses only), `interest_rate_bump_bps` (each optional,
   default no shock); covenants as `{"metric", "type": "minimum"|"maximum", "threshold"}` where `metric` is a ratio
   name; guarantees as `{"provider", "type", "amount"}` (omit `amount` for an uncapped guarantee, never `0`).
+  `gearing`, `fcf_conversion_pct` and covenants on those metrics use the fraction convention in the
+  [financial model](financial-model.md#percent-type-ratios-are-stored-as-fractions).
 - **Produces:** run through `spreading_check.py ... --no-update-financials-source` (always, so forward figures never
   change the deal's `financials_source`): forward ratios and the downside case derived by three deterministic
   shocks. See the [financial model](financial-model.md#the-downside-case).

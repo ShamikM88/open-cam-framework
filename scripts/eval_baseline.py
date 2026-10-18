@@ -21,7 +21,7 @@ from eval_report import DISCLAIMER, HARNESS_VERSION, pass_rate, stop_state
 
 BASELINE_KIND = "evaluation-baseline-summary"
 REGRESSION_DROP = 0.4  # informational: an observed pass-rate drop of 40 points or more
-COMPARED_FIELDS = (("models", "model / temperatures"), ("prompt_hashes", "agent prompt hashes"),
+COMPARED_FIELDS = (("models", "model"), ("prompt_hashes", "agent prompt hashes"),
                    ("input_hashes", "template and settings hashes"))
 
 

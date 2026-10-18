@@ -38,8 +38,9 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -85,6 +86,36 @@ class RunnerSetupError(RuntimeError):
 
 class StopRun(Exception):
     """Control flow: raised by the routing client to end run_pipeline() right after the live call."""
+
+_TEMPERATURE_WARNING_PREFIX = (
+    "warning: unsupported sampling setting(s) in config/settings.json are ignored:"
+)
+
+
+class _RepeatedTemperatureWarningFilter:
+    """Suppress the already-reported legacy-settings warning during individual runs."""
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.pending = ""
+
+    def write(self, text):
+        self.pending += text
+        while "\n" in self.pending:
+            line, self.pending = self.pending.split("\n", 1)
+            if not line.startswith(_TEMPERATURE_WARNING_PREFIX):
+                self.stream.write(line + "\n")
+        return len(text)
+
+    def flush(self):
+        if self.pending:
+            if not self.pending.startswith(_TEMPERATURE_WARNING_PREFIX):
+                self.stream.write(self.pending)
+            self.pending = ""
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
 
 
 def short_hash(text):
@@ -291,9 +322,10 @@ def input_hashes(workdir):
     return hashes
 
 
-def describe_inputs(repo_root, work_root):
+def describe_inputs(repo_root, work_root, *, suppress_temperature_warning=False):
     """Models, prompt hashes and input hashes a run WOULD use, taken from an isolated copy.
-    Run once before any call is spent, so a missing settings file fails the run early."""
+    Run once before any call is spent, so a missing settings file fails the run early.
+    The CLI's plan phase may already have emitted the legacy-settings warning."""
     import orchestrator
     os.makedirs(work_root, exist_ok=True)
     workdir = tempfile.mkdtemp(prefix="inputs-", dir=work_root)
@@ -301,7 +333,11 @@ def describe_inputs(repo_root, work_root):
     try:
         prepare_workdir(None, repo_root, workdir)
         os.chdir(workdir)
-        config = orchestrator._resolve_maker_checker_config()
+        if suppress_temperature_warning:
+            with redirect_stderr(_RepeatedTemperatureWarningFilter(sys.stderr)):
+                config = orchestrator._resolve_maker_checker_config()
+        else:
+            config = orchestrator._resolve_maker_checker_config()
         hashes = input_hashes(workdir)
     finally:
         os.chdir(original)
@@ -424,7 +460,8 @@ def _client_base_url(client):
     return None if url is None else re.sub(r"//[^/@]*@", "//", str(url))
 
 
-def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False, progress=None):
+def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None, keep_work=False, progress=None,
+             temperature_warning_already_emitted=False):
     """Run `cases` x `repeats` live, serially. Returns the run record (not yet written).
     Stops early -- recording why -- if the cap is spent, MAX_CONSECUTIVE_ERRORS runs in a row
     errored, or the operator presses Ctrl-C (the record is still returned, marked aborted, so what
@@ -434,7 +471,8 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
     repo_root = repo_root or REPO_ROOT
     run_dir = os.path.abspath(run_dir)  # a relative --out must survive the per-run chdir
     work_root = os.path.join(run_dir, "work")
-    inputs = describe_inputs(repo_root, work_root)
+    inputs = describe_inputs(repo_root, work_root,
+                              suppress_temperature_warning=temperature_warning_already_emitted)
 
     budget = CallBudget(max_calls)
     live_client = BudgetedClient(client, budget)
@@ -448,7 +486,11 @@ def run_live(dataset, cases, repeats, max_calls, run_dir, client, repo_root=None
             if aborted:
                 break
             try:
-                run = run_case_once(case, f"repeat-{repeat}", ctx, live_client, repo_root, work_root, keep_work)
+                # describe_inputs() has already emitted any retired-temperature warning for
+                # this invocation. Keep other stderr output live, but filter that duplicate
+                # from every individual pipeline run.
+                with redirect_stderr(_RepeatedTemperatureWarningFilter(sys.stderr)):
+                    run = run_case_once(case, f"repeat-{repeat}", ctx, live_client, repo_root, work_root, keep_work)
             except CallCapExceeded as exc:
                 aborted, abort_reason, abort_category = True, f"call cap: {exc}", "call cap"
                 break

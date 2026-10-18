@@ -22,6 +22,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
+| `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/` into a directory (no publishing) | No | [Wiki publish](#wiki-publish) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
 Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic, makes no
@@ -317,11 +318,20 @@ python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" 
 `scripts/source_manifest.py --company ... --proposal ... --step <step> --claim <text> --file <path> [--url <url>]
 [--filename <name>]` copies an already-downloaded document into the deal's `sources/` folder and appends an entry
 (`filename`, `url`, `step`, `claim`, `fetched_date`) to `sources/manifest.json`; it never fetches anything. With
-`--check-sources` instead it prints `{"missing_saved_sources": true|false}`: true when the deal declared citations but
-saved no material. It exits `0` whatever the result. A `sources/manifest.json` that cannot be used (unreadable, a link whose target does not exist, not UTF-8,
-not JSON, not a list, or a list with an entry that is not an object), and a company or proposal that is not a safe folder
-name, are not results: each is one `error:` line, exit status `1`, no traceback and no JSON on stdout, and the file is never
-modified. Saving checks the manifest before it copies anything, so a refusal leaves no copied document behind.
+`--check-sources` instead prints `{"missing_saved_sources": true|false, "sources_declared": "declared"|"not_declared"|"unknown"}`.
+The existing `missing_saved_sources` key remains boolean: true when declared, non-empty citations have no saved material,
+or when the consumed completion/declaration shape is unknown. `steps_completed`, when present, must be a list of strings;
+absence remains valid for new/incomplete historical states. `sources_declared` is `"unknown"` for malformed consumed
+completion metadata, any invalid declaration, or a completed source-bearing step without a `list[str]` declaration.
+Nulls, mappings, scalars and lists containing non-strings are invalid; a nonempty manifest cannot conceal them.
+It is `"declared"` when at least one valid `triage.sources` or `commercial.sources` list exists and the completed
+relevant steps have valid lists; explicit `[]` declares no citations. Otherwise it is `"not_declared"`.
+A calling command must stop and request a corrected state shape on `"unknown"` rather than treating it
+as proof that no citations were used. The command exits `0` for any check result. A `sources/manifest.json` that cannot
+be used (unreadable, a link whose target does not exist, not UTF-8, not JSON, not a list, or a list with an entry that
+is not an object), and a company or proposal that is not a safe folder name, are errors: each is one `error:` line, exit
+status `1`, no traceback and no JSON on stdout, and the file is never modified. Saving checks the manifest before copying
+anything, so a refusal leaves no copied document behind.
 
 ```bash
 python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \
@@ -396,3 +406,21 @@ comparing baselines (`--export-baseline`, `--allow-partial`, `--compare`). See [
 ```bash
 python scripts/run_evals.py --dry-run
 ```
+
+## Wiki publish
+
+`python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check)` (no
+`ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus. `--out` writes the
+tree into a directory (which may not be the repository root, `docs/`, a directory inside `docs/` or an ancestor of `docs/`: the paths are resolved first and such an output is one `error:` line, exit `1`, nothing written, so the source pages can never be overwritten); `--check` builds and validates in memory and writes nothing. It publishes
+nothing: no wiki, no token, no network, no git -- publishing to the repository's wiki is a separate,
+later change that also needs the maintainer's one-time wiki setup.
+
+Only the allowlisted pages (`docs/*.md`, dotfiles excluded, and the example pages under `docs/examples/synthetic_co/`)
+are read; linked repository files are checked and rewritten to URLs, never copied. Page names come
+from the file names (`docs/README.md` becomes `Home`, the example pages are flattened with an
+`examples-synthetic_co-` prefix); links are rewritten to wiki, blob, tree or raw-blob URLs; every
+page starts with a generated-source notice saying `docs/` is canonical; `Home` is the docs index and
+`_Sidebar` is its reading order. A missing target, a broken anchor, a symlinked page or a target
+outside the repository is one `error:` line naming the file and line, exit `1`, and nothing is
+written. Deterministic: the same `docs/` tree always gives byte-identical output. See
+[issue #192](https://github.com/ShamikM88/open-cam-framework/issues/192).

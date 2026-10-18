@@ -683,8 +683,8 @@ def test_the_wiki_publish_workflow_publishes_docs_one_way_and_never_runs_on_a_pu
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"push", "workflow_dispatch"}
     assert re.search(r'^    branches: \[ "main" \]$', triggers, re.M)
-    for path in ("docs/**", "scripts/wiki_publish.py", ".github/workflows/wiki-publish.yml"):
-        assert path in triggers, path
+    assert re.findall(r'^      - "(.+)"$', triggers, re.M) == [
+        "docs/**", "scripts/wiki_publish.py", ".github/workflows/wiki-publish.yml"]
     for forbidden in ("pull_request", "workflow_run", "gollum", "schedule"):
         assert forbidden not in text, forbidden
     assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M)
@@ -695,19 +695,47 @@ def test_the_wiki_publish_workflow_publishes_docs_one_way_and_never_runs_on_a_pu
     assert "runs-on: ubuntu-latest" in body
     assert re.search(r"timeout-minutes:\s*10\b", body)
     assert job_permissions(body) == {"contents": "write"}
-    # the job-level guard: main only, and never a fork (a fork's wiki is not this repository's)
-    assert "github.ref == 'refs/heads/main'" in body
-    assert "github.event.repository.fork == false" in body
+    # the job-level guard is the exact conjunction: main only, and never a fork (a fork's
+    # wiki is not this repository's); either guard alone, or an OR, must not pass
+    guard = re.search(r"^    if: (.+)$", body, re.M)
+    assert guard and guard.group(1) == "github.ref == 'refs/heads/main' && github.event.repository.fork == false"
     # one pinned action only; no credentials left in the checkout; no Python setup or install
     assert uses_lines(text) == [("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1")]
     assert "persist-credentials: false" in body and "fetch-depth: 1" in body
     assert "setup-python" not in text and "pip install" not in text
-    # the token reaches the step only through env:, and nothing is interpolated into the shell
-    assert text.count("${{ github.token }}") == 1
+    # the token and the run's own facts reach the step only through env: mappings, and
+    # nothing is interpolated into the shell
     step = next(s for s in body.split("\n      - name: ") if s.startswith("Publish the wiki"))
-    assert "GITHUB_TOKEN: ${{ github.token }}" in step
+    for mapping in ("GITHUB_TOKEN: ${{ github.token }}",
+                    "GITHUB_REPOSITORY: ${{ github.repository }}",
+                    "GITHUB_SHA: ${{ github.sha }}"):
+        assert mapping in step, mapping
     assert 'python3 scripts/wiki_publish.py --repo "$GITHUB_REPOSITORY" --publish --source-sha "$GITHUB_SHA"' in step
     assert "${{" not in step.split("run:", 1)[1]
+
+
+def test_the_wiki_publish_guard_and_path_assertions_can_fail():
+    """The exact-conjunction guard check and the exact paths list above must be able to catch
+    what they exist for (the helper-test precedent: an assertion that cannot fail pins nothing)."""
+    expected_guard = "github.ref == 'refs/heads/main' && github.event.repository.fork == false"
+
+    def guard_of(text):
+        match = re.search(r"^    if: (.+)$", text, re.M)
+        return match and match.group(1) == expected_guard
+
+    assert guard_of(f"    if: {expected_guard}\n")
+    assert not guard_of("    if: github.ref == 'refs/heads/main' || github.event.repository.fork == false\n")
+    assert not guard_of("    if: github.ref == 'refs/heads/main'\n")
+    assert not guard_of("    if: github.event.repository.fork == false\n")
+    assert not guard_of("no guard here\n")
+
+    def paths_of(text):
+        return re.findall(r'^      - "(.+)"$', text, re.M)
+
+    good_paths = 'on:\n  push:\n    branches: [ "main" ]\n    paths:\n      - "docs/**"\n      - "scripts/wiki_publish.py"\n      - ".github/workflows/wiki-publish.yml"\n'
+    assert paths_of(good_paths) == ["docs/**", "scripts/wiki_publish.py", ".github/workflows/wiki-publish.yml"]
+    assert paths_of(good_paths + '      - "**"\n') == ["docs/**", "scripts/wiki_publish.py",
+                                                    ".github/workflows/wiki-publish.yml", "**"]
 
 
 def test_contents_write_appears_in_no_other_workflow():

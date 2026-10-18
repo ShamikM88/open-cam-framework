@@ -10,6 +10,7 @@ These tests build synthetic corpora in `tmp_path` and also run against the
 real `docs/` tree of this repository. Nothing here touches anything outside
 the repository or the test's own temporary directory.
 """
+import re
 from pathlib import Path
 import sys
 
@@ -28,6 +29,24 @@ from wiki_publish import (  # noqa: E402
 )
 
 U = "https://github.com/example/repo"
+
+def _live_links(content: str) -> list[str]:
+    """Every real link destination in a generated page: fenced code blocks are
+    skipped (example links inside them are prose, not links)."""
+    dests = []
+    in_fence = False
+    for line in content.split("\n"):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        code_spans = [m.span() for m in re.finditer(r"`[^`\n]*`", line)]
+        for match in re.finditer(r"(!?)\[[^\]\n]*\]\(([^)\s]+)\)", line):
+            if any(s <= match.start() < e for s, e in code_spans):
+                continue  # a code span hides the link
+            dests.append(match.group(2))
+    return dests
 
 def write_index(root: Path, rows=("",)) -> Path:
     """Write a docs/README.md whose 'What is in this folder' table lists `rows`."""
@@ -221,6 +240,16 @@ class TestLinkRewriting:
         assert "[broken](gone.md)" in tree["source.md"]
         assert "![img](missing.png)" in tree["source.md"]
 
+    def test_code_spans_inside_link_text_are_still_rewritten(self, tmp_path):
+        # docs/README.md links CLAUDE.md as [`CLAUDE.md`](../CLAUDE.md); the
+        # backticks are link text, not a code span hiding the link.
+        (tmp_path / "CLAUDE.md").write_text("# Rules\n", encoding="utf-8")
+        tree = make_corpus(tmp_path, {
+            "README.md": "See [`CLAUDE.md`](../CLAUDE.md).\n",
+            "source.md": "# x\n",
+        })
+        assert f"[`CLAUDE.md`]({U}/blob/main/CLAUDE.md)" in tree["Home.md"]
+
     def test_links_inside_inline_code_spans_are_left_alone(self, tmp_path):
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",
@@ -408,3 +437,111 @@ class TestHomeAndSidebar:
         )
         with pytest.raises(WikiPublishError, match="gone.md"):
             build_tree(tmp_path, "example/repo")
+
+
+class TestCli:
+    def run(self, argv):
+        return wiki_publish.main(argv)
+
+    def test_check_builds_in_memory_and_writes_nothing(self, tmp_path, capsys):
+        make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n",
+        })
+        (tmp_path / "out").mkdir()
+        code = self.run(["--repo", "example/repo", "--root", str(tmp_path), "--check"])
+        assert code == 0
+        assert not list((tmp_path / "out").iterdir())
+        summary = capsys.readouterr().out.strip()
+        assert "\n" not in summary
+        assert "3 pages" in summary  # Home, source, _Sidebar
+
+    def test_out_writes_the_tree(self, tmp_path):
+        make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n",
+        })
+        code = self.run(["--repo", "example/repo", "--root", str(tmp_path),
+                         "--out", str(tmp_path / "out")])
+        assert code == 0
+        written = sorted(p.name for p in (tmp_path / "out").iterdir())
+        assert written == ["Home.md", "_Sidebar.md", "source.md"]
+
+    def test_out_replaces_stale_wiki_files(self, tmp_path):
+        out = tmp_path / "out"
+        out.mkdir()
+        (out / "stale.md").write_text("old\n", encoding="utf-8")
+        (out / "notes.txt").write_text("kept\n", encoding="utf-8")
+        make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n",
+        })
+        code = self.run(["--repo", "example/repo", "--root", str(tmp_path), "--out", str(out)])
+        assert code == 0
+        assert not (out / "stale.md").exists()
+        assert (out / "notes.txt").exists()
+
+    def test_a_validation_failure_writes_nothing_and_prints_one_error_line(self, tmp_path, capsys):
+        out = tmp_path / "out"
+        out.mkdir()
+        (out / "existing.md").write_text("keep\n", encoding="utf-8")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "README.md").write_text("# Index\n", encoding="utf-8")
+        (tmp_path / "docs" / "source.md").write_text("[gone](gone.md)\n", encoding="utf-8")
+        code = self.run(["--repo", "example/repo", "--root", str(tmp_path), "--out", str(out)])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert captured.err.count("error:") == 1
+        assert "gone.md" in captured.err
+        assert "traceback" not in captured.err.lower()
+        assert (out / "existing.md").read_text(encoding="utf-8") == "keep\n"
+
+    def test_a_bad_repo_format_is_one_error_line(self, tmp_path, capsys):
+        code = self.run(["--repo", "not-a-repo", "--root", str(tmp_path), "--check"])
+        assert code == 1
+        assert "owner/name" in capsys.readouterr().err
+
+    def test_out_and_check_are_mutually_exclusive(self, tmp_path):
+        with pytest.raises(SystemExit) as raised:
+            self.run(["--repo", "example/repo", "--root", str(tmp_path),
+                      "--check", "--out", str(tmp_path / "out")])
+        assert raised.value.code == 2
+
+    def test_repo_is_required(self, tmp_path):
+        with pytest.raises(SystemExit) as raised:
+            self.run(["--root", str(tmp_path), "--check"])
+        assert raised.value.code == 2
+
+
+class TestRealCorpus:
+    def test_the_real_docs_tree_builds_and_every_link_is_allowed(self):
+        tree = build_tree(REPO_ROOT, "example/repo")
+        # 22 top-level pages (README becomes Home) + 2 example pages + sidebar.
+        assert len(tree) == 25
+        allowed = re.compile(r"^(https://github\.com/example/repo/(wiki|blob|tree)/|https?://|#|mailto:)")
+        for name, content in tree.items():
+            for dest in _live_links(content):
+                assert allowed.match(dest), f"{name}: unexpected link destination {dest!r}"
+
+    def test_the_real_home_links_the_repository_readme_and_claude(self):
+        tree = build_tree(REPO_ROOT, "example/repo")
+        assert "(https://github.com/example/repo/blob/main/README.md)" in tree["Home.md"]
+        assert "(https://github.com/example/repo/blob/main/CLAUDE.md)" in tree["Home.md"]
+
+
+class TestSlugRuleMatchesTestDocs:
+    def test_the_anchor_rule_is_the_one_test_docs_pins(self):
+        import test_docs
+
+        headings = [
+            "What `config/settings.json` actually controls",
+            "Context Window & State Management Protocol",
+            "Mutation testing",
+            "D1: The Maker and the Checker are independent prompts",
+            "A heading with an [inline link](x.md) inside",
+            "Ünïcödé and  spaces  ",
+        ]
+        for heading in headings:
+            assert wiki_publish.slug(heading) == test_docs.slug(heading)
+        sample = "# A\n\ntext\n\n## Same\n\n## Same\n\n```md\n### Fenced, ignored\n```\n\n# A\n"
+        assert wiki_publish.heading_slugs(sample) == test_docs.heading_slugs(sample)

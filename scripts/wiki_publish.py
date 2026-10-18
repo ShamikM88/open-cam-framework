@@ -14,6 +14,7 @@ copied. No ``anthropic`` dependency.
 """
 import os
 import re
+import sys
 from pathlib import Path
 
 
@@ -169,16 +170,20 @@ def _rewrite_line(
     line: str, line_no: int, page_path: Path, root: Path, repo_url: str,
     page_names: dict[str, str], page_texts: dict[str, str],
 ) -> str:
-    """Rewrite every real link on one line, leaving code spans untouched."""
+    """Rewrite every real link on one line, leaving code spans untouched.
+
+    A link is code only when its opening bracket sits inside a code span; a
+    code span may legitimately appear inside link text (``[`CLAUDE.md`](..)``).
+    """
     code_spans = [match.span() for match in CODE_SPAN_RE.finditer(line)]
 
-    def in_code(start: int, end: int) -> bool:
-        return any(start < span_end and end > span_start for span_start, span_end in code_spans)
+    def in_code(start: int) -> bool:
+        return any(span_start <= start < span_end for span_start, span_end in code_spans)
 
     out: list[str] = []
     cursor = 0
     for match in LINK_RE.finditer(line):
-        if in_code(*match.span()):
+        if in_code(match.start()):
             continue
         bang, text, dest, title = match.groups()
         replacement = _rewrite_link(
@@ -282,8 +287,10 @@ def _sidebar(
     for i in range(start + 1, len(lines)):
         if lines[i].lstrip().startswith("|"):
             table.append((i + 1, lines[i].strip()))
-        elif table or lines[i].strip():
+        elif table:
             break
+        elif lines[i].startswith("#"):
+            break  # a new section began before any table
     if not table:
         raise WikiPublishError(
             "docs/README.md: no 'What is in this folder' index table to build the sidebar from"
@@ -352,3 +359,54 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
         )
     tree["_Sidebar.md"] = _sidebar(root, page_names, page_texts, repo_url)
     return tree
+
+
+def write_tree(out_dir: Path, tree: dict[str, str]) -> None:
+    """Write the generated tree into `out_dir`, replacing any stale wiki pages.
+
+    The wiki tree is flat Markdown files, so the write is a full replacement:
+    every generated page is written (UTF-8, LF) and any other top-level
+    ``*.md`` file already in the directory is removed, so the output directory
+    never becomes a second documentation source. Files that are not ``*.md``
+    are left alone.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name in sorted(tree):
+        with open(out_dir / name, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(tree[name])
+    for stale in sorted(out_dir.glob("*.md")):
+        if stale.is_file() and stale.name not in tree:
+            stale.unlink()
+
+
+def main(argv: list[str] | None = None) -> int:
+    """The command line: build (and optionally write) the wiki tree."""
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="wiki_publish.py",
+        description="Generate the GitHub Wiki page tree from the docs/ corpus (no publishing).",
+    )
+    parser.add_argument("--repo", required=True, help="owner/name of the repository the URLs point at")
+    parser.add_argument("--root", default=".", help="the repository root (default: the current directory)")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--out", help="write the generated wiki tree into this directory")
+    mode.add_argument("--check", action="store_true", help="build and validate in memory, write nothing")
+    args = parser.parse_args(argv)
+    try:
+        tree = build_tree(Path(args.root), args.repo)
+        if args.check:
+            print(f"OK: {len(tree)} pages built from docs/ (nothing written)")
+            return 0
+        write_tree(Path(args.out), tree)
+        print(f"wrote {len(tree)} pages to {args.out}")
+        return 0
+    except WikiPublishError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    from textio import configure_stdio
+    configure_stdio()
+    sys.exit(main())

@@ -44,6 +44,7 @@ import json
 import math
 import sys
 
+from financial_conventions import warn_percent_type_values
 from spreading_builder import (
     FORWARD_PERIOD_KEYS,
     SUPPLIED_RATIOS,
@@ -52,7 +53,6 @@ from spreading_builder import (
     evaluate_financial_model,
 )
 from spreading_builder import FIELD_LABELS as RAW_FIELD_LABELS
-from financial_conventions import warn_percent_type_values
 from state_manager import StateError, StateShapeError, read_state, state_path, write_state
 
 RAW_FIELDS = tuple(RAW_FIELD_LABELS)

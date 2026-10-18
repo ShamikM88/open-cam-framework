@@ -157,14 +157,14 @@ explicit caveat disclosing this reduced audit guarantee.
 come from different stores in different periods, but each period's raw fields must come from exactly one store:
 
 - `multi_period_financials` -- written by `scripts/spreading_check.py` for framework-computed periods
-(the framework-computed path for `/spread` and `/project`). The matching `financials[period]["raw"]`
-record sits beside that period's computed subtotals and ratios and is what the workbook exporter reads for
-computed periods. `multi_period_financials` is also the merge base for later raw-input updates and the
-input to `evaluate_downside_case()`.
+  (the framework-computed path for `/spread` and `/project`). The matching `financials[period]["raw"]`
+  record sits beside that period's computed subtotals and ratios and is what the workbook exporter reads for
+  computed periods. `multi_period_financials` is also the merge base for later raw-input updates and the
+  input to `evaluate_downside_case()`.
 
 - `analyst_supplied_financials` -- written by `/spread`'s analyst-supplied mode for supplied history, or by
-`/project`'s analyst-supplied forecast mode when the analyst also gives a raw breakdown. These period
-records are independent of the framework-computed raw records; neither store is merged into the other.
+  `/project`'s analyst-supplied forecast mode when the analyst also gives a raw breakdown. These period
+  records are independent of the framework-computed raw records; neither store is merged into the other.
 
 `scripts/deal_export.py`'s `_financial_data_from_state()` is the one place that selects raw figures for the
 exported workbook. Historical periods follow `financials_source`: analyst-supplied history reads

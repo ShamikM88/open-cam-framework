@@ -198,8 +198,8 @@ tolerances, kept:** a null value is "not recorded" for every key (a null period 
 non-object period inside `financials`/`analyst_supplied_financials` as empty, a non-list `collateral` as no
 collateral (one blank row) and a non-object `downside_case` as no downside case, as it always has, and so
 validates only that those two raw-figure keys are objects, that an object `downside_case`'s inner
-`financials`/`ratios` are objects, and that `financials_source` is a known value (it decides which raw store is
-read). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
+`financials`/`ratios` are objects, and that `financials_source` is a known value (it routes historical raw-input
+selection; forward-period workbook selection also follows `forecast_source`, as described above). An *empty* value of the wrong container type (`financials: []`, `covenants: {}`) is rejected like any
 other: earlier code silently read it as empty. `export_deal()` reads and validates state before it creates the
 output folder or auto-saves a template, so a refusal leaves nothing behind; for a bare call with no `date_str`
 this also means a bare call still finds the deal's existing state before creating today's output folder.

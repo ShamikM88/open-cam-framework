@@ -545,3 +545,78 @@ class TestSlugRuleMatchesTestDocs:
             assert wiki_publish.slug(heading) == test_docs.slug(heading)
         sample = "# A\n\ntext\n\n## Same\n\n## Same\n\n```md\n### Fenced, ignored\n```\n\n# A\n"
         assert wiki_publish.heading_slugs(sample) == test_docs.heading_slugs(sample)
+
+
+class TestEdgeBranches:
+    def test_the_page_name_guard_rejects_non_allowlisted_paths(self):
+        with pytest.raises(WikiPublishError, match="not an allowlisted"):
+            wiki_publish._page_name("scripts/tool.py")
+
+    def test_a_missing_docs_directory_is_an_error(self, tmp_path):
+        with pytest.raises(WikiPublishError, match="no docs/ directory"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_an_empty_docs_directory_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        with pytest.raises(WikiPublishError, match="no Markdown pages"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_a_directory_named_like_a_page_is_ignored(self, tmp_path):
+        (tmp_path / "docs" / "weird.md").mkdir(parents=True)
+        write_index(tmp_path, rows=())
+        tree = build_tree(tmp_path, "example/repo")
+        assert sorted(tree) == ["Home.md", "_Sidebar.md"]
+
+    def test_a_symlinked_repository_file_target_is_an_error(self, tmp_path):
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "real_tool.py").write_text("", encoding="utf-8")
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        (tmp_path / "docs" / "source.md").write_text("[x](../scripts/tool.py)\n", encoding="utf-8")
+        (tmp_path / "scripts" / "tool.py").symlink_to(tmp_path / "real_tool.py")
+        with pytest.raises(WikiPublishError, match="symlink"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_a_table_row_without_a_link_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        (tmp_path / "docs" / "source.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n"
+            "| Document | Contents |\n| :--- | :--- |\n| [source.md](source.md) | x |\n| plain row | x |\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(WikiPublishError, match="no page link"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_a_table_row_pointing_at_a_non_page_is_an_error(self, tmp_path):
+        (tmp_path / "README.md").write_text("# Repo\n", encoding="utf-8")
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "source.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n"
+            "| Document | Contents |\n| :--- | :--- |\n| [repo README](../README.md) | x |\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(WikiPublishError, match="not a published page"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_prose_after_the_table_ends_it_and_a_new_heading_aborts_the_search(self, tmp_path):
+        # A table followed by prose stops the row scan; a heading before any
+        # table aborts it with the missing-table error.
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "source.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n"
+            "| Document | Contents |\n| :--- | :--- |\n| [source.md](source.md) | x |\n\n"
+            "Trailing prose.\n\n## Where each kind of fact is authoritative\n\n| a | b |\n",
+            encoding="utf-8",
+        )
+        assert "_Sidebar.md" in build_tree(tmp_path, "example/repo")
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\nProse, then a new section.\n\n"
+            "## Where each kind of fact is authoritative\n\n| a | b |\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(WikiPublishError, match="no 'What is in this folder' index table"):
+            build_tree(tmp_path, "example/repo")

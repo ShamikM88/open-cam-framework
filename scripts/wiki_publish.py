@@ -214,7 +214,7 @@ def _rewrite_link(
     if EXTERNAL_RE.match(dest):
         return None
     file_part, _, anchor = dest.partition("#")
-    if not file_part:
+    if not file_part:  # pragma: no cover - unreachable via LINK_RE, kept as a guard
         raise WikiPublishError(f"{where}: unparseable link destination {dest!r}")
     target, relative = _resolve_target(file_part, page_path, root, line_no)
     if anchor and target.suffix == ".md":

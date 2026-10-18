@@ -287,7 +287,7 @@ ever amended on its own.
 
 **By mode.** In framework-computed mode the stated subtotals are used only for the cross-foot; every recorded
 subtotal and ratio is recomputed from the lines. In analyst-supplied mode the stated subtotals and ratios are recorded
-exactly as given (a trailing `x` or `%` on a ratio is dropped and the number kept as written), any raw lines go to
+as given, with ratio suffix handling described in [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions); other ratio suffixes retain their numeric value, while a trailing `%` on `gearing` or `fcf_conversion_pct` is converted to its fraction. Any raw lines go to
 `analyst_supplied_financials`, and the cross-foot still compares the stated subtotals with those lines when both are
 present. Stated differences between an institution's subtotal and the framework's definition are exactly what an
 acknowledgement is for in either mode.

@@ -45,7 +45,7 @@ shortened):
 | `company`, `proposal`, `date`, `schema_version` | every write | Deal identity, kept in sync on every write; the schema version of the writing framework |
 | `deal_type`, `inputs` | `/triage`, `/collateral`, `/assemble`, the orchestrator | The CAM type; `pd`, `lgd` (user-supplied, never adjusted) and `experian_score` or another bureau score |
 | `steps_completed` | every step | The names of steps that have finished (`triage`, `spread`, ...); `/assemble` hard-gates on `spread` |
-| `triage`, `commercial` | `/triage`, `/commercial`, `/research` | The Go/No-Go verdict and rationale; the company and sector sections |
+| `triage`, `commercial` | `/triage`, `/commercial`, `/research` | The Go/No-Go verdict and rationale; the company and sector sections. Each section's `sources` field is a list of citation strings, including `[]` when no citations were used |
 | `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` (run by `/spread` and `/project`) | Per-period subtotals (each with its raw inputs under `raw`) and ratios; the raw inputs as supplied; `"framework-computed"` |
 | `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
@@ -116,8 +116,13 @@ recorded". The messages and fixes are in [Troubleshooting](troubleshooting.md#st
 ### Saved sources
 
 `sources/manifest.json` is a list with one entry per saved document: `filename`, `url` (if it came from the web),
-`step`, `claim` (what it backs) and `fetched_date`. The document itself sits beside it. A step that declares
-citations but saved nothing is caught by `source_manifest.py --check-sources`.
+`step`, `claim` (what it backs) and `fetched_date`. The document itself sits beside it. `triage.sources` and
+`commercial.sources` are lists of citation strings (`list[str]`); use an empty list when a step used no citations rather
+than omitting the key. Nulls, mappings, scalars and lists containing non-strings are invalid declarations; arbitrary
+elements are never converted into citation strings. `steps_completed`, if present, must be a list of strings; an absent
+field remains valid for new/incomplete historical states. Malformed consumed completion metadata, any invalid source
+declaration, or a completed source-bearing step without a declaration reports `sources_declared: "unknown"` and
+`missing_saved_sources: true`, even with a nonempty manifest.
 
 ### Persisted conventions and learnings
 
@@ -145,7 +150,11 @@ validates state and writes the history-free first-pass copy and separate history
 newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
 `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
 an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
-today, so a deal resumed on a later calendar day still finds its original file. (This is
+today, so a deal resumed on a later calendar day still finds its original file. An explicit
+`date_str` supplied to `state_path()`, `read_state()`, `write_state()` or
+`append_review_trail()` must be a real calendar date in exact `YYYY-MM-DD` form;
+malformed or impossible values raise `StateError` before any deal folder is created.
+Passing `date_str=None` retains the existing auto-discovery/today behavior. (This is
 deliberately different from the bare `deal_export.export_deal()` default, which is still
 today -- so callers resolve the date themselves via `resolve_date_str()`, see that script's entry in the CLI reference and issue #97.) `read_state(company, proposal, keys=())` returns the parsed dict or `None`; it
 raises `StateShapeError` for a corrupt or non-UTF-8 file, a top level that is not an object, or (when `keys`
@@ -210,18 +219,18 @@ saved yet). See "Source material persistence" in `CLAUDE.md`. Callable from a sl
 python scripts/source_manifest.py --company "Acme Corp" --proposal "Fleet Loan" --step triage \
     --claim "Legal identity and PSC filing" --file /path/to/downloaded.pdf --url https://...
 ```
-`missing_saved_sources(state, manifest)` is the code-enforced check `/triage`, `/research`, and
-`/commercial` each run at the end of their own "State: write" step (see issue #72): true when
-`state`'s `triage`/`commercial` sections declare at least one citation but the manifest has
-zero entries at all -- i.e. the step cited sources without ever actually saving any of the
-material behind them, the exact gap that motivated this whole module. Deliberately deal-level
-(not matched against an exact `triage`/`commercial`/`research` step-name tag -- `/research`'s
-own combined step tags its entries `"research"`) and floor-level (at least one saved source,
-not an exhaustive 1:1 match to every citation -- some sources are legitimately unsaveable, e.g.
-a bot-blocked page). Wired into the same three commands via a `--check-sources` CLI mode
-(mirrors `state_manager.py`'s own `--check-steps`: prints JSON and exits 0 whatever the result -- a
-state.json it cannot read is an error, exit 1 -- and the calling command's prose decides what to do
-with a `true` result).
+`sources_declared(state)` reports the declaration shape as `"declared"`, `"not_declared"`, or `"unknown"`.
+A completed `triage` or `commercial` step without a `list[str]` declaration is `"unknown"`, as is any malformed declared
+list or malformed consumed `steps_completed`; saved material cannot make that unknown shape valid. Absent completion
+metadata alone is not invalid, and an explicit empty list is a valid declaration of no citations.
+`missing_saved_sources(state, manifest)` remains a boolean check: it returns true when any declared non-empty citation
+has no saved manifest material, or when the consumed declaration/completion shape is unknown.
+It remains deal-level (not matched against an exact `triage`/`commercial`/`research`
+manifest step tag — `/research` tags its entries `"research"`) and floor-level (at least one source saved, not an
+exhaustive 1:1 match to every citation because some sources are legitimately unsaveable, e.g. a bot-blocked page).
+The `--check-sources` CLI prints both `missing_saved_sources` and `sources_declared` and exits 0 for a check result;
+a state or manifest it cannot read is still an error, exit 1. The calling command must not silently continue when
+`sources_declared` is `"unknown"`.
 
 ## Persisted-convention stores
 

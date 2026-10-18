@@ -472,7 +472,7 @@ def test_the_skills_explain_a_null_ratio_by_basis_and_not_by_an_assumed_denomina
 ], ids=["triage", "commercial", "blank", "one-unrelated-entry", "file-not-checked", "research-key", "top-level", "inputs"])
 def test_check_sources_is_a_deal_level_floor_over_triage_and_commercial_citations(state, manifest,
                                                                                  declared_but_nothing_saved):
-    """The whole guarantee the skills may rely on: `true` only when `triage` or `commercial` declares a citation and
+    """The whole guarantee the skills may rely on for a known declaration shape: `true` only when `triage` or `commercial` declares a citation and
     the manifest has no entries at all. `false` does not mean every citation is backed."""
     from source_manifest import missing_saved_sources
     assert missing_saved_sources(state, manifest) is declared_but_nothing_saved
@@ -515,11 +515,16 @@ def test_the_folder_the_rule_selects_is_the_one_state_manager_and_its_scripts_us
     for proposal, date_str, steps in [
         (PROPOSAL, "2025-12-31", ["triage"]), (PROPOSAL, "2026-01-05", ["triage", "spread"]),
         (PROPOSAL, "2026-02-01", ["spread", "collateral"]),                       # the latest
-        (PROPOSAL, "2026-9-1", ["project"]), (PROPOSAL, "2026-02-01.bak", ["project"]), (PROPOSAL, "latest", ["project"]),
         (PROPOSAL + "_B", "2026-09-09", ["project"]), ("Synthetic Fleet", "2027-01-01", ["project"]),
     ]:
         write_state(COMPANY, proposal, date_str=date_str, steps_completed=steps)
-    names = [p.name for p in (workdir / "deals" / COMPANY).iterdir()]
+
+    # Legacy/malformed folder names can still exist on disk, but strict state APIs must
+    # no longer create them. Seed these names directly to test that discovery ignores them.
+    deal_root = workdir / "deals" / COMPANY
+    for suffix in ("2026-9-1", "2026-02-01.bak", "latest"):
+        (deal_root / f"{PROPOSAL}_{suffix}").mkdir(parents=True)
+    names = [p.name for p in deal_root.iterdir()]
     assert len(names) == 8
     chosen = documented_folder(names, PROPOSAL)
     assert chosen == f"{PROPOSAL}_2026-02-01"
@@ -816,3 +821,37 @@ def test_each_skill_narrows_its_glob_to_the_proposal_and_does_not_trust_a_capped
     assert "reaches 100 files" in text and "could not be established" in text
     assert "glob characters" in text, "the refusal says why brackets and braces are refused"
     assert "deals/<company>/*/state.json" not in text, "the broad pattern is gone"
+
+
+# --- 2b. the skills and their pages describe the two-key --check-sources output (issue #275) -------------------
+
+CHECK_SOURCES_DESCRIPTIONS = [
+    ".claude/skills/evidence-discipline/SKILL.md",
+    ".claude/skills/information-gaps/SKILL.md",
+    "docs/skills.md",
+    "docs/skill-design.md",
+]
+
+
+@pytest.mark.parametrize("path", CHECK_SOURCES_DESCRIPTIONS)
+def test_every_description_of_check_sources_names_both_keys_and_the_unknown_gap(path):
+    """Fail-closed (#275): `unknown` is a gap in the record to report, never proof that no citations were used."""
+    text = " ".join(read(path).replace("`", "").split())
+    for needle in ("missing_saved_sources", "sources_declared", "declared", "not_declared", "unknown"):
+        assert needle in text, (path, needle)
+    assert "no valid sources list" in text or "no valid `sources` list" in read(path), path
+    assert "gap in the record" in text and "no citations were used" in text, path
+
+
+def test_evidence_discipline_describes_the_two_keys_in_the_authorised_wording():
+    text = " ".join(skill_text("evidence-discipline").split())
+    expected = (
+        "It is a floor, not an audit. It prints a JSON object with two keys. `missing_saved_sources` is `true` when "
+        "`triage` or `commercial` declares at least one non-blank citation under `sources` and the manifest has no "
+        "entries at all, and also when `sources_declared` is `\"unknown\"`. `sources_declared` is `\"declared\"`, "
+        "`\"not_declared\"` or `\"unknown\"`; `\"unknown\"` means a completed step's saved state has no valid "
+        "`sources` list, so report it as a gap in the record (the list must be restored in state before anything can "
+        "be said about citations), never as proof that no citations were used. `false` does not mean every citation "
+        "is backed: it does not match citations to entries, check that a file exists, or look at citations kept "
+        "anywhere else. Your own reading below does that.")
+    assert expected in text

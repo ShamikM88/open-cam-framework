@@ -2143,7 +2143,7 @@ def test_changed_assumption_is_allowed_without_analyst_basis_but_fresh_recompute
                      stress_assumptions={"revenue_haircut_pct": 30}, client=client)
     message = str(refused.value)
     assert "analyst-supplied" in message and "/spread's analyst-supplied mode" in message
-    assert "nothing was written" in message and "\\n" not in message
+    assert "nothing was written" in message and "\n" not in message
     assert client.call_count == 0
     assert _deal_files() == before
     state = read_state("Acme Corp", "Fleet Loan")

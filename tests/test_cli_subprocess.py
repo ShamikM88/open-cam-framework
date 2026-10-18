@@ -1203,3 +1203,40 @@ def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_histor
     assert "historical" in result.stderr and "Traceback" not in result.stderr
     assert state_path.read_bytes() == before
     assert "multi_period_financials" not in state_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "token",
+    ['"abc"', '"1e999"', '"nan"', "true", "1e999"],
+    ids=["text", "overflow-text", "nan-text", "boolean", "overflow-number"],
+)
+def test_spreading_check_rejects_non_numeric_raw_line_items_before_writing(cli, token):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="framework-computed",
+        financials={"FY-Current": {"raw": {"revenue": 1000}}},
+        multi_period_financials={"FY-Current": {"revenue": 1000}},
+    )
+    saved_path = Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text(
+        '{"FY-Current":{"revenue":' + token + ',"cost_of_sales":600}}',
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "Traceback" not in result.stderr
+    assert "FY-Current" in result.stderr and "revenue" in result.stderr
+    assert saved_path.read_bytes() == before

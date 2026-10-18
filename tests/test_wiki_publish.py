@@ -108,10 +108,13 @@ class TestPageDiscovery:
         assert "examples-synthetic_co-brief" in pages
 
     def test_a_case_insensitive_name_collision_is_an_error(self, tmp_path):
+        # README.md publishes as "Home", so docs/home.md collides with it
+        # case-insensitively. Two files differing only by case cannot even
+        # coexist on case-insensitive filesystems, so the collision is
+        # created across these two names instead.
         (tmp_path / "docs").mkdir()
-        write_index(tmp_path, rows=("page",))
-        (tmp_path / "docs" / "page.md").write_text("# x\n", encoding="utf-8")
-        (tmp_path / "docs" / "PAGE.md").write_text("# x\n", encoding="utf-8")
+        write_index(tmp_path, rows=())
+        (tmp_path / "docs" / "home.md").write_text("# x\n", encoding="utf-8")
         with pytest.raises(WikiPublishError, match="(?i)collide"):
             discover_pages(tmp_path)
 

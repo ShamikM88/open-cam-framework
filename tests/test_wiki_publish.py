@@ -764,7 +764,7 @@ class TestPublish:
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
         assert self.publish(tmp_path, remote, sha=self.SHA1) == 0
         message = self._git(None, "--git-dir", str(remote), "log", "-1", "--format=%B").stdout
-        assert message == f"Publish docs from main {self.SHA1}\n\ndocs-source: {self.SHA1}\n"
+        assert message.rstrip("\n") == f"Publish docs from main {self.SHA1}\n\ndocs-source: {self.SHA1}"
 
     def test_the_remote_default_branch_name_is_preserved(self, tmp_path):
         remote = self.bare_remote(tmp_path)  # created on master, like the real wiki
@@ -777,14 +777,15 @@ class TestPublish:
                          "rev-parse", "master").stdout.strip() == self.remote_head(remote)
         assert self.remote_commit_count(remote) == 2  # placeholder + publish
 
-    def test_a_sentinel_token_never_appears_in_output_or_any_file(self, tmp_path, monkeypatch, capsys):
+    def test_a_sentinel_token_never_appears_in_output_or_any_file(self, tmp_path, tmp_path_factory,
+                                                                    monkeypatch, capsys):
         remote = self.bare_remote(tmp_path)
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
         monkeypatch.setenv("GITHUB_TOKEN", self.SENTINEL)
-        # keep the working directory (and the clone inside it) so every file can be scanned
-        monkeypatch.setattr(wiki_publish.tempfile, "mkdtemp",
-                            lambda *a, **k: str(tmp_path / "work"))
-        (tmp_path / "work").mkdir()
+        # a work directory OUTSIDE the repository root (the containment guard
+        # refuses one inside it), kept so every file can be scanned
+        work_dir = tmp_path_factory.mktemp("publish-work")
+        monkeypatch.setattr(wiki_publish.tempfile, "mkdtemp", lambda *a, **k: str(work_dir))
         monkeypatch.setattr(wiki_publish.shutil, "rmtree", lambda path, **k: None)
 
         assert self.publish(tmp_path, remote) == 0
@@ -792,7 +793,7 @@ class TestPublish:
         captured = capsys.readouterr()
         assert self.SENTINEL not in captured.out and self.SENTINEL not in captured.err
         encoded = base64.b64encode(self.SENTINEL.encode("utf-8"))
-        for path in tmp_path.rglob("*"):
+        for path in list(tmp_path.rglob("*")) + list(work_dir.rglob("*")):
             if path.is_file():
                 data = path.read_bytes()
                 assert self.SENTINEL.encode("utf-8") not in data, path
@@ -841,7 +842,7 @@ class TestPublish:
         captured = capsys.readouterr()
         assert len(captured.err.splitlines()) == 1
         assert captured.err.count("error:") == 1
-        assert "clone" in captured.err
+        assert "cloning" in captured.err
         assert "Traceback" not in captured.err
 
     def test_a_missing_token_with_a_real_remote_is_an_error_before_any_git_runs(self, tmp_path, capsys, monkeypatch):

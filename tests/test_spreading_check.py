@@ -13,7 +13,13 @@ import json
 import pytest
 
 from spreading_check import compute, main, plan_fields
+from numeric_validation import validate_period_objects
 from state_manager import read_state, write_state
+
+
+def test_validate_period_objects_rejects_a_non_object_period_map():
+    with pytest.raises(ValueError, match="financial inputs must be an object keyed by period"):
+        validate_period_objects(["FY+1"])
 
 
 def test_compute_requires_either_fresh_or_already_on_file_financials(tmp_path, monkeypatch):

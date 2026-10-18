@@ -810,7 +810,7 @@ class TestPublish:
 
         captured = capsys.readouterr()
         assert self.SENTINEL not in captured.out and self.SENTINEL not in captured.err
-        encoded = base64.b64encode(self.SENTINEL.encode("utf-8"))
+        encoded = base64.b64encode(f"x-access-token:{self.SENTINEL}".encode())  # the real credential form
         for path in list(tmp_path.rglob("*")) + list(work_dir.rglob("*")):
             if path.is_file():
                 data = path.read_bytes()
@@ -880,6 +880,46 @@ class TestPublish:
         assert len(captured.err.splitlines()) == 1
         assert "GITHUB_TOKEN" in captured.err
         assert not calls
+
+    def test_the_real_credential_is_used_and_persisted_nowhere(self, tmp_path, tmp_path_factory,
+                                                                 monkeypatch, capsys):
+        """The production token-bearing path, run for real with only the network
+        transport substituted: the clone URL is rewritten to a local bare repository
+        (no --remote, so the token path runs); the header, the environment, the real
+        git subprocesses and the files they write are the production ones. The raw
+        token AND the actual encoded credential must appear in neither output stream
+        nor any file the run touches. This verifies transport-side handling, not that
+        GitHub accepts the credential."""
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.setenv("GITHUB_TOKEN", self.SENTINEL)
+        # a work directory OUTSIDE the repository root, kept so every file can be scanned
+        work_dir = tmp_path_factory.mktemp("credential-work")
+        monkeypatch.setattr(wiki_publish.tempfile, "mkdtemp", lambda *a, **k: str(work_dir))
+        monkeypatch.setattr(wiki_publish.shutil, "rmtree", lambda path, **k: None)
+        real_run = subprocess.run
+
+        def local_transport(argv, **kwargs):
+            argv = list(argv)
+            if "clone" in argv:  # only the transport: the local bare repo, not github.com
+                argv[argv.index("clone") + 2] = str(remote)
+            return real_run(argv, **kwargs)
+
+        monkeypatch.setattr(wiki_publish.subprocess, "run", local_transport)
+        code = wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish",
+            "--source-sha", self.SHA1])
+
+        assert code == 0
+        captured = capsys.readouterr()
+        credential = base64.b64encode(f"x-access-token:{self.SENTINEL}".encode()).decode("ascii")
+        for stream in (captured.out, captured.err):
+            assert self.SENTINEL not in stream and credential not in stream
+        for path in list(tmp_path.rglob("*")) + list(work_dir.rglob("*")):
+            if path.is_file():
+                data = path.read_bytes()
+                assert self.SENTINEL.encode("utf-8") not in data, path
+                assert credential.encode("ascii") not in data, path
 
     def test_the_token_reaches_git_only_as_an_http_header(self, tmp_path, monkeypatch):
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})

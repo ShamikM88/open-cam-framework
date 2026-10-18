@@ -136,6 +136,19 @@ def discover_pages(root: Path) -> dict[str, Path]:
     return pages
 
 
+_DRIVE_TARGET_RE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def _is_absolute_target(text: str) -> bool:
+    """Absolute in the repo's POSIX-ish link sense, on every platform.
+
+    ``Path.is_absolute()`` is drive-aware on Windows, so "/etc/passwd" is
+    "relative" there; the docs corpus only ever uses slash-rooted or
+    drive-letter targets, which are never publishable.
+    """
+    return text.startswith(("/", "\\")) or bool(_DRIVE_TARGET_RE.match(text))
+
+
 def _resolve_target(
     file_part: str, page_path: Path, root: Path, line_no: int
 ) -> tuple[Path, str]:
@@ -144,7 +157,7 @@ def _resolve_target(
     symlink, and requiring the target to exist."""
     source = page_path.relative_to(root).as_posix()
     where = f"{source}:{line_no}"
-    if Path(file_part).is_absolute():
+    if _is_absolute_target(file_part):
         raise WikiPublishError(f"{where}: absolute link target {file_part!r} is not publishable")
     candidate = Path(os.path.normpath(page_path.parent / file_part))
     try:

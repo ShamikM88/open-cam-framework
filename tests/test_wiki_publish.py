@@ -76,8 +76,10 @@ def make_corpus(tmp_path: Path, pages: dict[str, str]) -> dict[str, str]:
     for name, content in pages.items():
         target = docs / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-    (docs / "README.md").write_text(read_me, encoding="utf-8")
+        # Bytes, so a \r\n fixture is written identically on every platform
+        # (a text-mode write would translate newlines on Windows).
+        target.write_bytes(content.encode("utf-8"))
+    (docs / "README.md").write_bytes(read_me.encode("utf-8"))
     return build_tree(tmp_path, "example/repo")
 
 

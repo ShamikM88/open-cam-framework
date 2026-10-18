@@ -536,10 +536,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         missing_raw_periods = sorted(recorded_periods - available_raw_periods)
         if missing_raw_periods:
             raise StateError(
-                "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
-                f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
-                "line items for every preserved period so all figures can be recomputed, or keep the "
-                "analyst-supplied state; nothing was written."
+                "refused: a headless run cannot recompute or reset an analyst-supplied deal; recorded "
+                f"period(s) without raw line items ({', '.join(missing_raw_periods)}) are additionally "
+                "unavailable for recomputation. Use /spread's analyst-supplied mode to record financial "
+                "figures; nothing was written."
             )
 
         raise StateError(

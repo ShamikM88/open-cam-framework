@@ -52,6 +52,7 @@ from spreading_builder import (
     evaluate_financial_model,
 )
 from spreading_builder import FIELD_LABELS as RAW_FIELD_LABELS
+from numeric_validation import StressAssumptionsError, validate_stress_assumptions
 from state_manager import StateError, StateShapeError, read_state, state_path, write_state
 
 RAW_FIELDS = tuple(RAW_FIELD_LABELS)
@@ -212,7 +213,11 @@ def validate_stress(data):
     unknown = sorted(set(data) - set(STRESS_KEYS))
     if unknown:
         raise ForecastError(f"stress assumptions: unknown key(s) {unknown}; allowed: {list(STRESS_KEYS)}")
-    return {key: _number(value, f"stress.{key}") for key, value in data.items()}
+    values = {key: _number(value, f"stress.{key}") for key, value in data.items()}
+    try:
+        return validate_stress_assumptions(values)
+    except StressAssumptionsError as exc:
+        raise ForecastError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

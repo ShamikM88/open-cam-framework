@@ -56,6 +56,7 @@ import tempfile
 from datetime import date
 from decimal import Decimal
 
+from financial_conventions import PERCENT_TYPE_RATIOS, warn_percent_type_values
 from source_manifest import read_manifest, save_source, sources_dir
 from spreading_builder import FIELD_LABELS, HISTORICAL_PERIOD_KEYS, evaluate_financial_model
 from spreading_check import STATE_KEYS_READ as SPREADING_KEYS_READ
@@ -134,15 +135,18 @@ _FIGURE_RE = re.compile(r"(?P<open>\()?(?P<sign>-)?(?P<whole>\d{1,3}(?:,\d{3})+|
 
 
 class Figure:
-    """One figure exactly as written in the image (`text`, read as the number `written_value`) and the number that
-    is recorded (`value`). The two differ only by a declared sign convention, and `note` then says so."""
+    """The source text and numeric reading alongside the value that will be recorded. `text` preserves the source
+    as written, `written_value` is its numeric reading, and `value` is the recorded number. They may differ because of
+    a declared sign convention or the explicit percent suffix on a percent-type ratio; `note` explains sign changes,
+    while `value_is_fraction` marks that unit conversion."""
 
-    def __init__(self, text, value, decimals, written_value=None, note=""):
+    def __init__(self, text, value, decimals, written_value=None, note="", value_is_fraction=False):
         self.text = text
         self.value = value
         self.decimals = decimals
         self.written_value = value if written_value is None else written_value
         self.note = note
+        self.value_is_fraction = value_is_fraction
 
     @property
     def unit(self):
@@ -151,24 +155,29 @@ class Figure:
 
     def reversed(self, note=""):
         """The same written figure recorded with the opposite sign (never a negative zero)."""
-        return Figure(self.text, -self.value if self.value else self.value, self.decimals, self.written_value, note)
+        return Figure(self.text, -self.value if self.value else self.value, self.decimals, self.written_value, note,
+                      value_is_fraction=self.value_is_fraction)
 
     def number(self):
-        """The value as it is recorded in state.json: an int when written without decimals, else a float."""
-        return int(self.value) if self.decimals == 0 else float(self.value)
+        """The value as recorded: an int for whole figures, except fractions created by an explicit percent suffix."""
+        return int(self.value) if self.decimals == 0 and not self.value_is_fraction else float(self.value)
 
 
 def parse_figure(text, label, allow_suffix=False):
-    """Read a figure as written. Accepts `1,234.5`, `-1234`, `(1,234)` (parentheses mean negative) and, when
-    `allow_suffix`, a trailing `x` or `%` (a ratio, recorded as the number written). Anything else -- a currency
-    symbol, a comma decimal such as `1,5`, `n/a`, a dash -- is refused rather than guessed at. Whether a negative is a
-    cost shown in brackets or a genuine credit is a separate, declared question (see the module docstring)."""
+    """Read a figure as written, with suffix-aware ratio handling. Accepts `1,234.5`, `-1234`, `(1,234)` (parentheses
+    mean negative) and, when `allow_suffix`, a trailing `x` or `%`. For `gearing` and `fcf_conversion_pct`, `%`
+    explicitly converts the numeric value to a fraction while retaining the source text and as-written value. Other
+    ratios keep the number as written. Anything else -- a currency symbol, comma decimal such as `1,5`, `n/a`, or a
+    dash -- is refused rather than guessed at. Whether a negative is a cost shown in brackets or a genuine credit is a
+    separate, declared question (see the module docstring)."""
     if not isinstance(text, str) or not text.strip():
         raise TranscriptionError(f"{label}: write the figure as text exactly as it appears (for example \"1,234.5\" "
                                  f"or \"(500)\"), found {text!r}")
     written = text.strip()
     cleaned = written.replace("−", "-").replace("–", "-")
+    suffix = None
     if allow_suffix and cleaned[-1] in "x%X":
+        suffix = cleaned[-1].lower()
         cleaned = cleaned[:-1].strip()
     match = _FIGURE_RE.fullmatch(cleaned)
     if not match or bool(match["open"]) != bool(match["close"]) or (match["open"] and match["sign"]):
@@ -180,7 +189,12 @@ def parse_figure(text, label, allow_suffix=False):
     value = Decimal(match["whole"].replace(",", "") + ("." + frac if frac else ""))
     if match["open"] or match["sign"]:
         value = -value
-    return Figure(written, value, len(frac))
+    written_value = value
+    field_name = label.rsplit(".", 1)[-1]
+    value_is_fraction = suffix == "%" and field_name in PERCENT_TYPE_RATIOS
+    if value_is_fraction:
+        value /= Decimal(100)
+    return Figure(written, value, len(frac), written_value=written_value, value_is_fraction=value_is_fraction)
 
 
 def file_sha256(path):
@@ -520,10 +534,11 @@ def render_readback(staged, report, digest, source_sha256):
         "",
         f"- Source: {source['file']} ({source['kind']}): {source['description']}",
         f"- Source fingerprint (SHA-256): {source_sha256}",
-        f"- Unit: {source['unit']} (figures are recorded as written; nothing is scaled)",
+        f"- Unit: {source['unit']} (statement figures retain this unit; the explicit percent-ratio conversion below is the only ratio-unit exception)",
         f"- Mode: {staged['mode']}",
         *_convention_lines(staged),
-        "- Subtotals and ratios are results with a sign of their own and are recorded as written.",
+        "- Subtotals are recorded as written. Ratios keep their source text; a trailing '%' on gearing or "
+        "FCF conversion is recorded as a fraction (87% becomes 0.87).",
         f"- Digest: {digest}",
         "",
         "Confirm only if every figure below matches the source exactly: digits, decimals, signs and the unit, and "
@@ -572,8 +587,9 @@ def render_readback(staged, report, digest, source_sha256):
                 "each line that feeds it. A check is made only when every feeding line was transcribed; an omitted "
                 "line is unknown, not zero."]
     has_ratios = any(entry["ratios"] for entry in staged["periods"].values())
-    out.append("Ratios are " + ("recorded exactly as given and are not cross-footed (the rounding of their inputs "
-                                "cannot be bounded)." if has_ratios else "recomputed by the framework from the lines."))
+    out.append("Ratios are " + ("not cross-footed (the rounding of their inputs cannot be bounded); other ratios "
+                                "are recorded numerically as written, while a trailing '%' on gearing or FCF conversion "
+                                "is converted to fraction units." if has_ratios else "recomputed by the framework from the lines."))
     if report["unused_acknowledgements"]:
         out.append("Acknowledgements that match no discrepancy (ignored, shown so none is hidden): "
                    + ", ".join(f"{p}/{c}" for p, c in report["unused_acknowledgements"]))
@@ -921,6 +937,10 @@ def main(argv=None):
 
     try:
         staged = load(args.transcription)
+        warn_percent_type_values(
+            (period, {name: figure.value for name, figure in entry["ratios"].items()})
+            for period, entry in staged["periods"].items()
+        )
         if not args.commit:
             shown = readback(staged)
             print(json.dumps(shown, indent=2) if args.json else shown["text"])

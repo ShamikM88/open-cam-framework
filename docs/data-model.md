@@ -65,7 +65,8 @@ The `financials_source` value describes the whole deal, not one period. If it is
 default framework-computed `spreading_check.py` path refuses to overwrite the label or recompute figures in the other
 mode. Continue using `/spread`'s analyst-supplied mode for updates; one deal never mixes the two modes.
 
-Ratios that cannot be computed are `null`, never `0`. A step may add keys of its own; this table is a
+Ratios that cannot be computed are `null`, never `0`. The units for `gearing`, `fcf_conversion_pct` and their
+covenant thresholds follow the [percent-type ratio fraction convention](financial-model.md#percent-type-ratios-are-stored-as-fractions). A step may add keys of its own; this table is a
 floor.
 
 `analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.

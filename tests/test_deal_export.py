@@ -701,10 +701,18 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
     assert ws.cell(row=1, column=8).value == "FY+1 (Downside)"
     assert ws.cell(row=label_to_row["Revenue"], column=4).value == 5000
     assert ws.cell(row=label_to_row["EBITDA"], column=4).value == 1300
-    for raw_key, row_label in (("revenue", "Revenue"), ("cost_of_sales", "Cost of Goods Sold"),
-                               ("long_term_debt", "Long Term Debt")):
-        assert ws.cell(row=label_to_row[row_label], column=5).value == expected_forward_raw[raw_key], row_label
-        assert ws.cell(row=label_to_row[row_label], column=8).value == expected_downside_raw[raw_key], row_label
+    from spreading_builder import FIELD_LABELS
+
+    # Every recorded raw input with a workbook row must survive in its own
+    # base-case period column; the downside source/column is independently pinned.
+    assert set(expected_forward_raw).issubset(FIELD_LABELS)
+    for raw_key, expected in expected_forward_raw.items():
+        row_label = FIELD_LABELS[raw_key]
+        assert ws.cell(row=label_to_row[row_label], column=5).value == expected, row_label
+    for raw_key, expected in expected_downside_raw.items():
+        if raw_key in FIELD_LABELS:
+            row_label = FIELD_LABELS[raw_key]
+            assert ws.cell(row=label_to_row[row_label], column=8).value == expected, row_label
 
 
 

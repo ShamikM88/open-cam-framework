@@ -146,7 +146,7 @@ def _figures(mapping, allowed, label, allow_null=False):
 
 def _period_block(body, label, require_figures):
     if not isinstance(body, dict):
-        raise ForecastError(f"{label} must be an object")
+        raise ForecastError(f"{label} must be an object of line items; found {type(body).__name__}")
     unknown = sorted(set(body) - {"subtotals", "ratios", "lines"})
     if unknown:
         raise ForecastError(f"{label}: unknown key(s) {unknown}; allowed: ['lines', 'ratios', 'subtotals']")

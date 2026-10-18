@@ -42,15 +42,26 @@ def write_index(root: Path, rows=("",)) -> Path:
 
 
 def make_corpus(tmp_path: Path, pages: dict[str, str]) -> dict[str, str]:
-    """Write a docs/ corpus and return the generated wiki tree (stub repo)."""
+    """Write a docs/ corpus and return the generated wiki tree (stub repo).
+
+    Every top-level page (including the caller's README.md content, if any) is
+    listed in the index table in sorted order, matching the repository's own
+    index contract.
+    """
     docs = tmp_path / "docs"
     docs.mkdir(parents=True, exist_ok=True)
-    top = [name for name in pages if "/" not in name]
-    write_index(tmp_path, rows=tuple(name[:-3] for name in top if name != "README.md"))
+    top = sorted(name for name in pages if "/" not in name)
+    read_me = pages.get("README.md", "# Index\n")
+    table = "\n".join(f"| [{name[:-3]}.md]({name}) | x |" for name in top if name != "README.md")
+    read_me += (
+        "\n## What is in this folder\n\n| Document | Contents |\n| :--- | :--- |\n"
+        + table + "\n"
+    )
     for name, content in pages.items():
         target = docs / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+    (docs / "README.md").write_text(read_me, encoding="utf-8")
     return build_tree(tmp_path, "example/repo")
 
 
@@ -328,3 +339,72 @@ class TestValidationFailures:
         write_index(tmp_path, rows=("source",))
         with pytest.raises(WikiPublishError, match="owner/name"):
             build_tree(tmp_path, "not a repo")
+
+
+class TestHomeAndSidebar:
+    def test_home_is_the_transformed_index_with_blob_links(self, tmp_path):
+        (tmp_path / "README.md").write_text("# Repo\n", encoding="utf-8")
+        (tmp_path / "CLAUDE.md").write_text("# Rules\n", encoding="utf-8")
+        tree = make_corpus(tmp_path, {
+            "README.md": "See [README](../README.md) and [CLAUDE](../CLAUDE.md).\n",
+            "source.md": "# x\n",
+        })
+        assert f"[README]({U}/blob/main/README.md)" in tree["Home.md"]
+        assert f"[CLAUDE]({U}/blob/main/CLAUDE.md)" in tree["Home.md"]
+        assert tree["Home.md"].startswith(notice_for("docs/README.md"))
+
+    def test_the_sidebar_lists_home_first_then_the_table_order(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "zeta.md": "# z\n",
+            "alpha.md": "# a\n",
+        })
+        # The index table lists the pages in sorted order; the sidebar must
+        # follow the table's order, not the page-name alphabet.
+        lines = tree["_Sidebar.md"].split("\n")
+        assert lines[0] == notice_for("docs/README.md")
+        entries = [line for line in lines if line.startswith("- [")]
+        assert entries == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [alpha]({U}/wiki/alpha)",
+            f"- [zeta]({U}/wiki/zeta)",
+        ]
+
+    def test_a_missing_index_table_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "README.md").write_text("# Index with no table\n", encoding="utf-8")
+        (tmp_path / "docs" / "source.md").write_text("# x\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="What is in this folder"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_a_top_level_page_missing_from_the_table_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("listed",))
+        (tmp_path / "docs" / "listed.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "unlisted.md").write_text("# x\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="unlisted"):
+            build_tree(tmp_path, "example/repo")
+
+    def test_example_pages_need_not_be_in_the_table(self, tmp_path):
+        # The docs index table lists the top-level pages only; the two example
+        # pages are published (linked from other pages) but are deliberately
+        # not index rows, matching the repository's own index contract.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Brief\n",
+        })
+        assert "examples-synthetic_co-brief.md" in tree
+        assert "examples-synthetic_co-brief" not in tree["_Sidebar.md"]
+
+    def test_a_table_row_that_is_not_a_page_is_an_error(self, tmp_path):
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("source",))
+        (tmp_path / "docs" / "source.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n"
+            "| Document | Contents |\n| :--- | :--- |\n| [gone](gone.md) | x |\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(WikiPublishError, match="gone.md"):
+            build_tree(tmp_path, "example/repo")

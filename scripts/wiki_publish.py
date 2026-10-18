@@ -257,6 +257,75 @@ def _transform_page(
     return notice_for(source) + "\n\n" + "\n".join(out)
 
 
+SIDEBAR_HEADING = "## What is in this folder"
+
+
+def _sidebar(
+    root: Path, page_names: dict[str, str], page_texts: dict[str, str], repo_url: str
+) -> str:
+    """The `_Sidebar.md` content: the docs index's reading order.
+
+    The docs index table is the sidebar's source: Home first, then one link
+    per row, in the order the table gives. Every top-level page must be in
+    the table (the repository's own index contract); the two example pages
+    under `docs/examples/` are published pages but deliberately not index
+    rows, so they appear in the wiki without a sidebar entry.
+    """
+    lines = page_texts["docs/README.md"].replace("\r\n", "\n").split("\n")
+    try:
+        start = next(i for i, line in enumerate(lines) if line.strip() == SIDEBAR_HEADING)
+    except StopIteration:
+        raise WikiPublishError(
+            "docs/README.md: no 'What is in this folder' index table to build the sidebar from"
+        ) from None
+    table: list[tuple[int, str]] = []
+    for i in range(start + 1, len(lines)):
+        if lines[i].lstrip().startswith("|"):
+            table.append((i + 1, lines[i].strip()))
+        elif table or lines[i].strip():
+            break
+    if not table:
+        raise WikiPublishError(
+            "docs/README.md: no 'What is in this folder' index table to build the sidebar from"
+        )
+    entries: list[str] = ["Home"]
+    table_rels: list[str] = []
+    for row_no, (line_no, row) in enumerate(table):
+        if set(row) <= {"|", " ", ":", "-"}:
+            continue  # the column-separator line
+        cells = [cell.strip() for cell in row.strip("|").split("|")]
+        match = LINK_RE.search(cells[0])
+        if match is None or match.group(1):
+            if row_no == 0:
+                continue  # the table's header row, not a data row
+            raise WikiPublishError(
+                f"docs/README.md:{line_no}: index table row {row!r} has no page link in its "
+                "first column"
+            )
+        target, _ = _resolve_target(match.group(3), root / "docs" / "README.md", root, line_no)
+        relative = target.relative_to(root).as_posix()
+        if relative not in page_names:
+            raise WikiPublishError(
+                f"docs/README.md:{line_no}: index table row points at {relative}, which is not a "
+                "published page"
+            )
+        table_rels.append(relative)
+        entries.append(page_names[relative])
+    top_level = {
+        relative
+        for relative in page_names
+        if relative != "docs/README.md" and relative.count("/") == 1
+    }
+    missing = top_level - set(table_rels)
+    if missing:
+        raise WikiPublishError(
+            "docs/README.md: page(s) missing from the 'What is in this folder' index table: "
+            + ", ".join(sorted(missing))
+        )
+    body = "\n".join(f"- [{name}]({repo_url}/wiki/{name})" for name in entries)
+    return notice_for("docs/README.md") + "\n\n" + body + "\n"
+
+
 def build_tree(root: Path, repo: str) -> dict[str, str]:
     """Build the wiki tree in memory: output file name -> page content.
 
@@ -281,4 +350,5 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
         tree[f"{name}.md"] = _transform_page(
             page_texts[source], path, root, repo_url, page_names, page_texts
         )
+    tree["_Sidebar.md"] = _sidebar(root, page_names, page_texts, repo_url)
     return tree

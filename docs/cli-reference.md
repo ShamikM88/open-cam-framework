@@ -22,6 +22,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
+| `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/` into a directory (no publishing) | No | [Wiki publish](#wiki-publish) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
 Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic, makes no
@@ -405,3 +406,21 @@ comparing baselines (`--export-baseline`, `--allow-partial`, `--compare`). See [
 ```bash
 python scripts/run_evals.py --dry-run
 ```
+
+## Wiki publish
+
+`python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check)` (no
+`ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus. `--out` writes the
+tree into a directory; `--check` builds and validates in memory and writes nothing. It publishes
+nothing: no wiki, no token, no network, no git -- publishing to the repository's wiki is a separate,
+later change that also needs the maintainer's one-time wiki setup.
+
+Only the allowlisted pages (`docs/*.md` and the example pages under `docs/examples/synthetic_co/`)
+are read; linked repository files are checked and rewritten to URLs, never copied. Page names come
+from the file names (`docs/README.md` becomes `Home`, the example pages are flattened with an
+`examples-synthetic_co-` prefix); links are rewritten to wiki, blob, tree or raw-blob URLs; every
+page starts with a generated-source notice saying `docs/` is canonical; `Home` is the docs index and
+`_Sidebar` is its reading order. A missing target, a broken anchor, a symlinked page or a target
+outside the repository is one `error:` line naming the file and line, exit `1`, and nothing is
+written. Deterministic: the same `docs/` tree always gives byte-identical output. See
+[issue #192](https://github.com/ShamikM88/open-cam-framework/issues/192).

@@ -143,7 +143,6 @@ def test_a_refused_input_writes_nothing(deal):
     assert not (deal / "deals").exists()
 
 
-
 @pytest.mark.parametrize(
     "key,value",
     [

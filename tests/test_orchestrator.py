@@ -1999,7 +1999,7 @@ def test_partial_recompute_refuses_to_relabel_analyst_periods_when_raw_inputs_ex
 
     message = str(refused.value)
     assert "analyst-supplied" in message and "/spread's analyst-supplied mode" in message
-    assert "nothing was written" in message and "\\n" not in message
+    assert "nothing was written" in message and "\n" not in message
     assert client.call_count == 0
     assert _deal_files() == before
     state = read_state("Acme Corp", "Fleet Loan")
@@ -2052,7 +2052,7 @@ def test_headless_forward_only_run_does_not_clear_analyst_basis_or_forecast_flag
 
     message = str(refused.value)
     assert "analyst-supplied" in message and "/spread's analyst-supplied mode" in message
-    assert "nothing was written" in message and "\\n" not in message
+    assert "nothing was written" in message and "\n" not in message
     assert client.call_count == 0
     assert _deal_files() == before
     state = read_state("Acme Corp", "Fleet Loan")

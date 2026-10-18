@@ -56,6 +56,7 @@ import tempfile
 from datetime import date
 from decimal import Decimal
 
+from financial_conventions import PERCENT_TYPE_RATIOS, warn_percent_type_values
 from source_manifest import read_manifest, save_source, sources_dir
 from spreading_builder import FIELD_LABELS, HISTORICAL_PERIOD_KEYS, evaluate_financial_model
 from spreading_check import STATE_KEYS_READ as SPREADING_KEYS_READ
@@ -168,7 +169,9 @@ def parse_figure(text, label, allow_suffix=False):
                                  f"or \"(500)\"), found {text!r}")
     written = text.strip()
     cleaned = written.replace("−", "-").replace("–", "-")
+    suffix = None
     if allow_suffix and cleaned[-1] in "x%X":
+        suffix = cleaned[-1].lower()
         cleaned = cleaned[:-1].strip()
     match = _FIGURE_RE.fullmatch(cleaned)
     if not match or bool(match["open"]) != bool(match["close"]) or (match["open"] and match["sign"]):
@@ -180,7 +183,11 @@ def parse_figure(text, label, allow_suffix=False):
     value = Decimal(match["whole"].replace(",", "") + ("." + frac if frac else ""))
     if match["open"] or match["sign"]:
         value = -value
-    return Figure(written, value, len(frac))
+    written_value = value
+    field_name = label.rsplit(".", 1)[-1]
+    if suffix == "%" and field_name in PERCENT_TYPE_RATIOS:
+        value /= Decimal(100)
+    return Figure(written, value, len(frac), written_value=written_value)
 
 
 def file_sha256(path):
@@ -523,7 +530,8 @@ def render_readback(staged, report, digest, source_sha256):
         f"- Unit: {source['unit']} (figures are recorded as written; nothing is scaled)",
         f"- Mode: {staged['mode']}",
         *_convention_lines(staged),
-        "- Subtotals and ratios are results with a sign of their own and are recorded as written.",
+        "- Subtotals are recorded as written. Ratios keep their source text; a trailing '%' on gearing or "
+        "FCF conversion is recorded as a fraction (87% becomes 0.87).",
         f"- Digest: {digest}",
         "",
         "Confirm only if every figure below matches the source exactly: digits, decimals, signs and the unit, and "
@@ -572,8 +580,9 @@ def render_readback(staged, report, digest, source_sha256):
                 "each line that feeds it. A check is made only when every feeding line was transcribed; an omitted "
                 "line is unknown, not zero."]
     has_ratios = any(entry["ratios"] for entry in staged["periods"].values())
-    out.append("Ratios are " + ("recorded exactly as given and are not cross-footed (the rounding of their inputs "
-                                "cannot be bounded)." if has_ratios else "recomputed by the framework from the lines."))
+    out.append("Ratios are " + ("not cross-footed (the rounding of their inputs cannot be bounded); other ratios "
+                                "are recorded numerically as written, while a trailing '%' on gearing or FCF conversion "
+                                "is converted to fraction units." if has_ratios else "recomputed by the framework from the lines."))
     if report["unused_acknowledgements"]:
         out.append("Acknowledgements that match no discrepancy (ignored, shown so none is hidden): "
                    + ", ".join(f"{p}/{c}" for p, c in report["unused_acknowledgements"]))
@@ -921,6 +930,10 @@ def main(argv=None):
 
     try:
         staged = load(args.transcription)
+        warn_percent_type_values(
+            (period, {name: figure.value for name, figure in entry["ratios"].items()})
+            for period, entry in staged["periods"].items()
+        )
         if not args.commit:
             shown = readback(staged)
             print(json.dumps(shown, indent=2) if args.json else shown["text"])

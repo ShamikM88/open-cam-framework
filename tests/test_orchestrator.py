@@ -2325,7 +2325,6 @@ def test_run_pipeline_rejects_non_finite_collateral_before_model_call(project_ro
     assert _deal_files() == before
 
 
-
 def test_run_pipeline_warns_and_continues_for_sub_one_percent_stress_values(project_root, capsys):
     client = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline(

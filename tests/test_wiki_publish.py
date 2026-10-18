@@ -1,18 +1,26 @@
-"""Tests for `scripts/wiki_publish.py` (issue #192, PR1: the generator only).
+"""Tests for `scripts/wiki_publish.py` (issue #192: the generator and the publisher).
 
 The generator turns the allowlisted `docs/` Markdown pages into a GitHub Wiki
 page tree in an output directory: page names mapped, links rewritten to wiki
 and repository URLs, a generated-source notice on every page, Home from the
-docs index and `_Sidebar.md` from its reading-order table. It publishes
-nothing -- no wiki, no token, no network, no git -- and is deterministic.
+docs index and `_Sidebar.md` from its reading-order table. The `--publish`
+mode then clones a wiki repository, fully replaces its content with the
+generated set and pushes one commit -- or none, when nothing changed.
 
-These tests build synthetic corpora in `tmp_path` and also run against the
-real `docs/` tree of this repository. Nothing here touches anything outside
-the repository or the test's own temporary directory.
+The publish tests run entirely offline: a local bare git repository in
+`tmp_path` (created on the default branch `master`, like the real wiki) stands
+in for GitHub, so clone, commit and push run for real without any network,
+any real token or anything outside the test's own temporary directory. The
+generator tests build synthetic corpora in `tmp_path` and also run against
+the real `docs/` tree of this repository.
 """
+import base64
+import os
 import re
-from pathlib import Path
+import shutil
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -649,6 +657,269 @@ class TestCli:
         with pytest.raises(SystemExit) as raised:
             self.run(["--root", str(tmp_path), "--check"])
         assert raised.value.code == 2
+
+
+class TestPublish:
+    """The `--publish` mode against a local bare repository standing in for the wiki.
+
+    The remote is a bare git repository created on `master` (the real wiki's
+    default branch) with one placeholder commit, exactly the situation the
+    maintainer's one-time setup left behind. `--remote` points the publisher
+    at it, so no token and no network are involved; the git operations run
+    for real.
+    """
+
+    SHA1 = "1" * 40
+    SHA2 = "2" * 40
+    SENTINEL = "ghs_leak_canary_9f1e"
+
+    def _git(self, cwd, *args):
+        """Run git with a fixed identity and no inherited git configuration."""
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        return subprocess.run(
+            ["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t",
+             "-c", "commit.gpgsign=false", *args],
+            cwd=cwd, check=True, capture_output=True, text=True, env=env, timeout=60)
+
+    def bare_remote(self, tmp_path):
+        """A bare repository standing in for the wiki: default branch `master`, one placeholder commit."""
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        (seed / "Home.md").write_text("placeholder\n", encoding="utf-8")
+        self._git(seed, "-c", "init.defaultBranch=master", "init", "-q")
+        self._git(seed, "add", "Home.md")
+        self._git(seed, "commit", "-q", "-m", "Initial Home page")
+        remote = tmp_path / "wiki.git"
+        self._git(tmp_path, "clone", "--quiet", "--bare", str(seed), str(remote))
+        shutil.rmtree(seed)
+        return remote
+
+    def remote_files(self, remote):
+        return self._git(None, "--git-dir", str(remote),
+                         "ls-tree", "-r", "--name-only", "HEAD").stdout.splitlines()
+
+    def remote_head(self, remote):
+        return self._git(None, "--git-dir", str(remote), "rev-parse", "HEAD").stdout.strip()
+
+    def remote_commit_count(self, remote):
+        return int(self._git(None, "--git-dir", str(remote),
+                             "rev-list", "--count", "HEAD").stdout.strip())
+
+    def publish(self, tmp_path, remote, sha=SHA1):
+        return wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish",
+            "--source-sha", sha, "--remote", str(remote),
+        ])
+
+    def test_the_first_publish_creates_every_page(self, tmp_path):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote) == 0
+        files = self.remote_files(remote)
+        assert "Home.md" in files and "source.md" in files and "_Sidebar.md" in files
+        # the placeholder is replaced, not kept: the published Home is the generated one
+        home = self._git(None, "--git-dir", str(remote), "show", "HEAD:Home.md").stdout
+        assert home.startswith(notice_for("docs/README.md"))
+        assert "placeholder" not in home
+
+    def test_an_identical_republish_makes_no_new_commit(self, tmp_path, capsys):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote, sha=self.SHA1) == 0
+        head, count = self.remote_head(remote), self.remote_commit_count(remote)
+        capsys.readouterr()
+
+        for sha in (self.SHA1, self.SHA2):  # same sha, then a different one: identical docs, no commit
+            assert self.publish(tmp_path, remote, sha=sha) == 0
+            captured = capsys.readouterr()
+            assert "no change" in captured.out
+            assert self.remote_head(remote) == head
+            assert self.remote_commit_count(remote) == count
+
+    def test_a_changed_page_changes_only_its_page(self, tmp_path):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n", "other.md": "# O\n"})
+        assert self.publish(tmp_path, remote) == 0
+        (tmp_path / "docs" / "source.md").write_text("# S\n\nChanged.\n", encoding="utf-8")
+        assert self.publish(tmp_path, remote, sha=self.SHA2) == 0
+        changed = self._git(None, "--git-dir", str(remote),
+                            "diff", "--name-only", "HEAD~1", "HEAD").stdout.split()
+        assert changed == ["source.md"]
+
+    def test_a_page_removed_from_docs_is_removed_from_the_wiki(self, tmp_path):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote) == 0
+        assert "source.md" in self.remote_files(remote)
+        (tmp_path / "docs" / "source.md").unlink()
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n| Document | Contents |\n| :--- | :--- |\n",
+            encoding="utf-8")
+        assert self.publish(tmp_path, remote, sha=self.SHA2) == 0
+        assert "source.md" not in self.remote_files(remote)
+        assert "Home.md" in self.remote_files(remote)  # the rest is untouched
+
+    def test_the_commit_message_and_trailer_carry_the_source_sha(self, tmp_path):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote, sha=self.SHA1) == 0
+        message = self._git(None, "--git-dir", str(remote), "log", "-1", "--format=%B").stdout
+        assert message == f"Publish docs from main {self.SHA1}\n\ndocs-source: {self.SHA1}\n"
+
+    def test_the_remote_default_branch_name_is_preserved(self, tmp_path):
+        remote = self.bare_remote(tmp_path)  # created on master, like the real wiki
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote) == 0
+        assert self._git(None, "--git-dir", str(remote),
+                         "symbolic-ref", "--short", "HEAD").stdout.strip() == "master"
+        # the publish landed on master, not on an assumed main
+        assert self._git(None, "--git-dir", str(remote),
+                         "rev-parse", "master").stdout.strip() == self.remote_head(remote)
+        assert self.remote_commit_count(remote) == 2  # placeholder + publish
+
+    def test_a_sentinel_token_never_appears_in_output_or_any_file(self, tmp_path, monkeypatch, capsys):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.setenv("GITHUB_TOKEN", self.SENTINEL)
+        # keep the working directory (and the clone inside it) so every file can be scanned
+        monkeypatch.setattr(wiki_publish.tempfile, "mkdtemp",
+                            lambda *a, **k: str(tmp_path / "work"))
+        (tmp_path / "work").mkdir()
+        monkeypatch.setattr(wiki_publish.shutil, "rmtree", lambda path, **k: None)
+
+        assert self.publish(tmp_path, remote) == 0
+
+        captured = capsys.readouterr()
+        assert self.SENTINEL not in captured.out and self.SENTINEL not in captured.err
+        encoded = base64.b64encode(self.SENTINEL.encode("utf-8"))
+        for path in tmp_path.rglob("*"):
+            if path.is_file():
+                data = path.read_bytes()
+                assert self.SENTINEL.encode("utf-8") not in data, path
+                assert encoded not in data, path
+
+    def test_a_generator_error_pushes_nothing(self, tmp_path, capsys):
+        remote = self.bare_remote(tmp_path)
+        head, count = self.remote_head(remote), self.remote_commit_count(remote)
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "README.md").write_text("# Index\n", encoding="utf-8")
+        (tmp_path / "docs" / "source.md").write_text("[gone](gone.md)\n", encoding="utf-8")
+
+        assert self.publish(tmp_path, remote) == 1
+
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert captured.err.count("error:") == 1
+        assert "gone.md" in captured.err
+        assert self.remote_head(remote) == head  # nothing was pushed
+        assert self.remote_commit_count(remote) == count
+
+    def test_a_failed_push_exits_1_with_one_error_line(self, tmp_path, capsys):
+        # A non-bare remote with its branch checked out refuses pushes: the clone
+        # succeeds and the push is rejected, which is the failure being asserted.
+        remote = self.bare_remote(tmp_path)
+        work = tmp_path / "worktree"
+        self._git(tmp_path, "clone", "--quiet", str(remote), str(work))
+        # a non-bare repository with its branch checked out refuses pushes
+        self._git(work, "config", "receive.denyCurrentBranch", "refuse")
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+
+        code = self.publish(tmp_path, work)
+
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert captured.err.count("error:") == 1
+        assert captured.err.startswith("error:")
+        assert "push" in captured.err
+        assert "Traceback" not in captured.err
+
+    def test_an_unreachable_remote_exits_1_with_one_error_line(self, tmp_path, capsys):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        code = self.publish(tmp_path, tmp_path / "no" / "such" / "repo.git")
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert captured.err.count("error:") == 1
+        assert "clone" in captured.err
+        assert "Traceback" not in captured.err
+
+    def test_a_missing_token_with_a_real_remote_is_an_error_before_any_git_runs(self, tmp_path, capsys, monkeypatch):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        calls = []
+
+        def fail(argv, **kwargs):
+            calls.append(argv)
+            raise AssertionError("git must not run when the token is missing")
+
+        monkeypatch.setattr(wiki_publish.subprocess, "run", fail)
+        code = wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish", "--source-sha", self.SHA1])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert "GITHUB_TOKEN" in captured.err
+        assert not calls
+
+    def test_the_token_reaches_git_only_as_an_http_header(self, tmp_path, monkeypatch):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.setenv("GITHUB_TOKEN", "ghs_header_test_token")
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 128, "", "fatal: simulated failure")
+
+        monkeypatch.setattr(wiki_publish.subprocess, "run", fake_run)
+        code = wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish", "--source-sha", self.SHA1])
+        assert code == 1  # the simulated clone failure
+        argv, kwargs = calls[0]
+        header = base64.b64encode(b"x-access-token:ghs_header_test_token").decode("ascii")
+        assert f"http.extraheader=Authorization: Basic {header}" in argv
+        assert "https://github.com/example/repo.wiki.git" in argv
+        assert not any("ghs_header_test_token" in str(part) for part in argv)  # never the raw token
+        assert kwargs["capture_output"] is True  # git's own output is captured, never passed through
+        assert kwargs["env"]["GIT_TERMINAL_PROMPT"] == "0"
+
+    def test_a_git_timeout_is_one_sanitized_error_line(self, tmp_path, capsys, monkeypatch):
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+
+        def slow(argv, **kwargs):
+            raise subprocess.TimeoutExpired(argv, 300)
+
+        monkeypatch.setattr(wiki_publish.subprocess, "run", slow)
+        code = wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish",
+            "--source-sha", self.SHA1, "--remote", str(tmp_path / "r.git")])
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert captured.err.startswith("error:")
+        assert "timed out" in captured.err
+        assert "ghs" not in captured.err and "extraheader" not in captured.err
+
+    def test_a_work_dir_inside_the_repository_is_refused(self, tmp_path, monkeypatch, capsys):
+        remote = self.bare_remote(tmp_path)
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        # TMPDIR pointing inside the repository: the clone must not land there
+        monkeypatch.setattr(wiki_publish.tempfile, "mkdtemp",
+                            lambda *a, **k: str(tmp_path / "docs" / "tmp-work"))
+        code = self.publish(tmp_path, remote)
+        assert code == 1
+        captured = capsys.readouterr()
+        assert len(captured.err.splitlines()) == 1
+        assert captured.err.count("error:") == 1
+        assert "temporary" in captured.err
+
+    def test_an_empty_wiki_repository_is_published_too(self, tmp_path):
+        remote = tmp_path / "empty.git"
+        self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert self.publish(tmp_path, remote) == 0
+        files = self.remote_files(remote)
+        assert "Home.md" in files and "source.md" in files and "_Sidebar.md" in files
 
 
 class TestRealCorpus:

@@ -3,7 +3,7 @@ import re
 import openpyxl
 from openpyxl.styles import Font
 
-from numeric_validation import validate_finite_numbers
+from numeric_validation import validate_finite_numbers, validate_raw_line_items
 
 # Forward periods used both here (workbook columns) and by
 # evaluate_downside_case() below -- defined once, at the top, so the two
@@ -443,6 +443,7 @@ def evaluate_financial_model(multi_period_data):
 
     Returns {"financials": {period: {...raw, ...subtotals}}, "ratios": {period: {...}}}.
     """
+    validate_raw_line_items(multi_period_data, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_data, path="financial inputs")
 
     financials = {}

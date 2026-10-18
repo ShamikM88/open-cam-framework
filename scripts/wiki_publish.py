@@ -123,6 +123,10 @@ def discover_pages(root: Path) -> dict[str, Path]:
             continue
         relative = path.relative_to(root).as_posix()
         name = _page_name(relative)
+        if name.lower() == "_sidebar":
+            raise WikiPublishError(
+                f"{relative}: the page name _Sidebar is reserved for the generated sidebar"
+            )
         key = name.lower()
         if key in seen:
             raise WikiPublishError(

@@ -118,6 +118,15 @@ class TestPageDiscovery:
         with pytest.raises(WikiPublishError, match="(?i)collide"):
             discover_pages(tmp_path)
 
+    def test_a_page_named_like_the_generated_sidebar_is_an_error(self, tmp_path):
+        # The generator writes _Sidebar.md itself; a docs page with that name
+        # would be silently overwritten, so it is a reserved name.
+        (tmp_path / "docs").mkdir()
+        write_index(tmp_path, rows=("_Sidebar",))
+        (tmp_path / "docs" / "_Sidebar.md").write_text("# side\n", encoding="utf-8")
+        with pytest.raises(WikiPublishError, match="reserved"):
+            discover_pages(tmp_path)
+
     def test_a_symlinked_page_is_rejected(self, tmp_path):
         (tmp_path / "docs").mkdir()
         write_index(tmp_path, rows=("real",))

@@ -219,9 +219,17 @@ file by hand or restore it from a backup (it is a list of objects with `filename
 
 ### The step stops about saved sources
 
-`source_manifest.py --check-sources` printed `{"missing_saved_sources": true}`: the step declared citations but saved
-no material. Save at least one source document with `source_manifest.py ... --file <path>`, or say explicitly why
-none could be saved (for instance a page that blocks downloads).
+`source_manifest.py --check-sources` prints two keys, for example `{"missing_saved_sources": true, "sources_declared":
+"declared"}`. `sources_declared` is `"declared"`, `"not_declared"` or `"unknown"`.
+
+- **`missing_saved_sources` is `true` and `sources_declared` is `"declared"`:** the step declared citations but saved no
+  material. Save at least one source document with `source_manifest.py ... --file <path>`, or say explicitly why none
+  could be saved (for instance a page that blocks downloads).
+- **`sources_declared` is `"unknown"`** (and `missing_saved_sources` is `true`, even when material was saved): a
+  completed step's saved state has no valid `sources` list, so the check cannot tell whether citations were used. The
+  `triage` or `commercial` section is missing its `sources` list, or the value is not a list of strings. Restore the list
+  in `state.json` (a list of citation strings, or `[]` when none were used) and rerun the check; do not assume no
+  citations were used.
 
 ### The `.docx` is missing a chart, or contains `[Image not embedded: ...]`
 

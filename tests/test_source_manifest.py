@@ -1,8 +1,10 @@
 import json
 import os
+import re
 import subprocess
 import threading
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 from unittest.mock import patch
 
@@ -11,6 +13,8 @@ import pytest
 import source_manifest
 from source_manifest import missing_saved_sources, read_manifest, save_source, sources_dir
 from state_manager import write_state
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 def _local_file(tmp_path, name="downloaded.pdf", content=b"%PDF-1.4 fake content"):
@@ -299,6 +303,121 @@ def test_missing_saved_sources_degrades_safely_on_a_malformed_section():
     a wrong-typed field elsewhere in this framework."""
     state = {"triage": ["not", "a", "dict"], "commercial": "also not a dict"}
     assert missing_saved_sources(state, manifest=[]) is False
+
+
+def test_missing_saved_sources_does_not_pass_when_a_completed_step_has_no_sources_list():
+    state = {
+        "steps_completed": ["triage"],
+        "triage": {"verdict": "Go", "rationale": "Synthetic rationale without a sources key"},
+    }
+    assert missing_saved_sources(state, manifest=[]) is True
+    assert source_manifest.sources_declared(state) == "unknown"
+
+
+@pytest.mark.parametrize(("state", "expected"), [
+    ({"steps_completed": ["triage"], "triage": {"verdict": "Go"}}, "unknown"),
+    ({"steps_completed": ["commercial"], "commercial": {"sources": "not a list"}}, "unknown"),
+    ({"steps_completed": ["triage"], "triage": {"sources": []}}, "declared"),
+    ({}, "not_declared"),
+])
+def test_sources_declared_reports_missing_or_malformed_completed_step_shapes(state, expected):
+    assert source_manifest.sources_declared(state) == expected
+
+
+MALFORMED_SOURCE_STATES = [
+    pytest.param({"steps_completed": value, "triage": {"verdict": "Go"}}, id=f"completion-{name}")
+    for name, value in (
+        ("string", "triage"), ("null", None), ("mapping", {"triage": True}),
+        ("number", 1), ("boolean", True), ("mixed-list", ["triage", None]),
+        ("nested-list", [["triage"]]),
+    )
+] + [
+    pytest.param(
+        {"steps_completed": [section], section: {"sources": value}},
+        id=f"{section}-{name}",
+    )
+    for section in ("triage", "commercial")
+    for name, value in (
+        ("null", None), ("mapping", {"url": "https://example.invalid/filing"}),
+        ("scalar", "https://example.invalid/filing"), ("number", 1), ("boolean", False),
+        ("null-entry", [None]), ("mapping-entry", [{"url": "https://example.invalid/filing"}]),
+        ("mixed-list", ["https://example.invalid/filing", 7]), ("nested-list", [[]]),
+    )
+] + [
+    pytest.param({"triage": {"sources": [None]}}, id="incomplete-invalid-declaration"),
+    pytest.param(
+        {"steps_completed": "triage", "triage": {"sources": []}},
+        id="valid-list-cannot-hide-invalid-completion",
+    ),
+]
+
+
+@pytest.mark.parametrize("state", MALFORMED_SOURCE_STATES)
+@pytest.mark.parametrize("manifest", [[], [{"step": "research", "filename": "saved.txt"}]])
+def test_malformed_consumed_source_metadata_is_unknown_even_with_saved_material(state, manifest):
+    assert source_manifest.sources_declared(state) == "unknown"
+    assert missing_saved_sources(state, manifest) is True
+
+
+VALID_SOURCE_STATES = [
+    pytest.param({}, "not_declared", False, id="new"),
+    pytest.param({"triage": {"verdict": "Go"}}, "not_declared", False, id="incomplete-legacy"),
+    pytest.param({"steps_completed": []}, "not_declared", False, id="no-completed-steps"),
+    pytest.param(
+        {"steps_completed": ["triage"], "triage": {"sources": []}},
+        "declared", False, id="explicit-empty",
+    ),
+    pytest.param(
+        {"steps_completed": ["triage", "commercial"],
+         "triage": {"sources": ["https://example.invalid/filing"]},
+         "commercial": {"sources": ["https://example.invalid/market"]}},
+        "declared", True, id="combined-research",
+    ),
+]
+
+
+@pytest.mark.parametrize("state, expected, has_citations", VALID_SOURCE_STATES)
+@pytest.mark.parametrize("manifest", [[], [{"step": "research", "filename": "saved.txt"}]])
+def test_valid_source_declarations_preserve_new_empty_and_combined_research(state, expected, has_citations, manifest):
+    assert source_manifest.sources_declared(state) == expected
+    assert missing_saved_sources(state, manifest) is (has_citations and not manifest)
+
+
+# ---------------------------------------------------------------------------
+# State: write command contracts for persisted source citations (issue #275)
+# ---------------------------------------------------------------------------
+
+SOURCE_WRITE_COMMANDS = (
+    (".claude/commands/triage.md", ("triage.sources",)),
+    (".claude/commands/commercial.md", ("commercial.sources",)),
+    (".claude/commands/research.md", ("triage.sources", "commercial.sources")),
+)
+
+
+def _source_write_contract_problems(command_text, fields):
+    start = command_text.find("## State: write")
+    if start == -1:
+        return ["missing State: write section"]
+    end = command_text.find("\n## ", start + len("## State: write"))
+    section = command_text[start:] if end == -1 else command_text[start:end]
+    problems = []
+    for field in fields:
+        pattern = r"`" + re.escape(field) + r"`.*?list of citation strings"
+        if not re.search(pattern, section, re.I | re.S):
+            problems.append(f"{field} must be defined as a list of citation strings in State: write")
+    return problems
+
+
+@pytest.mark.parametrize(("relative_path", "fields"), SOURCE_WRITE_COMMANDS)
+def test_each_source_writing_command_declares_its_sources_list_in_state_write(relative_path, fields):
+    command_text = (REPO / relative_path).read_text(encoding="utf-8")
+    assert _source_write_contract_problems(command_text, fields) == []
+
+    # Prove the contract actually catches a broken rule for every command file.
+    for field in fields:
+        broken = command_text.replace(f"`{field}`", f"`{field.replace('.sources', '.citations')}`", 1)
+        assert any(field in problem for problem in _source_write_contract_problems(broken, fields))
+
 
 
 # ---------------------------------------------------------------------------

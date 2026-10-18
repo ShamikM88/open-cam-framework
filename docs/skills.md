@@ -75,9 +75,12 @@ Sorts each claim-bearing record into exactly one class: **saved source**, **cite
 matches", not "does not exist"), **analyst-supplied** (including `pd`, `lgd` and bureau scores), **read from an image**
 (the analyst's confirmation is a record of what they said, not proof) or **unsupported**. It never writes, completes or
 repairs a citation, a URL, a filename or a date. The script it runs, `source_manifest.py --check-sources`, is a floor: it
-prints `true` only when `triage` or `commercial` declares a non-blank citation under `sources` and the manifest has no
-entries at all. It does not match citations to entries, check that a file exists, or look at citations kept elsewhere, and
-`false` does not mean every citation is backed. The skill does that reading itself, checks that the manifest is a JSON list
+prints a JSON object with two keys. `missing_saved_sources` is `true` when `triage` or `commercial` declares a non-blank
+citation under `sources` and the manifest has no entries at all, and also when `sources_declared` is `"unknown"`.
+`sources_declared` is `"declared"`, `"not_declared"` or `"unknown"`; `"unknown"` means a completed step's saved state has no
+valid `sources` list, which the skill reports as a gap in the record (the list must be restored in state first), never as
+proof that no citations were used. It does not match citations to entries, check that a file exists, or look at citations
+kept elsewhere, and `false` does not mean every citation is backed. The skill does that reading itself, checks that the manifest is a JSON list
 of objects before using it, and reports an unreadable one as a tool error. The script itself now fails cleanly on an unreadable, non-JSON or
 wrong-shaped manifest (one `error:` line, exit status 1, [#207](https://github.com/ShamikM88/open-cam-framework/issues/207)); the
 skill keeps its own check as defence in depth.

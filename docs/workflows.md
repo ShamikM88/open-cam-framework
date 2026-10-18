@@ -100,8 +100,17 @@ Claude Code only.
    }
    ```
 
-2. `source_manifest.py --check-sources` reports whether anything was saved at all (`{"missing_saved_sources":
-   false}`); if citations were declared but nothing saved, the command stops and says so.
+2. `source_manifest.py --check-sources` reports both the declaration shape and the saved-material floor. A fully
+   completed `/research` state has `triage.sources` and `commercial.sources` as lists of citation strings and both
+   steps in `steps_completed`; with the corresponding saved `research` manifest entry above the result is
+   `{"missing_saved_sources": false, "sources_declared": "declared"}`. The executable documentation fixture only
+   completes spreading/projection and saves a source: its reduced, incomplete state instead reports
+   `{"missing_saved_sources": false, "sources_declared": "not_declared"}`, not evidence of completed research.
+   Explicit `[]` lists validly declare no citations. Malformed completion metadata or declarations (including nulls
+   or non-string entries), and completed source-bearing steps without declarations, report
+   `{"missing_saved_sources": true, "sources_declared": "unknown"}` even when material was saved.
+   Check results exit 0; the calling workflow stops on unknown or missing saved sources and requests correction.
+   The saved-material floor remains deal-level, not one file per citation.
 3. Claude saves the brief to `deals/Synthetic Co/Synthetic Fleet Loan_brief.md` ([an example brief](examples/synthetic_co/brief.md)) and runs
    `/review ... --research-brief`: the Risk Reviewer checks grounding and narrative, not credit policy or mitigants,
    because nothing has been structured yet **(model)**. A `REJECTED` verdict means revise, overwrite the file and

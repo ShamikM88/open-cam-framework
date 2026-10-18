@@ -5,6 +5,7 @@ Input warnings are deliberately advisory: a bare value outside the plausible
 fraction range is retained unchanged so an analyst can correct the source.
 """
 import sys
+from decimal import Decimal
 
 PERCENT_TYPE_RATIOS = frozenset({"gearing", "fcf_conversion_pct"})
 
@@ -24,7 +25,7 @@ def warn_percent_type_values(period_ratios):
         for metric, value in ratios.items():
             if metric not in PERCENT_TYPE_RATIOS or value is None or isinstance(value, bool):
                 continue
-            if isinstance(value, (int, float)) and abs(value) > 10:
+            if isinstance(value, (int, float, Decimal)) and abs(value) > 10:
                 suspicious.append(f"{period}.{metric}={value!r}")
     if suspicious:
         items = ", ".join(suspicious)

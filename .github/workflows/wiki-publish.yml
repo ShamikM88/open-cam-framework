@@ -14,8 +14,9 @@ on:
 
 permissions: {}
 
-# Publishes serialize and each run publishes the main it checked out; a mid-run advance of main is
-# reconverged by the next run. A queued run is never cancelled by a newer one.
+# Publishes serialize (only one runs at a time, and a newer queued run replaces an older queued
+# one); each run publishes the main it checked out, and a mid-run advance of main is reconverged by
+# the next run.
 concurrency:
   group: wiki-publish
   cancel-in-progress: false

@@ -19,8 +19,8 @@ from policy_checks import (
     check_reported_figures as _check_reported_figures,
 )
 from policy_engine import evaluate_deal_policy
-from numeric_validation import NonFiniteNumberError, validate_finite_numbers
-from spreading_builder import FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
+from numeric_validation import FinancialInputError, validate_finite_numbers, validate_raw_line_items
+from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
 from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
@@ -477,6 +477,7 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
+    validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_financials, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     validate_finite_numbers(collateral_data, path="collateral")
@@ -890,5 +891,5 @@ if __name__ == "__main__":
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
     except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
-            NonFiniteNumberError) as exc:
+            FinancialInputError) as exc:
         sys.exit(f"error: {exc}")

@@ -135,6 +135,25 @@ class TestPageDiscovery:
         with pytest.raises(WikiPublishError, match="linked.md"):
             discover_pages(tmp_path)
 
+    def test_a_symlinked_ancestor_directory_is_rejected(self, tmp_path):
+        # The allowlist reaches docs/examples/synthetic_co/, so a symlinked
+        # examples directory would read pages from outside the tracked tree.
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "elsewhere" / "synthetic_co").mkdir(parents=True)
+        (tmp_path / "elsewhere" / "synthetic_co" / "brief.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs" / "examples").symlink_to(tmp_path / "elsewhere")
+        with pytest.raises(WikiPublishError, match="symlink"):
+            discover_pages(tmp_path)
+
+    def test_a_symlinked_docs_directory_is_rejected(self, tmp_path):
+        # Defense in depth: the index-table walk already catches this, but the
+        # discovery boundary must reject it on its own.
+        (tmp_path / "real").mkdir()
+        (tmp_path / "real" / "README.md").write_text("# x\n", encoding="utf-8")
+        (tmp_path / "docs").symlink_to(tmp_path / "real")
+        with pytest.raises(WikiPublishError, match="symlink"):
+            discover_pages(tmp_path)
+
     def test_only_the_allowlisted_patterns_are_discovered(self, tmp_path):
         docs = tmp_path / "docs"
         (docs / "examples" / "synthetic_co").mkdir(parents=True)

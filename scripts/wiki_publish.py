@@ -115,6 +115,14 @@ def discover_pages(root: Path) -> dict[str, Path]:
     for pattern in PAGE_GLOBS:
         candidates.extend(sorted(docs.glob(pattern)))
     for path in sorted(candidates):
+        walked = root
+        for part in path.relative_to(root).parts[:-1]:
+            walked = walked / part
+            if walked.is_symlink():
+                raise WikiPublishError(
+                    f"{walked.relative_to(root).as_posix()}: symlinked directory in the "
+                    "publish path is not publishable"
+                )
         if path.is_symlink():
             raise WikiPublishError(
                 f"{path.relative_to(root).as_posix()}: symlinked pages are not publishable"

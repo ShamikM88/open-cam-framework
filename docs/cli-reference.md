@@ -122,6 +122,10 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
   `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
   matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
+  For recognised raw line-item fields, each non-null value must be a finite JSON number: numeric strings are not
+  coerced and booleans are not numbers. Invalid values (including JSON overflow values such as `1e999`) are refused
+  with one `error:` line naming the period and field, exit status 1, before a model call or state write. Null values
+  retain the evaluator's existing behavior and are not rejected; missing fields keep their existing behavior too.
   **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
   (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
   nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
@@ -206,7 +210,11 @@ updated state (`financials`, `ratios`, `downside_case`, `financials_source`). It
 the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
 re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
 what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
-always passes it. The slash commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
+always passes it. For recognised raw line-item fields, non-null values must be finite JSON numbers; numeric strings and
+booleans are refused rather than coerced. An invalid value produces one `error:` line naming its period and field,
+exits 1, and leaves `state.json` unchanged. A `null` value retains the existing evaluator behavior; omitted fields
+are also unchanged. The same rule applies to the orchestrator's `--financials` and `--spread` inputs. The slash
+commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
 
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \

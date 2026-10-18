@@ -134,6 +134,21 @@ def test_nonpositive_gearing_denominator_keeps_existing_unresolvable_reason_befo
     assert "fraction" not in result["reason"].lower()
 
 
+def test_percent_type_threshold_mismatch_precedes_missing_actual():
+    state = {
+        "ratios": {"FY-Current": {"gearing": None}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 80}],
+    }
+
+    result = evaluate_deal_policy(state)["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert "threshold" in result["reason"].lower()
+    assert "percent" in result["reason"].lower()
+    assert "fraction" in result["reason"].lower()
+
+
 def test_boundary_actual_equals_threshold_is_pass_for_minimum():
     state = {"ratios": RATIOS, "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.5}]}
     covenant = evaluate_deal_policy(state)["covenant_results"][0]

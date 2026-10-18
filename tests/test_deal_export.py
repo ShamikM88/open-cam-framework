@@ -12,7 +12,7 @@ from deal_export import (
     export_deal,
     main,
 )
-from state_manager import resolve_date_str, write_state
+from state_manager import read_state, resolve_date_str, write_state
 
 
 def _write(path, content="content"):
@@ -650,3 +650,58 @@ def test_bare_export_still_uses_auto_discovered_state(tmp_path):
     assert folder_date != "2026-01-10"
     assert 9999 in _exported_revenue(base, folder_date)
     assert 1000 not in _exported_revenue(base, folder_date)
+
+
+
+def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_path, monkeypatch):
+    """A computed /project forecast must use its own raw store even when history is analyst-supplied (#249)."""
+    from spreading_check import main as spreading_check_main
+
+    base = str(tmp_path)
+    date_str = "2026-10-04"
+    monkeypatch.chdir(base)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+    write_state(
+        "Synthetic Co", "Credit Facility", date_str=date_str, base_dir=base,
+        financials_source="analyst-supplied",
+        analyst_supplied_financials={
+            "FY-Current": {"revenue": 5000, "cost_of_sales": 3300, "admin_expenses": 1000},
+        },
+        financials={
+            "FY-Current": {"gross_profit": 1700, "ebitda": 1300, "total_equity": 2300},
+        },
+        ratios={"FY-Current": {"gross_leverage": 1.54, "dscr": 2.6, "gearing": 0.87}},
+    )
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    examples = os.path.join(repo_root, "docs", "examples", "synthetic_co")
+    spreading_check_main([
+        "--company", "Synthetic Co", "--proposal", "Credit Facility",
+        "--financials", os.path.join(examples, "forward_input.json"),
+        "--stress-assumptions", os.path.join(examples, "stress_input.json"),
+        "--no-update-financials-source",
+    ])
+    state = read_state("Synthetic Co", "Credit Facility", date_str=date_str, base_dir=base)
+
+    assert state["financials_source"] == "analyst-supplied"
+    assert state.get("forecast_source") != "analyst-supplied"
+    expected_forward_raw = state["financials"]["FY+1"]["raw"]
+    expected_downside_raw = state["downside_case"]["financials"]["FY+1"]["raw"]
+
+    output_dir = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic Co CAM",
+        date_str=date_str, base_dir=base,
+    )
+    wb = openpyxl.load_workbook(os.path.join(output_dir, "Synthetic Co_Credit Facility_Spreading.xlsx"))
+    ws = wb["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+
+    assert ws.cell(row=1, column=4).value == "FY-Current (analyst-supplied)"
+    assert ws.cell(row=1, column=5).value == "FY+1"
+    assert ws.cell(row=1, column=8).value == "FY+1 (Downside)"
+    assert ws.cell(row=label_to_row["Revenue"], column=4).value == 5000
+    assert ws.cell(row=label_to_row["EBITDA"], column=4).value == 1300
+    for raw_key, row_label in (("revenue", "Revenue"), ("cost_of_sales", "Cost of Goods Sold"),
+                               ("long_term_debt", "Long Term Debt")):
+        assert ws.cell(row=label_to_row[row_label], column=5).value == expected_forward_raw[raw_key], row_label
+        assert ws.cell(row=label_to_row[row_label], column=8).value == expected_downside_raw[raw_key], row_label

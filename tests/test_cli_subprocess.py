@@ -1178,6 +1178,44 @@ def test_research_export_release_unapproved_cli_rejects_blank_reason_without_out
     assert not (cli.workdir / "deals").exists()
 
 
+def test_orchestrator_refuses_forward_only_run_on_analyst_supplied_deal_before_credentials_or_writing(cli):
+    from state_manager import state_path, write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(
+        company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        financials_source="analyst-supplied",
+        financials_source_note="Synthetic analyst convention.",
+        analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+        multi_period_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
+        financials={"FY-Current": {"ebitda": 800}},
+        ratios={"FY-Current": {"dscr": 1.5}},
+        steps_completed=["spread"],
+    )
+    saved_path = Path(state_path(company, proposal, date_str=date_str, base_dir=str(cli.workdir)))
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "forward.json"
+    financials.write_text(
+        json.dumps({"FY+1": {"revenue": 5400, "cost_of_sales": 3300}}),
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "orchestrator", "--company", company, "--proposal", proposal,
+        "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "/spread's analyst-supplied mode" in result.stderr
+    assert "nothing was written" in result.stderr
+    assert "no Anthropic credentials" not in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
 def test_spreading_check_no_update_flag_cannot_overwrite_analyst_supplied_history(cli):
     """Decision D3 (#271): the exact scenario /project's flag used to allow - historical raw figures on an
     analyst-supplied deal - is one error line, exit 1, state byte-identical, no multi_period_financials."""

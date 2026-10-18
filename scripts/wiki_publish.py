@@ -423,7 +423,7 @@ def build_tree(root: Path, repo: str) -> dict[str, str]:
     and nothing is written. The result is a pure function of the ``docs/``
     tree and the script.
     """
-    root = Path(root)
+    root = Path(root).resolve()
     repo_parts = repo.split("/")
     if (
         len(repo_parts) != 2

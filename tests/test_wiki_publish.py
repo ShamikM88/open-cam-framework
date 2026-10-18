@@ -400,6 +400,19 @@ class TestValidationFailures:
                 "source.md": "# S\n\n[x](#nope)\n",
             })
 
+    def test_a_default_relative_root_still_contains_targets(self, tmp_path, monkeypatch):
+        # The CLI defaults --root to '.', so containment must hold for a
+        # relative root too: a link escaping the repository is an error even
+        # when the escaped-to file exists.
+        repo = tmp_path / "repo"
+        (repo / "docs").mkdir(parents=True)
+        write_index(repo, rows=("source",))
+        (repo / "docs" / "source.md").write_text("[x](../../outside.md)\n", encoding="utf-8")
+        (tmp_path / "outside.md").write_text("# o\n", encoding="utf-8")
+        monkeypatch.chdir(repo)
+        with pytest.raises(WikiPublishError, match="outside the repository"):
+            build_tree(Path("."), "example/repo")
+
     def test_a_target_outside_the_repository_is_an_error(self, tmp_path):
         root = tmp_path / "repo"
         (root / "docs").mkdir(parents=True)

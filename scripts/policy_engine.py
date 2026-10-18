@@ -37,6 +37,7 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 
+from financial_conventions import PERCENT_TYPE_RATIOS
 from numeric_validation import validate_finite_numbers
 from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 
@@ -153,6 +154,19 @@ def _evaluate_covenant(covenant, ratios, financials=None):
     if not actual_is_numeric:
         result["reason"] = f"{metric} has no computed value for this period"
         return result
+
+    if metric in PERCENT_TYPE_RATIOS:
+        unit_mismatches = []
+        if abs(actual) > 10:
+            unit_mismatches.append(f"actual ratio {actual!r}")
+        if abs(threshold) > 10:
+            unit_mismatches.append(f"covenant threshold {threshold!r}")
+        if unit_mismatches:
+            result["reason"] = (
+                f"{metric} {' and '.join(unit_mismatches)} looks like a percent; percent-type ratios and their "
+                "covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing."
+            )
+            return result
 
     result["actual"] = actual
 

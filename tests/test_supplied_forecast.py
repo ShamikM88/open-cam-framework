@@ -165,7 +165,7 @@ def test_small_positive_percent_stress_assumption_warns_but_is_kept(key, capsys)
     warning = capsys.readouterr().err
     assert warning.startswith("warning:")
     assert key in warning and "0.5" in warning
-    assert "%" in warning and len(warning.strip().splitlines()) == 1
+    assert "percent" in warning and len(warning.strip().splitlines()) == 1
 
 
 @pytest.mark.parametrize(

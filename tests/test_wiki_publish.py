@@ -707,8 +707,14 @@ class TestPublish:
         # and deleting them is a Windows permission problem with nothing to test
 
     def remote_files(self, remote):
-        return self._git(None, "--git-dir", str(remote),
-                         "ls-tree", "-r", "--name-only", "HEAD").stdout.splitlines()
+        """The remote's tracked filenames, NUL-delimited and decoded exactly as git
+        reported them (a text-mode or quoted listing can hide a non-ASCII name)."""
+        result = subprocess.run(
+            ["git", "--git-dir", str(remote), "ls-tree", "-r", "-z", "--name-only", "HEAD"],
+            check=True, capture_output=True, timeout=60,
+            env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+        return [name.decode("utf-8", "surrogateescape")
+                for name in result.stdout.split(b"\0") if name]
 
     def remote_head(self, remote):
         return self._git(None, "--git-dir", str(remote), "rev-parse", "HEAD").stdout.strip()
@@ -902,14 +908,17 @@ class TestPublish:
         calls = []
 
         def fake_run(argv, **kwargs):
-            index = 0
-            while argv[index] == "-c":  # skip the -c <value> pairs before the subcommand
+            index = 1  # skip the executable; then the -c <value> pairs before the subcommand
+            while argv[index] == "-c":
                 index += 2
-            calls.append((argv[index], argv))
-            if argv[index] == "symbolic-ref":
+            head = argv[index]
+            calls.append((head, argv))
+            if head == "symbolic-ref":
                 return subprocess.CompletedProcess(argv, 0, "master\n", "")
-            if argv[index] == "diff":
+            if head == "diff":
                 return subprocess.CompletedProcess(argv, 1, "", "")  # differences exist
+            if head == "ls-files":  # the real call is binary (-z)
+                return subprocess.CompletedProcess(argv, 0, b"", "")
             return subprocess.CompletedProcess(argv, 0, "", "")
 
         monkeypatch.setattr(wiki_publish.subprocess, "run", fake_run)
@@ -917,8 +926,11 @@ class TestPublish:
             "--repo", "example/repo", "--root", str(tmp_path), "--publish", "--source-sha", self.SHA1])
         assert code == 0
         captured = capsys.readouterr()
+        assert "published 3 pages" in captured.out  # the success path, not the no-change exit
         assert "ghs_header_test_token" not in captured.out + captured.err
         header = base64.b64encode(b"x-access-token:ghs_header_test_token").decode("ascii")
+        heads = [head for head, _ in calls]
+        assert heads.count("clone") == 1 and heads.count("push") == 1
         for head, argv in calls:
             if head in ("clone", "push"):  # both remote operations carry the header
                 assert f"http.extraheader=Authorization: Basic {header}" in argv
@@ -926,16 +938,21 @@ class TestPublish:
 
     @pytest.mark.parametrize("stderr,expected", [
         ("fatal: Authentication failed for 'https://github.com/x/y.wiki.git/'", "authorisation rejection"),
-        ("remote: Permission to x/y.wiki.git denied to user", "authorisation rejection"),
+        ("fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+         "authorisation rejection"),
+        ("fatal: unable to access 'https://github.com/x/y.wiki.git/': The requested URL returned error: 403",
+         "authorisation rejection"),
         ("fatal: unable to access 'https://github.com/x/y.wiki.git/': Could not resolve host: github.com",
          "transport error"),
+        ("error: open('index.lock': Permission denied", "cause not identified"),  # a LOCAL permission
+        # error is not evidence about the remote token and must not become one
         ("fatal: the remote end hung up unexpectedly", "cause not identified"),
     ])
     def test_push_failures_are_classified_without_echoing_git(self, tmp_path, monkeypatch, capsys,
                                                               stderr, expected):
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
 
-        def fake_run_git(args, cwd=None, token=None):
+        def fake_run_git(args, cwd=None, token=None, text=True):
             index = 0
             while args[index] == "-c":
                 index += 2
@@ -946,6 +963,8 @@ class TestPublish:
                 return subprocess.CompletedProcess(args, 0, "master\n", "")
             if head == "diff":
                 return subprocess.CompletedProcess(args, 1, "", "")
+            if head == "ls-files":  # the real call is binary (-z)
+                return subprocess.CompletedProcess(args, 0, b"", "")
             return subprocess.CompletedProcess(args, 0, "", "")
 
         monkeypatch.setattr(wiki_publish, "_run_git", fake_run_git)
@@ -1032,8 +1051,8 @@ class TestPublish:
 
         assert self.publish(tmp_path, remote) == 0
 
-        assert "café.md" not in self.remote_files(remote)
-        assert "Home.md" in self.remote_files(remote)
+        # the complete replacement: exactly the generated set, nothing stale left behind
+        assert sorted(self.remote_files(remote)) == ["Home.md", "_Sidebar.md", "source.md"]
 
     def test_an_empty_wiki_repository_is_published_too(self, tmp_path):
         remote = tmp_path / "empty.git"
@@ -1056,7 +1075,7 @@ class TestPublish:
         never the command line, the token or git's raw output."""
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
 
-        def fake_run_git(args, cwd=None, token=None):
+        def fake_run_git(args, cwd=None, token=None, text=True):
             index = 0
             while args[index] == "-c":  # skip the -c <value> pairs before the subcommand
                 index += 2
@@ -1068,7 +1087,7 @@ class TestPublish:
             if head == "symbolic-ref":
                 return subprocess.CompletedProcess(args, 0, "master\n", "")
             if head == "ls-files":
-                return subprocess.CompletedProcess(args, 0, "stale.md\0", "")
+                return subprocess.CompletedProcess(args, 0, b"stale.md\0", "")
             if head == "diff":
                 return subprocess.CompletedProcess(args, 1, "", "")  # differences exist
             return subprocess.CompletedProcess(args, 0, "", "")

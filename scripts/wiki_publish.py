@@ -533,7 +533,7 @@ def _git_environment() -> dict[str, str]:
 
 
 def _run_git(
-    args: list[str], cwd: Path | None = None, token: str | None = None
+    args: list[str], cwd: Path | None = None, token: str | None = None, text: bool = True
 ) -> subprocess.CompletedProcess:
     """Run one git command as a fixed argument list (no shell), capturing output.
 
@@ -541,7 +541,9 @@ def _run_git(
     http.extraheader=...``: the token never appears in a URL, in the
     repository's configuration or in any file, and git's own output is
     captured here, never passed through to ours. The command line is never
-    printed; failure messages name the operation, not the command.
+    printed; failure messages name the operation, not the command. ``text=False``
+    gives binary output, for the one call that must round-trip filenames exactly
+    (see publish()).
     """
     argv = ["git", "-c", "commit.gpgsign=false", "-c", "credential.helper="]
     if token is not None:
@@ -549,7 +551,7 @@ def _run_git(
         argv += ["-c", f"http.extraheader=Authorization: Basic {encoded}"]
     argv += list(args)
     # A fixed `git` argument list, no shell, no untrusted executable name (S603/S607).
-    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True,  # noqa: S603, S607
+    return subprocess.run(argv, cwd=cwd, capture_output=True, text=text,  # noqa: S603, S607
                           env=_git_environment(), timeout=GIT_TIMEOUT_SECONDS, check=False)
 
 
@@ -575,7 +577,7 @@ def _push_failure_message(stderr: str) -> str:
     rejection is the documented maintainer decision; a transport problem is retried;
     anything else stays inconclusive rather than speculating about the token."""
     detail = stderr or ""
-    if re.search(r"(?i)authentication failed|forbidden|permission|denied|\b403\b", detail):
+    if re.search(r"(?i)authentication failed|http 40[13]|\b40[13]\b|could not read username", detail):
         return (
             "pushing to the wiki failed with an authorisation rejection: the repository token "
             "cannot write to the wiki (a maintainer decision; never a fallback token)"
@@ -618,13 +620,17 @@ def publish(root: Path, repo: str, source_sha: str, remote: str | None = None) -
         if branch_result.returncode != 0:
             raise WikiPublishError("the wiki repository has no branch to publish to")
         branch = branch_result.stdout.strip()
-        # -z: filenames are NUL-delimited, so a name git would quote (non-ASCII, a
-        # backslash, a newline) still reaches git rm as the literal path it is.
-        tracked = _run_git(["ls-files", "-z"], cwd=clone)
+        # -z, binary, decoded with surrogateescape: filenames reach git rm as the exact
+        # bytes git reported, on every platform and locale -- a text-mode decode (cp1252
+        # on Windows) can turn a valid UTF-8 name into a different path that fails removal.
+        tracked = _run_git(["ls-files", "-z"], cwd=clone, text=False)
         if tracked.returncode != 0:
             raise WikiPublishError("listing the wiki repository's files failed")
-        for name in tracked.stdout.split("\0"):
-            if name and name not in tree:
+        for raw in tracked.stdout.split(b"\0"):
+            if not raw:
+                continue
+            name = raw.decode("utf-8", "surrogateescape")
+            if name not in tree:
                 if _run_git(["rm", "-q", "--", name], cwd=clone).returncode != 0:
                     raise WikiPublishError(f"removing the stale wiki file {name} failed")
         # A tracked (or stray) entry at a generated name can be a symlink, and a plain

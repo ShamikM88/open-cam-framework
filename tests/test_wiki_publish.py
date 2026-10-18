@@ -1094,12 +1094,54 @@ class TestPublish:
         # the complete replacement: exactly the generated set, nothing stale left behind
         assert sorted(self.remote_files(remote)) == ["Home.md", "_Sidebar.md", "source.md"]
 
+    def test_magic_names_reach_git_as_literal_pathspecs_whatever_the_platform(self, tmp_path,
+                                                                              monkeypatch):
+        """The command construction for names that are themselves pathspec magic (a leading
+        colon): removal and staging must both carry the :(literal) prefix. The real
+        integration with such filenames runs on POSIX only (the two tests below) -- a colon
+        is not a legal Windows filename, so git cannot even check such a tree out there
+        (the publisher's clone fails); this mocked-git test is what pins the construction
+        on every platform, including Windows."""
+        commands = []
+
+        def fake_run_git(args, cwd=None, token=None, text=True):
+            commands.append(list(args))
+            index = 0
+            while args[index] == "-c":  # skip the -c <value> pairs before the subcommand
+                index += 2
+            head = args[index]
+            if head == "ls-files":
+                return subprocess.CompletedProcess(args, 0, b":stale.md\0", "")
+            if head == "symbolic-ref":
+                return subprocess.CompletedProcess(args, 0, "master\n", "")
+            if head == "diff":
+                return subprocess.CompletedProcess(args, 1, "", "")  # differences exist
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(wiki_publish, "_run_git", fake_run_git)
+        # a tree holding a magic-named page, with no files written: the point is the
+        # commands publish() builds, not the corpus or the write
+        monkeypatch.setattr(wiki_publish, "build_tree",
+                            lambda root, repo: {":magic.md": "x", "Home.md": "x"})
+        monkeypatch.setattr(wiki_publish, "write_tree", lambda out_dir, tree: None)
+
+        code = self.publish(tmp_path, "unused-remote")
+
+        assert code == 0
+        assert ["rm", "-q", "--", ":(literal):stale.md"] in commands
+        assert ["add", "--", ":(literal):magic.md"] in commands
+
+    @pytest.mark.skipif(sys.platform.startswith("win32"),
+                        reason="git cannot check a tree containing ':stale.md' out on Windows "
+                               "(a colon is not a legal filename there), so the publisher's "
+                               "clone fails; the command construction this test exercises "
+                               "for real is pinned on every platform by the mocked-git test above")
     def test_a_stale_filename_that_greets_pathspec_magic_is_removed_literally(self, tmp_path):
         # A tracked stale file whose name is itself pathspec magic (a leading colon):
         # `git rm -- <name>` reads it as `:(top)<rest>` and matches nothing. The seed tree
         # is built with plumbing (hash-object/mktree/commit-tree), like the symlink test --
-        # no filesystem file with that name is needed, so this also runs on Windows,
-        # where a colon is not a legal filename character.
+        # no filesystem file with that name is needed. POSIX only: git's checkout of the
+        # clone cannot write that filename on Windows.
         remote = tmp_path / "wiki.git"
         self._git(tmp_path, "-c", "init.defaultBranch=master", "init", "--bare", "-q", str(remote))
         content = tmp_path / "magic-content"

@@ -151,13 +151,9 @@ def _evaluate_covenant(covenant, ratios, financials=None):
         # a negative EBITDA, must not pass a covenant either (issue #169). The stored figure is ignored.
         result["reason"] = explanation + (f" (the recorded value {actual!r} is ignored)" if actual_is_numeric else "")
         return result
-    if not actual_is_numeric:
-        result["reason"] = f"{metric} has no computed value for this period"
-        return result
-
     if metric in PERCENT_TYPE_RATIOS:
         unit_mismatches = []
-        if abs(actual) > 10:
+        if actual_is_numeric and abs(actual) > 10:
             unit_mismatches.append(f"actual ratio {actual!r}")
         if abs(threshold) > 10:
             unit_mismatches.append(f"covenant threshold {threshold!r}")
@@ -167,6 +163,10 @@ def _evaluate_covenant(covenant, ratios, financials=None):
                 "covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing."
             )
             return result
+
+    if not actual_is_numeric:
+        result["reason"] = f"{metric} has no computed value for this period"
+        return result
 
     result["actual"] = actual
 

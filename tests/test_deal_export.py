@@ -744,3 +744,21 @@ def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_s
         "FY-Current": {"revenue": 5000},
         "FY+1": {"revenue": 4600},
     }
+
+
+def test_financial_data_from_state_drops_supplied_forward_period_without_computed_counterpart():
+    """A forward period only in the supplied store is dropped, never used as a fallback (PX354-2, #249)."""
+    state = {
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000},
+            "FY+1": {"revenue": 4600},
+            "FY+2": {"revenue": 4700},
+        },
+        "financials": {"FY+2": {"raw": {"revenue": 4800}}},
+    }
+
+    assert _financial_data_from_state(state) == {
+        "FY-Current": {"revenue": 5000},
+        "FY+2": {"revenue": 4800},
+    }

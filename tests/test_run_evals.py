@@ -288,6 +288,27 @@ def _live_results(monkeypatch, tmp_path, name="a"):
     return run_dir / "results.json"
 
 
+def test_live_cli_emits_ignored_temperature_warning_once_per_invocation(monkeypatch, tmp_path, capsys):
+    import eval_runner
+    from eval_fakes import dataset_case, good_maker_text, make_fake_repo
+
+    repo = make_fake_repo(tmp_path)
+    settings_path = repo / "config" / "settings.json"
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    settings.update({"maker_temperature": 0.2, "checker_temperature": 0.4})
+    settings_path.write_text(json.dumps(settings), encoding="utf-8")
+    monkeypatch.setattr(eval_runner, "REPO_ROOT", str(repo))
+
+    case = dataset_case("fab-no-financials")
+    _fake_client_factory(monkeypatch, lambda kwargs: good_maker_text(case))
+    out = tmp_path / "results"
+    assert run_evals.main(["--live", "--cases", "fab-no-financials", "--repeats", "2",
+                           "--yes", "--out", str(out)]) == 0
+
+    warning = "warning: unsupported sampling setting(s) in config/settings.json are ignored:"
+    assert capsys.readouterr().err.count(warning) == 1
+
+
 def test_export_baseline_writes_beside_the_results_and_refuses_to_overwrite(monkeypatch, tmp_path, capsys):
     results = _live_results(monkeypatch, tmp_path)
     capsys.readouterr()

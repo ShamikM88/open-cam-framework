@@ -35,10 +35,6 @@ NOTICE_TEMPLATE = (
 # Destinations with spaces are not links this corpus uses (same rule as the
 # documentation tests) and stay untouched rather than being half-rewritten.
 LINK_RE = re.compile(r"(!?)\[([^\]\n]*)\]\(([^)\s]+)(\s+\"[^\"]*\")?\)")
-# A code span: an opening run of backticks, content without a backtick run of
-# the same length, closed by the same run (so ``a ` b`` is one span, and a
-# single isolated backtick can sit inside a double-backtick span).
-CODE_SPAN_RE = re.compile(r"(`+)(?:[^`\n]|`(?!`))*?\1")
 EXTERNAL_RE = re.compile(r"^(https?:|mailto:)", re.IGNORECASE)
 HEADING_RE = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
 # A fenced code block opens with a run of at least three backticks or tildes;
@@ -223,6 +219,41 @@ def _resolve_target(
     return walked, relative.as_posix()
 
 
+def _code_span_ranges(line: str) -> list[tuple[int, int]]:
+    """The (start, end) character ranges of the inline code spans on a line.
+
+    A span opens with a run of N backticks and closes only with another run of
+    exactly N backticks: shorter runs inside it are content, and a longer run
+    does not close it (CommonMark's rule)."""
+    ranges: list[tuple[int, int]] = []
+    i = 0
+    length = len(line)
+    while i < length:
+        if line[i] != "`":
+            i += 1
+            continue
+        start = i
+        while i < length and line[i] == "`":
+            i += 1
+        run = i - start
+        j = i
+        while j < length:
+            if line[j] != "`":
+                j += 1
+                continue
+            close_start = j
+            while j < length and line[j] == "`":
+                j += 1
+            if j - close_start == run:
+                ranges.append((start, j))
+                i = j
+                break
+            # A run of a different length is content; keep scanning from j.
+        # No closer of equal length: the opening run is literal text; the
+        # outer loop continues from just after it (i already is).
+    return ranges
+
+
 def _rewrite_line(
     line: str, line_no: int, page_path: Path, root: Path, repo_url: str,
     page_names: dict[str, str], page_texts: dict[str, str],
@@ -232,7 +263,7 @@ def _rewrite_line(
     A link is code only when its opening bracket sits inside a code span; a
     code span may legitimately appear inside link text (``[`CLAUDE.md`](..)``).
     """
-    code_spans = [match.span() for match in CODE_SPAN_RE.finditer(line)]
+    code_spans = _code_span_ranges(line)
 
     def in_code(start: int) -> bool:
         return any(span_start <= start < span_end for span_start, span_end in code_spans)

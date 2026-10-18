@@ -38,7 +38,7 @@ def _live_links(content: str) -> list[str]:
     for _, line, in_fence in wiki_publish._lines_with_fences(content.split("\n")):
         if in_fence:
             continue
-        code_spans = [m.span() for m in wiki_publish.CODE_SPAN_RE.finditer(line)]
+        code_spans = wiki_publish._code_span_ranges(line)
         for match in re.finditer(r"(!?)\[[^\]\n]*\]\(([^)\s]+)\)", line):
             if any(s <= match.start() < e for s, e in code_spans):
                 continue  # a code span hides the link
@@ -300,6 +300,24 @@ class TestLinkRewriting:
             "source.md": "Use ``[gone](gone.md)`` in prose.\n",
         })
         assert "``[gone](gone.md)``" in tree["source.md"]
+
+    def test_a_shorter_backtick_run_inside_a_longer_span_is_content(self, tmp_path):
+        # ```a `` [gone](gone.md)``` is ONE code span: the inner double run is
+        # content, not a closer, so the link inside stays code.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "Use ```a `` [gone](gone.md)``` in prose.\n",
+        })
+        assert "```a `` [gone](gone.md)```" in tree["source.md"]
+
+    def test_a_longer_closing_run_does_not_close_a_span(self, tmp_path):
+        # ``x``` has no equal-length closer, so it is literal text and the
+        # following link is live and rewritten.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "``x``` [ok](README.md)\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
 
     def test_tilde_fences_hide_links(self, tmp_path):
         fenced = "~~~\n[gone](gone.md)\n~~~"

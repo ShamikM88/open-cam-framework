@@ -73,6 +73,7 @@ def _financial_data_from_state(state):
         return raw_by_period
     return _raw_financials(state.get("financials"))
 
+
 def _downside_financial_data_from_state(state):
     """state.json's `downside_case` (see spreading_builder.evaluate_downside_case)
     is `{"financials": {...}, "ratios": {...}}` when stress_assumptions were

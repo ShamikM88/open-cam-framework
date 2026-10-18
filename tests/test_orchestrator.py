@@ -2125,8 +2125,9 @@ def test_repeating_the_recorded_stress_assumptions_is_a_no_op(project_root, repe
     assert state["downside_case"] == ANALYST_DOWNSIDE and state["forecast_source"] == "analyst-supplied"
 
 
-def test_a_changed_assumption_is_still_allowed_with_a_fresh_recomputation_or_without_an_analyst_forecast(project_root):
-    """The refusal is only for a forecast the headless run cannot recompute: the ordinary path is unchanged."""
+def test_changed_assumption_is_allowed_without_analyst_basis_but_fresh_recompute_is_refused(
+        project_root):
+    """Ordinary deals may change stress assumptions; an analyst-supplied basis cannot be reset headlessly."""
     _analyst_forecast_state()          # no forecast_source flag: an ordinary deal
     client = MockClient([_compliant_draft(financials_source_disclosed=True), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
@@ -2134,13 +2135,21 @@ def test_a_changed_assumption_is_still_allowed_with_a_fresh_recomputation_or_wit
     assert read_state("Acme Corp", "Fleet Loan")["stress_assumptions"] == {"revenue_haircut_pct": 25}
 
     _analyst_forecast_state(forecast_source="analyst-supplied")
-    client = MockClient([_compliant_draft(), _approved_json()])
-    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-                 multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}},
-                 stress_assumptions={"revenue_haircut_pct": 30}, client=client)
+    before = _deal_files()
+    client = MockClient([])
+    with pytest.raises(StateError) as refused:
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     multi_period_financials={"FY+1": {"revenue": 100, "cost_of_sales": 60}},
+                     stress_assumptions={"revenue_haircut_pct": 30}, client=client)
+    message = str(refused.value)
+    assert "analyst-supplied" in message and "/spread's analyst-supplied mode" in message
+    assert "nothing was written" in message and "\\n" not in message
+    assert client.call_count == 0
+    assert _deal_files() == before
     state = read_state("Acme Corp", "Fleet Loan")
-    assert state["forecast_source"] is None and state["stress_assumptions"] == {"revenue_haircut_pct": 30}
-    assert state["downside_case"]["financials"]["FY+1"]["raw"]["revenue"] == 70, "recomputed from the fresh figures"
+    assert state["financials_source"] == "analyst-supplied"
+    assert state["forecast_source"] == "analyst-supplied"
+    assert state["financials"]["FY+1"] == {"ebitda": 300}
 
 
 # ---------------------------------------------------------------------------

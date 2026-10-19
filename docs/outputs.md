@@ -159,6 +159,17 @@ workbook can see exactly how each figure was derived and re-check it. A second s
 `templates/spreading/default_spreading_template.xlsx` is a checked-in, blank reference copy of
 that exact layout, so you can inspect the format without running any code.
 
+The Financial Spreading sheet also carries two **native Excel charts** below the table: a
+leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart. They are
+anchored at a cell derived from the table's last row (plus a margin), and every series, legend
+title and category label references the workbook's own cells, so the charts always show what
+the sheet shows — nothing is copied in. The series span the historical and forward base-case
+columns, and a downside column joins the range only while it carries downside figures; an
+unavailable downside column is excluded from the range rather than plotted as a blank. Blank
+cells render as gaps (`displayBlanksAs="gap"` is set explicitly on every chart), so a period
+with no data — or a ratio the workbook marks `"N/A"`, e.g. a zero-EBITDA period — reads as a
+gap, never as a zero.
+
 > **Custom spreading templates:** if your organization already has a standard spreading Excel
 > template, that's on the roadmap to support directly (see the roadmap in the README) — it would live alongside the
 > default under `templates/spreading/`. For now, `spreading_builder.py`'s layout is the only

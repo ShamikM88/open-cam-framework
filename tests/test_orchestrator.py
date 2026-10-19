@@ -2379,4 +2379,6 @@ def test_run_pipeline_warns_once_for_normalized_near_miss_but_keeps_running(proj
     assert "credit   facility" in warning_lines[0]
     assert "Credit Facility" in warning_lines[0]
     assert client.call_count == 2
-    assert state_path("Synthetic Co", "credit   facility").endswith("credit   facility_2026-10-19/state.json") is False
+    created_state = state_path("Synthetic Co", "credit   facility")
+    assert os.path.basename(os.path.dirname(created_state)).startswith("credit   facility_")
+    assert os.path.isfile(created_state)

@@ -341,7 +341,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** Total Debt — no workbook row of its own (it is the numerator of F-025, F-026, F-027); CAM/state
   key `total_debt`
-- **Formula:** total_debt = current_debt + overdraft + long_term_debt + loan_notes (workbook: no row of its own — the same aggregate is written inline in the Gearing % / Gross Leverage / Net Debt / EBITDA formulas). Provisions and trade creditors are deliberately excluded
+- **Formula:** total_debt = current_debt ("Current Portion - Debt") + overdraft ("Overdraft / Revolving Debt") + long_term_debt ("Long Term Debt") + loan_notes ("Loan Notes / Preference Shares") (workbook: no row of its own — the same aggregate is written inline in the Gearing % / Gross Leverage / Net Debt / EBITDA formulas). Provisions and trade creditors are deliberately excluded
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `total_debt`
@@ -580,7 +580,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-035 — Interest rate bump shock
 
 - **Name:** Interest rate bump — stress input `interest_rate_bump_bps` (basis points)
-- **Formula:** shocked_interest_paid = interest_paid + (current_debt + overdraft + long_term_debt + loan_notes) × interest_rate_bump_bps / 10000 — i.e. the period's interest-bearing debt (F-020) repriced by the bump (workbook: the (Downside) column of the Interest Paid row)
+- **Formula:** shocked_interest_paid = interest_paid ("Interest Paid") + (current_debt ("Current Portion - Debt") + overdraft ("Overdraft / Revolving Debt") + long_term_debt ("Long Term Debt") + loan_notes ("Loan Notes / Preference Shares")) × interest_rate_bump_bps / 10000 — i.e. the period's interest-bearing debt (F-020) repriced by the bump (workbook: the (Downside) column of the Interest Paid row)
 - **Unit and storage:** the shocked interest paid replaces `interest_paid` in the stressed copy only
 - **Edge rules:** non-negative; non-finite or non-numeric refused
 - **State keys:** `interest_rate_bump_bps`
@@ -848,10 +848,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-049 — Collateral sheet totals (workbook row)
 
 - **Name:** Collateral sheet totals — the "Total" row of the workbook's "Collateral & Exposure" sheet
-- **Formula:** each column sums its per-asset rows: total_exposure = Σ exposure, total_number_of_units =
-  Σ number_of_units, total_cap_value = Σ cap_value, total_non_recovery = Σ non_recovery, total_costs =
-  Σ costs, total_collateral_value = Σ collateral_value (workbook: `=SUM(B{first_row}:B{last_row})` …
-  `=SUM(G{first_row}:G{last_row})`, spreading_builder.py:819-824)
+- **Formula:** each column sums its per-asset rows: total_exposure = Σ exposure ("Exposure (Rental + RV)"),
+  total_number_of_units = Σ number_of_units ("Number of Units"), total_cap_value = Σ cap_value
+  ("Cap / Model Value"), total_non_recovery = Σ non_recovery ("Non-Recovery"), total_costs = Σ costs
+  ("Costs"), total_collateral_value = Σ collateral_value ("Collateral Value") (workbook:
+  `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`, spreading_builder.py:819-824)
 - **Unit and storage:** sums of the supplied inputs, at full precision; display-only cells
 - **Edge rules:** plain column sums with no netting across assets; the total row's cover cell is F-048's
   formula, not a sum of the per-asset covers

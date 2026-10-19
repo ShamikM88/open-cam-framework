@@ -338,6 +338,70 @@ def _existing_date_str(company, proposal, base_dir=None):
     return dates[-1] if dates else None
 
 
+def _normalize_proposal_for_suggestion(proposal):
+    """Normalize only case and runs of whitespace/hyphens for advisory near matches."""
+    return re.sub(r"[\s-]+", " ", proposal.casefold()).strip()
+
+
+def find_deal(company, proposal, base_dir=None):
+    """Read-only exact deal lookup with normalization-only advisory candidates.
+
+    A matching dated folder counts when its state.json is present, even when
+    the file is corrupt; the normal read path remains responsible for raising
+    that established error. Suggestions only consider valid dated folders
+    with state.json, and never resolve/select a non-exact proposal.
+    """
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    date_str = _existing_date_str(company, proposal, base_dir=base_dir)
+    if date_str is not None:
+        return {
+            "record_found": True,
+            "state_path": state_path(company, proposal, date_str=date_str, base_dir=base_dir),
+            "date": date_str,
+        }
+
+    company_dir = os.path.join(_deals_root(base_dir), company)
+    company_folder_exists = os.path.isdir(company_dir)
+    candidates_by_proposal = {}
+    if company_folder_exists:
+        requested_key = _normalize_proposal_for_suggestion(proposal)
+        with os.scandir(company_dir) as entries:
+            for entry in entries:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                parts = entry.name.rsplit("_", 1)
+                if len(parts) != 2:
+                    continue
+                candidate_proposal, candidate_date = parts
+                if not _is_valid_iso_date_str(candidate_date):
+                    continue
+                if candidate_proposal == proposal:
+                    continue
+                if _normalize_proposal_for_suggestion(candidate_proposal) != requested_key:
+                    continue
+                candidate_path = os.path.join(entry.path, "state.json")
+                if not os.path.isfile(candidate_path):
+                    continue
+                previous = candidates_by_proposal.get(candidate_proposal)
+                if previous is None or candidate_date > previous["date"]:
+                    candidates_by_proposal[candidate_proposal] = {
+                        "proposal": candidate_proposal,
+                        "date": candidate_date,
+                        "state_path": candidate_path,
+                    }
+
+    near_misses = sorted(
+        candidates_by_proposal.values(),
+        key=lambda item: (item["proposal"].casefold(), item["proposal"]),
+    )
+    return {
+        "record_found": False,
+        "company_folder_exists": company_folder_exists,
+        "near_misses": near_misses,
+    }
+
+
 def existing_state_date_str(company, proposal, base_dir=None):
     """Public form of _existing_date_str(): the date of this deal's newest folder that holds a state.json, or None
     when the deal has no state anywhere. Lets an exporter tell "a brand-new deal" from "a deal whose state is in
@@ -711,10 +775,13 @@ if __name__ == "__main__":
     configure_stdio()
     parser = argparse.ArgumentParser(
         description="Manage a deal's persisted state without an Anthropic dependency. "
+                    "--find is a read-only exact lookup with advisory normalized near matches; "
                     "--check-steps reports missing required steps; --export-reviewer-view writes "
                     "derived copies with review history separated from the first-pass record."
     )
     modes = parser.add_mutually_exclusive_group(required=True)
+    modes.add_argument("--find", action="store_true",
+                       help="Read-only exact deal lookup with advisory normalized near matches.")
     modes.add_argument("--check-steps", action="store_true",
                        help="Report which required steps are missing from steps_completed.")
     modes.add_argument("--export-reviewer-view", action="store_true",
@@ -726,7 +793,13 @@ if __name__ == "__main__":
                              "steps_completed, e.g. spread,collateral")
     args = parser.parse_args()
 
-    if args.check_steps:
+    if args.find:
+        try:
+            report = find_deal(args.company, args.proposal)
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report, indent=2))
+    elif args.check_steps:
         if args.required is None:
             parser.error("--required is required with --check-steps")
         required = [s.strip() for s in args.required.split(",") if s.strip()]

@@ -14,6 +14,7 @@ reimplement this logic in prose (which would defeat the point of
 code-enforced policy).
 """
 import json
+import math
 import re
 import sys
 
@@ -112,11 +113,28 @@ def compute_collateral_cover_pct(collateral):
     it's simply omitted from the ground-truth figures instead of being
     compared against as if it were a real zero.
     """
-    total_exposure = sum((asset.get("exposure") or 0) for asset in (collateral or []))
-    total_collateral_value = sum((asset.get("collateral_value") or 0) for asset in (collateral or []))
-    if not total_exposure:
+    total_exposure = 0
+    total_collateral_value = 0
+    for asset in (collateral or []):
+        exposure = asset.get("exposure") or 0
+        collateral_value = asset.get("collateral_value") or 0
+        if (
+            exposure < 0
+            or collateral_value < 0
+            or not math.isfinite(exposure)
+            or not math.isfinite(collateral_value)
+        ):
+            return None
+        total_exposure += exposure
+        total_collateral_value += collateral_value
+    if (
+        total_exposure <= 0
+        or not math.isfinite(total_exposure)
+        or not math.isfinite(total_collateral_value)
+    ):
         return None
-    return (total_collateral_value / total_exposure) * 100
+    cover_pct = (total_collateral_value / total_exposure) * 100
+    return cover_pct if math.isfinite(cover_pct) else None
 
 
 def ground_truth_figures(financials, ratios, collateral, downside_case=None):

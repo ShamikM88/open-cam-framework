@@ -329,7 +329,7 @@ F1: 'Costs'  [bold]
 G1: 'Collateral Value'  [bold]
 H1: 'CV % of Exposure'  [bold]
 I1: 'Perfection Status'  [bold]
-H2: '=IFERROR(G2/B2,"N/A")'
+H2: '=IFERROR(IF(B2>0,G2/B2,"N/A"),"N/A")'
 A3: 'Total'
 B3: '=SUM(B2:B2)'
 C3: '=SUM(C2:C2)'
@@ -337,4 +337,4 @@ D3: '=SUM(D2:D2)'
 E3: '=SUM(E2:E2)'
 F3: '=SUM(F2:F2)'
 G3: '=SUM(G2:G2)'
-H3: '=IFERROR(G3/B3,"N/A")'
+H3: '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'

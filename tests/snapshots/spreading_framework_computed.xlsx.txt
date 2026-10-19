@@ -428,7 +428,7 @@ I1: 'Perfection Status'  [bold]
 A2: 'Vehicles'
 B2: 800
 G2: 700
-H2: '=IFERROR(G2/B2,"N/A")'
+H2: '=IFERROR(IF(B2>0,G2/B2,"N/A"),"N/A")'
 I2: 'Registered'
 A3: 'Total'
 B3: '=SUM(B2:B2)'
@@ -437,4 +437,4 @@ D3: '=SUM(D2:D2)'
 E3: '=SUM(E2:E2)'
 F3: '=SUM(F2:F2)'
 G3: '=SUM(G2:G2)'
-H3: '=IFERROR(G3/B3,"N/A")'
+H3: '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'

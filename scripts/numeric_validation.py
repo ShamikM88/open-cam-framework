@@ -21,8 +21,8 @@ STRESS_PERCENT_KEYS = ("revenue_haircut_pct", "opex_increase_pct")
 def validate_stress_assumptions(value):
     """Refuse downside shocks that invert the stress or make revenue negative.
 
-    The caller remains responsible for its existing JSON/object and numeric
-    validation. This shared domain validator deliberately adds no upper bounds
+    Present values must be finite JSON numbers (booleans, strings, nulls and
+    containers are refused). This shared domain validator adds no upper bounds
     beyond the revenue-haircut ceiling. Warnings are emitted only after all
     domain errors have been checked, so a refused input produces one error
     line rather than a warning followed by an error.
@@ -31,11 +31,14 @@ def validate_stress_assumptions(value):
         return value
 
     for key in STRESS_KEYS:
-        item = value.get(key)
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
+        if key not in value:
             continue
-        if isinstance(item, float) and not math.isfinite(item):
-            continue
+        item = value[key]
+        if (isinstance(item, bool) or not isinstance(item, (int, float))
+                or (isinstance(item, float) and not math.isfinite(item))):
+            raise StressAssumptionsError(
+                f"stress assumptions: {key} must be a finite JSON number; found {item!r}"
+            )
         if item < 0:
             raise StressAssumptionsError(
                 f"stress assumptions: {key} must be non-negative; found {item!r}"
@@ -87,6 +90,28 @@ def validate_raw_line_items(value, field_names, path="financial inputs"):
                     f"{path}: period {period!r}, field {field!r} must be a finite JSON number or null; "
                     f"found {item!r}"
                 )
+    return value
+
+
+def validate_period_objects(value, path="financial inputs"):
+    """Require every supplied period to be an object of raw line items.
+
+    A period with a string/list/scalar previously reached a dict update or
+    arithmetic, producing a traceback or misleading lower-level error.
+    Validate the shape before any merge or state mutation.
+    """
+    if value is None:
+        return value
+    if not isinstance(value, dict):
+        raise InvalidFinancialInputError(
+            f"{path} must be an object keyed by period; found {type(value).__name__}"
+        )
+    for period, line_items in value.items():
+        if not isinstance(line_items, dict):
+            raise InvalidFinancialInputError(
+                f"{path}: period {period!r} must be an object of line items; "
+                f"found {type(line_items).__name__}"
+            )
     return value
 
 

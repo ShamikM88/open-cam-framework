@@ -123,10 +123,14 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
   `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
   matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
-  For recognised raw line-item fields, each non-null value must be a finite JSON number: numeric strings are not
-  coerced and booleans are not numbers. Invalid values (including JSON overflow values such as `1e999`) are refused
-  with one `error:` line naming the period and field, exit status 1, before a model call or state write. Null values
-  retain the evaluator's existing behavior and are not rejected; missing fields keep their existing behavior too.
+  Each period value must be an object of raw line items; a string, number, null, list or other non-object period is
+  refused with one `error:` line naming the period. For recognised raw line-item fields, each non-null value must be a
+  finite JSON number: numeric strings are not coerced and booleans are not numbers. Invalid values (including JSON
+  overflow values such as `1e999`) are refused with one `error:` line naming the period and field, exit status 1,
+  before a model call or state write. Null raw line-item values retain the evaluator's existing behavior and are not
+  rejected; missing fields keep their existing behavior too. Each supplied stress value must also be a finite JSON
+  number; strings, booleans, null, lists and objects are refused with a key-naming `error:` line before a model call
+  or state write.
   **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
   (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
   nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
@@ -138,7 +142,8 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
 - `--collateral` is a JSON file holding a flat list of asset objects.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
-  `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none.
+  `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none. Each supplied value must be a
+  finite JSON number; strings, booleans, nulls, lists and objects are refused with one key-naming `error:` line.
 - `--new-review` starts a fresh dated folder for a new annual review instead of resuming the most recent one, so it
   never inherits last year's inputs.
 
@@ -210,10 +215,12 @@ updated state (`financials`, `ratios`, `downside_case`, `financials_source`). It
 the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
 re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
 what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
-always passes it. For recognised raw line-item fields, non-null values must be finite JSON numbers; numeric strings and
-booleans are refused rather than coerced. An invalid value produces one `error:` line naming its period and field,
-exits 1, and leaves `state.json` unchanged. A `null` value retains the existing evaluator behavior; omitted fields
-are also unchanged. The same rule applies to the orchestrator's `--financials` and `--spread` inputs. The slash
+always passes it. Each supplied period must be an object of line items; a string, scalar, null or list period is refused with one
+`error:` line naming the period, exit status 1, and no state write. For recognised raw line-item fields, non-null values
+must be finite JSON numbers; numeric strings and booleans are refused rather than coerced. Each stress value must also be
+a finite JSON number (not a string, boolean, null, list or object). Invalid input produces one key/period-naming
+`error:` line and leaves `state.json` byte-identical. A `null` raw line-item value retains the evaluator's existing
+behavior; omitted fields are also unchanged. The same rules apply to the orchestrator's `--financials` and `--spread` inputs. The slash
 commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
 
 ```bash
@@ -227,8 +234,9 @@ python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic
 is `/project`'s analyst-supplied mode (issue #124). `--forecast` holds `{"forecast": {"FY+1": {"subtotals": {...},
 "ratios": {...}, "lines": {...}}}, "downside": {"description": "...", "periods": {"FY+1": {"subtotals": {...},
 "ratios": {...}}}}}`: numbers as the analyst gave them, a ratio that is N/A as `null`, `lines` (the `/spread` raw field
-names) and `downside` optional. It validates strictly (unknown names, non-numbers, a year with only raw lines, a
-stressed forecast without a description), checks the deal (the state is readable and writable by this checkout, the
+names) and `downside` optional. It validates strictly (unknown names, non-numbers, any forecast/downside period whose value is not an object
+of line items, a year with only raw lines, a stressed forecast without a description, and stress values that are not
+finite JSON numbers), checks the deal (the state is readable and writable by this checkout, the
 basis is compatible: no framework-computed forward years, no framework-computed or unknown-basis history), and then
 writes `financials`, `ratios`, the optional `analyst_supplied_financials`, `forecast_source`, `financials_source`, the
 note and the downside treatment in **one** state update, printing a summary of which forward years are analyst-supplied

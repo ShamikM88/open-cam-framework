@@ -1521,3 +1521,187 @@ def test_supplied_forecast_warns_and_continues_for_small_positive_percent_stress
     assert len(result.stderr.strip().splitlines()) == 1
     saved = json.loads(saved_path.read_text(encoding="utf-8"))
     assert saved["stress_assumptions"]["opex_increase_pct"] == 0.5
+
+
+# Issue #359: malformed stress values and period blocks must be refused by the real
+# command-line entry points before state is written or a model client is created.
+STRESS_TYPE_TOKENS = [
+    ('"50"', "string"),
+    ("true", "boolean"),
+    ("null", "null"),
+    ("[50]", "list"),
+    ('{"value": 50}', "object"),
+]
+PERIOD_TYPE_TOKENS = [
+    ('"abc"', "string"),
+    ("7", "number"),
+    ("[7]", "list"),
+]
+
+
+def _write_stress_token(cli, token):
+    path = cli.workdir / "stress.json"
+    path.write_text('{"revenue_haircut_pct":' + token + "}", encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("token,kind", STRESS_TYPE_TOKENS, ids=[kind for _, kind in STRESS_TYPE_TOKENS])
+def test_spreading_check_rejects_stress_values_that_are_not_finite_json_numbers(cli, token, kind):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    stress = _write_stress_token(cli, token)
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--stress-assumptions", stress,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "revenue_haircut_pct" in result.stderr
+    assert "stress assumptions" in result.stderr and "must be a finite JSON number" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("token,kind", STRESS_TYPE_TOKENS, ids=[kind for _, kind in STRESS_TYPE_TOKENS])
+def test_orchestrator_rejects_stress_values_that_are_not_finite_json_numbers_before_credentials(
+        cli, token, kind):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    stress = _write_stress_token(cli, token)
+
+    result = cli(
+        "orchestrator", "--company", company, "--proposal", proposal,
+        "--stress-assumptions", stress,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "revenue_haircut_pct" in result.stderr
+    assert "stress assumptions" in result.stderr and "must be a finite JSON number" in result.stderr
+    assert "no Anthropic credentials" not in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("token,kind", STRESS_TYPE_TOKENS, ids=[kind for _, kind in STRESS_TYPE_TOKENS])
+def test_supplied_forecast_uses_shared_stress_type_validation_before_writing(cli, token, kind):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    before = saved_path.read_bytes()
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text('{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}}}', encoding="utf-8")
+    stress = _write_stress_token(cli, token)
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--stress-assumptions", stress,
+        "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "revenue_haircut_pct" in result.stderr
+    assert "stress assumptions" in result.stderr and "must be a finite JSON number" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("token,kind", PERIOD_TYPE_TOKENS, ids=[kind for _, kind in PERIOD_TYPE_TOKENS])
+def test_spreading_check_rejects_non_object_financial_periods_before_writing(cli, token, kind):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text('{"FY+1":' + token + "}", encoding="utf-8")
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "FY+1" in result.stderr
+    assert "must be an object of line items" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("flag", ["--financials", "--spread"])
+@pytest.mark.parametrize("token,kind", PERIOD_TYPE_TOKENS, ids=[kind for _, kind in PERIOD_TYPE_TOKENS])
+def test_orchestrator_rejects_non_object_financial_periods_before_credentials_or_writing(cli, flag, token, kind):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text('{"FY+1":' + token + "}", encoding="utf-8")
+
+    result = cli(
+        "orchestrator", "--company", company, "--proposal", proposal,
+        flag, financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "FY+1" in result.stderr
+    assert "must be an object of line items" in result.stderr
+    assert "no Anthropic credentials" not in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("token,kind", PERIOD_TYPE_TOKENS, ids=[kind for _, kind in PERIOD_TYPE_TOKENS])
+def test_supplied_forecast_names_a_period_whose_value_is_not_an_object_of_line_items(cli, token, kind):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    before = saved_path.read_bytes()
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text('{"forecast":{"FY+1":' + token + "}}", encoding="utf-8")
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "forecast.FY+1" in result.stderr
+    assert "must be an object of line items" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("token,kind", PERIOD_TYPE_TOKENS, ids=[kind for _, kind in PERIOD_TYPE_TOKENS])
+def test_supplied_forecast_names_a_downside_period_whose_value_is_not_an_object(cli, token, kind):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    before = saved_path.read_bytes()
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text(
+        '{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}},'
+        '"downside":{"description":"Synthetic scenario","periods":{"FY+1":' + token + "}}}",
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "downside.periods.FY+1" in result.stderr
+    assert "must be an object of line items" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before

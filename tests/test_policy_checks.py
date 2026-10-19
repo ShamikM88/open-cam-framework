@@ -703,3 +703,32 @@ def test_check_draft_compliance_requires_analyst_disclosure_only_for_exact_sourc
         draft, _policy_state(), {}, financials_source=financials_source,
     ) == []
 
+def test_check_draft_compliance_treats_absent_policy_state_collections_as_empty():
+    """The caller may supply a structurally empty policy state before any
+    deal step has populated collections; absent collections must not crash
+    or invent a rejection for an otherwise complete synthetic draft."""
+    assert check_draft_compliance(_compliant_draft(), {}, {}) == []
+
+
+@pytest.mark.parametrize("reason_field", [{}, {"reason": None}, {"reason": ""}])
+def test_check_draft_compliance_omits_empty_covenant_explanation(reason_field):
+    covenant_result = {
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "actual": 1.0, "status": "FAIL",
+        **reason_field,
+    }
+    assert check_draft_compliance(
+        None, {"covenant_results": [covenant_result]}, {},
+    ) == ["Covenant FAIL: dscr (minimum 1.25, actual 1.0)"]
+
+
+def test_check_draft_compliance_pins_default_downside_breach_reason_verbatim():
+    reasons = check_draft_compliance(
+        _compliant_draft(cp_ids=["KYC-AML"]),
+        _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH]),
+        {},
+    )
+    assert reasons == [
+        "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR: dscr breaches threshold in FY+2 under stress but is not addressed in the draft."
+    ]
+

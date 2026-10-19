@@ -894,7 +894,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
             asset.get("non_recovery"),
             asset.get("costs"),
             asset.get("collateral_value"),
-            f'=IFERROR(G{row}/B{row},"N/A")',
+            f'=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")',
             asset.get("perfection_status"),
         ])
 
@@ -907,7 +907,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
         f"=SUM(E{first_row}:E{last_row})",
         f"=SUM(F{first_row}:F{last_row})",
         f"=SUM(G{first_row}:G{last_row})",
-        f'=IFERROR(G{total_row}/B{total_row},"N/A")',
+        f'=IFERROR(IF(B{total_row}>0,G{total_row}/B{total_row},"N/A"),"N/A")',
         None,
     ])
 

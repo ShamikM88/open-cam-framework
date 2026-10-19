@@ -1158,3 +1158,144 @@ def test_read_state_refuses_existing_non_finite_collateral_without_modifying_it(
 
     with open(path, "rb") as f:
         assert f.read() == before
+
+
+# ---------------------------------------------------------------------------
+# Read-only discovery mode: an advisory lookup must never create or select a
+# near match. A present but corrupt state remains a record so read_state()
+# continues to surface its established corruption error.
+# ---------------------------------------------------------------------------
+
+def test_find_deal_exact_match_returns_resolved_path_and_newest_date(tmp_path):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Credit Facility", date_str="2026-01-10", base_dir=base)
+    write_state("Synthetic Co", "Credit Facility", date_str="2026-03-15", base_dir=base)
+
+    result = state_manager.find_deal("Synthetic Co", "Credit Facility", base_dir=base)
+
+    assert result == {
+        "record_found": True,
+        "state_path": state_path("Synthetic Co", "Credit Facility", date_str="2026-03-15", base_dir=base),
+        "date": "2026-03-15",
+    }
+
+
+def test_find_deal_misspelling_is_not_fuzzy_matched_and_creates_nothing(tmp_path):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Oakhaven Capital", date_str="2026-01-10", base_dir=base)
+    before = sorted(os.path.relpath(os.path.join(root, name), base)
+                    for root, dirs, files in os.walk(base) for name in files)
+
+    result = state_manager.find_deal("Synthetic Co", "Oakhaven Capitl", base_dir=base)
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [],
+    }
+    after = sorted(os.path.relpath(os.path.join(root, name), base)
+                   for root, dirs, files in os.walk(base) for name in files)
+    assert after == before
+
+
+@pytest.mark.parametrize("requested", ["oakhaven capital", "  OAKHAVEN   CAPITAL  ", "Oakhaven---Capital"])
+def test_find_deal_normalizes_case_whitespace_and_hyphen_runs_only_for_advice(tmp_path, requested):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Oakhaven Capital", date_str="2026-01-10", base_dir=base)
+    write_state("Synthetic Co", "Oakhaven Capital", date_str="2026-05-16", base_dir=base)
+
+    result = state_manager.find_deal("Synthetic Co", requested, base_dir=base)
+
+    assert result["record_found"] is False
+    assert [item["proposal"] for item in result["near_misses"]] == ["Oakhaven Capital"]
+    assert result["near_misses"][0]["date"] == "2026-05-16"
+
+
+def test_find_deal_never_uses_a_prefix_match_to_select_or_suggest_a_proposal(tmp_path):
+    base = str(tmp_path)
+    write_state("Synthetic Co", "Alpha Revamp", date_str="2026-01-10", base_dir=base)
+    write_state("Synthetic Co", "Alpha Revampment", date_str="2026-01-11", base_dir=base)
+
+    exact = state_manager.find_deal("Synthetic Co", "Alpha Revamp", base_dir=base)
+    miss = state_manager.find_deal("Synthetic Co", "Alpha Revam", base_dir=base)
+
+    assert exact["record_found"] is True
+    assert exact["date"] == "2026-01-10"
+    assert miss["record_found"] is False
+    assert miss["near_misses"] == []
+
+
+def test_find_deal_distinguishes_missing_company_folder_without_creating_it(tmp_path):
+    base = str(tmp_path)
+    result = state_manager.find_deal("Missing Synthetic Co", "Unknown Loan", base_dir=base)
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": False,
+        "near_misses": [],
+    }
+    assert not (tmp_path / "deals" / "Missing Synthetic Co").exists()
+
+
+def test_find_deal_keeps_corrupt_but_present_state_as_a_found_record(tmp_path):
+    base = str(tmp_path)
+    path = state_path("Synthetic Co", "Corrupt Loan", date_str="2026-01-10", base_dir=base)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as stream:
+        stream.write("{corrupt json")
+
+    result = state_manager.find_deal("Synthetic Co", "Corrupt Loan", base_dir=base)
+    assert result["record_found"] is True
+    assert result["date"] == "2026-01-10"
+    assert result["state_path"] == path
+    with pytest.raises(ValueError, match="state.json"):
+        read_state("Synthetic Co", "Corrupt Loan", date_str="2026-01-10", base_dir=base)
+
+
+def test_find_deal_excludes_export_only_and_malformed_date_folders_from_candidates(tmp_path):
+    base = tmp_path
+    company_dir = base / "deals" / "Synthetic Co"
+    (company_dir / "Oakhaven-Capital_2026-01-10").mkdir(parents=True)
+    # An exact proposal folder without state.json is export-only, not a record.
+    (company_dir / "Oakhaven Capital_2026-01-10").mkdir()
+    (company_dir / "not-a-dated-folder").mkdir()
+    (company_dir / "standalone-file.txt").write_text("not a deal", encoding="utf-8")
+    malformed = company_dir / "Oakhaven Capital_2026-02-30"
+    malformed.mkdir(parents=True)
+    (malformed / "state.json").write_text("{}", encoding="utf-8")
+
+    result = state_manager.find_deal("Synthetic Co", "Oakhaven Capital", base_dir=str(base))
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [],
+    }
+
+
+@pytest.mark.parametrize("error", [PermissionError("denied"), FileNotFoundError("vanished")])
+def test_find_cli_reports_an_unlistable_company_folder_as_one_error_line(
+        tmp_path, monkeypatch, capsys, error):
+    import runpy
+    import sys
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deals" / "Synthetic Co").mkdir(parents=True)
+    company_dir = os.path.join("deals", "Synthetic Co")
+    real_scandir = os.scandir
+
+    def failing_scandir(path="."):
+        if os.fspath(path).endswith(company_dir):
+            raise error
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", failing_scandir)
+    script = os.path.join(os.path.dirname(state_manager.__file__), "state_manager.py")
+    monkeypatch.setattr(sys, "argv", ["state_manager.py", "--find", "--company", "Synthetic Co",
+                                      "--proposal", "Credit Facility"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_path(script, run_name="__main__")
+
+    assert str(excinfo.value).startswith("error: ")
+    assert "Traceback" not in str(excinfo.value)
+    assert "\n" not in str(excinfo.value)
+    assert capsys.readouterr().out == ""

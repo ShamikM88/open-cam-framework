@@ -162,6 +162,34 @@ def test_collateral_sheet_has_a_total_row(workbook):
     assert ws.cell(row=3, column=1).value == "Total"
 
 
+@pytest.mark.parametrize(
+    ("exposure", "collateral_value", "expected"),
+    [
+        (400, 400, 1.0),
+        (0, 400, "N/A"),
+        (-400, 400, "N/A"),
+    ],
+)
+def test_collateral_cover_formulas_require_positive_exposure(
+    tmp_path, exposure, collateral_value, expected,
+):
+    out_path = tmp_path / "collateral_cover.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        collateral_data=[{
+            "asset_class": "Equipment",
+            "exposure": exposure,
+            "collateral_value": collateral_value,
+        }],
+    )
+    ws = openpyxl.load_workbook(out_path)["Collateral & Exposure"]
+
+    assert ws["H2"].value == '=IFERROR(IF(B2>0,G2/B2,"N/A"),"N/A")'
+    assert ws["H3"].value == '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'
+    assert _evaluate(ws, "H", 2, {}) == expected
+    assert _evaluate(ws, "H", 3, {}) == expected
+
+
 # ---------------------------------------------------------------------------
 # Formula correctness
 #
@@ -957,7 +985,7 @@ def test_export_to_xlsx_scales_total_row_for_multiple_collateral_assets(tmp_path
     assert ws.cell(row=5, column=1).value == "Total"
     assert ws.cell(row=5, column=2).value == "=SUM(B2:B4)"
     assert ws.cell(row=5, column=7).value == "=SUM(G2:G4)"
-    assert ws.cell(row=5, column=8).value == '=IFERROR(G5/B5,"N/A")'
+    assert ws.cell(row=5, column=8).value == '=IFERROR(IF(B5>0,G5/B5,"N/A"),"N/A")'
 
     memo = {}
     total_exposure = _evaluate(ws, "B", 5, memo)

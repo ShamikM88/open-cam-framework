@@ -1254,7 +1254,7 @@ def test_find_deal_keeps_corrupt_but_present_state_as_a_found_record(tmp_path):
 def test_find_deal_excludes_export_only_and_malformed_date_folders_from_candidates(tmp_path):
     base = tmp_path
     company_dir = base / "deals" / "Synthetic Co"
-    (company_dir / "Oakhaven Capital_2026-01-10").mkdir(parents=True)
+    (company_dir / "Oakhaven-Capital_2026-01-10").mkdir(parents=True)
     (company_dir / "not-a-dated-folder").mkdir()
     (company_dir / "standalone-file.txt").write_text("not a deal", encoding="utf-8")
     malformed = company_dir / "Oakhaven Capital_2026-02-30"

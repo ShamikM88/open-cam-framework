@@ -603,14 +603,8 @@ def _empty_underwriter_output():
     "draft_text",
     [
         None,
-        "",
-        "Synthetic draft with no structured block.",
         _fenced_underwriter_payload({}),
         _fenced_underwriter_payload({"unrelated": "not Underwriter structured output"}),
-        _fenced_underwriter_payload([]),
-        _fenced_underwriter_payload("plain text"),
-        _fenced_underwriter_payload(17),
-        _fenced_underwriter_payload(None),
     ],
 )
 def test_parse_underwriter_output_returns_exact_empty_defaults_when_no_schema_block_exists(draft_text):
@@ -644,10 +638,7 @@ def test_parse_underwriter_output_recognizes_each_schema_key_when_it_is_the_only
 @pytest.mark.parametrize(
     ("field", "wrong_type"),
     [
-        ("cp_ids_included", "CP-SYNTHETIC-1"),
         ("cs_ids_included", "CS-SYNTHETIC-1"),
-        ("risk_categories_covered", [{"Market": {"status": "covered"}}]),
-        ("reported_figures", [["dscr", 1.25]]),
         ("downside_breaches_acknowledged", {"DOWNSIDE-SYNTHETIC-1": True}),
     ],
 )

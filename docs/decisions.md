@@ -263,3 +263,24 @@ so in its Related line) when a later decision supersedes it.
 - **Why.** A deal-wide audit label must not imply that supplied history was independently recomputed. The interactive forward-only route does not recompute history and therefore does not weaken that guarantee.
 - **Consequences.** `financials_source` is unchanged by headless runs on analyst-supplied deals. The exception introduces no new state key and does not permit mixing raw figures from the two stores within any one period. See [the data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Related.** #345, #305, #271, #249, D4.
+
+## D18. Code defines, the register describes
+
+- **Context.** Every computed figure was described in prose across the documentation, but an analyst signing off
+  a figure had no single page listing formula, unit, edge rules, implementation reference and status side by
+  side, and nothing failed a build when prose and code drifted apart.
+- **Choice.** `docs/formula-register.md` is the one reviewable page of every computed metric, with stable `F-NNN`
+  ids. The code is the source of truth and the register describes it; a change to a formula must update the
+  register in the same pull request, and `tests/test_formula_register.py` fails the build when a formula row in
+  the workbook, a key the financial model produces, or a policy-engine rule has no register entry, or when an
+  entry names a file or function that does not exist. Analyst sign-off is recorded outside the repository; the
+  page records only role, date and commit, and no personal names.
+- **Why.** A description that cannot fail a build drifts; the guard makes a missing entry, a broken reference or
+  a changed definition fail the build or force a fingerprint refresh — though no guard can prove the prose itself
+  was rewritten, which is what the analyst review is for. Sign-off is a human act with a human record, not a file
+  in the repo.
+- **Consequences.** Entries are never renumbered; a withdrawn entry keeps its id with a status saying so.
+  Deliberate disagreements between the register and the code are recorded on the page under "Known
+  differences" rather than fixed silently. See [the formula register](formula-register.md).
+- **Related.** #366 (and #266 for the proposed collateral entries), D14's one-PR badge discipline for its test
+  count.

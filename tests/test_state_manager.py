@@ -1317,6 +1317,11 @@ def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_dat
     for proposal, dates in proposals.items():
         for date_str in dates:
             write_state(company, proposal, date_str=date_str, base_dir=base)
+    before_files = sorted(
+        str(path.relative_to(tmp_path))
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    )
 
     result = state_manager.find_deal(
         company, "Synthetic Alpha Capital", base_dir=base,
@@ -1352,6 +1357,12 @@ def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_dat
             },
         ],
     }
+    after_files = sorted(
+        str(path.relative_to(tmp_path))
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    )
+    assert after_files == before_files
 
 
 def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_path):
@@ -1400,4 +1411,21 @@ def test_find_deal_rejects_unsafe_path_components_without_creating_files(
 
     after = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
     assert after == before
+
+def test_find_deal_excludes_candidate_dates_that_are_not_exact_iso_shape(tmp_path):
+    base = tmp_path
+    company_dir = base / "deals" / "Synthetic Co"
+    malformed = company_dir / "Synthetic Alpha-Capital_2026-1-10"
+    malformed.mkdir(parents=True)
+    (malformed / "state.json").write_text("{}", encoding="utf-8")
+
+    result = state_manager.find_deal(
+        "Synthetic Co", "Synthetic Alpha Capital", base_dir=str(base),
+    )
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [],
+    }
 

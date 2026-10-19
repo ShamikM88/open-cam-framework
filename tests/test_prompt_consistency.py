@@ -275,10 +275,16 @@ def test_risk_reviewer_prompt_documents_research_brief_handling(risk_reviewer_pr
 # ---------------------------------------------------------------------------
 
 # The obsolete claim the prompt must not make about /review while the command runs the
-# deterministic layer for a named deal. Matches the old sentence's "the `/review` slash command
-# isn't" shape rather than its full wording, so a rephrased stale claim is still caught without
-# freezing the obsolete sentence in this file.
-STALE_UNWIRED_CLAIM_RE = re.compile(r"the `/review`(?: slash command)? isn't")
+# deterministic layer for a named deal. It matches the shapes of the claim, not the old sentence,
+# so a rephrased stale claim is still caught without freezing the obsolete sentence in this file:
+# the original "the `/review` slash command isn't" form, "/review ... isn't|is not|not ... wired
+# (up)" within one clause, and "/review ... unwired".
+STALE_UNWIRED_CLAIM_RES = (
+    re.compile(r"the `/review`(?: slash command)? isn't"),
+    re.compile(r"/review`?[^.;\n]{0,80}?\b(?:isn['\u2019]t|is not|are not|aren['\u2019]t|not)\b"
+               r"[^.;\n]{0,40}?\bwired\b"),
+    re.compile(r"/review`?[^.;\n]{0,80}?\bunwired\b"),
+)
 PINNED_WIRING_PHRASES = (
     "when `/review` is run for a named deal",
     "a standalone review with no deal identity",
@@ -297,7 +303,7 @@ def _wiring_problems(prompt, review_command):
     (the prompt calls /review unwired while the command invokes policy_check.py), or a
     missing pinned phrase from the authorised wording."""
     problems = []
-    if _review_command_runs_policy_check(review_command) and STALE_UNWIRED_CLAIM_RE.search(prompt):
+    if _review_command_runs_policy_check(review_command) and any(pattern.search(prompt) for pattern in STALE_UNWIRED_CLAIM_RES):
         problems.append(
             "agents/risk_reviewer_agent.md calls `/review` unwired while "
             ".claude/commands/review.md invokes policy_check.py for a named deal"
@@ -314,9 +320,9 @@ def test_reviewer_prompt_wiring_statement_matches_the_review_command(risk_review
     """Regression guard for issue #197: the Reviewer prompt's "Before you begin"
     paragraph must not claim the `/review` slash command is unwired while
     .claude/commands/review.md runs policy_check.py for a named deal, and must
-    keep the authorised wording's three pinned phrases -- the last one names
-    the three case bullets below it, so a rewording of the sentence that no
-    longer matches the cases fails here."""
+    contain the authorised wording's three pinned phrases. This checks those
+    phrases and the stale-claim patterns only; it does not check that the number
+    of case bullets matches the phrase "the three cases below"."""
     review_command = _read(".claude/commands/review.md")
     assert _review_command_runs_policy_check(review_command), (
         "expected .claude/commands/review.md to invoke policy_check.py for a named deal -- "
@@ -337,6 +343,22 @@ def test_wiring_guard_flags_a_prompt_that_calls_review_unwired():
         stale,
         "python scripts/policy_check.py --company \"<company>\" --proposal \"<proposal>\"",
     )
+    assert len(problems) == 1
+    assert "calls `/review` unwired" in problems[0]
+
+
+@pytest.mark.parametrize("stale_claim", [
+    "Not every caller is wired up to it yet (e.g. `/review` is not wired to policy_check.py).",
+    "The `/review` command is not yet wired up to the deterministic layer.",
+    "Note that /review isn't wired to it, so don't assume it ran.",
+    "Be aware `/review` is unwired today.",
+])
+def test_wiring_guard_catches_other_phrasings_of_the_stale_claim(stale_claim):
+    """Not vacuous: rephrasings other than the original sentence's shape are still flagged, and
+    the guard does not need the complete obsolete sentence to do it."""
+    command = "python scripts/policy_check.py --company \"<company>\" --proposal \"<proposal>\""
+    pinned = " ".join(PINNED_WIRING_PHRASES)
+    problems = _wiring_problems(f"{stale_claim} {pinned}", command)
     assert len(problems) == 1
     assert "calls `/review` unwired" in problems[0]
 

@@ -93,7 +93,7 @@ pytest_add_cli_args_test_selection = [
     "tests/test_legacy_state.py", "tests/test_golden_outputs.py",
     "tests/test_calibrate.py", "tests/test_properties.py",
 ]
-also_copy = [".github"]    # a golden-output test reads the workflow files, so the mutants/ copy needs them
+also_copy = [".github", "docs/examples"]    # selected tests read the workflow files and the synthetic example inputs, so the mutants/ copy needs them
 
 # Diagnostic target, in percent, for the mutation score of each governance-critical module (issue #146). Not a gate:
 # the mutation workflow is not a required check, and a module below target is reported, never failed.

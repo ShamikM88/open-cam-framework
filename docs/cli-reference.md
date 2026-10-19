@@ -16,7 +16,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
-| `state_manager.py` | Checks completed steps and exports derived Reviewer-view files with history separated | No | [State manager](#state-manager) |
+| `state_manager.py` | Finds an existing deal read-only, checks completed steps, and exports derived Reviewer-view files | No | [State manager](#state-manager) |
 | `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
@@ -108,6 +108,13 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
 [--financials <json>] [--spread <json>] [--collateral <json>] [--stress-assumptions <json>] [--new-review]`
 
 - `--company` and `--proposal` are required and name the deal.
+A read-only `state_manager.py --find` lookup is used at the single state-resolution point. When no exact record
+exists but a normalized near match is present, the orchestrator prints one warning line to standard error naming the
+candidate proposal/date, then continues with today's behavior; it does not refuse the run or select the candidate.
+No warning is printed when no normalized candidate exists. If the company folder cannot be listed (for example
+a permission error), the advisory is skipped and the run continues exactly as it did before the lookup existed.
+See [State manager](#state-manager).
+
 - `--pd` (default `0.20%`) and `--lgd` (default `LGD 3 (15%)`) are **user-supplied risk inputs** and are used exactly as
   given. The defaults are example values: if you omit the flags they flow into the CAM as if you had supplied them,
   so always pass your own.
@@ -309,8 +316,18 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 ## State manager
 
-`scripts/state_manager.py` has two mutually exclusive modes:
+`scripts/state_manager.py` has three mutually exclusive modes:
 
+- `--find --company ... --proposal ...` is a **read-only** lookup. It prints one JSON object. An exact existing
+  record yields `{"record_found": true, "state_path": "...", "date": "YYYY-MM-DD"}`, using the newest valid dated
+  folder with a `state.json`. A present but corrupt `state.json` still counts as a record; reading it through the
+  normal mode continues to raise the established corruption error.
+  If no exact record exists, the object has `record_found: false`, `company_folder_exists`, and `near_misses`.
+  Candidates are valid dated folders that contain `state.json`; each lists the proposal, date and path. Suggestions
+  match only after case-folding and collapsing runs of whitespace/hyphens. This is exact equality after normalization:
+  no fuzzy/prefix match is used, and no candidate is selected. A missing company folder is reported distinctly with
+  an empty candidate list. The mode creates no files or directories. If the company folder cannot be listed, the
+  mode prints one `error:` line and exits `1`.
 - `--check-steps --company ... --proposal ... --required <step,step>` checks every named step against
   `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. A valid result always exits `0`;
   an unreadable or malformed state is one `error:` line and exit `1`. Its JSON output is unchanged.
@@ -325,6 +342,7 @@ read them as a record. The source of truth remains the real `state.json`, which 
 stage. See the [data model](data-model.md).
 
 ```bash
+python scripts/state_manager.py --find --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
 python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
 python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
 ```

@@ -1722,7 +1722,7 @@ def test_state_manager_find_reports_exact_record_as_one_json_object_without_writ
         "state_path": os.path.relpath(str(folder / "state.json"), str(cli.workdir)),
         "date": "2026-03-15",
     }
-    assert result.stdout.endswith("\\n")
+    assert result.stdout.endswith("\n")
     assert sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*")) == before
 
 

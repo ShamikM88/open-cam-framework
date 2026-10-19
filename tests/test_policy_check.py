@@ -239,7 +239,7 @@ def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=Non
     result_truth = {"synthetic_figure": 12.5} if truth is None else truth
     result_reasons = [] if reasons is None else reasons
 
-    def fake_read_state(company, proposal, *, keys):
+    def fake_read_state(company, proposal, keys=None):
         calls["read_state"].append((company, proposal, keys))
         return loaded_state
 

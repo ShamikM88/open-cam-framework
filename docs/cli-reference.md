@@ -22,11 +22,12 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
-| `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/` into a directory (no publishing) | No | [Wiki publish](#wiki-publish) |
+| `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/`, and publishes it to the wiki with `--publish` | No | [Wiki publish](#wiki-publish) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
-Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic, makes no
-network call, and is what the slash commands run in their Bash steps.
+Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic and makes no
+network call -- the one exception is `wiki_publish.py`'s `--publish` mode, whose git clone and push over HTTPS are
+the wiki publish -- and is what the slash commands run in their Bash steps.
 
 ## Conventions common to the scripts
 
@@ -129,12 +130,11 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
   (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
   nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
-  For forward-year input only, `financials_source` is a deal-level flag. If a run would clear
-  `analyst-supplied` while preserving any non-empty period whose raw line items are missing, the run is refused
-  before a model call or write. If raw line items exist for every preserved period, all preserved raw periods are
-  recomputed alongside the new input before the flag is changed to `framework-computed`. Supply raw inputs for
-  every preserved period to recompute, or keep the analyst-supplied basis; a partial update must not relabel stale
-  analyst-supplied figures as framework-computed.
+  Forward-year-only input is refused the same way: `financials_source` is a deal-level flag, and a headless run
+  never recomputes or relabels an analyst-supplied deal, whether or not raw line items exist for its preserved
+  periods (one `error:` line, exit status 1, nothing written, `financials_source` unchanged). Record changes to
+  supplied figures with `/spread`'s analyst-supplied mode; an interactive, forward-only `/project` call is the
+  one allowed way to add framework-computed forward years to such a deal ([data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period)).
 - `--collateral` is a JSON file holding a flat list of asset objects.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
@@ -417,11 +417,19 @@ python scripts/run_evals.py --dry-run
 
 ## Wiki publish
 
-`python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check)` (no
-`ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus. `--out` writes the
-tree into a directory (which may not be the repository root, `docs/`, a directory inside `docs/` or an ancestor of `docs/`: the paths are resolved first and such an output is one `error:` line, exit `1`, nothing written, so the source pages can never be overwritten); `--check` builds and validates in memory and writes nothing. It publishes
-nothing: no wiki, no token, no network, no git -- publishing to the repository's wiki is a separate,
-later change that also needs the maintainer's one-time wiki setup.
+`python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check | --publish
+--source-sha <sha>)` (no `ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus.
+`--out` writes the tree into a directory (which may not be the repository root, `docs/`, a directory inside
+`docs/` or an ancestor of `docs/`: the paths are resolved first and such an output is one `error:` line, exit
+`1`, nothing written, so the source pages can never be overwritten); `--check` builds and validates in memory
+and writes nothing; `--publish` (with `--source-sha`, the commit it publishes from) clones the repository's
+wiki, fully replaces its content with the generated set, makes one commit carrying the source sha -- or none,
+when nothing changed -- and pushes it back to the wiki's default branch. The token is read only from the
+`GITHUB_TOKEN` environment variable and reaches git only as an HTTP header: never a URL, a log line, a file or
+a git process's environment (the variable is removed from every git child's environment). Generation and validation run before anything is cloned or pushed, so a broken corpus publishes
+nothing; a failed push, an unreachable wiki and a missing token are each one `error:` line, exit `1`. It runs
+on every push to `main` that changes `docs/` (the `wiki-publish` workflow; see
+[Operations](operations.md#publishing-the-wiki)).
 
 Only the allowlisted pages (`docs/*.md`, dotfiles excluded, and the example pages under `docs/examples/synthetic_co/`)
 are read; linked repository files are checked and rewritten to URLs, never copied. Page names come

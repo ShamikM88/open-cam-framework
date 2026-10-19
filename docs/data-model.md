@@ -62,11 +62,14 @@ shortened):
 | `approved_draft_path` | `/assemble` | Repository-relative path to the approved Markdown draft retained as `draft_approved.md` in the same dated deal folder |
 
 `financials_source` is a deal-wide label and audit caveat, not the exporter's routing key for every
-period. When it is `"analyst-supplied"`, framework-computed mode still refuses historical-period recomputation
-and `/project` leaves the label unchanged. A forward-only `/project` run may nevertheless compute its forecast:
-those forward-period raw lines are recorded under `financials[period]["raw"]` and exported from that store.
-The two bases may therefore coexist across different periods; raw figures from the two stores are never blended
-within one period, and a forecast marked analyst-supplied is not recomputed.
+period. When it is `"analyst-supplied"`, framework-computed mode refuses historical-period recomputation and
+`/project` leaves the label unchanged. The one allowed exception to the normal one-raw-store-per-deal rule is
+an interactive, forward-only `/project` call: its forward-year raw lines are framework-computed, recorded under
+`financials[period]["raw"]` and exported from that store, while the historical lines remain in
+`analyst_supplied_financials`. No historical period is recomputed, `financials_source` stays
+`"analyst-supplied"`, and the two stores are never blended within a period. A forecast explicitly marked
+analyst-supplied is not recomputed. The headless `orchestrator.py` does not get this exception; it refuses a
+run that would recompute an analyst-supplied deal, even if the supplied input is forward-only.
 
 Ratios that cannot be computed are `null`, never `0`. The units for `gearing`, `fcf_conversion_pct` and their
 covenant thresholds follow the [percent-type ratio fraction convention](financial-model.md#percent-type-ratios-are-stored-as-fractions). A step may add keys of its own; this table is a

@@ -929,9 +929,9 @@ PD and LGD; the framework does not estimate it.
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219). The existing workbook
-  row and CAM figure (F-047, F-048) are a 0-100 percentage, and the workbook row does not refuse a negative
-  denominator — reconciling them is exactly what issue #365 tracks (see KD-2)
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219). The existing workbook row
+  (F-048) is a raw fraction with no ×100 and the CAM aggregate (F-047) is on a 0-100 scale, and neither refuses
+  a negative denominator — reconciling them is exactly what issue #365 tracks (see KD-2)
 - **Basis:** house convention (agreed on #266)
 - **Status:** Proposed, not implemented
 
@@ -996,8 +996,9 @@ maintainer, per the issue's instruction.
   and :825 total) — a zero exposure shows N/A only via the division error, and a negative exposure produces
   a negative percentage rather than N/A; and the CAM's aggregate cover
   (`compute_collateral_cover_pct()`, scripts/policy_checks.py:104-119) returns `None` only when total
-  exposure is exactly 0 — a negative total exposure yields a negative percentage. The cover is also quoted on
-  a 0-100 scale there, against the fraction convention of the proposed Coverage % (F-054). Tracked as
+  exposure is exactly 0 — a negative total exposure yields a negative percentage. The CAM's aggregate
+  cover is also quoted on a 0-100 scale there, while the workbook's cover cell is a raw fraction — both
+  against the fraction convention of the proposed Coverage % (F-054). Tracked as
   issue #365; deliberately not fixed here.
 
 ## Drift guard

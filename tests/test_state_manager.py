@@ -1412,6 +1412,7 @@ def test_find_deal_rejects_unsafe_path_components_without_creating_files(
     after = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
     assert after == before
 
+
 def test_find_deal_excludes_candidate_dates_that_are_not_exact_iso_shape(tmp_path):
     base = tmp_path
     company_dir = base / "deals" / "Synthetic Co"

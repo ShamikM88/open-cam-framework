@@ -1334,25 +1334,25 @@ def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_dat
             {
                 "proposal": "Synthetic Alpha - Capital",
                 "date": "2026-06-12",
-                "state_path": state_path(
-                    company, "Synthetic Alpha - Capital",
-                    date_str="2026-06-12", base_dir=base,
+                "state_path": str(
+                    tmp_path / "deals" / company
+                    / "Synthetic Alpha - Capital_2026-06-12" / "state.json"
                 ),
             },
             {
                 "proposal": "Synthetic Alpha--Capital",
                 "date": "2026-05-12",
-                "state_path": state_path(
-                    company, "Synthetic Alpha--Capital",
-                    date_str="2026-05-12", base_dir=base,
+                "state_path": str(
+                    tmp_path / "deals" / company
+                    / "Synthetic Alpha--Capital_2026-05-12" / "state.json"
                 ),
             },
             {
                 "proposal": "Synthetic Alpha-Capital",
                 "date": "2026-03-11",
-                "state_path": state_path(
-                    company, "Synthetic Alpha-Capital",
-                    date_str="2026-03-11", base_dir=base,
+                "state_path": str(
+                    tmp_path / "deals" / company
+                    / "Synthetic Alpha-Capital_2026-03-11" / "state.json"
                 ),
             },
         ],

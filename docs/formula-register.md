@@ -600,13 +600,14 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Unit and storage:** a full parallel set of `financials` and `ratios` per stressed forward period; stored
   under `downside_case`, never over the base case
 - **Edge rules:** two paths. Framework-computed forward years: the requested shocks are applied to the raw
-  lines as given and the model is re-run — no reconciliation is possible or required. Analyst-supplied
-  forecasts: the analyst's own stressed scenario is used where given; otherwise the framework's shocks apply
-  only where they genuinely meet their assumptions — the analyst gave that year's raw lines, every line a
-  requested shock acts on, every line the covenant ratios read (an omitted line would read as a zero the
-  analyst never confirmed), and the framework's formulas reproduce the subtotals and ratios the analyst
-  gave (to two decimal places). Where they do not — or where a downside was wanted but the analyst's own
-  scenario does not cover the year — the year is recorded under `unavailable` with the reason, and a
+  lines as given and the model is re-run — this path does not perform the supplied-forecast reconciliation
+  check. Analyst-supplied forecasts: the analyst's own stressed scenario is used where given; otherwise the
+  framework's shocks apply only where they genuinely meet their assumptions — the analyst gave that year's
+  raw lines, every line a requested shock acts on, every line the covenant ratios read (an omitted line
+  would read as a zero the analyst never confirmed), and the framework's formulas reproduce the subtotals
+  and ratios the analyst gave (within `RECONCILE_TOLERANCE` = 0.005, the code's two-decimal-place
+  tolerance). Where neither an analyst-supplied downside scenario nor an eligible framework-derived downside
+  is available for a requested year, the year is recorded under `unavailable` with the reason, and a
   covenant that PASSes there in the base case is recorded UNRESOLVABLE, never silently absent (issue #124)
 - **State keys:** —
 - **Workbook rows:** the "(Downside)" columns

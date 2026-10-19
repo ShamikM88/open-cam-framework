@@ -121,6 +121,11 @@ it must not reduce or offset positive exposure from another asset. The workbook'
 cells apply the same strictly positive exposure rule and show `N/A` otherwise. For valid, non-negative collateral inputs
 with a positive exposure, the existing collateral-value / exposure calculation and percentage scale are unchanged.
 
+**Accepted divergence (tracked in #378).** The exported workbook's total row sums the per-asset cells, so it can net a
+negative asset into a positive total and show a percentage, while `compute_collateral_cover_pct` returns `None` for the
+same input. The Python function is the policy-engine figure and the stricter of the two; aligning the workbook with it
+is tracked in #378.
+
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its
 threshold is missing or not a number, or its metric is not one of the computed ratios. Every covenant result carries
@@ -404,7 +409,7 @@ EBITDA is disclosed, not silently dropped (the code-enforced rejection text for 
 FY+1 under stress (reason)", not "breaches threshold"). The exported workbook's ratio cells use the same rule
 (`IF(denominator>0, ..., "N/A")`, not just `IFERROR`; the working capital cycle row wraps its sum in `IFERROR`
 so an "N/A" day row gives "N/A", not `#VALUE!`), so it agrees with `state.json` cell for cell. The margin rows use the same guard but have no `state.json`
-counterpart, and the collateral cover cells are `IFERROR`-only; neither is a covenant metric. **Forward years
+counterpart, and the collateral cover cells use the same positive-denominator guard as the ratio cells; neither is a covenant metric. **Forward years
 (issue #176):** a covenant applies to every forward base-case year (`FY+1`..`FY+3`) that has a recorded,
 non-empty ratio set; a year with nothing recorded is not evaluated, and state.json carries no covenant tenor, so
 a covenant that really ends earlier is still reported for later projected years. `forward_covenant_results` is

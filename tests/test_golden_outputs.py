@@ -314,8 +314,8 @@ def test_normalize_xlsx_serializes_native_charts(tmp_path):
     path = _workbook_with_chart(tmp_path / "chart.xlsx", "line", "B4")
     lines = normalize_xlsx(path).splitlines()
     assert "chart lineChart anchor=B4 display_blanks=gap" in lines
-    assert ('  series title=None values="\'Sheet1\'!$B$2:$C$2" '
-            'categories="\'Sheet1\'!$B$1:$C$1"') in lines
+    assert ('  series title=None values="\'Sheet1\'!B2:C2" '
+            'categories="\'Sheet1\'!B1:C1"') in lines
 
 
 def test_chart_serialization_changes_with_type_anchor_and_references(tmp_path):

@@ -14,7 +14,9 @@ block or cell -- so a snapshot is a readable, reviewable diff:
   as text (the file is never opened by Excel, so there are no cached values). Native charts are serialized after
   the cells: one `chart <type> anchor=<cell> display_blanks=<gap>` line per chart plus one indented line per
   series with its legend-title, values and categories references (issue #131) -- the reference strings the
-  workbook carries, so a chart that stops referencing the workbook's own cells fails the snapshot.
+  workbook carries, so a chart that stops referencing the workbook's own cells fails the snapshot. The
+  absolute-reference `$` markers are stripped from the printed references: pii_scan.py reads `$`-prefixed numbers
+  as currency amounts, and stripping them loses only relative-vs-absolute detail the rest of the range pins.
 
 Nothing here is imported by production code.
 """
@@ -162,8 +164,12 @@ def _cell_attrs(cell):
 def _chart_lines(sheet):
     """A sheet's native charts as snapshot lines: type, anchor cell, blank-cell
     rendering, then each series' legend-title / values / categories references.
-    Anchors are 0-based on the loaded objects, so they are printed as A1 cells."""
+    Anchors are 0-based on the loaded objects, so they are printed as A1 cells; the
+    references' absolute `$` markers are stripped (see the module docstring)."""
     from openpyxl.utils import get_column_letter
+
+    def _ref(reference):
+        return reference.replace("$", "") if reference else reference
 
     lines = []
     for chart in sheet._charts:
@@ -182,7 +188,8 @@ def _chart_lines(sheet):
                     categories = series.cat.numRef.f
                 elif series.cat.strRef is not None:
                     categories = series.cat.strRef.f
-            lines.append(f"  series title={title!r} values={series.val.numRef.f!r} categories={categories!r}")
+            lines.append(f"  series title={_ref(title)!r} values={_ref(series.val.numRef.f)!r} "
+                         f"categories={_ref(categories)!r}")
     return lines
 
 

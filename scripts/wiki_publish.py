@@ -240,51 +240,109 @@ def _resolve_target(
     return walked, relative.as_posix()
 
 
-def _code_span_ranges(line: str) -> list[tuple[int, int]]:
-    """The (start, end) character ranges of the inline code spans on a line.
+_BACKTICK_RUN_RE = re.compile(r"`+")
+_HEADING_LINE_RE = re.compile(r"^\s{0,3}#{1,6}(?:\s|$)")
+_TABLE_ROW_RE = re.compile(r"^\s{0,3}\|")
+_QUOTE_LINE_RE = re.compile(r"^\s{0,3}>")
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)")
+_BLOCK_BREAK_RE = re.compile(r"^\s{0,3}(?:[-*_=\s]{3,})$")
 
-    A span opens with a run of N backticks and closes only with another run of
-    exactly N backticks: shorter runs inside it are content, and a longer run
-    does not close it (CommonMark's rule)."""
-    ranges: list[tuple[int, int]] = []
-    i = 0
-    length = len(line)
-    while i < length:
-        if line[i] != "`":
-            i += 1
-            continue
-        start = i
-        while i < length and line[i] == "`":
-            i += 1
-        run = i - start
-        j = i
-        while j < length:
-            if line[j] != "`":
-                j += 1
+
+def _code_span_intervals(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
+    """The (start, end) character intervals of the inline code spans, per line.
+
+    CommonMark pairs a backtick string with the next backtick string of equal
+    length in the same block, and a block's text may soft-wrap across lines:
+    a code span can open on one line and close on a later one (finding PX358-3,
+    issue #192). The lines are grouped into inline blocks the way the corpus
+    uses Markdown: a run of consecutive text lines (a paragraph, or a list
+    item with its continuations, with consecutive blockquote lines kept
+    together); a heading or table-row line is a block of its own. Fenced code
+    carries no inline content and is skipped. Within a block the backtick
+    runs are paired left to right, so a shorter run inside a longer span is
+    content and a longer run does not close it (CommonMark's rule).
+    """
+    intervals: dict[int, list[tuple[int, int]]] = {}
+    block: list[tuple[int, str]] = []
+    last_kind: str | None = None
+
+    def _flush() -> None:
+        nonlocal last_kind
+        if not block:
+            return
+        runs: list[tuple[int, int, int]] = []
+        for position, (_, line) in enumerate(block):
+            for match in _BACKTICK_RUN_RE.finditer(line):
+                runs.append((position, match.start(), len(match.group(0))))
+        used = [False] * len(runs)
+        for opener_at, opener in enumerate(runs):
+            if used[opener_at]:
                 continue
-            close_start = j
-            while j < length and line[j] == "`":
-                j += 1
-            if j - close_start == run:
-                ranges.append((start, j))
-                i = j
-                break
-            # A run of a different length is content; keep scanning from j.
-        # No closer of equal length: the opening run is literal text; the
-        # outer loop continues from just after it (i already is).
-    return ranges
+            for closer_at in range(opener_at + 1, len(runs)):
+                if used[closer_at]:
+                    continue
+                if runs[closer_at][2] == opener[2]:
+                    used[opener_at] = used[closer_at] = True
+                    _mark_span(opener, runs[closer_at])
+                    break
+        block.clear()
+        last_kind = None
+
+    def _mark_span(opener: tuple[int, int, int], closer: tuple[int, int, int]) -> None:
+        for position in range(opener[0], closer[0] + 1):
+            line_index, line = block[position]
+            start = opener[1] if position == opener[0] else 0
+            end = closer[1] + closer[2] if position == closer[0] else len(line)
+            intervals.setdefault(line_index, []).append((start, end))
+
+    fence: tuple[str, int] | None = None
+    for line_index, line in enumerate(lines):
+        delimiter = _fence_delimiter(line)
+        if fence is not None:
+            if (
+                delimiter is not None
+                and delimiter[0] == fence[0]
+                and delimiter[1] >= fence[1]
+                and line.strip() == delimiter[0] * delimiter[1]
+            ):
+                fence = None
+            continue  # fenced code has no inline content
+        if delimiter is not None:
+            _flush()
+            fence = delimiter
+            continue
+        if _BLOCK_BREAK_RE.match(line) or not line.strip():
+            _flush()
+            continue
+        kind = (
+            "heading" if _HEADING_LINE_RE.match(line)
+            else "table" if _TABLE_ROW_RE.match(line)
+            else "quote" if _QUOTE_LINE_RE.match(line)
+            else "item" if _LIST_ITEM_RE.match(line)
+            else "text"
+        )
+        if kind in ("heading", "table") or (kind == "quote" and last_kind not in (None, "quote")):
+            _flush()
+        elif kind == "item":
+            _flush()
+        block.append((line_index, line))
+        last_kind = kind
+    _flush()
+    return intervals
 
 
 def _rewrite_line(
     line: str, line_no: int, page_path: Path, root: Path, repo_url: str,
     page_names: dict[str, str], page_texts: dict[str, str],
+    code_spans: list[tuple[int, int]],
 ) -> str:
     """Rewrite every real link on one line, leaving code spans untouched.
 
-    A link is code only when its opening bracket sits inside a code span; a
-    code span may legitimately appear inside link text (``[`CLAUDE.md`](..)``).
+    A link is code only when its opening bracket sits inside a code span --
+    which may have opened on an earlier line of the same block, so the spans
+    come from `_code_span_intervals`, computed for the whole page. A code
+    span may legitimately appear inside link text (``[`CLAUDE.md`](..)``).
     """
-    code_spans = _code_span_ranges(line)
 
     def in_code(start: int) -> bool:
         return any(span_start <= start < span_end for span_start, span_end in code_spans)
@@ -355,13 +413,17 @@ def _transform_page(
     """Rewrite a page's links and prepend the generated-source notice."""
     source = page_path.relative_to(root).as_posix()
     lines = text.replace("\r\n", "\n").split("\n")
+    code_spans = _code_span_intervals(lines)
     out: list[str] = []
     for line_no, line, in_fence in _lines_with_fences(lines):
         if in_fence:
             out.append(line)
             continue
         out.append(
-            _rewrite_line(line, line_no, page_path, root, repo_url, page_names, page_texts)
+            _rewrite_line(
+                line, line_no, page_path, root, repo_url, page_names, page_texts,
+                code_spans.get(line_no - 1, []),
+            )
         )
     return notice_for(source) + "\n\n" + "\n".join(out)
 

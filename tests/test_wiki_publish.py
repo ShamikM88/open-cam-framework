@@ -40,14 +40,17 @@ U = "https://github.com/example/repo"
 def _live_links(content: str) -> list[str]:
     """Every real link destination in a generated page: fenced code blocks are
     skipped (example links inside them are prose, not links), with the same
-    fence rule the generator uses (tilde fences, longer fences)."""
+    fence rule the generator uses (tilde fences, longer fences) and the same
+    block-wide code-span pairing (`_code_span_intervals`)."""
+    lines = content.split("\n")
+    code_spans = wiki_publish._code_span_intervals(lines)
     dests = []
-    for _, line, in_fence in wiki_publish._lines_with_fences(content.split("\n")):
+    for line_no, line, in_fence in wiki_publish._lines_with_fences(lines):
         if in_fence:
             continue
-        code_spans = wiki_publish._code_span_ranges(line)
+        spans = code_spans.get(line_no - 1, [])
         for match in re.finditer(r"(!?)\[[^\]\n]*\]\(([^)\s]+)\)", line):
-            if any(s <= match.start() < e for s, e in code_spans):
+            if any(s <= match.start() < e for s, e in spans):
                 continue  # a code span hides the link
             dests.append(match.group(2))
     return dests
@@ -343,6 +346,55 @@ class TestLinkRewriting:
             "source.md": f"# S\n\n{fenced}\n",
         })
         assert "[gone](gone.md)" in tree["source.md"]
+
+    def test_a_link_inside_a_multiline_code_span_is_left_alone(self, tmp_path):
+        # PX192-1 / PX358-3: a code span may open and close on different lines
+        # (CommonMark pairs a backtick string with the next backtick string of
+        # equal length in the same block, across soft line breaks); a link
+        # inside it is code, not a link. The per-line span detection the
+        # generator used left such a link live.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\nRun `python scripts/check.py --flag\n"
+                "value [flag](README.md)` as a step.\n\n[ok](README.md)\n"
+            ),
+        })
+        assert "value [flag](README.md)`" in tree["source.md"]
+
+    def test_a_link_after_a_multiline_code_span_is_still_rewritten(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n`opens here\nand closes` [ok](README.md)\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_multiline_code_span_in_a_list_item_hides_a_link(self, tmp_path):
+        # The corpus's real cases (commands.md, cli-reference.md): the span is
+        # a continuation of a bullet item's text, and the link sits before the
+        # closing backtick on the span's closing line.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n- run `python scripts/spread.py --company <name>\n"
+                "  --proposal <name> [opt](README.md)` as a Bash step\n"
+            ),
+        })
+        assert "[opt](README.md)`" in tree["source.md"]
+
+    def test_a_multiline_code_span_across_a_table_row_boundary_is_not_paired(
+        self, tmp_path
+    ):
+        # Table cells are separate inline contexts: a dangling opener in one
+        # row must not pair with a closer in the next and hide the next row's
+        # live link.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n| `dangling\n| [x](README.md) closer`\n"
+            ),
+        })
+        assert f"[x]({U}/wiki/Home)" in tree["source.md"]
 
     def test_mermaid_blocks_and_tables_are_preserved_byte_for_byte(self, tmp_path):
         mermaid = '```mermaid\nflowchart LR\n  A[Start] --> B{"end<br/>x"}\n```'

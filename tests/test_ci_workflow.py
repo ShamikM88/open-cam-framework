@@ -663,6 +663,7 @@ def test_the_mutation_config_mutates_exactly_the_critical_modules_plus_the_named
     for test_file in config["mutmut"]["pytest_add_cli_args_test_selection"]:
         assert (REPO_ROOT / test_file).is_file(), test_file
     assert ".github" in config["mutmut"]["also_copy"]
+    assert "docs/examples" in config["mutmut"]["also_copy"]    # test_deal_export reads docs/examples/synthetic_co (issue #376)
     assert config["mutmut"]["source_paths"] == ["src"]
     for module in config["opencam"]["coverage"]["critical_modules"]:
         assert (REPO_ROOT / "scripts" / f"{module}.py").is_file(), module

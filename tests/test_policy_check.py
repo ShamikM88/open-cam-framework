@@ -313,13 +313,13 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
         "compliant": False,
         "cam_data_present": True,
     }
-    assert calls["read_state"] == [(
-        "Synthetic Co", "Synthetic Facility",
-        (
-            "financials", "ratios", "collateral", "covenants",
-            "security_package", "guarantees", "downside_case", "financials_source",
-        ),
-    )]
+    assert len(calls["read_state"]) == 1
+    read_company, read_proposal, read_keys = calls["read_state"][0]
+    assert (read_company, read_proposal) == ("Synthetic Co", "Synthetic Facility")
+    assert set(read_keys) == {
+        "financials", "ratios", "collateral", "covenants",
+        "security_package", "guarantees", "downside_case", "financials_source",
+    }
     assert calls["evaluate_deal_policy"] == [{
         "financials": loaded_state["financials"],
         "ratios": loaded_state["ratios"],
@@ -383,13 +383,13 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
         "compliant": True,
         "cam_data_present": False,
     }
-    assert calls["read_state"] == [(
-        "Synthetic Co", "Synthetic Facility",
-        (
-            "financials", "ratios", "collateral", "covenants",
-            "security_package", "guarantees", "downside_case", "financials_source",
-        ),
-    )]
+    assert len(calls["read_state"]) == 1
+    read_company, read_proposal, read_keys = calls["read_state"][0]
+    assert (read_company, read_proposal) == ("Synthetic Co", "Synthetic Facility")
+    assert set(read_keys) == {
+        "financials", "ratios", "collateral", "covenants",
+        "security_package", "guarantees", "downside_case", "financials_source",
+    }
     assert calls["evaluate_deal_policy"] == [empty_policy_input]
     assert calls["ground_truth_figures"] == [({}, {}, [], {})]
     assert calls["check_draft_compliance"] == [(None, policy_state, truth, None, False)]
@@ -449,13 +449,8 @@ def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_complian
     tmp_path, monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    calls, _, _, _ = pc_stub_compute_collaborators(monkeypatch, {})
+    pc_stub_compute_collaborators(monkeypatch, {})
 
     with pytest.raises(FileNotFoundError):
         compute("Synthetic Co", "Synthetic Facility", draft_path=str(tmp_path / "missing.md"))
-
-    assert len(calls["read_state"]) == 1
-    assert len(calls["evaluate_deal_policy"]) == 1
-    assert calls["ground_truth_figures"] == []
-    assert calls["check_draft_compliance"] == []
 

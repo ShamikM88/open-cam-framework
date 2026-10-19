@@ -294,13 +294,20 @@ def _named_implementation_functions():
 
 
 def _formula_definition_fingerprints():
-    """sha256 fingerprints of the formula definitions the register describes:
-    the `SECTIONS` row structure (labels and formula templates — a template
-    change is a formula change) and the AST of every function the register
+    """Fingerprints of the formula definitions the register describes: the
+    `SECTIONS` row structure (labels and formula templates — a template change
+    is a formula change) and the source text of every function the register
     names. A change to any of them changes a fingerprint, so the register
     cannot silently drift from the code it describes: the build fails until
-    the fingerprints are refreshed, and the failure instructs the author to
-    update the affected register entries in the same change.
+    the constants below are refreshed, and the failure instructs the author to
+    update the affected register entries in the same change. The hashes detect
+    that a definition changed; they cannot prove the Markdown prose was
+    updated — that is what the coverage checks and the reviewer are for.
+
+    The function hashes use the function's own source lines (via AST line
+    numbers), not `ast.dump()`: the dump format is not stable across Python
+    versions (e.g. `type_params` on 3.12+), and CI and contributors run
+    different versions.
     """
     fingerprints = {
         "SECTIONS": hashlib.sha256(
@@ -309,11 +316,14 @@ def _formula_definition_fingerprints():
     }
     named = _named_implementation_functions()
     for script in sorted((REPO_ROOT / "scripts").glob("*.py")):
-        tree = ast.parse(script.read_text(encoding="utf-8"))
+        source = script.read_text(encoding="utf-8")
+        lines = source.splitlines(keepends=True)
+        tree = ast.parse(source)
         for node in tree.body:
             if isinstance(node, ast.FunctionDef) and node.name in named:
+                body = "".join(lines[node.lineno - 1: node.end_lineno])
                 fingerprints[f"{script.stem}:{node.name}"] = hashlib.sha256(
-                    ast.dump(node).encode("utf-8")
+                    body.encode("utf-8")
                 ).hexdigest()[:16]
     return fingerprints
 
@@ -322,36 +332,36 @@ def _formula_definition_fingerprints():
 # Refresh ONLY together with the register entries that describe what changed.
 FORMULA_DEFINITION_FINGERPRINTS = {
     "SECTIONS": "5c7d3a8773a50300",
-    "financial_conventions:warn_percent_type_values": "9c5e57e1157d46d8",
-    "numeric_validation:validate_stress_assumptions": "c2450567be8d02e1",
-    "numeric_validation:validate_raw_line_items": "6212f84436f57abe",
-    "numeric_validation:validate_period_objects": "e25c8ed19e13a1ec",
-    "numeric_validation:validate_finite_numbers": "cbb774b471a34e60",
-    "policy_checks:compute_collateral_cover_pct": "1f11ab4f0688ea76",
-    "policy_checks:ground_truth_figures": "317c14a975e83fe3",
-    "policy_checks:values_match": "9679f0b05cc13770",
-    "policy_checks:check_reported_figures": "bfd00f5b4059ba96",
-    "policy_engine:_slugify": "481bf51f909eb0b7",
-    "policy_engine:_evaluate_covenant": "0dcbf53e32e9e42f",
-    "policy_engine:_unique_id": "008bf6d7e5c2d085",
-    "policy_engine:_evaluate_security": "a75c170b34bd637a",
-    "policy_engine:_guarantee_cps": "803ade22a9d1b434",
-    "policy_engine:_covenant_compliance_cs": "c7398494f04dacc8",
-    "policy_engine:_security_reconfirmation_cs": "2b3a80db766324c5",
-    "policy_engine:_guarantee_standing_cs": "6ee1b822ca77a56a",
-    "policy_engine:_evaluate_downside_covenants": "fae9e85723a44900",
-    "policy_engine:_evaluate_forward_covenants": "0190258f3e208715",
-    "policy_engine:_period_dict": "7b3d95f5b764e5e0",
-    "policy_engine:evaluate_deal_policy": "f26ee465473d5578",
-    "spreading_builder:_ratio": "6baced0909ccef1f",
-    "spreading_builder:describe_undefined_ratio": "e0fbe127b5d52e14",
-    "spreading_builder:evaluate_financial_model": "4a51a62de1fedc3a",
-    "spreading_builder:apply_stress_shocks": "c8a189012d3c4ba7",
-    "spreading_builder:evaluate_downside_case": "756e5ddfef057937",
-    "spreading_builder:_column_headers": "49b376916dc1a6fd",
-    "spreading_builder:_write_financial_spreading": "f42f330c946c9460",
-    "spreading_builder:_write_collateral_sheet": "4300d46a1edfe120",
-    "supplied_forecast:build_downside": "a2bf33be943f43ef",
+    "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
+    "numeric_validation:validate_stress_assumptions": "f4749b09600d2a7e",
+    "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
+    "numeric_validation:validate_period_objects": "54cbcf705411906a",
+    "numeric_validation:validate_finite_numbers": "7e2ff92c23c49b92",
+    "policy_checks:compute_collateral_cover_pct": "ddd79ea5fb32682e",
+    "policy_checks:ground_truth_figures": "b9d5a0a2832c9f7c",
+    "policy_checks:values_match": "72cd7da10488e462",
+    "policy_checks:check_reported_figures": "eb09378e92f9b0bb",
+    "policy_engine:_slugify": "ab7744adeda73de9",
+    "policy_engine:_evaluate_covenant": "b2c5d296799527b9",
+    "policy_engine:_unique_id": "d54f57bd7a40f090",
+    "policy_engine:_evaluate_security": "cb9082846dd30ddf",
+    "policy_engine:_guarantee_cps": "f5f47fffb0826678",
+    "policy_engine:_covenant_compliance_cs": "d639dc94fa2a50d1",
+    "policy_engine:_security_reconfirmation_cs": "91217d55799015bc",
+    "policy_engine:_guarantee_standing_cs": "2c9b7d5f7e37a654",
+    "policy_engine:_evaluate_downside_covenants": "40ef12411595cbdb",
+    "policy_engine:_evaluate_forward_covenants": "54a57f118af28946",
+    "policy_engine:_period_dict": "84198167206c0bc8",
+    "policy_engine:evaluate_deal_policy": "dc521bf0bc195c9d",
+    "spreading_builder:_ratio": "ba299b61835fd609",
+    "spreading_builder:describe_undefined_ratio": "da7d4003d773d17e",
+    "spreading_builder:evaluate_financial_model": "7f4f761323d3aa63",
+    "spreading_builder:apply_stress_shocks": "56e8cb78e68e91e9",
+    "spreading_builder:evaluate_downside_case": "50118518f3fbb65e",
+    "spreading_builder:_column_headers": "8e930360083183fd",
+    "spreading_builder:_write_financial_spreading": "76e4ceecf40777de",
+    "spreading_builder:_write_collateral_sheet": "13e2cadff0743116",
+    "supplied_forecast:build_downside": "db2bd0b22dcbab55",
 }
 
 

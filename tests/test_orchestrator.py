@@ -2364,3 +2364,19 @@ def test_run_pipeline_warns_and_continues_for_sub_one_percent_stress_values(proj
     assert read_state("Synthetic Co", "Synthetic Facility")["stress_assumptions"] == {
         "revenue_haircut_pct": 0.5,
     }
+
+
+def test_run_pipeline_warns_once_for_normalized_near_miss_but_keeps_running(project_root, capsys):
+    write_state("Synthetic Co", "Credit Facility", date_str="2026-01-10")
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Synthetic Co", "credit   facility", "0.20%", "LGD 3 (15%)",
+                 "corporate_credit", client=client)
+
+    warning_lines = [line for line in capsys.readouterr().err.splitlines()
+                     if line.startswith("warning:")]
+    assert len(warning_lines) == 1
+    assert "credit   facility" in warning_lines[0]
+    assert "Credit Facility" in warning_lines[0]
+    assert client.call_count == 2
+    assert state_path("Synthetic Co", "credit   facility").endswith("credit   facility_2026-10-19/state.json") is False

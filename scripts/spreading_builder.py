@@ -795,10 +795,10 @@ def _chart_last_col(downside_financial_data=None, supplied_downside_values=None,
     without any, because a chart series reference must stay contiguous and the issue-131
     sign-off forbids shipping blank points for unavailable columns. That contiguity
     requirement has a documented limitation: downside figures for FY+1 and FY+3 but not
-    FY+2 end the range at column H, dropping the FY+3 observation -- the inputs the
-    framework's own downside computation never produces (evaluate_downside_case()
-    derives a downside for each forward period the base case has), but the exported
-    API accepts any period set, and every alternative violates the sign-off or
+    FY+2 end the range at column H, dropping the FY+3 observation. The framework does
+    not invent such a gap (evaluate_downside_case() mirrors the forward periods the
+    base case carries, so a gap comes from the input data), but the exported API
+    accepts any period set, and every alternative violates the sign-off or
     misrenders (including the unavailable column plots it as a blank; a union
     reference is not expressible with openpyxl.chart Reference; a separate series
     misaligns because Excel plots each series against the category axis by index).

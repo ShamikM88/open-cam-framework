@@ -129,12 +129,11 @@ python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --t
   **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
   (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
   nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
-  For forward-year input only, `financials_source` is a deal-level flag. If a run would clear
-  `analyst-supplied` while preserving any non-empty period whose raw line items are missing, the run is refused
-  before a model call or write. If raw line items exist for every preserved period, all preserved raw periods are
-  recomputed alongside the new input before the flag is changed to `framework-computed`. Supply raw inputs for
-  every preserved period to recompute, or keep the analyst-supplied basis; a partial update must not relabel stale
-  analyst-supplied figures as framework-computed.
+  Forward-year-only input is refused the same way: `financials_source` is a deal-level flag, and a headless run
+  never recomputes or relabels an analyst-supplied deal, whether or not raw line items exist for its preserved
+  periods (one `error:` line, exit status 1, nothing written, `financials_source` unchanged). Record changes to
+  supplied figures with `/spread`'s analyst-supplied mode; an interactive, forward-only `/project` call is the
+  one allowed way to add framework-computed forward years to such a deal ([data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period)).
 - `--collateral` is a JSON file holding a flat list of asset objects.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,

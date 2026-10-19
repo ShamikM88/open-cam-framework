@@ -856,7 +856,9 @@ PD and LGD; the framework does not estimate it.
 
 - **Name:** Gross Exposure (Exc. RV) — exposure before the residual value
 - **Formula:** gross_exposure = valuation × (1 − down_payment_pct); both inputs are stored (deal inputs)
-- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Unit and storage:** currency amount; full precision, no rounding in storage. The `down_payment_pct`
+  input is stored as a fraction (0.20 = 20%), per the fraction rule adopted on #266; the 0-100% refusal
+  bound is applied on the percent scale
 - **Edge rules:** down payment % outside 0-100% refused with one error line and nothing written; negative
   amounts refused; mixed-sign inputs refused with no netting
 - **State keys:** —
@@ -871,7 +873,9 @@ PD and LGD; the framework does not estimate it.
 - **Name:** RV Exposure — the exposure created by the residual value
 - **Formula:** rv_exposure = est_rv_pct × valuation (the original cost or valuation, not the financed amount);
   `est_rv_pct` is the risk team's input, like PD and LGD
-- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Unit and storage:** currency amount; full precision, no rounding in storage. The `est_rv_pct` input
+  is stored as a fraction (0.45 = 45%), per the fraction rule adopted on #266; the over-100% warning is on
+  the percent scale
 - **Edge rules:** RV % over 100% is a warning, not an error; negative amounts refused; mixed-sign inputs
   refused
 - **State keys:** —
@@ -965,7 +969,8 @@ PD and LGD; the framework does not estimate it.
 
 - **Name:** Max LGD — the worst loss given default across the deal's assets
 - **Formula:** max_lgd = max over assets of lgd_pct. LGD % is an INPUT, never derived from collateral
-- **Unit and storage:** percent as supplied by the risk team; full precision
+- **Unit and storage:** percent stored as a fraction (0.45 = 45%), per the fraction rule adopted on
+  #266 — the 0-100% refusal bound is applied on the percent scale; full precision
 - **Edge rules:** LGD % outside 0-100% refused with one error line and nothing written
 - **State keys:** —
 - **Workbook rows:** —
@@ -978,7 +983,8 @@ PD and LGD; the framework does not estimate it.
 
 - **Name:** Avg LGD — the exposure-weighted average loss given default
 - **Formula:** avg_lgd = Σ (lgd_pct × exposure) / Σ exposure — exposure-weighted, not a simple mean
-- **Unit and storage:** percent; full precision, no rounding in storage
+- **Unit and storage:** percent stored as a fraction (0.45 = 45%), per the fraction rule adopted on
+  #266; full precision, no rounding in storage
 - **Edge rules:** LGD % outside 0-100% refused; total exposure of 0 → N/A (zero/negative denominator rule)
 - **State keys:** —
 - **Workbook rows:** —

@@ -129,7 +129,7 @@ def test_the_top_level_must_be_an_object_and_stress_assumptions_are_checked_too(
         sf.validate([])
     with pytest.raises(sf.ForecastError, match="unknown key"):
         sf.validate_stress({"revenue_haircut": 5})
-    with pytest.raises(sf.ForecastError, match="finite number"):
+    with pytest.raises(sf.ForecastError, match="finite JSON number"):
         sf.validate_stress({"revenue_haircut_pct": "five"})
     with pytest.raises(sf.ForecastError, match="JSON object"):
         sf.validate_stress([1])

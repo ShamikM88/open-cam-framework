@@ -146,7 +146,7 @@ def _figures(mapping, allowed, label, allow_null=False):
 
 def _period_block(body, label, require_figures):
     if not isinstance(body, dict):
-        raise ForecastError(f"{label} must be an object")
+        raise ForecastError(f"{label} must be an object of line items; found {type(body).__name__}")
     unknown = sorted(set(body) - {"subtotals", "ratios", "lines"})
     if unknown:
         raise ForecastError(f"{label}: unknown key(s) {unknown}; allowed: ['lines', 'ratios', 'subtotals']")
@@ -218,9 +218,8 @@ def validate_stress(data):
     unknown = sorted(set(data) - set(STRESS_KEYS))
     if unknown:
         raise ForecastError(f"stress assumptions: unknown key(s) {unknown}; allowed: {list(STRESS_KEYS)}")
-    values = {key: _number(value, f"stress.{key}") for key, value in data.items()}
     try:
-        return validate_stress_assumptions(values)
+        return validate_stress_assumptions(data)
     except StressAssumptionsError as exc:
         raise ForecastError(str(exc)) from exc
 

@@ -440,6 +440,25 @@ class TestLinkRewriting:
 
 class TestValidationFailures:
 
+    def test_a_fence_indented_four_or_more_spaces_fails_the_build(self, tmp_path):
+        # PX358-3: a fence indented four or more spaces is an indented code
+        # block in CommonMark, not a fence. The generator supports only the
+        # Markdown subset the corpus uses and fails closed on this construct:
+        # misdetecting it would toggle the fence state and wrongly expose or
+        # hide links around it.
+        with pytest.raises(WikiPublishError, match="indented 4 or more spaces"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n",
+                "source.md": "# S\n\n    ```\n    [code](README.md)\n    ```\n",
+            })
+
+    def test_a_fence_indented_three_spaces_is_still_a_fence(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n   ```\n   [code](README.md)\n   ```\n",
+        })
+        assert "[code](README.md)" in tree["source.md"]
+
     def test_a_missing_target_is_an_error(self, tmp_path):
         with pytest.raises(WikiPublishError, match=r"docs/source.md:5.*gone.md.*does not exist"):
             make_corpus(tmp_path, {

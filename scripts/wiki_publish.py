@@ -331,6 +331,25 @@ def _code_span_intervals(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
     return intervals
 
 
+def _reject_indented_fences(lines: list[str], source: str) -> None:
+    """Fail closed on a fence-looking line indented four or more spaces.
+
+    Finding PX358-3 (issue #192): such a line is an indented code block in
+    CommonMark, not a fence, but it would toggle the generator's fence state
+    and wrongly expose or hide the links around it. The generator supports
+    only the Markdown subset the corpus uses, so the construct is an error
+    naming file and line, not a silent guess.
+    """
+    for line_no, line in enumerate(lines, start=1):
+        match = FENCE_RE.match(line)
+        if match is not None and match.start(1) >= 4:
+            raise WikiPublishError(
+                f"{source}:{line_no}: a fence indented 4 or more spaces is outside "
+                "the supported Markdown subset (an indented code block in CommonMark, "
+                "not a fence); indent fences by at most three spaces"
+            )
+
+
 def _rewrite_line(
     line: str, line_no: int, page_path: Path, root: Path, repo_url: str,
     page_names: dict[str, str], page_texts: dict[str, str],
@@ -413,6 +432,7 @@ def _transform_page(
     """Rewrite a page's links and prepend the generated-source notice."""
     source = page_path.relative_to(root).as_posix()
     lines = text.replace("\r\n", "\n").split("\n")
+    _reject_indented_fences(lines, source)
     code_spans = _code_span_intervals(lines)
     out: list[str] = []
     for line_no, line, in_fence in _lines_with_fences(lines):

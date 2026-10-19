@@ -243,24 +243,17 @@ def _defined_functions(path):
 
 def test_implemented_entries_name_real_files_and_functions():
     for entry in _parse_register():
-        if entry["Status"].startswith("Proposed"):
-            continue  # nothing to point at until issue #266's design lands
         implemented_in = entry["Implemented in"]
         tokens = _backticked(implemented_in)
         file_tokens = [t for t in tokens if "/" in t or t.endswith((".py", ".md", ".json"))]
-        assert file_tokens, (
-            f"{entry['id']} ({entry['name']}): 'Implemented in' names no repository file"
-        )
+        function_tokens = [t for t in tokens if t.endswith("()")]
+        # Every reference that an entry makes — implemented or proposed — must be
+        # real: a bogus file or function cannot hide behind "Proposed".
         for token in file_tokens:
             assert (REPO_ROOT / token).is_file(), (
                 f"{entry['id']} ({entry['name']}): {token} named in 'Implemented in' "
                 "does not exist in the repository"
             )
-        function_tokens = [t for t in tokens if t.endswith("()")]
-        assert function_tokens, (
-            f"{entry['id']} ({entry['name']}): an implemented entry must name at least "
-            "one function in 'Implemented in'"
-        )
         for token in function_tokens:
             function = token[:-2]
             assert any(
@@ -271,6 +264,15 @@ def test_implemented_entries_name_real_files_and_functions():
                 f"{entry['id']} ({entry['name']}): function {token} named in "
                 "'Implemented in' is not defined in the named Python files"
             )
+        if entry["Status"].startswith("Proposed"):
+            continue  # may legitimately name no implementation at all
+        assert file_tokens, (
+            f"{entry['id']} ({entry['name']}): 'Implemented in' names no repository file"
+        )
+        assert function_tokens, (
+            f"{entry['id']} ({entry['name']}): an implemented entry must name at least "
+            "one function in 'Implemented in'"
+        )
 
 
 def test_collateral_metrics_stay_proposed_entries():

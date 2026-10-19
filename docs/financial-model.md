@@ -114,6 +114,13 @@ the `collateral` and `security_package` figures in state and the `--collateral` 
 `error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators
 remain valid figures, while ratios with zero or negative denominators remain N/A.
 
+**Collateral cover percentage.** The aggregate `collateral_cover_pct` is expressed on a 0–100 percentage scale, unlike
+fraction-stored percent-type ratios. It is N/A (omitted from ground truth as `None`) if aggregate exposure is zero or
+negative, or if any asset has a negative or non-finite exposure or collateral value. A negative asset is invalid input;
+it must not reduce or offset positive exposure from another asset. The workbook's per-asset and total `CV % of Exposure`
+cells apply the same strictly positive exposure rule and show `N/A` otherwise. For valid, non-negative collateral inputs
+with a positive exposure, the existing collateral-value / exposure calculation and percentage scale are unchanged.
+
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its
 threshold is missing or not a number, or its metric is not one of the computed ratios. Every covenant result carries

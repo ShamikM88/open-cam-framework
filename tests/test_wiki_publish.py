@@ -420,6 +420,15 @@ class TestLinkRewriting:
         })
         assert f"[link]({U}/wiki/Home)" in tree["source.md"]
 
+    def test_a_quote_after_a_paragraph_is_its_own_block(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\nA paragraph with `tick\n> a quote with [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
     def test_mermaid_blocks_and_tables_are_preserved_byte_for_byte(self, tmp_path):
         mermaid = '```mermaid\nflowchart LR\n  A[Start] --> B{"end<br/>x"}\n```'
         table = "| a | b |\n| :--- | :--- |\n| [x](README.md) | plain |"

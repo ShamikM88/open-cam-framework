@@ -282,3 +282,48 @@ def test_the_exported_files_are_valid_zip_packages(framework_computed):
     for path in framework_computed:
         with zipfile.ZipFile(path) as package:
             assert package.testzip() is None
+
+
+# ---------------------------------------------------------------------------
+# Native-chart serialization (issue #131): the golden snapshots must pin a
+# workbook's charts too -- a chart that changed type, anchor, blank-cell
+# rendering or stopped referencing the workbook's own cells has to fail.
+# ---------------------------------------------------------------------------
+
+def _workbook_with_chart(path, tag, anchor, values_max_col=3):
+    """A one-row workbook carrying one chart of `tag` ('line' or 'bar') anchored
+    at `anchor`, its series referencing cells B..values_max_col of row 2."""
+    import openpyxl
+    from openpyxl.chart import BarChart, LineChart, Reference, Series
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Metric", "FY-1", "FY+1"])
+    ws.append(["Revenue", 1, 2])
+    chart = LineChart() if tag == "line" else BarChart()
+    chart.display_blanks = "gap"
+    chart.series.append(Series(Reference(ws, min_col=2, max_col=values_max_col, min_row=2, max_row=2)))
+    chart.set_categories(Reference(ws, min_col=2, max_col=values_max_col, min_row=1, max_row=1))
+    ws.add_chart(chart, anchor)
+    wb.save(path)
+    return path
+
+
+def test_normalize_xlsx_serializes_native_charts(tmp_path):
+    path = _workbook_with_chart(tmp_path / "chart.xlsx", "line", "B4")
+    lines = normalize_xlsx(path).splitlines()
+    assert "chart lineChart anchor=B4 display_blanks=gap" in lines
+    assert ('  series title=None values="\'Sheet1\'!B2:C2" '
+            'categories="\'Sheet1\'!B1:C1"') in lines
+
+
+def test_chart_serialization_changes_with_type_anchor_and_references(tmp_path):
+    """Each of the three serialized properties must be able to fail the comparison:
+    a different chart type, a different anchor cell and a different series
+    reference each produce a different snapshot."""
+    line = normalize_xlsx(_workbook_with_chart(tmp_path / "line.xlsx", "line", "B4"))
+    assert line != normalize_xlsx(_workbook_with_chart(tmp_path / "bar.xlsx", "bar", "B4"))
+    assert line != normalize_xlsx(_workbook_with_chart(tmp_path / "moved.xlsx", "line", "B6"))
+    assert line != normalize_xlsx(_workbook_with_chart(tmp_path / "wider.xlsx", "line", "B4",
+                                                       values_max_col=2))

@@ -153,14 +153,19 @@ certain line items differently, e.g. Depreciation embedded in Cost of Goods Sold
 `"analyst-supplied"`, `agents/underwriter_agent.md`'s Guideline 9 requires the CAM to carry an
 explicit caveat disclosing this reduced audit guarantee.
 
-**Two separate raw-figure stores, never blended within a period (see issues #121 and #249).** Raw line items can
-come from different stores in different periods, but each period's raw fields must come from exactly one store:
+**Two raw-figure stores; never blended within a period (see issues #121 and #249).** The normal rule is
+one raw-figure store per deal, and exactly one source for each period. The sole allowed exception is a forward-only
+interactive `/project` call on a deal whose historical figures are analyst-supplied: its forward-year raw lines
+are framework-computed and coexist with the supplied historical lines. This does not recompute history, change
+`financials_source`, or blend the stores within any one period.
 
 - `multi_period_financials` -- written by `scripts/spreading_check.py` for framework-computed periods
   (the framework-computed path for `/spread` and `/project`). The matching `financials[period]["raw"]`
   record sits beside that period's computed subtotals and ratios and is what the workbook exporter reads for
   computed periods. `multi_period_financials` is also the merge base for later raw-input updates and the
-  input to `evaluate_downside_case()`.
+  input to `evaluate_downside_case()`. For an analyst-supplied deal, it may additionally hold only the
+  forward-year raw lines from an interactive, forward-only `/project` call; those lines are the exception
+  described above, not a licence to recompute the supplied history.
 
 - `analyst_supplied_financials` -- written by `/spread`'s analyst-supplied mode for supplied history, or by
   `/project`'s analyst-supplied forecast mode when the analyst also gives a raw breakdown. These period
@@ -172,7 +177,9 @@ exported workbook. Historical periods follow `financials_source`: analyst-suppli
 periods follow `forecast_source`: an analyst-supplied forecast keeps its existing supplied-store path;
 otherwise the exporter reads `financials[period]["raw"]`, including when `financials_source` remains
 `"analyst-supplied"` for the history. It never falls back to the other store for a missing period and never
-blends raw fields from both stores within one period.
+blends raw fields from both stores within one period. A headless `orchestrator.py` run that would recompute an
+analyst-supplied deal is refused, including a forward-only input; record changes to supplied figures in
+`/spread`'s analyst-supplied mode.
 
 **Checkpoint after every step.** `/triage`, `/research`, `/spread`, `/commercial`, `/collateral`,
 `/project`, `/review`, `/assemble`, and each of `orchestrator.py`'s two agent calls (draft, then

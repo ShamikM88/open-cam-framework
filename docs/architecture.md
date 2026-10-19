@@ -35,7 +35,7 @@ the model, how it is authenticated and what it costs**.
 | Billing | Whatever your Claude Code plan covers | Per-token Anthropic **API** billing, separate from any Claude Code subscription |
 | What stays local | Your files, `state.json`, the generated documents, and the deterministic scripts the commands run through Bash (`spreading_check.py`, `policy_check.py`, `deal_export.py`, ...) | The same files and scripts |
 | What goes to an external service | What the session sends to Claude Code's model while it works (the prompts, the documents it reads, the figures you give it); the public web pages and filings a research step is told to fetch | The prompts and documents the script sends to the Anthropic API |
-| Without a key | Not applicable | `calibrate.py` falls back to `--mock` (placeholder output, no API call); `orchestrator.py` stops before it reads or writes anything, with one `error: no Anthropic credentials were found` line, and sends nothing |
+| Without a key | Not applicable | `calibrate.py` falls back to `--mock` (placeholder output, no API call); `orchestrator.py` stops before it calls the model or writes anything (it may have read the deal's saved state first, to refuse a disallowed financial-basis change), with one `error: no Anthropic credentials were found` line, and sends nothing |
 | Offline testing | The deterministic scripts and the test suite need no network | The test suite uses fake clients: no key, no network |
 
 Two boundaries to keep in mind:

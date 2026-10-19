@@ -531,8 +531,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
   (F-002…F-031) as the historical periods. The default forward periods are `FY+1`, `FY+2`, `FY+3`
 - **Unit and storage:** as each underlying entry; a forward period is simply absent if not supplied
 - **Edge rules:** a missing forward period is not an error — nothing is computed for it and every covenant
-  list says nothing about it (F-041); an analyst-supplied forecast cannot be stressed (see F-036's unavailable
-  rule)
+  list says nothing about it (F-041). An analyst-supplied forecast is never extrapolated by the framework;
+  its downside is the analyst's own stressed scenario where given, else the framework's shocks where they
+  genuinely apply, else an explicit `unavailable` record (see F-036)
 - **State keys:** —
 - **Workbook rows:** the FY+1…FY+3 columns of every section row; downside columns are headed
   "{period} (Downside)"
@@ -598,14 +599,21 @@ the entry says so and it is listed under [Known differences](#known-differences)
   stressed in historical periods
 - **Unit and storage:** a full parallel set of `financials` and `ratios` per stressed forward period; stored
   under `downside_case`, never over the base case
-- **Edge rules:** a forward year whose figures are analyst-supplied (a forecast the shocks cannot act on)
-  produces no downside: it is recorded under `unavailable` with the reason, and a covenant that PASSes there
-  in the base case is recorded UNRESOLVABLE, never silently absent (issue #124)
+- **Edge rules:** the shocks apply to a forward year only where they genuinely meet their assumptions: the
+  analyst gave that year's raw lines, every line a requested shock acts on, every line the covenant ratios
+  read (an omitted line would read as a zero the analyst never confirmed), and the framework's formulas
+  reproduce the subtotals and ratios the analyst gave (to two decimal places). Where they do not — or where
+  a downside was wanted but the analyst's own scenario does not cover the year — the year is recorded under
+  `unavailable` with the reason, and a covenant that PASSes there in the base case is recorded
+  UNRESOLVABLE, never silently absent (issue #124). The analyst's own stressed forecast, where given, is
+  recorded as supplied and is what covenants are tested against for those years
 - **State keys:** —
 - **Workbook rows:** the "(Downside)" columns
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_downside_case()` and
-  `apply_stress_shocks()`; workbook downside columns written by `_write_financial_spreading()`
+  `apply_stress_shocks()`; the per-year choice between the analyst's scenario, framework-derived shocks and
+  an `unavailable` record is made by `scripts/supplied_forecast.py` — `build_downside()`; workbook downside
+  columns written by `_write_financial_spreading()`
 - **Basis:** house convention (agreed stress design)
 - **Status:** Implemented, not yet reviewed by an analyst
 

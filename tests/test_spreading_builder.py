@@ -990,3 +990,244 @@ def test_raw_figure_reads_a_missing_or_null_item_as_zero_and_text_or_no_raw_bloc
     omitted = evaluate_financial_model({"FY-Current": {"cost_of_sales": 0}})
     assert with_null["ratios"] == omitted["ratios"]
     assert {k: v for k, v in with_null["financials"]["FY-Current"].items() if k != "raw"} ==         {k: v for k, v in omitted["financials"]["FY-Current"].items() if k != "raw"}
+
+
+# ---------------------------------------------------------------------------
+# Native Excel charts (issue #131): a leverage line chart (Gross Leverage and
+# Net Debt / EBITDA) and a revenue bar chart on the Financial Spreading sheet,
+# anchored below the table at a cell derived from the layout, referencing the
+# workbook's own cells (openpyxl Reference), with displayBlanksAs="gap" so a
+# blank or N/A period shows a gap, never a zero. Downside columns join the
+# series range only while they carry downside figures; an unavailable downside
+# column is excluded from the range rather than plotted as a blank.
+# ---------------------------------------------------------------------------
+
+# The two margins the chart placement derives from: blank rows between the
+# table's last row and the first chart, and the vertical distance between the
+# two chart anchors (a default-size chart is about 15 rows tall, so 18 rows
+# keeps the charts from overlapping).
+CHART_MARGIN_ROWS = 2
+CHART_SPACING_ROWS = 18
+
+
+def _label_to_row(ws):
+    return {ws.cell(row=row, column=1).value: row for row in range(1, ws.max_row + 1)}
+
+
+def _last_table_row():
+    """The table's last row, derived from the sections the module would use right now."""
+    import spreading_builder
+
+    _, ordered = spreading_builder._row_layout(spreading_builder.SECTIONS)
+    return ordered[-1][0]
+
+
+def _anchor_cell(chart):
+    """A chart's anchor cell in A1 notation (openpyxl anchors are 0-based)."""
+    from openpyxl.utils import get_column_letter
+
+    anchor_from = chart.anchor._from
+    return f"{get_column_letter(anchor_from.col + 1)}{anchor_from.row + 1}"
+
+
+def _chart(ws, tagname):
+    matches = [chart for chart in ws._charts if chart.tagname == tagname]
+    assert len(matches) == 1, f"expected exactly one {tagname} on {ws.title}, found {len(matches)}"
+    return matches[0]
+
+
+def test_two_native_charts_live_on_the_financial_spreading_sheet(workbook):
+    ws = workbook["Financial Spreading"]
+    assert sorted(chart.tagname for chart in ws._charts) == ["barChart", "lineChart"]
+    # the collateral sheet carries no charts -- only the spreading table does
+    assert workbook["Collateral & Exposure"]._charts == []
+
+
+def test_charts_are_anchored_below_the_table_at_a_derived_cell(workbook):
+    ws = workbook["Financial Spreading"]
+    last_table_row = _last_table_row()
+    assert _anchor_cell(_chart(ws, "lineChart")) == f"A{last_table_row + CHART_MARGIN_ROWS}"
+    assert _anchor_cell(_chart(ws, "barChart")) == \
+        f"A{last_table_row + CHART_MARGIN_ROWS + CHART_SPACING_ROWS}"
+
+
+def test_chart_anchors_follow_the_table_when_the_layout_grows(tmp_path, monkeypatch):
+    """The anchor is a function of the table's last row, never a hard-coded cell:
+    grow the table by one row and both anchors must move down by exactly one row."""
+    import spreading_builder
+
+    grown = []
+    for title, rows in spreading_builder.SECTIONS:
+        grown.append((title, list(rows)))
+    label, template = grown[-1][1][-1]
+    grown[-1][1].append((f"{label} (extra)", template))
+    monkeypatch.setattr(spreading_builder, "SECTIONS", grown)
+
+    out_path = tmp_path / "grown.xlsx"
+    spreading_builder.export_to_xlsx("Test Co", str(out_path))
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+
+    last_table_row = _last_table_row()
+    assert _anchor_cell(_chart(ws, "lineChart")) == f"A{last_table_row + CHART_MARGIN_ROWS}"
+    assert _anchor_cell(_chart(ws, "barChart")) == \
+        f"A{last_table_row + CHART_MARGIN_ROWS + CHART_SPACING_ROWS}"
+
+
+def test_leverage_line_chart_references_the_ratio_rows(workbook):
+    ws = workbook["Financial Spreading"]
+    label_to_row = _label_to_row(ws)
+    line = _chart(ws, "lineChart")
+
+    assert [series.tx.strRef.f for series in line.series] == [
+        f"'Financial Spreading'!$A${label_to_row['Gross Leverage']}",
+        f"'Financial Spreading'!$A${label_to_row['Net Debt / EBITDA']}",
+    ]
+    assert [series.val.numRef.f for series in line.series] == [
+        f"'Financial Spreading'!$B${label_to_row['Gross Leverage']}:$G${label_to_row['Gross Leverage']}",
+        f"'Financial Spreading'!$B${label_to_row['Net Debt / EBITDA']}:$G${label_to_row['Net Debt / EBITDA']}",
+    ]
+    for series in line.series:
+        assert series.cat.numRef.f == "'Financial Spreading'!$B$1:$G$1"
+
+
+def test_revenue_bar_chart_references_the_revenue_row(workbook):
+    ws = workbook["Financial Spreading"]
+    label_to_row = _label_to_row(ws)
+    bar = _chart(ws, "barChart")
+
+    assert len(bar.series) == 1
+    assert bar.series[0].tx.strRef.f == f"'Financial Spreading'!$A${label_to_row['Revenue']}"
+    assert bar.series[0].val.numRef.f == \
+        f"'Financial Spreading'!$B${label_to_row['Revenue']}:$G${label_to_row['Revenue']}"
+    assert bar.series[0].cat.numRef.f == "'Financial Spreading'!$B$1:$G$1"
+
+
+def test_every_chart_displays_blank_cells_as_gaps(tmp_path):
+    """displayBlanksAs="gap" is explicit on every chart: a period with no data,
+    or an N/A ratio, must read as a gap -- never as a zero. Asserted both on the
+    loaded chart objects and in the chart XML the file actually carries."""
+    out_path = tmp_path / "gaps.xlsx"
+    export_to_xlsx("Test Co", str(out_path))
+    wb = openpyxl.load_workbook(out_path)
+    charts = [chart for ws in wb.worksheets for chart in ws._charts]
+    assert len(charts) == 2
+    for chart in charts:
+        assert chart.display_blanks == "gap"
+
+    import zipfile
+
+    with zipfile.ZipFile(out_path) as archive:
+        chart_xmls = sorted(name for name in archive.namelist()
+                            if re.fullmatch(r"xl/charts/chart\d+\.xml", name))
+        assert len(chart_xmls) == 2
+        for name in chart_xmls:
+            xml = archive.read(name).decode("utf-8")
+            assert 'dispBlanksAs val="gap"' in xml, f"{name} does not pin gap rendering"
+
+
+def test_downside_columns_join_the_series_only_when_figures_exist(tmp_path):
+    period_raw = {"revenue": 100, "cost_of_sales": 40, "admin_expenses": 0, "depreciation": 0,
+                  "amortisation": 0, "other_income": 0}
+
+    out_path = tmp_path / "downside.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        financial_data={"FY-2": period_raw},
+        downside_financial_data={"FY+1": period_raw, "FY+2": period_raw, "FY+3": period_raw},
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = _label_to_row(ws)
+
+    # all three downside columns carry figures, so the series spans B..J
+    for chart in (_chart(ws, "lineChart"), _chart(ws, "barChart")):
+        for series in chart.series:
+            assert series.val.numRef.f.endswith(
+                f":$J${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+        assert chart.series[0].cat.numRef.f == "'Financial Spreading'!$B$1:$J$1"
+    # and the same export without downside figures stays on the base range B..G
+    plain_path = tmp_path / "plain.xlsx"
+    export_to_xlsx("Test Co", str(plain_path), financial_data={"FY-2": period_raw})
+    plain = openpyxl.load_workbook(plain_path)["Financial Spreading"]
+    for tagname in ("lineChart", "barChart"):
+        for series in _chart(plain, tagname).series:
+            assert series.val.numRef.f.endswith(
+                f":$G${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+
+
+def test_partial_downside_coverage_extends_the_series_only_through_available_columns(tmp_path):
+    """Only the downside columns that actually carry figures are in range: with
+    downside figures for FY+1 alone, the series stops at column H."""
+    period_raw = {"revenue": 100, "cost_of_sales": 40}
+
+    out_path = tmp_path / "partial.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        downside_financial_data={"FY+1": period_raw},
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    for tagname in ("lineChart", "barChart"):
+        chart = _chart(ws, tagname)
+        for series in chart.series:
+            assert series.val.numRef.f.endswith(
+                f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+        assert chart.series[0].cat.numRef.f == "'Financial Spreading'!$B$1:$H$1"
+
+
+def test_analyst_supplied_downside_figures_also_extend_the_series(tmp_path):
+    """Analyst-supplied downside figures count as downside figures for the chart
+    range just like framework-derived ones."""
+    out_path = tmp_path / "supplied.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        supplied_downside_values={"FY+1": {"Revenue": 100, "Gross Leverage": 3.0}},
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    for tagname in ("lineChart", "barChart"):
+        chart = _chart(ws, tagname)
+        for series in chart.series:
+            assert series.val.numRef.f.endswith(
+                f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+
+
+def test_a_downside_gap_stops_the_series_at_the_first_unavailable_column(tmp_path):
+    """A chart series reference must stay contiguous, so downside availability
+    is walked from column H: figures for FY+1 and FY+3 but not FY+2 end the
+    range at H rather than shipping the unavailable FY+2 column as a blank."""
+    period_raw = {"revenue": 100, "cost_of_sales": 40}
+
+    out_path = tmp_path / "gap.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        downside_financial_data={"FY+1": period_raw, "FY+3": period_raw},
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    for tagname in ("lineChart", "barChart"):
+        chart = _chart(ws, tagname)
+        for series in chart.series:
+            assert series.val.numRef.f.endswith(
+                f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+
+
+def test_na_ratio_cells_stay_inside_the_chart_range(tmp_path):
+    """A zero-EBITDA period makes the leverage ratios evaluate to "N/A" (the
+    workbook's own convention for an uncomputable ratio); the chart series must
+    still span the full historical + forward base range, where those points
+    render as gaps because displayBlanksAs="gap"."""
+    zero_ebitda = {"revenue": 1000, "cost_of_sales": 1000, "admin_expenses": 0,
+                   "depreciation": 0, "amortisation": 0, "other_income": 0}
+
+    out_path = tmp_path / "na.xlsx"
+    export_to_xlsx("Test Co", str(out_path), financial_data={"FY-2": zero_ebitda})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = _label_to_row(ws)
+
+    memo = {}
+    assert _evaluate(ws, "B", label_to_row["EBITDA"], {}) == 0
+    assert _evaluate(ws, "B", label_to_row["Gross Leverage"], memo) == "N/A"
+    assert _evaluate(ws, "B", label_to_row["Net Debt / EBITDA"], memo) == "N/A"
+
+    line = _chart(ws, "lineChart")
+    assert [series.val.numRef.f for series in line.series] == [
+        f"'Financial Spreading'!$B${label_to_row['Gross Leverage']}:$G${label_to_row['Gross Leverage']}",
+        f"'Financial Spreading'!$B${label_to_row['Net Debt / EBITDA']}:$G${label_to_row['Net Debt / EBITDA']}",
+    ]

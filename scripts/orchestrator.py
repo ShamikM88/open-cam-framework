@@ -497,7 +497,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # no headless API credentials are configured.
     # Resolved once and threaded through all state operations below so this
     # run always targets one dated folder.
-    lookup = find_deal(company, proposal)
+    try:
+        lookup = find_deal(company, proposal)
+    except OSError:
+        # The near-miss advisory is best effort: if the company folder cannot be listed, the
+        # run continues exactly as it did before the lookup existed.
+        lookup = {"record_found": True, "near_misses": []}
     if not lookup["record_found"] and lookup["near_misses"]:
         suggestions = ", ".join(
             f"{item['proposal']!r} ({item['date']})" for item in lookup["near_misses"]

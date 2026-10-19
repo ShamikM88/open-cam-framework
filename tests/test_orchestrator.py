@@ -2382,3 +2382,28 @@ def test_run_pipeline_warns_once_for_normalized_near_miss_but_keeps_running(proj
     created_state = state_path("Synthetic Co", "credit   facility")
     assert os.path.basename(os.path.dirname(created_state)).startswith("credit   facility_")
     assert os.path.isfile(created_state)
+
+
+@pytest.mark.parametrize("error", [PermissionError("denied"), FileNotFoundError("vanished")])
+def test_run_pipeline_fails_open_when_the_near_miss_lookup_cannot_list_the_company_folder(
+        project_root, monkeypatch, capsys, error):
+    write_state("Synthetic Co", "Credit Facility", date_str="2026-01-10")
+    company_dir = os.path.join("deals", "Synthetic Co")
+    real_scandir = os.scandir
+
+    def failing_scandir(path="."):
+        if os.fspath(path).endswith(company_dir):
+            raise error
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", failing_scandir)
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Synthetic Co", "credit   facility", "0.20%", "LGD 3 (15%)",
+                 "corporate_credit", client=client)
+
+    err = capsys.readouterr().err
+    assert "warning:" not in err
+    assert "Traceback" not in err
+    assert client.call_count == 2
+    assert os.path.isfile(state_path("Synthetic Co", "credit   facility"))

@@ -1269,3 +1269,33 @@ def test_find_deal_excludes_export_only_and_malformed_date_folders_from_candidat
         "company_folder_exists": True,
         "near_misses": [],
     }
+
+
+@pytest.mark.parametrize("error", [PermissionError("denied"), FileNotFoundError("vanished")])
+def test_find_cli_reports_an_unlistable_company_folder_as_one_error_line(
+        tmp_path, monkeypatch, capsys, error):
+    import runpy
+    import sys
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "deals" / "Synthetic Co").mkdir(parents=True)
+    company_dir = os.path.join("deals", "Synthetic Co")
+    real_scandir = os.scandir
+
+    def failing_scandir(path="."):
+        if os.fspath(path).endswith(company_dir):
+            raise error
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", failing_scandir)
+    script = os.path.join(os.path.dirname(state_manager.__file__), "state_manager.py")
+    monkeypatch.setattr(sys, "argv", ["state_manager.py", "--find", "--company", "Synthetic Co",
+                                      "--proposal", "Credit Facility"])
+
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_path(script, run_name="__main__")
+
+    assert str(excinfo.value).startswith("error: ")
+    assert "Traceback" not in str(excinfo.value)
+    assert "\n" not in str(excinfo.value)
+    assert capsys.readouterr().out == ""

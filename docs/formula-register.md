@@ -334,7 +334,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — the `KEY_METRIC_ROWS` formula, written to the sheet by
   `_write_financial_spreading()`; there is no computed state key
-- **Basis:** standard definition (credit-agency tangible-equity adjustment)
+- **Basis:** house convention (a credit-agency-style tangible-equity adjustment; no external reference verified)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-020 — Total Debt (interest-bearing)
@@ -861,7 +861,7 @@ PD and LGD; the framework does not estimate it.
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
-- **Basis:** industry practice (lessor exposure net of the down payment)
+- **Basis:** house convention (industry practice, as recorded on #266; no external reference verified)
 - **Status:** Proposed, not implemented
 
 ### F-050 — RV Exposure
@@ -892,7 +892,7 @@ PD and LGD; the framework does not estimate it.
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
-- **Basis:** industry practice (lessor net investment including residual value)
+- **Basis:** house convention (industry practice — lessor net investment including residual value — as recorded on #266; no external reference verified)
 - **Status:** Proposed, not implemented
 
 ### F-052 — Net Exposure
@@ -907,7 +907,7 @@ PD and LGD; the framework does not estimate it.
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
-- **Basis:** industry practice (exposure net of non-asset mitigants)
+- **Basis:** house convention (industry practice, as recorded on #266; no external reference verified)
 - **Status:** Proposed, not implemented
 
 ### F-053 — Collateral Value
@@ -924,7 +924,7 @@ PD and LGD; the framework does not estimate it.
 - **Implemented in:** Not implemented as a computation — proposed in issue #266 (comment 6259256219);
   the Basel comprehensive-approach floor at zero is the cited reference (primary Basel text could not be
   retrieved)
-- **Basis:** cited reference (Basel comprehensive approach, floor at zero; workout LGD netting recovery costs)
+- **Basis:** house convention (the Basel comprehensive-approach floor at zero and workout-LGD netting of recovery costs are the sources named on #266; the primary Basel text could not be retrieved, so this is not a verified citation)
 - **Status:** Proposed, not implemented
 
 ### F-054 — Coverage %

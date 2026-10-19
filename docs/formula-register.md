@@ -817,9 +817,12 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Name:** Collateral cover percentage — the aggregate cover across the collateral list, as quoted in a CAM
 - **Formula:** collateral_cover_pct = (Σ collateral_value / Σ exposure) × 100 — summed over the collateral list, expressed on a 0-100 scale (matching how a CAM quotes cover), not the 0-1 fraction convention of the percent-type ratios; no workbook row (the workbook's cover column is F-048)
 - **Unit and storage:** percent (0-100 scale); only added to the ground-truth figures when it resolves
-- **Edge rules:** nothing to compute from (no collateral, or a total exposure of 0) → the figure is omitted
-  entirely rather than compared as a zero; a NEGATIVE total exposure is not refused here — see
-  [Known differences](#known-differences) KD-2
+- **Edge rules:** N/A (`None`, so the figure is omitted entirely rather than compared as a zero) when there is
+  nothing to compute from (no collateral), when the total exposure is zero or negative, when any single asset has
+  a negative or non-finite exposure or collateral value (a negative asset is invalid input and never offsets
+  another asset's positive exposure), or when the result is not finite (issue #365); for valid non-negative inputs
+  with a positive exposure the calculation and the 0-100 scale are unchanged. The scale difference from the
+  workbook's fraction is [Known differences](#known-differences) KD-2
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** —
@@ -834,17 +837,19 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** CV % of Exposure — the per-asset and total cover column of the workbook's "Collateral & Exposure"
   sheet. State keys `exposure` and `collateral_value` are deal inputs (the sheet does not compute them)
-- **Formula:** cv_pct = collateral_value / exposure (workbook: `=IFERROR(G{row}/B{row},"N/A")` per asset and
-  the same on the total row)
+- **Formula:** cv_pct = collateral_value / exposure, only where exposure > 0 (workbook:
+  `=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")` per asset and the same on the total row)
 - **Unit and storage:** ratio as written by Excel (0-1 fraction of the inputs supplied); display-only cell
-- **Edge rules:** IFERROR only: a zero exposure shows N/A via the division error, but a NEGATIVE exposure
-  produces a negative percentage rather than the N/A rule every other ratio follows — this is
-  [Known differences](#known-differences) KD-2 (issue #365), not fixed in this register's PR
+- **Edge rules:** the same strictly-positive-denominator guard as the ratio cells (issue #365): a zero or
+  negative exposure shows "N/A" instead of a number. The guard looks at the exposure cell it divides by, so the
+  total row (a plain SUM of the per-asset rows, F-058) can still net a negative asset into a positive total and
+  show a percentage where F-047 returns N/A for the same input — an accepted, documented divergence,
+  [Known differences](#known-differences) KD-2 (tracked in issue #378)
 - **State keys:** —
 - **Workbook rows:** CV % of Exposure
 - **Policy outputs:** —
-- **Implemented in:** `scripts/spreading_builder.py` — `_write_collateral_sheet()` (per-asset formula at
-  spreading_builder.py:812, total-row formula at spreading_builder.py:825)
+- **Implemented in:** `scripts/spreading_builder.py` — `_write_collateral_sheet()` (the per-asset cover formula
+  and the total-row cover formula)
 - **Basis:** house convention
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -855,7 +860,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   total_number_of_units = Σ number_of_units ("Number of Units"), total_cap_value = Σ cap_value
   ("Cap / Model Value"), total_non_recovery = Σ non_recovery ("Non-Recovery"), total_costs = Σ costs
   ("Costs"), total_collateral_value = Σ collateral_value ("Collateral Value") (workbook:
-  `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`, spreading_builder.py:819-824)
+  `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`)
 - **Unit and storage:** sums of the supplied inputs, at full precision; display-only cells
 - **Edge rules:** literal column sums of the supplied values (ordinary SUM, which would offset a
   mixed-sign input algebraically — the refusal of negative and mixed-sign amounts is a rule proposed for
@@ -864,8 +869,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **State keys:** —
 - **Workbook rows:** Total
 - **Policy outputs:** —
-- **Implemented in:** `scripts/spreading_builder.py` — `_write_collateral_sheet()` (total-row SUM formulas at
-  spreading_builder.py:819-824)
+- **Implemented in:** `scripts/spreading_builder.py` — `_write_collateral_sheet()` (the total-row SUM formulas)
 - **Basis:** house convention (plain column sums)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -969,8 +973,8 @@ PD and LGD; the framework does not estimate it.
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219). The existing workbook row
-  (F-048) is a raw fraction with no ×100 and the CAM aggregate (F-047) is on a 0-100 scale, and neither refuses
-  a negative denominator — reconciling them is exactly what issue #365 tracks (see KD-2)
+  (F-048) is a raw fraction with no ×100 and the CAM aggregate (F-047) is on a 0-100 scale; both now return N/A
+  for a zero or negative denominator (issue #365), and the scale difference is what remains (see KD-2)
 - **Basis:** house convention (agreed on #266)
 - **Status:** Proposed, not implemented
 
@@ -1027,21 +1031,20 @@ maintainer, per the issue's instruction.
   margin state key, so the framework-computed model produces no CAM figure, covenant input or
   ground-truth entry for either. Both sides are
   working as designed: `scripts/spreading_builder.py` — the `_ratio()` formulas in `PNL_ROWS`
-  (spreading_builder.py:64 and :71) — against the absence of any margin computation in
-  `evaluate_financial_model()` (spreading_builder.py:425-609). Documented at
+  (the two margin rows) — against the absence of any margin computation in
+  `evaluate_financial_model()`. Documented at
   [financial-model.md](financial-model.md) (the "margin rows … have no `state.json` counterpart" note,
   financial-model.md:401-402). An analyst reviewing F-003/F-005 can only review the workbook formula.
-- **KD-2. The collateral cover percentage does not follow the N/A rule (issue #365).** Every ratio in
-  F-021-F-031 refuses a zero or negative denominator (`_ratio()`, spreading_builder.py:49-53, mirroring
-  `safe_div()` in `evaluate_financial_model()`), but the collateral cover does not:
-  the workbook's "CV % of Exposure" is `=IFERROR(G{row}/B{row},"N/A")` (spreading_builder.py:812 per asset
-  and :825 total) — a zero exposure shows N/A only via the division error, and a negative exposure produces
-  a negative percentage rather than N/A; and the CAM's aggregate cover
-  (`compute_collateral_cover_pct()`, scripts/policy_checks.py:104-119) returns `None` only when total
-  exposure is exactly 0 — a negative total exposure yields a negative percentage. Separately, the two
-  existing calculations disagree on scale: the CAM's aggregate is quoted 0-100, while the workbook's cover
-  cell and the proposed Coverage % (F-054) are raw fractions. Tracked as
-  issue #365; deliberately not fixed here.
+- **KD-2. The two collateral cover calculations differ in scale and in how they treat a negative asset
+  (issues #365 and #378).** Since issue #365 both follow the N/A rule: the workbook's "CV % of Exposure"
+  (F-048) is `=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")` per asset and on the total row, and the CAM's
+  aggregate (`compute_collateral_cover_pct()`, F-047) returns `None` for a zero or negative total exposure.
+  What remains is deliberate or tracked: (1) the aggregate is quoted on a 0-100 scale while the workbook cell
+  and the proposed Coverage % (F-054) are raw fractions; (2) the aggregate also returns `None` when any single
+  asset has a negative or non-finite exposure or collateral value, whereas the workbook's total row is a plain
+  SUM guarded only on the summed exposure, so it can net a negative asset into a positive total and show a
+  percentage for input the aggregate omits. The second is an accepted divergence; refusing negative and
+  non-finite per-asset values at input is tracked in issue #378.
 
 ## Drift guard
 

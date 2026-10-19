@@ -337,7 +337,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
     "numeric_validation:validate_period_objects": "54cbcf705411906a",
     "numeric_validation:validate_finite_numbers": "7e2ff92c23c49b92",
-    "policy_checks:compute_collateral_cover_pct": "ddd79ea5fb32682e",
+    "policy_checks:compute_collateral_cover_pct": "7bfab8add74910f8",
     "policy_checks:ground_truth_figures": "b9d5a0a2832c9f7c",
     "policy_checks:values_match": "72cd7da10488e462",
     "policy_checks:check_reported_figures": "eb09378e92f9b0bb",
@@ -359,8 +359,8 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "spreading_builder:apply_stress_shocks": "56e8cb78e68e91e9",
     "spreading_builder:evaluate_downside_case": "50118518f3fbb65e",
     "spreading_builder:_column_headers": "8e930360083183fd",
-    "spreading_builder:_write_financial_spreading": "76e4ceecf40777de",
-    "spreading_builder:_write_collateral_sheet": "13e2cadff0743116",
+    "spreading_builder:_write_financial_spreading": "a77699dd39ee0ed9",
+    "spreading_builder:_write_collateral_sheet": "a51d516d16824b09",
     "supplied_forecast:build_downside": "db2bd0b22dcbab55",
 }
 

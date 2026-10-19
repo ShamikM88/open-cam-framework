@@ -124,6 +124,21 @@ def test_underwriter_prompt_no_longer_tells_the_underwriter_to_self_calculate_wo
     assert "Working Capital Days" in underwriter_prompt
 
 
+def test_underwriter_prompt_keys_non_current_reported_figures_by_period(underwriter_prompt):
+    """Regression guard for issue #348: non-current reported figures must use
+    their period-qualified key, after the distinct downside-key instruction."""
+    period_key_sentence = (
+        "A figure for a non-current period is keyed as `{metric}_{period}`"
+    )
+    downside_sentence = (
+        "A downside/stressed figure is keyed as `{metric}_{period}_downside`"
+    )
+    assert period_key_sentence in underwriter_prompt
+    assert underwriter_prompt.index(downside_sentence) < underwriter_prompt.index(
+        period_key_sentence
+    )
+
+
 def test_underwriter_prompt_carves_out_unenforced_collateral_metrics_from_reported_figures(
     underwriter_prompt,
 ):

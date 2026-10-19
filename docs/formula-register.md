@@ -548,7 +548,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-033 — Revenue haircut shock
 
 - **Name:** Revenue haircut — stress input `revenue_haircut_pct` (percent, whole-percent scale)
-- **Formula:** shocked_revenue = revenue × (1 − revenue_haircut_pct / 100) — revenue is the state key for the workbook's Revenue row (workbook: the (Downside) column of the Revenue row). Every other raw line of the period is carried through unchanged
+- **Formula:** shocked_revenue = revenue × (1 − revenue_haircut_pct / 100) — revenue is the state key for the workbook's Revenue row (workbook: the (Downside) column of the Revenue row). The haircut changes only revenue: other requested shocks may also change admin expenses and interest paid (F-034, F-035); all remaining raw fields are preserved
 - **Unit and storage:** the shocked revenue replaces `revenue` in the stressed copy only (the base case is
   never mutated)
 - **Edge rules:** non-negative and < 100 (a haircut of 100 or more would flip revenue negative or to zero);

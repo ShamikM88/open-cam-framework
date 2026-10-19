@@ -270,6 +270,81 @@ def test_risk_reviewer_prompt_documents_research_brief_handling(risk_reviewer_pr
 
 
 # ---------------------------------------------------------------------------
+# agents/risk_reviewer_agent.md's /review wiring statement vs
+# .claude/commands/review.md (issue #197)
+# ---------------------------------------------------------------------------
+
+# The obsolete claim the prompt must not make about /review while the command runs the
+# deterministic layer for a named deal. Matches the old sentence's "the `/review` slash command
+# isn't" shape rather than its full wording, so a rephrased stale claim is still caught without
+# freezing the obsolete sentence in this file.
+STALE_UNWIRED_CLAIM_RE = re.compile(r"the `/review`(?: slash command)? isn't")
+PINNED_WIRING_PHRASES = (
+    "when `/review` is run for a named deal",
+    "a standalone review with no deal identity",
+    "the three cases below",
+)
+
+
+def _review_command_runs_policy_check(review_command):
+    """True when .claude/commands/review.md invokes policy_check.py with a deal identity
+    (--company), i.e. /review is wired to the deterministic layer for a named deal."""
+    return bool(re.search(r"python scripts/policy_check\.py[^\n]*--company", review_command))
+
+
+def _wiring_problems(prompt, review_command):
+    """Problems with the prompt's /review wiring statement: a contradiction with review.md
+    (the prompt calls /review unwired while the command invokes policy_check.py), or a
+    missing pinned phrase from the authorised wording."""
+    problems = []
+    if _review_command_runs_policy_check(review_command) and STALE_UNWIRED_CLAIM_RE.search(prompt):
+        problems.append(
+            "agents/risk_reviewer_agent.md calls `/review` unwired while "
+            ".claude/commands/review.md invokes policy_check.py for a named deal"
+        )
+    for phrase in PINNED_WIRING_PHRASES:
+        if phrase not in prompt:
+            problems.append(
+                f"agents/risk_reviewer_agent.md is missing the pinned wiring phrase {phrase!r}"
+            )
+    return problems
+
+
+def test_reviewer_prompt_wiring_statement_matches_the_review_command(risk_reviewer_prompt):
+    """Regression guard for issue #197: the Reviewer prompt's "Before you begin"
+    paragraph must not claim the `/review` slash command is unwired while
+    .claude/commands/review.md runs policy_check.py for a named deal, and must
+    keep the authorised wording's three pinned phrases -- the last one ties the
+    sentence to the three case bullets below it, so reducing or adding a bullet
+    without rewording the sentence fails here."""
+    problems = _wiring_problems(risk_reviewer_prompt, _read(".claude/commands/review.md"))
+    assert problems == [], "\n" + "\n".join(problems)
+
+
+def test_wiring_guard_flags_a_prompt_that_calls_review_unwired():
+    """Not vacuous: the contradiction check fails on the obsolete wording even
+    when every pinned phrase is present, so the two checks are independent."""
+    stale = ("Not every caller of this prompt is wired up to it yet (e.g. the `/review` "
+             "slash command isn't), so don't assume it ran. It runs when `/review` is run for "
+             "a named deal, not for a standalone review with no deal identity; the three cases "
+             "below say what to do in each.")
+    problems = _wiring_problems(
+        stale,
+        "python scripts/policy_check.py --company \"<company>\" --proposal \"<proposal>\"",
+    )
+    assert len(problems) == 1
+    assert "calls `/review` unwired" in problems[0]
+
+
+def test_wiring_guard_requires_each_pinned_wiring_phrase():
+    """Not vacuous: each pinned phrase is individually required, even when the
+    contradiction check itself has nothing to report."""
+    problems = _wiring_problems("a fresh paragraph with no wiring statement", "no command here")
+    assert len(problems) == len(PINNED_WIRING_PHRASES)
+    assert all(p.startswith("agents/risk_reviewer_agent.md is missing") for p in problems)
+
+
+# ---------------------------------------------------------------------------
 # Numbered cross-references between prompts and docs (issue #107).
 #
 # "Guideline 9" and "Audit Checklist item 4" are plain numbers in prose. Insert an item mid-list and every number

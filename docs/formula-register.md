@@ -1024,7 +1024,7 @@ maintainer, per the issue's instruction.
   (spreading_builder.py:64 and :71) — against the absence of any margin computation in
   `evaluate_financial_model()` (spreading_builder.py:425-609). Documented at
   [financial-model.md](financial-model.md) (the "margin rows … have no `state.json` counterpart" note,
-  financial-model.md:399-400). An analyst reviewing F-003/F-005 can only review the workbook formula.
+  financial-model.md:401-402). An analyst reviewing F-003/F-005 can only review the workbook formula.
 - **KD-2. The collateral cover percentage does not follow the N/A rule (issue #365).** Every ratio in
   F-021-F-031 refuses a zero or negative denominator (`_ratio()`, spreading_builder.py:49-53, mirroring
   `safe_div()` in `evaluate_financial_model()`), but the collateral cover does not:

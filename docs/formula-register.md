@@ -856,8 +856,10 @@ the entry says so and it is listed under [Known differences](#known-differences)
   ("Costs"), total_collateral_value = Σ collateral_value ("Collateral Value") (workbook:
   `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`, spreading_builder.py:819-824)
 - **Unit and storage:** sums of the supplied inputs, at full precision; display-only cells
-- **Edge rules:** plain column sums with no netting across assets; the total row's cover cell is F-048's
-  formula, not a sum of the per-asset covers
+- **Edge rules:** literal column sums of the supplied values (ordinary SUM, which would offset a
+  mixed-sign input algebraically — the refusal of negative and mixed-sign amounts is a rule proposed for
+  F-049-F-057, not something this sheet enforces); the total row's cover cell is F-048's formula, not a
+  sum of the per-asset covers
 - **State keys:** —
 - **Workbook rows:** Total
 - **Policy outputs:** —

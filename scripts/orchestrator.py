@@ -500,7 +500,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     lookup = find_deal(company, proposal)
     if not lookup["record_found"] and lookup["near_misses"]:
         suggestions = ", ".join(
-            f"{item['proposal']} ({item['date']})" for item in lookup["near_misses"]
+            f"{item['proposal']!r} ({item['date']})" for item in lookup["near_misses"]
         )
         print(
             f"warning: no saved deal record for {proposal!r} under {company!r}; "

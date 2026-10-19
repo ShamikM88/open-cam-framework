@@ -473,6 +473,18 @@ class TestLinkRewriting:
 
 class TestValidationFailures:
 
+    def test_a_backtick_run_inside_a_closed_span_does_not_open_another_span(self, tmp_path):
+        # CommonMark resumes scanning after a span's closing run, so a shorter
+        # run inside the span is content and never an opener: the lone backtick
+        # later in the paragraph is literal, and the link between is live.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n`` a ` b `` then [ok](README.md) and a lone ` tick\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
+        spans = wiki_publish._code_span_intervals(["`` a ` b `` then [ok](x) and a lone ` tick"])
+        assert spans == {0: [(0, 11)]}
+
     def test_a_fence_indented_four_or_more_spaces_fails_the_build(self, tmp_path):
         # PX358-3: a fence indented four or more spaces is an indented code
         # block in CommonMark, not a fence. The generator supports only the

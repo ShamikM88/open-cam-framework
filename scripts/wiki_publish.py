@@ -274,17 +274,17 @@ def _code_span_intervals(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
         for position, (_, line) in enumerate(block):
             for match in _BACKTICK_RUN_RE.finditer(line):
                 runs.append((position, match.start(), len(match.group(0))))
-        used = [False] * len(runs)
-        for opener_at, opener in enumerate(runs):
-            if used[opener_at]:
-                continue
+        opener_at = 0
+        while opener_at < len(runs):
+            opener = runs[opener_at]
             for closer_at in range(opener_at + 1, len(runs)):
-                if used[closer_at]:
-                    continue
                 if runs[closer_at][2] == opener[2]:
-                    used[opener_at] = used[closer_at] = True
                     _mark_span(opener, runs[closer_at])
+                    # Scanning resumes after the closing run: runs inside the
+                    # span are content and never open another span.
+                    opener_at = closer_at
                     break
+            opener_at += 1
         block.clear()
         last_kind = None
 

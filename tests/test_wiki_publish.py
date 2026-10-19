@@ -976,6 +976,39 @@ class TestPublish:
                 assert f"http.extraheader=Authorization: Basic {header}" in argv
         assert not any("ghs_header_test_token" in str(part) for _, argv in calls for part in argv)
 
+    def test_the_token_is_absent_from_every_git_child_environment(self, tmp_path, monkeypatch):
+        # CG361-1: the header is the only route to git; the raw token must not ride along in
+        # the environment of any child process (clone, push or a purely local command).
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        monkeypatch.setenv("GITHUB_TOKEN", "ghs_env_canary_token")
+        monkeypatch.setenv("GIT_DIR", "/nonexistent")  # still dropped, as before
+        envs = []
+
+        def fake_run(argv, **kwargs):
+            envs.append(kwargs["env"])
+            index = 1
+            while argv[index] == "-c":
+                index += 2
+            head = argv[index]
+            if head == "symbolic-ref":
+                return subprocess.CompletedProcess(argv, 0, "master\n", "")
+            if head == "diff":
+                return subprocess.CompletedProcess(argv, 1, "", "")
+            if head == "ls-files":
+                return subprocess.CompletedProcess(argv, 0, b"", "")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        monkeypatch.setattr(wiki_publish.subprocess, "run", fake_run)
+        code = wiki_publish.main([
+            "--repo", "example/repo", "--root", str(tmp_path), "--publish", "--source-sha", self.SHA1])
+        assert code == 0
+        assert len(envs) >= 5  # clone, branch, listing, staging, commit, push, ...
+        for env in envs:
+            assert "GITHUB_TOKEN" not in env
+            assert "ghs_env_canary_token" not in env.values()
+            assert "GIT_DIR" not in env
+            assert env["GIT_TERMINAL_PROMPT"] == "0"
+
     @pytest.mark.parametrize("stderr,expected", [
         ("fatal: Authentication failed for 'https://github.com/x/y.wiki.git/'", "authorisation rejection"),
         ("fatal: could not read Username for 'https://github.com': terminal prompts disabled",

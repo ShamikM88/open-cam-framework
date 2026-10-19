@@ -426,8 +426,8 @@ python scripts/run_evals.py --dry-run
 and writes nothing; `--publish` (with `--source-sha`, the commit it publishes from) clones the repository's
 wiki, fully replaces its content with the generated set, makes one commit carrying the source sha -- or none,
 when nothing changed -- and pushes it back to the wiki's default branch. The token is read only from the
-`GITHUB_TOKEN` environment variable and reaches git only as an HTTP header: never a URL, a log line or a
-file. Generation and validation run before anything is cloned or pushed, so a broken corpus publishes
+`GITHUB_TOKEN` environment variable and reaches git only as an HTTP header: never a URL, a log line, a file or
+a git process's environment (the variable is removed from every git child's environment). Generation and validation run before anything is cloned or pushed, so a broken corpus publishes
 nothing; a failed push, an unreachable wiki and a missing token are each one `error:` line, exit `1`. It runs
 on every push to `main` that changes `docs/` (the `wiki-publish` workflow; see
 [Operations](operations.md#publishing-the-wiki)).

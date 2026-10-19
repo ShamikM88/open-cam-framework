@@ -521,13 +521,16 @@ COMMIT_AUTHOR_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 
 
 def _git_environment() -> dict[str, str]:
-    """A git environment with no inherited git configuration or prompting.
+    """A git environment with no inherited git configuration, token or prompting.
 
     ``GIT_*`` variables (a hook or an outer git process can set them) are
-    dropped, credential prompts are disabled and the empty ``credential.helper``
+    dropped, as is ``GITHUB_TOKEN`` (this script reads it once and hands it to git
+    only as an HTTP header, so no git child process, hook or helper inherits it),
+    credential prompts are disabled and the empty ``credential.helper``
     below keeps any configured helper from injecting a different credential.
     """
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith("GIT_") and key != "GITHUB_TOKEN"}
     env["GIT_TERMINAL_PROMPT"] = "0"
     return env
 

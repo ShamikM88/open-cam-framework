@@ -583,7 +583,7 @@ def test_ground_truth_figures_excludes_undefined_non_current_base_case_figures()
 def _fenced_underwriter_payload(payload):
     import json
 
-    return "```json\\n" + json.dumps(payload) + "\\n```"
+    return "```json\n" + json.dumps(payload) + "\n```"
 
 
 def _empty_underwriter_output():
@@ -675,7 +675,7 @@ def test_parse_underwriter_output_uses_the_last_relevant_block_without_merging_e
 
     expected = _empty_underwriter_output()
     expected["sources"] = ["Synthetic later source"]
-    assert parse_underwriter_output(earlier + "\\n\\n" + later) == expected
+    assert parse_underwriter_output(earlier + "\n\n" + later) == expected
 
 
 def test_parse_underwriter_output_skips_a_newer_irrelevant_dict_and_keeps_older_relevant_block():
@@ -684,14 +684,14 @@ def test_parse_underwriter_output_skips_a_newer_irrelevant_dict_and_keeps_older_
 
     expected = _empty_underwriter_output()
     expected["cp_ids_included"] = ["CP-OLDER"]
-    assert parse_underwriter_output(earlier + "\\n\\n" + later) == expected
+    assert parse_underwriter_output(earlier + "\n\n" + later) == expected
 
 
 def test_parse_underwriter_output_warns_on_malformed_newest_block_and_continues_to_prior_valid_block(capsys):
     earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-SYNTHETIC-VALID"]})
-    malformed = "```json\\n{not json}\\n```"
+    malformed = "```json\n{not json}\n```"
 
-    result = parse_underwriter_output(earlier + "\\n\\n" + malformed)
+    result = parse_underwriter_output(earlier + "\n\n" + malformed)
     captured = capsys.readouterr()
 
     expected = _empty_underwriter_output()
@@ -705,7 +705,7 @@ def test_parse_underwriter_output_warns_on_malformed_newest_block_and_continues_
 
 
 def test_parse_underwriter_output_malformed_only_block_returns_defaults_and_warns(capsys):
-    result = parse_underwriter_output("```json\\n{not json}\\n```")
+    result = parse_underwriter_output("```json\n{not json}\n```")
     captured = capsys.readouterr()
 
     assert result == _empty_underwriter_output()

@@ -599,14 +599,15 @@ the entry says so and it is listed under [Known differences](#known-differences)
   stressed in historical periods
 - **Unit and storage:** a full parallel set of `financials` and `ratios` per stressed forward period; stored
   under `downside_case`, never over the base case
-- **Edge rules:** the shocks apply to a forward year only where they genuinely meet their assumptions: the
-  analyst gave that year's raw lines, every line a requested shock acts on, every line the covenant ratios
-  read (an omitted line would read as a zero the analyst never confirmed), and the framework's formulas
-  reproduce the subtotals and ratios the analyst gave (to two decimal places). Where they do not — or where
-  a downside was wanted but the analyst's own scenario does not cover the year — the year is recorded under
-  `unavailable` with the reason, and a covenant that PASSes there in the base case is recorded
-  UNRESOLVABLE, never silently absent (issue #124). The analyst's own stressed forecast, where given, is
-  recorded as supplied and is what covenants are tested against for those years
+- **Edge rules:** two paths. Framework-computed forward years: the requested shocks are applied to the raw
+  lines as given and the model is re-run — no reconciliation is possible or required. Analyst-supplied
+  forecasts: the analyst's own stressed scenario is used where given; otherwise the framework's shocks apply
+  only where they genuinely meet their assumptions — the analyst gave that year's raw lines, every line a
+  requested shock acts on, every line the covenant ratios read (an omitted line would read as a zero the
+  analyst never confirmed), and the framework's formulas reproduce the subtotals and ratios the analyst
+  gave (to two decimal places). Where they do not — or where a downside was wanted but the analyst's own
+  scenario does not cover the year — the year is recorded under `unavailable` with the reason, and a
+  covenant that PASSes there in the base case is recorded UNRESOLVABLE, never silently absent (issue #124)
 - **State keys:** —
 - **Workbook rows:** the "(Downside)" columns
 - **Policy outputs:** —

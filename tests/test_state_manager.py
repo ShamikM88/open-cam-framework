@@ -1523,3 +1523,50 @@ def test_review_trail_upgrades_a_legacy_state_and_preserves_unknown_fields(tmp_p
     assert persisted["schema_version"] == SCHEMA_VERSION
     assert persisted["future_extension"] == {"nested": [1, 2, {"retained": True}]}
 
+def test_reviewer_view_normalizes_a_null_history_to_an_empty_json_array(tmp_path):
+    base = str(tmp_path)
+    write_state(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+        review_verdict="REJECTED", review_trail=None, note="Keep source unchanged",
+    )
+    source_path = state_path(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+    )
+    with open(source_path, "rb") as source_file:
+        source_before = source_file.read()
+
+    paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+
+    with open(paths["review_trail"], encoding="utf-8") as trail_file:
+        assert json.load(trail_file) == []
+    with open(paths["state_for_review"], encoding="utf-8") as review_file:
+        record = json.load(review_file)
+    assert record["note"] == "Keep source unchanged"
+    assert "review_trail" not in record
+    assert "review_verdict" not in record
+    with open(source_path, "rb") as source_file:
+        assert source_file.read() == source_before
+
+
+def test_review_trail_appends_to_a_null_history_as_iteration_one(tmp_path):
+    base = str(tmp_path)
+    write_state(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+        review_trail=None, note="Preserve unrelated state",
+    )
+
+    state = append_review_trail(
+        "Synthetic Co", "Synthetic Loan", verdict="REJECTED",
+        notes="Synthetic finding", timestamp="2026-01-15T10:00:00",
+        date_str="2026-01-15", base_dir=base,
+    )
+
+    assert state["review_trail"] == [{
+        "iteration": 1,
+        "verdict": "REJECTED",
+        "notes": "Synthetic finding",
+        "timestamp": "2026-01-15T10:00:00",
+    }]
+    assert state["review_verdict"] == "REJECTED"
+    assert state["note"] == "Preserve unrelated state"
+

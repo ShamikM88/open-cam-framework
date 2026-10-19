@@ -340,7 +340,7 @@ def _existing_date_str(company, proposal, base_dir=None):
 
 def _normalize_proposal_for_suggestion(proposal):
     """Normalize only case and runs of whitespace/hyphens for advisory near matches."""
-    return re.sub(r"[\\s-]+", " ", proposal.casefold()).strip()
+    return re.sub(r"[\s-]+", " ", proposal.casefold()).strip()
 
 
 def find_deal(company, proposal, base_dir=None):

@@ -1180,7 +1180,7 @@ def test_find_deal_exact_match_returns_resolved_path_and_newest_date(tmp_path):
     }
 
 
-def test_find_deal_misspelling_returns_advisory_candidate_without_selecting_it(tmp_path):
+def test_find_deal_misspelling_is_not_fuzzy_matched_and_creates_nothing(tmp_path):
     base = str(tmp_path)
     write_state("Synthetic Co", "Oakhaven Capital", date_str="2026-01-10", base_dir=base)
     before = sorted(os.path.relpath(os.path.join(root, name), base)
@@ -1188,10 +1188,11 @@ def test_find_deal_misspelling_returns_advisory_candidate_without_selecting_it(t
 
     result = state_manager.find_deal("Synthetic Co", "Oakhaven Capitl", base_dir=base)
 
-    assert result["record_found"] is False
-    assert result["company_folder_exists"] is True
-    assert [item["proposal"] for item in result["near_misses"]] == ["Oakhaven Capital"]
-    assert result["near_misses"][0]["date"] == "2026-01-10"
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [],
+    }
     after = sorted(os.path.relpath(os.path.join(root, name), base)
                    for root, dirs, files in os.walk(base) for name in files)
     assert after == before
@@ -1256,7 +1257,7 @@ def test_find_deal_excludes_export_only_and_malformed_date_folders_from_candidat
     malformed.mkdir(parents=True)
     (malformed / "state.json").write_text("{}", encoding="utf-8")
 
-    result = state_manager.find_deal("Synthetic Co", "Oakhaven Capitl", base_dir=str(base))
+    result = state_manager.find_deal("Synthetic Co", "Oakhaven Capital", base_dir=str(base))
     assert result == {
         "record_found": False,
         "company_folder_exists": True,

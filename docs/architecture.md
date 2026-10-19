@@ -40,8 +40,10 @@ the model, how it is authenticated and what it costs**.
 
 Two boundaries to keep in mind:
 
-- **Credentials.** The only credential the framework uses is the `ANTHROPIC_API_KEY` environment variable, and
-  only the headless scripts read it. Set it in your own shell; never write it into a file in this repository
+- **Credentials.** The only model credential the framework uses is the `ANTHROPIC_API_KEY` environment variable, and
+  only the headless scripts read it. (The one other token is the `wiki-publish` workflow's own `GITHUB_TOKEN`, which
+  GitHub issues to that job and `wiki_publish.py --publish` hands to git as an HTTP header; it is not a secret you
+  set, and there is no fallback token.) Set it in your own shell; never write it into a file in this repository
   (`config/settings.json` is git-tracked and is not read for keys), never put it in a deal folder, a prompt or a
   command, and never paste a live key into an AI assistant's chat, where it ends up in transcripts and logs. A
   `.env` file and `*.key` files are git-ignored as a safety net, but nothing in the framework reads a `.env`
@@ -117,8 +119,9 @@ the narrative is sound.
   drafting work back to the session.
 - **Scripts** (`scripts/`): the deterministic core and the headless entry points. Most have no `anthropic`
   dependency so they can run from a slash command's Bash step and be tested without a model.
-  `wiki_publish.py` only generates the wiki pages into a directory; publishing them to the GitHub
-  Wiki is a separate, later change that needs the maintainer's one-time wiki setup.
+  `wiki_publish.py` generates the wiki pages from `docs/` and, with `--publish`, pushes them one-way to the
+  GitHub Wiki (the `wiki-publish` workflow runs it on every push to `main` that changes `docs/`; see
+  [Operations](operations.md#publishing-the-wiki)). `docs/` stays the only authored source.
 - **Templates** (`templates/`): shipped generic CAM templates, plus git-ignored local overrides derived from your
   own documents.
 - **State** (`deals/<Company>/<Proposal>_<Date>/state.json`, git-ignored): the checkpoint of every step, with

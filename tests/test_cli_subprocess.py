@@ -1339,6 +1339,42 @@ def test_wiki_publish_on_a_broken_corpus_fails_cleanly(cli, tmp_path):
     assert not (tmp_path / "out").exists()
 
 
+def test_wiki_publish_publishes_to_a_local_bare_repository(cli, tmp_path):
+    """The --publish mode, run for real as a subprocess: generation, clone, full replacement, one
+    commit and a push against a local bare repository standing in for the wiki (no token, no network)."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "README.md").write_text(
+        "# Index\n\n## What is in this folder\n\n| Document | Contents |\n| :--- | :--- |\n"
+        "| [source.md](source.md) | x |\n", encoding="utf-8")
+    (docs / "source.md").write_text("# S\n", encoding="utf-8")
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / "Home.md").write_text("placeholder\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    for args in (["-c", "init.defaultBranch=master", "init", "-q"], ["add", "Home.md"],
+                 ["commit", "-q", "-m", "Initial Home page"]):
+        subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t", *args],
+                       cwd=seed, check=True, capture_output=True, env=env, timeout=60)
+    remote = tmp_path / "wiki.git"
+    subprocess.run(["git", "clone", "--quiet", "--bare", str(seed), str(remote)], check=True,
+                  capture_output=True, env=env, timeout=60)
+
+    result = cli("wiki_publish", "--repo", "example/repo", "--root", str(tmp_path), "--publish",
+                 "--source-sha", "1" * 40, "--remote", str(remote))
+
+    assert result.returncode == 0, result.stderr
+    tree = subprocess.run(
+        ["git", "--git-dir", str(remote), "ls-tree", "-r", "--name-only", "HEAD"],
+        check=True, capture_output=True, text=True, env=env, timeout=60)
+    files = tree.stdout.splitlines()
+    assert "Home.md" in files and "source.md" in files and "_Sidebar.md" in files
+    message = subprocess.run(
+        ["git", "--git-dir", str(remote), "log", "-1", "--format=%B"],
+        check=True, capture_output=True, text=True, env=env, timeout=60)
+    assert "docs-source: " + "1" * 40 in message.stdout
+
+
 STRESS_DOMAIN_CASES = [
     ("revenue_haircut_pct", -10),
     ("opex_increase_pct", -50),

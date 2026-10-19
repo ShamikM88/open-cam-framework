@@ -776,10 +776,12 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-045 — Ground-truth figures set
 
 - **Name:** Ground-truth figures — the complete set of figures a draft may cite a number for
-- **Formula:** every FY-Current ratio and subtotal under its plain metric name (F-002…F-031); every other
-  base-case period suffixed `_<period>` (e.g. `ebitda_FY-1`, `dscr_FY+1`); downside figures suffixed
-  `_<period>_downside`; plus the aggregate collateral cover percentage (F-047). This is a pure function of
-  figures already computed — never a new calculation
+- **Formula:** every key present in a period's computed `financials`/`ratios` dicts — the subtotals and
+  ratios of F-002…F-031 the model actually produces (workbook-only margins and memo subtotals such as
+  F-003, F-011, F-015 and F-019 have no state key and never appear) — under its plain metric name for
+  FY-Current; every other base-case period suffixed `_<period>` (e.g. `ebitda_FY-1`, `dscr_FY+1`);
+  downside figures suffixed `_<period>_downside`; plus the aggregate collateral cover percentage (F-047),
+  which is the one figure computed here. The model's figures are copied as already computed
 - **Unit and storage:** a flat dict of figure name → value; a ratio the model left `None` is excluded
   entirely (it is not a figure this deal has a number for), as is the collateral cover when unresolvable
 - **Edge rules:** an unknown reported figure is flagged UNRESOLVABLE rather than ignored; the nested `raw`
@@ -992,7 +994,8 @@ maintainer, per the issue's instruction.
 
 - **KD-1. Margin rows have no state.json counterpart.** The workbook computes "Gross Profit Margin %"
   (F-003) and "Operating Margin %" (F-005) as ratio cells, but `evaluate_financial_model()` computes no
-  margin state key, so no CAM figure, covenant or ground-truth entry exists for either. Both sides are
+  margin state key, so the framework-computed model produces no CAM figure, covenant input or
+  ground-truth entry for either. Both sides are
   working as designed: `scripts/spreading_builder.py` — the `_ratio()` formulas in `PNL_ROWS`
   (spreading_builder.py:64 and :71) — against the absence of any margin computation in
   `evaluate_financial_model()` (spreading_builder.py:425-609). Documented at

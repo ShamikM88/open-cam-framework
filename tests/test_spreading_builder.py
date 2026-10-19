@@ -162,6 +162,34 @@ def test_collateral_sheet_has_a_total_row(workbook):
     assert ws.cell(row=3, column=1).value == "Total"
 
 
+@pytest.mark.parametrize(
+    ("exposure", "collateral_value", "expected"),
+    [
+        (400, 400, 1.0),
+        (0, 400, "N/A"),
+        (-400, 400, "N/A"),
+    ],
+)
+def test_collateral_cover_formulas_require_positive_exposure(
+    tmp_path, exposure, collateral_value, expected,
+):
+    out_path = tmp_path / "collateral_cover.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        collateral_data=[{
+            "asset_class": "Equipment",
+            "exposure": exposure,
+            "collateral_value": collateral_value,
+        }],
+    )
+    ws = openpyxl.load_workbook(out_path)["Collateral & Exposure"]
+
+    assert ws["H2"].value == '=IFERROR(IF(B2>0,G2/B2,"N/A"),"N/A")'
+    assert ws["H3"].value == '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'
+    assert _evaluate(ws, "H", 2, {}) == expected
+    assert _evaluate(ws, "H", 3, {}) == expected
+
+
 # ---------------------------------------------------------------------------
 # Formula correctness
 #

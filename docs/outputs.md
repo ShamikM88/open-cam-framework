@@ -159,17 +159,27 @@ workbook can see exactly how each figure was derived and re-check it. A second s
 `templates/spreading/default_spreading_template.xlsx` is a checked-in, blank reference copy of
 that exact layout, so you can inspect the format without running any code.
 
-The Financial Spreading sheet also carries two **native Excel charts** below the table: a
+The Financial Spreading sheet also carries **native Excel charts** below the table: a
 leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart. They are
 anchored at a cell derived from the table's last row (plus a margin), and every series, legend
 title and category label references the workbook's own cells, so the charts always show what
-the sheet shows — nothing is copied in. The series span the historical and forward base-case
-columns, and a downside column joins the range only while it carries downside figures; an
-unavailable downside column is excluded from the range rather than plotted as a blank.
+the sheet shows -- nothing is copied in. These two charts cover the historical and forward
+base-case columns (B to G) only; they never extend into the downside columns, because a
+downside year is a stress of a forward year, not a later period, and joining it to the
+base-case line would read as a time path it is not.
+
+When downside figures exist (framework-derived or analyst-supplied, for a period the workbook
+does not mark unavailable), a third, separate **downside leverage chart** is added below the
+other two. It shows the same two metrics (Gross Leverage and Net Debt / EBITDA), reads the
+downside cells (columns H to J) directly, and uses the downside header cells as its own
+category labels. There is no downside revenue chart. A downside that is not contiguous (for
+example FY+1 and FY+3 but no FY+2) is not truncated: the chart still spans H to J and the
+period without figures is left as a gap.
+
 `displayBlanksAs="gap"` is set explicitly on every chart, so a blank cell is configured
 to render as a gap rather than a zero. (How Excel actually draws a cell whose formula
-evaluates to the workbook's `"N/A"` marker — e.g. a zero-EBITDA period's leverage
-ratios — is being verified by hand in Excel; the configuration is asserted in tests, the
+evaluates to the workbook's `"N/A"` marker -- e.g. a zero-EBITDA period's leverage
+ratios -- is being verified by hand in Excel; the configuration is asserted in tests, the
 drawing is not.)
 
 > **Custom spreading templates:** if your organization already has a standard spreading Excel

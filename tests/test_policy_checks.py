@@ -574,3 +574,143 @@ def test_ground_truth_figures_excludes_undefined_non_current_base_case_figures()
     assert "dscr_FY+1" not in truth
     assert truth["ebitda"] == 1000
     assert truth["dscr"] == 1.5
+
+# ---------------------------------------------------------------------------
+# Mutation-survivor coverage for parse_underwriter_output(): schema key
+# recognition, reverse scanning, malformed blocks, defaults and field types.
+# ---------------------------------------------------------------------------
+
+def _fenced_underwriter_payload(payload):
+    import json
+
+    return "```json\\n" + json.dumps(payload) + "\\n```"
+
+
+def _empty_underwriter_output():
+    return {
+        "cp_ids_included": [],
+        "cs_ids_included": [],
+        "risk_categories_covered": {},
+        "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+        "sources": [],
+        "financials_source_disclosed": False,
+        "credit_policy_considered": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "draft_text",
+    [
+        None,
+        "",
+        "Synthetic draft with no structured block.",
+        _fenced_underwriter_payload({}),
+        _fenced_underwriter_payload({"unrelated": "not Underwriter structured output"}),
+        _fenced_underwriter_payload([]),
+        _fenced_underwriter_payload("plain text"),
+        _fenced_underwriter_payload(17),
+        _fenced_underwriter_payload(None),
+    ],
+)
+def test_parse_underwriter_output_returns_exact_empty_defaults_when_no_schema_block_exists(draft_text):
+    assert parse_underwriter_output(draft_text) == _empty_underwriter_output()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "output_field"),
+    [
+        ("cp_ids_included", ["CP-SYNTHETIC-1"], "cp_ids_included"),
+        ("cs_ids_included", ["CS-SYNTHETIC-1"], "cs_ids_included"),
+        ("risk_categories_covered", {"Market": {"status": "covered"}}, "risk_categories_covered"),
+        ("reported_figures", {"dscr": 1.25}, "reported_figures"),
+        ("downside_breaches_acknowledged", ["DOWNSIDE-SYNTHETIC-1"], "downside_breaches_acknowledged"),
+        ("sources", ["Synthetic annual report"], "sources"),
+        ("financials_source_disclosed", True, "financials_source_disclosed"),
+        ("credit_policy_considered", True, "credit_policy_considered"),
+    ],
+)
+def test_parse_underwriter_output_recognizes_each_schema_key_when_it_is_the_only_key(
+    field, value, output_field,
+):
+    """Each key is an independent reason to recognise a structured block.
+    Keeping each case to one key kills deletion of any individual `or` arm."""
+    expected = _empty_underwriter_output()
+    expected[output_field] = value
+
+    assert parse_underwriter_output(_fenced_underwriter_payload({field: value})) == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_type"),
+    [
+        ("cp_ids_included", "CP-SYNTHETIC-1"),
+        ("cs_ids_included", "CS-SYNTHETIC-1"),
+        ("risk_categories_covered", [{"Market": {"status": "covered"}}]),
+        ("reported_figures", [["dscr", 1.25]]),
+        ("downside_breaches_acknowledged", {"DOWNSIDE-SYNTHETIC-1": True}),
+    ],
+)
+def test_parse_underwriter_output_degrades_wrong_schema_field_types_to_empty_values(field, wrong_type):
+    payload = {field: wrong_type}
+
+    assert parse_underwriter_output(_fenced_underwriter_payload(payload)) == _empty_underwriter_output()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (field, value)
+        for field in ("financials_source_disclosed", "credit_policy_considered")
+        for value in (False, None, 0, 1, "true")
+    ],
+)
+def test_parse_underwriter_output_requires_literal_json_true_for_disclosure_flags(field, value):
+    assert parse_underwriter_output(_fenced_underwriter_payload({field: value})) == _empty_underwriter_output()
+
+
+def test_parse_underwriter_output_uses_the_last_relevant_block_without_merging_earlier_values():
+    earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-OLDER"]})
+    later = _fenced_underwriter_payload({"sources": ["Synthetic later source"]})
+
+    expected = _empty_underwriter_output()
+    expected["sources"] = ["Synthetic later source"]
+    assert parse_underwriter_output(earlier + "\\n\\n" + later) == expected
+
+
+def test_parse_underwriter_output_skips_a_newer_irrelevant_dict_and_keeps_older_relevant_block():
+    earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-OLDER"]})
+    later = _fenced_underwriter_payload({"commentary": "not a schema key"})
+
+    expected = _empty_underwriter_output()
+    expected["cp_ids_included"] = ["CP-OLDER"]
+    assert parse_underwriter_output(earlier + "\\n\\n" + later) == expected
+
+
+def test_parse_underwriter_output_warns_on_malformed_newest_block_and_continues_to_prior_valid_block(capsys):
+    earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-SYNTHETIC-VALID"]})
+    malformed = "```json\\n{not json}\\n```"
+
+    result = parse_underwriter_output(earlier + "\\n\\n" + malformed)
+    captured = capsys.readouterr()
+
+    expected = _empty_underwriter_output()
+    expected["cp_ids_included"] = ["CP-SYNTHETIC-VALID"]
+    assert result == expected
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "[parse_underwriter_output] Skipping unparseable fenced JSON block:"
+    )
+    assert captured.err.count("[parse_underwriter_output] Skipping unparseable fenced JSON block:") == 1
+
+
+def test_parse_underwriter_output_malformed_only_block_returns_defaults_and_warns(capsys):
+    result = parse_underwriter_output("```json\\n{not json}\\n```")
+    captured = capsys.readouterr()
+
+    assert result == _empty_underwriter_output()
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "[parse_underwriter_output] Skipping unparseable fenced JSON block:"
+    )
+

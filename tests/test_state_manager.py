@@ -1299,3 +1299,105 @@ def test_find_cli_reports_an_unlistable_company_folder_as_one_error_line(
     assert "Traceback" not in str(excinfo.value)
     assert "\n" not in str(excinfo.value)
     assert capsys.readouterr().out == ""
+
+# ---------------------------------------------------------------------------
+# Additional read-only find_deal() survivor cases (job prefix: find_deal).
+# Existing tests already pin exact matching, newest exact date, one normalized
+# candidate, misspellings, prefix rejection, corrupt state and CLI errors.
+# ---------------------------------------------------------------------------
+
+def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_date(tmp_path):
+    base = str(tmp_path)
+    company = "Synthetic Co"
+    proposals = {
+        "Synthetic Alpha - Capital": ("2026-01-11", "2026-06-12"),
+        "Synthetic Alpha--Capital": ("2026-02-10", "2026-05-12"),
+        "Synthetic Alpha-Capital": ("2026-03-11",),
+    }
+    for proposal, dates in proposals.items():
+        for date_str in dates:
+            write_state(company, proposal, date_str=date_str, base_dir=base)
+
+    result = state_manager.find_deal(
+        company, "Synthetic Alpha Capital", base_dir=base,
+    )
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [
+            {
+                "proposal": "Synthetic Alpha - Capital",
+                "date": "2026-06-12",
+                "state_path": state_path(
+                    company, "Synthetic Alpha - Capital",
+                    date_str="2026-06-12", base_dir=base,
+                ),
+            },
+            {
+                "proposal": "Synthetic Alpha--Capital",
+                "date": "2026-05-12",
+                "state_path": state_path(
+                    company, "Synthetic Alpha--Capital",
+                    date_str="2026-05-12", base_dir=base,
+                ),
+            },
+            {
+                "proposal": "Synthetic Alpha-Capital",
+                "date": "2026-03-11",
+                "state_path": state_path(
+                    company, "Synthetic Alpha-Capital",
+                    date_str="2026-03-11", base_dir=base,
+                ),
+            },
+        ],
+    }
+
+
+def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_path):
+    base = tmp_path
+    deals_dir = base / "deals"
+    deals_dir.mkdir()
+    company_file = deals_dir / "Synthetic Co"
+    company_file.write_text("not a directory", encoding="utf-8")
+    before = sorted(
+        str(path.relative_to(base))
+        for path in base.rglob("*")
+        if path.is_file()
+    )
+
+    result = state_manager.find_deal(
+        "Synthetic Co", "Synthetic Facility", base_dir=str(base),
+    )
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": False,
+        "near_misses": [],
+    }
+    after = sorted(
+        str(path.relative_to(base))
+        for path in base.rglob("*")
+        if path.is_file()
+    )
+    assert after == before
+
+
+@pytest.mark.parametrize(
+    ("company", "proposal", "field_name"),
+    [
+        ("Synthetic/Co", "Synthetic Facility", "company"),
+        ("Synthetic Co", "Synthetic/Facility", "proposal"),
+    ],
+)
+def test_find_deal_rejects_unsafe_path_components_without_creating_files(
+    tmp_path, company, proposal, field_name,
+):
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+
+    with pytest.raises(ValueError, match=field_name):
+        state_manager.find_deal(company, proposal, base_dir=str(tmp_path))
+
+    after = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    assert after == before
+

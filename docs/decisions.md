@@ -27,6 +27,7 @@ so in its Related line) when a later decision supersedes it.
 - [D14. The test-count badge is checked by CI and never corrected by it](#d14-the-test-count-badge-is-checked-by-ci-and-never-corrected-by-it)
 - [D15. Skills are interactive aids and never input to the Maker or the Checker](#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker)
 - [D16. The headless Maker and Checker use provider-default sampling parameters](#d16-the-headless-maker-and-checker-use-provider-default-sampling-parameters)
+- [D17. Headless runs cannot reset an analyst-supplied historical basis](#d17-headless-runs-cannot-reset-an-analyst-supplied-historical-basis)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -254,3 +255,11 @@ so in its Related line) when a later decision supersedes it.
 - **Why.** A setting must not promise control that the configured models do not accept. Silently sending a rejected request is worse than a visible migration warning with deterministic request shape.
 - **Consequences.** Maker/Checker model selection remains independent; sampling controls must not be added back without a separately reviewed, model-validated design. The key names are documented as unsupported in [Configuration](configuration.md#which-settings-are-read).
 - **Related.** #274.
+
+## D17. Headless runs cannot reset an analyst-supplied historical basis
+
+- **Context.** `financials_source` describes the audit basis of the deal's historical figures. A headless forward-only update could previously recompute every preserved period when raw history existed and then relabel the whole deal `framework-computed`, even though the input contained no replacement historical data.
+- **Choice.** A headless `orchestrator.py` run must not recompute or reset a deal whose `financials_source` is `"analyst-supplied"`; refuse before the model call or state write and direct the maintainer to `/spread`'s analyst-supplied mode. The single allowed exception to the normal one-raw-store-per-deal rule is an interactive, forward-only `/project` call: framework-computed forward-year raw lines may coexist with analyst-supplied historical lines.
+- **Why.** A deal-wide audit label must not imply that supplied history was independently recomputed. The interactive forward-only route does not recompute history and therefore does not weaken that guarantee.
+- **Consequences.** `financials_source` is unchanged by headless runs on analyst-supplied deals. The exception introduces no new state key and does not permit mixing raw figures from the two stores within any one period. See [the data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
+- **Related.** #345, #305, #271, #249, D4.

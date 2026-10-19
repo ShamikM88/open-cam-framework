@@ -36,8 +36,9 @@ equivalent: `/research` (a standalone research brief, not a CAM or a workbook) a
 | What stays local | Your files, `state.json`, the generated documents and the deterministic scripts the commands run | The same |
 | What goes to an external service | What the session sends to Claude Code's model while it works; the public pages and filings a research step fetches | The prompts and documents each script sends to the Anthropic API |
 
-**Where credentials must not go.** The only credential the framework uses is the `ANTHROPIC_API_KEY` environment
-variable, and only the headless scripts read it. Set it in your own shell. Never write it into a file in this
+**Where credentials must not go.** The only model credential the framework uses is the `ANTHROPIC_API_KEY` environment
+variable, and only the headless scripts read it (the `wiki-publish` workflow separately uses the `GITHUB_TOKEN` GitHub
+issues to that job; you set nothing for it). Set it in your own shell. Never write it into a file in this
 repository (`config/settings.json` is tracked and is not read for keys), a deal folder, a prompt or a command, and
 never paste a live key into an AI assistant's chat. The test suite makes no model calls and needs no key; the
 local evaluation harness calls the model only when you run it yourself with `--live`, under a hard call cap, on

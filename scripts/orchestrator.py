@@ -490,6 +490,66 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     validate_stress_assumptions(stress_assumptions)
     validate_finite_numbers(collateral_data, path="collateral")
+
+    # Load the targeted deal before credential or prompt loading so a refused
+    # financial-basis transition has a deterministic one-line error even when
+    # no headless API credentials are configured.
+    # Resolved once and threaded through all state operations below so this
+    # run always targets one dated folder.
+    date_str = resolve_date_str(company, proposal, new_review=new_review)
+    existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
+    steps_completed = list(existing_state.get("steps_completed") or [])
+
+    if multi_period_financials and existing_state.get("financials_source") == "analyst-supplied":
+        historical_inputs = sorted(
+            period for period in multi_period_financials if period not in FORWARD_PERIOD_KEYS
+        )
+        if historical_inputs:
+            raise StateError(
+                "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
+                f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
+                "analyst-supplied mode; nothing was written."
+            )
+
+        planning_state = existing_state
+        if existing_state.get("forecast_source") == "analyst-supplied":
+            planning_state = dict(existing_state)
+            planning_state["forecast_source"] = None
+            for field in ("multi_period_financials", "financials", "ratios"):
+                planning_state[field] = {
+                    period: value
+                    for period, value in (existing_state.get(field) or {}).items()
+                    if period not in FORWARD_PERIOD_KEYS
+                }
+
+        recorded_periods = {
+            period
+            for field in ("financials", "ratios")
+            for period, value in (planning_state.get(field) or {}).items()
+            if isinstance(value, dict) and value
+        }
+        existing_raw = planning_state.get("multi_period_financials") or {}
+        incoming_raw = multi_period_financials or {}
+        available_raw_periods = {
+            period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
+        } | {
+            period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
+        }
+        missing_raw_periods = sorted(recorded_periods - available_raw_periods)
+        if missing_raw_periods:
+            raise StateError(
+                "refused: a headless run cannot recompute or reset an analyst-supplied deal; recorded "
+                f"period(s) without raw line items ({', '.join(missing_raw_periods)}) are additionally "
+                "unavailable for recomputation. Use /spread's analyst-supplied mode to record financial "
+                "figures; nothing was written."
+            )
+
+        raise StateError(
+            "refused: a headless run cannot recompute or reset an analyst-supplied deal, even "
+            "for forward-year-only input; use /spread's analyst-supplied mode to record financial "
+            "figures; nothing was written."
+        )
+
     client = client or _default_client()
 
     # Shipped, repository-owned prompts: strict UTF-8, a decode error fails loudly
@@ -551,22 +611,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             f"placeholder with grounded, sourced content:\n{read_text(template_path)}\n"
         )
 
-    # Never blindly overwrite what an earlier run of this pipeline (or an
-    # earlier slash-command step, if this deal was previously advanced that
-    # way) already checkpointed: only replace financials/ratios/collateral
-    # when this call was actually given new data for them, and only ever
-    # *add* to steps_completed, never reset it -- see state_manager
-    # .write_state()'s documented shallow-merge contract and CLAUDE.md's
-    # re-hydration rule.
-    # Resolved once, here, and threaded through every read_state()/
-    # write_state()/append_review_trail()/state_path() call below via
-    # date_str -- never via new_review=new_review again -- so every call
-    # in this run is guaranteed to agree on which dated folder, with no
-    # second call site able to silently forget the flag and fall back to
-    # auto-discovery (see resolve_date_str()'s own docstring).
-    date_str = resolve_date_str(company, proposal, new_review=new_review)
-    existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
-    steps_completed = list(existing_state.get("steps_completed") or [])     # `or`: a null value is "not recorded"
+    # Never blindly overwrite prior checkpoints; only update supplied data and add steps.
 
     # An analyst-supplied forecast's downside is the analyst's own scenario (or recorded as unavailable), which this
     # run can neither recompute nor originate. A different stress assumption would be persisted beside a downside
@@ -594,7 +639,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # forecast. Remove those forward periods from the planning input first so
         # plan_fields does not reject the fresh figures as an attempt to overwrite
         # analyst data, and so stale supplied forward years cannot survive a
-        # historical-only recomputation while the source flag is cleared below.
+        # historical-only recomputation when forecast_source is cleared below.
         planning_state = existing_state
         if existing_state.get("forecast_source") == "analyst-supplied":
             planning_state = dict(existing_state)
@@ -606,59 +651,6 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                     if period not in FORWARD_PERIOD_KEYS
                 }
 
-        # financials_source is a whole-deal flag. Clearing an analyst-supplied
-        # flag is only defensible if every preserved period is recomputed from
-        # raw lines in this run. Refuse before any model call/write when a
-        # recorded period has no raw inputs; when raw history exists, recompute
-        # all of it rather than only the fresh delta so stale supplied outputs
-        # cannot be relabelled framework-computed (review finding on #297).
-        if existing_state.get("financials_source") == "analyst-supplied":
-            # Decision D2 (#246): historical figures never recompute or relabel an analyst-supplied deal headlessly.
-            historical_inputs = sorted(period for period in multi_period_financials
-                                       if period not in FORWARD_PERIOD_KEYS)
-            if historical_inputs:
-                raise StateError(
-                    "refused: this deal is analyst-supplied, so --financials/--spread may not supply historical "
-                    f"periods ({', '.join(historical_inputs)}); record historical figures with /spread's "
-                    "analyst-supplied mode; nothing was written."
-                )
-            recorded_periods = {
-                period
-                for field in ("financials", "ratios")
-                for period, value in (planning_state.get(field) or {}).items()
-                if isinstance(value, dict) and value
-            }
-            existing_raw = planning_state.get("multi_period_financials") or {}
-            incoming_raw = multi_period_financials or {}
-            available_raw_periods = {
-                period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
-            } | {
-                period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
-            }
-            missing_raw_periods = sorted(recorded_periods - available_raw_periods)
-            if missing_raw_periods:
-                raise StateError(
-                    "refused: cannot reset financials_source from analyst-supplied to framework-computed while "
-                    f"preserving periods without raw line items ({', '.join(missing_raw_periods)}); provide raw "
-                    "line items for every preserved period so all figures can be recomputed, or keep the "
-                    "analyst-supplied state; nothing was written."
-                )
-
-            recompute_inputs = {
-                period: dict(raw)
-                for period, raw in existing_raw.items()
-                if isinstance(raw, dict) and raw
-            }
-            for period, raw in incoming_raw.items():
-                merged_period = dict(recompute_inputs.get(period) or {})
-                merged_period.update(raw or {})
-                recompute_inputs[period] = merged_period
-            multi_period_financials = recompute_inputs
-            # This branch is the explicit clearing of the flag (forward-year input only, raw lines for every preserved
-            # period). Plan it as the framework-computed run it becomes, so plan_fields()'s analyst-supplied guard
-            # (decision D3, #271) -- which protects the interactive path -- does not refuse the existing rule here.
-            planning_state = {**planning_state, "financials_source": "framework-computed"}
-
         planned_fields = plan_fields(
             planning_state, multi_period_financials, update_financials_source=False,
         )
@@ -666,13 +658,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         ratios = planned_fields["ratios"]
         multi_period_financials = planned_fields["multi_period_financials"]
         steps_completed = _add_step(steps_completed, "spread")
-        # This call just independently recomputed every ratio from raw
-        # line items -- "analyst-supplied" (see #55's /spread alternative
-        # mode) only ever comes from a hand-edited state.json, never from
-        # this headless recomputation path, so a fresh --financials/
-        # --spread run always resets financials_source back to the
-        # framework-computed default even if a prior slash-command step
-        # had flagged the deal analyst-supplied.
+        # This call just independently recomputed every ratio from raw line items.
+        # An analyst-supplied deal was refused above, so any fresh --financials/--spread
+        # run reaching this point is framework-computed and may safely carry that basis.
         financials_source = "framework-computed"
         # Same reasoning -- a stale note from a prior analyst-supplied run
         # must not linger, even though it's currently inert (the caveat

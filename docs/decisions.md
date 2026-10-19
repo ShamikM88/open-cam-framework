@@ -275,8 +275,10 @@ so in its Related line) when a later decision supersedes it.
   the workbook, a key the financial model produces, or a policy-engine rule has no register entry, or when an
   entry names a file or function that does not exist. Analyst sign-off is recorded outside the repository; the
   page records only role, date and commit, and no personal names.
-- **Why.** A description that cannot fail a build drifts; a register that gates the build cannot. Sign-off is a
-  human act with a human record, not a file in the repo.
+- **Why.** A description that cannot fail a build drifts; the guard makes a missing entry, a broken reference or
+  a changed definition fail the build or force a fingerprint refresh — though no guard can prove the prose itself
+  was rewritten, which is what the analyst review is for. Sign-off is a human act with a human record, not a file
+  in the repo.
 - **Consequences.** Entries are never renumbered; a withdrawn entry keeps its id with a status saying so.
   Deliberate disagreements between the register and the code are recorded on the page under "Known
   differences" rather than fixed silently. See [the formula register](formula-register.md).

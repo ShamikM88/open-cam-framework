@@ -28,8 +28,7 @@ commands by `.claude/commands/`, agent behaviour by `agents/*.md`, financial sem
 its tests, the state schema by `scripts/state_manager.py` and its tests, CI by `.github/workflows/`, tool
 settings by `pyproject.toml`, and the operating rules by this file. When a page and its source disagree, fix the
 page in the same change. A change to a formula must update the formula register
-([docs/formula-register.md](docs/formula-register.md)) in the same change; the drift guard in
-`tests/test_formula_register.py` fails otherwise.
+([docs/formula-register.md](docs/formula-register.md)) in the same change.
 
 Several headings in this file are cited by name from code, commands and the registry (`Context Window & State
 Management Protocol`, `Source material persistence`, `Persisted conventions`, `Execution scripts`, `What

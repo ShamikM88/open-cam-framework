@@ -7,7 +7,8 @@ this page records only the reviewer's role, the date and the commit, never a per
 
 How to keep this page true is a [design decision](decisions.md#d18-code-defines-the-register-describes): the
 code defines, the register describes, and a formula change updates the register in the same pull request.
-[tests/test_formula_register.py](../tests/test_formula_register.py) fails the build when the two drift apart.
+[tests/test_formula_register.py](../tests/test_formula_register.py) fails the build when an entry is missing, when an entry names a file or function that does not exist, and when a definition the register describes changes
+without the recorded fingerprints being refreshed.
 
 ## Conventions used by every entry
 

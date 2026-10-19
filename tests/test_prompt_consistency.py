@@ -124,6 +124,26 @@ def test_underwriter_prompt_no_longer_tells_the_underwriter_to_self_calculate_wo
     assert "Working Capital Days" in underwriter_prompt
 
 
+def test_underwriter_prompt_keys_non_current_reported_figures_by_period(underwriter_prompt):
+    """Regression guard for issue #348: non-current reported figures must use
+    their period-qualified key, after the distinct downside-key instruction and
+    before the per-asset collateral exception clause."""
+    period_key_sentence = (
+        "A figure for a non-current period is keyed as `{metric}_{period}`"
+    )
+    downside_sentence = (
+        "A downside/stressed figure is keyed as `{metric}_{period}_downside`"
+    )
+    assert period_key_sentence in underwriter_prompt
+    assert underwriter_prompt.index(downside_sentence) < underwriter_prompt.index(
+        period_key_sentence
+    )
+    exception_clause = "Exception: the per-asset collateral metrics"
+    assert underwriter_prompt.index(period_key_sentence) < underwriter_prompt.index(
+        exception_clause
+    )
+
+
 def test_underwriter_prompt_carves_out_unenforced_collateral_metrics_from_reported_figures(
     underwriter_prompt,
 ):
@@ -267,6 +287,108 @@ def test_risk_reviewer_prompt_documents_research_brief_handling(risk_reviewer_pr
     and a CAM without one."""
     assert "/research" in risk_reviewer_prompt
     assert "research brief" in risk_reviewer_prompt
+
+
+# ---------------------------------------------------------------------------
+# agents/risk_reviewer_agent.md's /review wiring statement vs
+# .claude/commands/review.md (issue #197)
+# ---------------------------------------------------------------------------
+
+# The obsolete claim the prompt must not make about /review while the command runs the
+# deterministic layer for a named deal. It matches the shapes of the claim, not the old sentence,
+# so a rephrased stale claim is still caught without freezing the obsolete sentence in this file:
+# the original "the `/review` slash command isn't" form, "/review ... isn't|is not|not ... wired
+# (up)" within one clause, and "/review ... unwired".
+STALE_UNWIRED_CLAIM_RES = (
+    re.compile(r"the `/review`(?: slash command)? isn't"),
+    re.compile(r"/review`?[^.;\n]{0,80}?\b(?:isn['\u2019]t|is not|are not|aren['\u2019]t|not)\b"
+               r"[^.;\n]{0,40}?\bwired\b"),
+    re.compile(r"/review`?[^.;\n]{0,80}?\bunwired\b"),
+)
+PINNED_WIRING_PHRASES = (
+    "when `/review` is run for a named deal",
+    "a standalone review with no deal identity",
+    "the three cases below",
+)
+
+
+def _review_command_runs_policy_check(review_command):
+    """True when .claude/commands/review.md invokes policy_check.py with a deal identity
+    (--company), i.e. /review is wired to the deterministic layer for a named deal."""
+    return bool(re.search(r"python scripts/policy_check\.py[^\n]*--company", review_command))
+
+
+def _wiring_problems(prompt, review_command):
+    """Problems with the prompt's /review wiring statement: a contradiction with review.md
+    (the prompt calls /review unwired while the command invokes policy_check.py), or a
+    missing pinned phrase from the authorised wording."""
+    problems = []
+    if _review_command_runs_policy_check(review_command) and any(pattern.search(prompt) for pattern in STALE_UNWIRED_CLAIM_RES):
+        problems.append(
+            "agents/risk_reviewer_agent.md calls `/review` unwired while "
+            ".claude/commands/review.md invokes policy_check.py for a named deal"
+        )
+    for phrase in PINNED_WIRING_PHRASES:
+        if phrase not in prompt:
+            problems.append(
+                f"agents/risk_reviewer_agent.md is missing the pinned wiring phrase {phrase!r}"
+            )
+    return problems
+
+
+def test_reviewer_prompt_wiring_statement_matches_the_review_command(risk_reviewer_prompt):
+    """Regression guard for issue #197: the Reviewer prompt's "Before you begin"
+    paragraph must not claim the `/review` slash command is unwired while
+    .claude/commands/review.md runs policy_check.py for a named deal, and must
+    contain the authorised wording's three pinned phrases. This checks those
+    phrases and the stale-claim patterns only; it does not check that the number
+    of case bullets matches the phrase "the three cases below"."""
+    review_command = _read(".claude/commands/review.md")
+    assert _review_command_runs_policy_check(review_command), (
+        "expected .claude/commands/review.md to invoke policy_check.py for a named deal -- "
+        "without that premise the contradiction check below cannot fire"
+    )
+    problems = _wiring_problems(risk_reviewer_prompt, review_command)
+    assert problems == [], "\n" + "\n".join(problems)
+
+
+def test_wiring_guard_flags_a_prompt_that_calls_review_unwired():
+    """Not vacuous: the contradiction check fails on the obsolete wording even
+    when every pinned phrase is present, so the two checks are independent."""
+    stale = ("Not every caller of this prompt is wired up to it yet (e.g. the `/review` "
+             "slash command isn't), so don't assume it ran. It runs when `/review` is run for "
+             "a named deal, not for a standalone review with no deal identity; the three cases "
+             "below say what to do in each.")
+    problems = _wiring_problems(
+        stale,
+        "python scripts/policy_check.py --company \"<company>\" --proposal \"<proposal>\"",
+    )
+    assert len(problems) == 1
+    assert "calls `/review` unwired" in problems[0]
+
+
+@pytest.mark.parametrize("stale_claim", [
+    "Not every caller is wired up to it yet (e.g. `/review` is not wired to policy_check.py).",
+    "The `/review` command is not yet wired up to the deterministic layer.",
+    "Note that /review isn't wired to it, so don't assume it ran.",
+    "Be aware `/review` is unwired today.",
+])
+def test_wiring_guard_catches_other_phrasings_of_the_stale_claim(stale_claim):
+    """Not vacuous: rephrasings other than the original sentence's shape are still flagged, and
+    the guard does not need the complete obsolete sentence to do it."""
+    command = "python scripts/policy_check.py --company \"<company>\" --proposal \"<proposal>\""
+    pinned = " ".join(PINNED_WIRING_PHRASES)
+    problems = _wiring_problems(f"{stale_claim} {pinned}", command)
+    assert len(problems) == 1
+    assert "calls `/review` unwired" in problems[0]
+
+
+def test_wiring_guard_requires_each_pinned_wiring_phrase():
+    """Not vacuous: each pinned phrase is individually required, even when the
+    contradiction check itself has nothing to report."""
+    problems = _wiring_problems("a fresh paragraph with no wiring statement", "no command here")
+    assert len(problems) == len(PINNED_WIRING_PHRASES)
+    assert all(p.startswith("agents/risk_reviewer_agent.md is missing") for p in problems)
 
 
 # ---------------------------------------------------------------------------

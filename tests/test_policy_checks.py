@@ -11,6 +11,8 @@ module, and check_draft_compliance()'s draft_text=None "structural only"
 mode, which orchestrator.py never exercises (its own draft is always a
 real string).
 """
+import math
+
 import pytest
 
 from policy_checks import (
@@ -107,6 +109,31 @@ def test_ground_truth_figures_and_collateral_cover_pct_importable():
     assert truth["dscr"] == 1.5
     assert truth["collateral_cover_pct"] == pytest.approx(80.0)
     assert compute_collateral_cover_pct([]) is None
+
+@pytest.mark.parametrize(
+    ("collateral", "expected"),
+    [
+        ([{"exposure": 400, "collateral_value": 400}], 100.0),
+        ([{"exposure": 0, "collateral_value": 400}], None),
+        ([{"exposure": -400, "collateral_value": 400}], None),
+        ([
+            {"exposure": 1000, "collateral_value": 300},
+            {"exposure": -400, "collateral_value": 0},
+        ], None),
+        ([{"exposure": 100, "collateral_value": -10}], None),
+        ([{"exposure": math.nan, "collateral_value": 100}], None),
+        ([{"exposure": math.inf, "collateral_value": 100}], None),
+        ([{"exposure": 100, "collateral_value": math.nan}], None),
+        ([{"exposure": 100, "collateral_value": math.inf}], None),
+    ],
+)
+def test_collateral_cover_pct_is_na_for_bad_asset_inputs(collateral, expected):
+    actual = compute_collateral_cover_pct(collateral)
+    if expected is None:
+        assert actual is None
+    else:
+        assert actual == pytest.approx(expected)
+
 
 
 def test_check_reported_figures_importable_and_correct():

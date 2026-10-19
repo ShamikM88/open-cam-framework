@@ -35,3 +35,6 @@ agreement, the agreement and source documents take precedence.
   relying on items such as goodwill.
 - **UBO (Ultimate Beneficial Owner):** The person who ultimately owns or controls a company,
   directly or through an ownership chain.
+
+Every computed figure's formula, unit, storage convention and edge rules are specified entry by entry, with
+stable ids, in the [formula register](formula-register.md).

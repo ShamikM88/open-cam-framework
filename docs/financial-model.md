@@ -9,7 +9,9 @@ The figures a CAM reports, how the framework decides whether a covenant passes, 
 This page explains the figures a CAM reports and how the framework decides what a draft must say about them. It
 assumes no credit background. Figures are in whatever currency units you supply (the framework labels no currency);
 the examples use the synthetic deal from [Workflows](workflows.md), in "synthetic units". The definitions here
-describe `scripts/spreading_builder.py`, which is authoritative.
+describe `scripts/spreading_builder.py`, which is authoritative. Every figure is also specified entry by entry —
+formula, unit, edge rules, implementation reference and status, under a stable id — in the
+[formula register](formula-register.md).
 
 ### Statement figures
 
@@ -113,6 +115,18 @@ policy result is returned. They are never coerced to zero, N/A or a large finite
 the `collateral` and `security_package` figures in state and the `--collateral` input of the headless run (one
 `error:` line, exit status 1, nothing written). This does not change the rule above: finite negative numerators
 remain valid figures, while ratios with zero or negative denominators remain N/A.
+
+**Collateral cover percentage.** The aggregate `collateral_cover_pct` is expressed on a 0–100 percentage scale, unlike
+fraction-stored percent-type ratios. It is N/A (omitted from ground truth as `None`) if aggregate exposure is zero or
+negative, or if any asset has a negative or non-finite exposure or collateral value. A negative asset is invalid input;
+it must not reduce or offset positive exposure from another asset. The workbook's per-asset and total `CV % of Exposure`
+cells apply the same strictly positive exposure rule and show `N/A` otherwise. For valid, non-negative collateral inputs
+with a positive exposure, the existing collateral-value / exposure calculation and percentage scale are unchanged.
+
+**Accepted divergence (tracked in #378).** The exported workbook's total row sums the per-asset cells, so it can net a
+negative asset into a positive total and show a percentage, while `compute_collateral_cover_pct` returns `None` for the
+same input. The Python function is the policy-engine figure and the stricter of the two; aligning the workbook with it
+is tracked in #378.
 
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its
@@ -397,7 +411,7 @@ EBITDA is disclosed, not silently dropped (the code-enforced rejection text for 
 FY+1 under stress (reason)", not "breaches threshold"). The exported workbook's ratio cells use the same rule
 (`IF(denominator>0, ..., "N/A")`, not just `IFERROR`; the working capital cycle row wraps its sum in `IFERROR`
 so an "N/A" day row gives "N/A", not `#VALUE!`), so it agrees with `state.json` cell for cell. The margin rows use the same guard but have no `state.json`
-counterpart, and the collateral cover cells are `IFERROR`-only; neither is a covenant metric. **Forward years
+counterpart, and the collateral cover cells use the same positive-denominator guard as the ratio cells; neither is a covenant metric. **Forward years
 (issue #176):** a covenant applies to every forward base-case year (`FY+1`..`FY+3`) that has a recorded,
 non-empty ratio set; a year with nothing recorded is not evaluated, and state.json carries no covenant tenor, so
 a covenant that really ends earlier is still reported for later projected years. `forward_covenant_results` is

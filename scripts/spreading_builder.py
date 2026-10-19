@@ -1,6 +1,9 @@
 import re
 
 import openpyxl
+from openpyxl.chart import BarChart, LineChart, Reference, Series
+from openpyxl.chart.data_source import StrRef
+from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font
 
 from numeric_validation import validate_finite_numbers, validate_raw_line_items
@@ -39,6 +42,14 @@ DOWNSIDE_COLS = PERIOD_COLS[6:9]
 COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS,
                              strict=True))
 DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict=True))
+
+# Chart placement (issue #131): every anchor is derived from the table's last row -- these are the
+# margins that derivation uses, never hard-coded cells. CHART_MARGIN_ROWS is the gap between the
+# table and the first chart; CHART_SPACING_ROWS is the vertical distance between consecutive chart
+# anchors (a default-size openpyxl chart is roughly 15 rows tall, so 18 rows keeps them from overlapping).
+LEVERAGE_LABELS = ("Gross Leverage", "Net Debt / EBITDA")
+CHART_MARGIN_ROWS = 2
+CHART_SPACING_ROWS = 18
 
 # {Label} in a formula template is resolved to `{col}{row}` for whatever row
 # that label ends up on -- see _row_layout()/_resolve_formula(). This is what
@@ -769,6 +780,78 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
     for col in PERIOD_COLS:
         ws.column_dimensions[col].width = 14
 
+    _write_charts(ws, row_of, max(row_of.values()),
+                  downside_financial_data=downside_financial_data,
+                  supplied_downside_values=supplied_downside_values,
+                  blank_downside_periods=blank_downside_periods)
+
+
+def _has_downside_figures(downside_financial_data=None, supplied_downside_values=None, blank_downside_periods=None):
+    """True when at least one downside period carries figures the workbook shows: a non-empty raw
+    block (framework-derived) or supplied mapping (analyst) for a period the workbook does not mark
+    unavailable (blank_downside_periods). The downside chart exists only then (issue #131, D1)."""
+    for period in DOWNSIDE_COL_TO_PERIOD_KEY.values():
+        figures = (downside_financial_data or {}).get(period) or (supplied_downside_values or {}).get(period)
+        if figures and period not in (blank_downside_periods or ()):
+            return True
+    return False
+
+
+def _chart_series(ws, row, first_col, last_col):
+    """One chart series for a table row. Values, legend title and categories all
+    reference the workbook's own cells (openpyxl Reference / StrRef) -- no value
+    is ever copied into the chart (issue #131)."""
+    series = Series(Reference(ws, min_col=first_col, max_col=last_col, min_row=row, max_row=row))
+    series.tx = SeriesLabel(strRef=StrRef(f"'{ws.title}'!$A${row}"))
+    return series
+
+
+def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None,
+                  blank_downside_periods=None):
+    """Native charts below the spreading table (issue #131, decision D1).
+
+    A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart over the
+    historical and forward base-case columns (B to G) only. When downside figures exist, one
+    further, separate line chart for the same two leverage metrics reads the downside columns
+    (H to J) directly with their own header cells as category labels: a downside year is a stress
+    of a forward year, not the next period, so it is never joined to the base-case time axis.
+    Anchors are derived from the table's last row plus margins, never hard-coded.
+    `displayBlanksAs="gap"` is set explicitly on every chart, so a blank cell (a period with no
+    figures, including a non-contiguous downside) is configured to render as a gap rather than a
+    misleading zero; how Excel actually draws a cell whose formula evaluates to the text "N/A" is
+    precisely what the maintainer's pending manual check verifies and is not claimed here.
+    """
+    first_col = PERIOD_COLS.index(HISTORICAL_COLS[0]) + 2
+    last_col = PERIOD_COLS.index(FORWARD_COLS[-1]) + 2
+    categories = Reference(ws, min_col=first_col, max_col=last_col, min_row=1, max_row=1)
+
+    leverage = LineChart()
+    leverage.title = "Leverage Trend"
+    leverage.display_blanks = "gap"
+    for label in LEVERAGE_LABELS:
+        leverage.series.append(_chart_series(ws, row_of[label], first_col, last_col))
+    leverage.set_categories(categories)
+    anchor_row = last_table_row + CHART_MARGIN_ROWS
+    ws.add_chart(leverage, f"A{anchor_row}")
+
+    revenue = BarChart()
+    revenue.title = "Revenue Trend"
+    revenue.display_blanks = "gap"
+    revenue.series.append(_chart_series(ws, row_of["Revenue"], first_col, last_col))
+    revenue.set_categories(categories)
+    ws.add_chart(revenue, f"A{anchor_row + CHART_SPACING_ROWS}")
+
+    if _has_downside_figures(downside_financial_data, supplied_downside_values, blank_downside_periods):
+        down_first = PERIOD_COLS.index(DOWNSIDE_COLS[0]) + 2
+        down_last = PERIOD_COLS.index(DOWNSIDE_COLS[-1]) + 2
+        downside = LineChart()
+        downside.title = "Leverage Trend (Downside)"
+        downside.display_blanks = "gap"
+        for label in LEVERAGE_LABELS:
+            downside.series.append(_chart_series(ws, row_of[label], down_first, down_last))
+        downside.set_categories(Reference(ws, min_col=down_first, max_col=down_last, min_row=1, max_row=1))
+        ws.add_chart(downside, f"A{anchor_row + 2 * CHART_SPACING_ROWS}")
+
 
 def _formula_or_supplied(label, formula_template, row_of, col, supplied_values, supplied_downside_values,
                          blank_downside_periods, derived_downside_rows=None):
@@ -809,7 +892,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
             asset.get("non_recovery"),
             asset.get("costs"),
             asset.get("collateral_value"),
-            f'=IFERROR(G{row}/B{row},"N/A")',
+            f'=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")',
             asset.get("perfection_status"),
         ])
 
@@ -822,7 +905,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
         f"=SUM(E{first_row}:E{last_row})",
         f"=SUM(F{first_row}:F{last_row})",
         f"=SUM(G{first_row}:G{last_row})",
-        f'=IFERROR(G{total_row}/B{total_row},"N/A")',
+        f'=IFERROR(IF(B{total_row}>0,G{total_row}/B{total_row},"N/A"),"N/A")',
         None,
     ])
 

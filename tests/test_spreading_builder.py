@@ -996,10 +996,12 @@ def test_raw_figure_reads_a_missing_or_null_item_as_zero_and_text_or_no_raw_bloc
 # Native Excel charts (issue #131): a leverage line chart (Gross Leverage and
 # Net Debt / EBITDA) and a revenue bar chart on the Financial Spreading sheet,
 # anchored below the table at a cell derived from the layout, referencing the
-# workbook's own cells (openpyxl Reference), with displayBlanksAs="gap" so a
-# blank or N/A period shows a gap, never a zero. Downside columns join the
-# series range only while they carry downside figures; an unavailable downside
-# column is excluded from the range rather than plotted as a blank.
+# workbook's own cells (openpyxl Reference), with displayBlanksAs="gap" set
+# explicitly so a blank cell is configured to render as a gap, never a zero
+# (how Excel draws an "N/A" text result is the maintainer's pending manual
+# check). Downside columns join the series range only while they carry
+# downside figures; an unavailable downside column is excluded from the range
+# rather than plotted as a blank.
 # ---------------------------------------------------------------------------
 
 # The two margins the chart placement derives from: blank rows between the
@@ -1246,8 +1248,10 @@ def test_a_downside_gap_stops_the_series_at_the_first_unavailable_column(tmp_pat
 def test_na_ratio_cells_stay_inside_the_chart_range(tmp_path):
     """A zero-EBITDA period makes the leverage ratios evaluate to "N/A" (the
     workbook's own convention for an uncomputable ratio); the chart series must
-    still span the full historical + forward base range, where those points
-    render as gaps because displayBlanksAs="gap"."""
+    still span the full historical + forward base range. That range is what the
+    gap assertion pins at the file level (displayBlanksAs="gap"); how Excel
+    draws the "N/A" points is the maintainer's pending manual check, not a
+    claim of this test."""
     zero_ebitda = {"revenue": 1000, "cost_of_sales": 1000, "admin_expenses": 0,
                    "depreciation": 0, "amortisation": 0, "other_income": 0}
 

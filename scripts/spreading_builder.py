@@ -795,11 +795,13 @@ def _chart_last_col(downside_financial_data=None, supplied_downside_values=None,
     without any, because a chart series reference must stay contiguous and the issue-131
     sign-off forbids shipping blank points for unavailable columns. That contiguity
     requirement has a documented limitation: downside figures for FY+1 and FY+3 but not
-    FY+2 (reachable only through an analyst-supplied basis with a year gap) end the range
-    at column H, dropping the FY+3 observation -- the alternatives all violate the
-    sign-off or misrender (including the unavailable column plots it as a blank; a union
-    reference is not expressible with openpyxl.chart Reference; a separate series misaligns
-    because Excel plots each series against the category axis by index).
+    FY+2 end the range at column H, dropping the FY+3 observation -- the inputs the
+    framework's own downside computation never produces (evaluate_downside_case()
+    derives a downside for each forward period the base case has), but the exported
+    API accepts any period set, and every alternative violates the sign-off or
+    misrenders (including the unavailable column plots it as a blank; a union
+    reference is not expressible with openpyxl.chart Reference; a separate series
+    misaligns because Excel plots each series against the category axis by index).
     """
     last_col = 7  # column G: three historical plus three forward base-case periods
     for col, period in DOWNSIDE_COL_TO_PERIOD_KEY.items():
@@ -827,9 +829,11 @@ def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supp
     A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart
     over the historical plus forward base-case periods, plus the downside columns that
     carry figures. The anchor cell is derived from the layout -- the table's last row plus
-    a margin -- never hard-coded. Blank cells (a period with no figures, or an N/A ratio)
-    render as gaps because displayBlanksAs="gap" is set explicitly on every chart: never a
-    misleading zero.
+    a margin -- never hard-coded. `displayBlanksAs="gap"` is set explicitly on every
+    chart, so a blank cell (a period with no figures) is configured to render as a
+    gap rather than a misleading zero; how Excel actually draws a cell whose formula
+    evaluates to the text "N/A" is precisely what the maintainer's pending manual
+    check verifies and is not claimed here.
     """
     last_col = _chart_last_col(downside_financial_data, supplied_downside_values,
                               blank_downside_periods=blank_downside_periods)

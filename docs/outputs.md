@@ -165,10 +165,12 @@ anchored at a cell derived from the table's last row (plus a margin), and every 
 title and category label references the workbook's own cells, so the charts always show what
 the sheet shows — nothing is copied in. The series span the historical and forward base-case
 columns, and a downside column joins the range only while it carries downside figures; an
-unavailable downside column is excluded from the range rather than plotted as a blank. Blank
-cells render as gaps (`displayBlanksAs="gap"` is set explicitly on every chart), so a period
-with no data — or a ratio the workbook marks `"N/A"`, e.g. a zero-EBITDA period — reads as a
-gap, never as a zero.
+unavailable downside column is excluded from the range rather than plotted as a blank.
+`displayBlanksAs="gap"` is set explicitly on every chart, so a blank cell is configured
+to render as a gap rather than a zero. (How Excel actually draws a cell whose formula
+evaluates to the workbook's `"N/A"` marker — e.g. a zero-EBITDA period's leverage
+ratios — is being verified by hand in Excel; the configuration is asserted in tests, the
+drawing is not.)
 
 > **Custom spreading templates:** if your organization already has a standard spreading Excel
 > template, that's on the roadmap to support directly (see the roadmap in the README) — it would live alongside the

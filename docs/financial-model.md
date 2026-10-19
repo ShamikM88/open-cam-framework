@@ -9,7 +9,9 @@ The figures a CAM reports, how the framework decides whether a covenant passes, 
 This page explains the figures a CAM reports and how the framework decides what a draft must say about them. It
 assumes no credit background. Figures are in whatever currency units you supply (the framework labels no currency);
 the examples use the synthetic deal from [Workflows](workflows.md), in "synthetic units". The definitions here
-describe `scripts/spreading_builder.py`, which is authoritative.
+describe `scripts/spreading_builder.py`, which is authoritative. Every figure is also specified entry by entry —
+formula, unit, edge rules, implementation reference and status, under a stable id — in the
+[formula register](formula-register.md).
 
 ### Statement figures
 

@@ -43,10 +43,11 @@ COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_K
                              strict=True))
 DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict=True))
 
-# Chart placement (issue #131): both anchors are derived from the table's last row -- these are the
+# Chart placement (issue #131): every anchor is derived from the table's last row -- these are the
 # margins that derivation uses, never hard-coded cells. CHART_MARGIN_ROWS is the gap between the
-# table and the first chart; CHART_SPACING_ROWS is the vertical distance between the two anchors
-# (a default-size openpyxl chart is roughly 15 rows tall, so 18 rows keeps them from overlapping).
+# table and the first chart; CHART_SPACING_ROWS is the vertical distance between consecutive chart
+# anchors (a default-size openpyxl chart is roughly 15 rows tall, so 18 rows keeps them from overlapping).
+LEVERAGE_LABELS = ("Gross Leverage", "Net Debt / EBITDA")
 CHART_MARGIN_ROWS = 2
 CHART_SPACING_ROWS = 18
 
@@ -785,74 +786,71 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
                   blank_downside_periods=blank_downside_periods)
 
 
-def _chart_last_col(downside_financial_data=None, supplied_downside_values=None, blank_downside_periods=None):
-    """The last column (1-based) the chart series range spans.
-
-    The historical and forward base-case columns (B-G) are always in range. A downside
-    column joins the range only while its period carries downside figures -- a non-empty
-    raw block (framework-derived or analyst-supplied) for a period the workbook does not
-    mark unavailable (blank_downside_periods) -- and the walk stops at the first column
-    without any, because a chart series reference must stay contiguous and the issue-131
-    sign-off forbids shipping blank points for unavailable columns. That contiguity
-    requirement has a documented limitation: downside figures for FY+1 and FY+3 but not
-    FY+2 end the range at column H, dropping the FY+3 observation. The framework does
-    not invent such a gap (evaluate_downside_case() mirrors the forward periods the
-    base case carries, so a gap comes from the input data), but the exported API
-    accepts any period set, and every alternative violates the sign-off or
-    misrenders (including the unavailable column plots it as a blank; a union
-    reference is not expressible with openpyxl.chart Reference; a separate series
-    misaligns because Excel plots each series against the category axis by index).
-    """
-    last_col = 7  # column G: three historical plus three forward base-case periods
-    for col, period in DOWNSIDE_COL_TO_PERIOD_KEY.items():
+def _has_downside_figures(downside_financial_data=None, supplied_downside_values=None, blank_downside_periods=None):
+    """True when at least one downside period carries figures the workbook shows: a non-empty raw
+    block (framework-derived) or supplied mapping (analyst) for a period the workbook does not mark
+    unavailable (blank_downside_periods). The downside chart exists only then (issue #131, D1)."""
+    for period in DOWNSIDE_COL_TO_PERIOD_KEY.values():
         figures = (downside_financial_data or {}).get(period) or (supplied_downside_values or {}).get(period)
         if figures and period not in (blank_downside_periods or ()):
-            last_col = PERIOD_COLS.index(col) + 2
-        else:
-            break
-    return last_col
+            return True
+    return False
 
 
-def _chart_series(ws, row, last_col):
+def _chart_series(ws, row, first_col, last_col):
     """One chart series for a table row. Values, legend title and categories all
     reference the workbook's own cells (openpyxl Reference / StrRef) -- no value
     is ever copied into the chart (issue #131)."""
-    series = Series(Reference(ws, min_col=2, max_col=last_col, min_row=row, max_row=row))
+    series = Series(Reference(ws, min_col=first_col, max_col=last_col, min_row=row, max_row=row))
     series.tx = SeriesLabel(strRef=StrRef(f"'{ws.title}'!$A${row}"))
     return series
 
 
 def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None,
                   blank_downside_periods=None):
-    """Native charts below the spreading table (issue #131).
+    """Native charts below the spreading table (issue #131, decision D1).
 
-    A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart
-    over the historical plus forward base-case periods, plus the downside columns that
-    carry figures. The anchor cell is derived from the layout -- the table's last row plus
-    a margin -- never hard-coded. `displayBlanksAs="gap"` is set explicitly on every
-    chart, so a blank cell (a period with no figures) is configured to render as a
-    gap rather than a misleading zero; how Excel actually draws a cell whose formula
-    evaluates to the text "N/A" is precisely what the maintainer's pending manual
-    check verifies and is not claimed here.
+    A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart over the
+    historical and forward base-case columns (B to G) only. When downside figures exist, one
+    further, separate line chart for the same two leverage metrics reads the downside columns
+    (H to J) directly with their own header cells as category labels: a downside year is a stress
+    of a forward year, not the next period, so it is never joined to the base-case time axis.
+    Anchors are derived from the table's last row plus margins, never hard-coded.
+    `displayBlanksAs="gap"` is set explicitly on every chart, so a blank cell (a period with no
+    figures, including a non-contiguous downside) is configured to render as a gap rather than a
+    misleading zero; how Excel actually draws a cell whose formula evaluates to the text "N/A" is
+    precisely what the maintainer's pending manual check verifies and is not claimed here.
     """
-    last_col = _chart_last_col(downside_financial_data, supplied_downside_values,
-                              blank_downside_periods=blank_downside_periods)
+    first_col = PERIOD_COLS.index(HISTORICAL_COLS[0]) + 2
+    last_col = PERIOD_COLS.index(FORWARD_COLS[-1]) + 2
+    categories = Reference(ws, min_col=first_col, max_col=last_col, min_row=1, max_row=1)
 
     leverage = LineChart()
     leverage.title = "Leverage Trend"
     leverage.display_blanks = "gap"
-    for label in ("Gross Leverage", "Net Debt / EBITDA"):
-        leverage.series.append(_chart_series(ws, row_of[label], last_col))
-    leverage.set_categories(Reference(ws, min_col=2, max_col=last_col, min_row=1, max_row=1))
+    for label in LEVERAGE_LABELS:
+        leverage.series.append(_chart_series(ws, row_of[label], first_col, last_col))
+    leverage.set_categories(categories)
     anchor_row = last_table_row + CHART_MARGIN_ROWS
     ws.add_chart(leverage, f"A{anchor_row}")
 
     revenue = BarChart()
     revenue.title = "Revenue Trend"
     revenue.display_blanks = "gap"
-    revenue.series.append(_chart_series(ws, row_of["Revenue"], last_col))
-    revenue.set_categories(Reference(ws, min_col=2, max_col=last_col, min_row=1, max_row=1))
+    revenue.series.append(_chart_series(ws, row_of["Revenue"], first_col, last_col))
+    revenue.set_categories(categories)
     ws.add_chart(revenue, f"A{anchor_row + CHART_SPACING_ROWS}")
+
+    if _has_downside_figures(downside_financial_data, supplied_downside_values, blank_downside_periods):
+        down_first = PERIOD_COLS.index(DOWNSIDE_COLS[0]) + 2
+        down_last = PERIOD_COLS.index(DOWNSIDE_COLS[-1]) + 2
+        downside = LineChart()
+        downside.title = "Leverage Trend (Downside)"
+        downside.display_blanks = "gap"
+        for label in LEVERAGE_LABELS:
+            downside.series.append(_chart_series(ws, row_of[label], down_first, down_last))
+        downside.set_categories(Reference(ws, min_col=down_first, max_col=down_last, min_row=1, max_row=1))
+        ws.add_chart(downside, f"A{anchor_row + 2 * CHART_SPACING_ROWS}")
 
 
 def _formula_or_supplied(label, formula_template, row_of, col, supplied_values, supplied_downside_values,

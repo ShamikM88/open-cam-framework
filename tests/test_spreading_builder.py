@@ -1027,9 +1027,9 @@ def test_raw_figure_reads_a_missing_or_null_item_as_zero_and_text_or_no_raw_bloc
 # workbook's own cells (openpyxl Reference), with displayBlanksAs="gap" set
 # explicitly so a blank cell is configured to render as a gap, never a zero
 # (how Excel draws an "N/A" text result is the maintainer's pending manual
-# check). Downside columns join the series range only while they carry
-# downside figures; an unavailable downside column is excluded from the range
-# rather than plotted as a blank.
+# check). The two charts cover the base-case columns (B to G) only; a third,
+# separate downside leverage chart reads columns H to J with its own category
+# labels and exists only when downside figures do (decision D1).
 # ---------------------------------------------------------------------------
 
 # The two margins the chart placement derives from: blank rows between the
@@ -1154,123 +1154,105 @@ def test_every_chart_displays_blank_cells_as_gaps(tmp_path):
             xml = archive.read(name).decode("utf-8")
             assert 'dispBlanksAs val="gap"' in xml, f"{name} does not pin gap rendering"
 
+    downside_path = tmp_path / "gaps-downside.xlsx"
+    export_to_xlsx("Test Co", str(downside_path), downside_financial_data={"FY+1": _PERIOD_RAW})
+    with zipfile.ZipFile(downside_path) as archive:
+        chart_xmls = sorted(name for name in archive.namelist()
+                            if re.fullmatch(r"xl/charts/chart\d+\.xml", name))
+        assert len(chart_xmls) == 3
+        for name in chart_xmls:
+            assert 'dispBlanksAs val="gap"' in archive.read(name).decode("utf-8")
 
-def test_downside_columns_join_the_series_only_when_figures_exist(tmp_path):
-    period_raw = {"revenue": 100, "cost_of_sales": 40, "admin_expenses": 0, "depreciation": 0,
-                  "amortisation": 0, "other_income": 0}
 
-    out_path = tmp_path / "downside.xlsx"
-    export_to_xlsx(
-        "Test Co", str(out_path),
-        financial_data={"FY-2": period_raw},
-        downside_financial_data={"FY+1": period_raw, "FY+2": period_raw, "FY+3": period_raw},
-    )
-    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+def _line_charts(ws):
+    """Every line chart on the sheet, top to bottom (by anchor row)."""
+    charts = [chart for chart in ws._charts if chart.tagname == "lineChart"]
+    return sorted(charts, key=lambda chart: chart.anchor._from.row)
+
+
+def _export_with_downside(tmp_path, name, **kwargs):
+    out_path = tmp_path / name
+    export_to_xlsx("Test Co", str(out_path), **kwargs)
+    return openpyxl.load_workbook(out_path)["Financial Spreading"]
+
+
+_PERIOD_RAW = {"revenue": 100, "cost_of_sales": 40, "admin_expenses": 0, "depreciation": 0,
+               "amortisation": 0, "other_income": 0}
+
+
+def test_base_case_charts_never_extend_into_the_downside_columns(tmp_path):
+    """Decision D1: the leverage line chart and the revenue bar chart cover the historical and
+    forward base-case columns (B to G) only, with or without downside figures."""
+    ws = _export_with_downside(
+        tmp_path, "downside.xlsx", financial_data={"FY-2": _PERIOD_RAW},
+        downside_financial_data={"FY+1": _PERIOD_RAW, "FY+2": _PERIOD_RAW, "FY+3": _PERIOD_RAW})
+    for chart in (_line_charts(ws)[0], _chart(ws, "barChart")):
+        for series in chart.series:
+            row = int(series.val.numRef.f.rsplit("$", 1)[1])
+            assert series.val.numRef.f.endswith(f":$G${row}")
+            assert f"$B${row}:" in series.val.numRef.f
+        assert chart.series[0].cat.numRef.f == "'Financial Spreading'!$B$1:$G$1"
+
+
+def test_a_separate_downside_chart_reads_columns_h_to_j_with_its_own_categories(tmp_path):
+    ws = _export_with_downside(
+        tmp_path, "downside.xlsx", financial_data={"FY-2": _PERIOD_RAW},
+        downside_financial_data={"FY+1": _PERIOD_RAW, "FY+2": _PERIOD_RAW, "FY+3": _PERIOD_RAW})
     label_to_row = _label_to_row(ws)
+    lines = _line_charts(ws)
+    assert len(lines) == 2
+    assert sorted(chart.tagname for chart in ws._charts) == ["barChart", "lineChart", "lineChart"]
 
-    # all three downside columns carry figures, so the series spans B..J
-    for chart in (_chart(ws, "lineChart"), _chart(ws, "barChart")):
-        for series in chart.series:
-            assert series.val.numRef.f.endswith(
-                f":$J${int(series.val.numRef.f.rsplit('$', 1)[1])}")
-        assert chart.series[0].cat.numRef.f == "'Financial Spreading'!$B$1:$J$1"
-    # and the same export without downside figures stays on the base range B..G
-    plain_path = tmp_path / "plain.xlsx"
-    export_to_xlsx("Test Co", str(plain_path), financial_data={"FY-2": period_raw})
-    plain = openpyxl.load_workbook(plain_path)["Financial Spreading"]
-    for tagname in ("lineChart", "barChart"):
-        for series in _chart(plain, tagname).series:
-            assert series.val.numRef.f.endswith(
-                f":$G${int(series.val.numRef.f.rsplit('$', 1)[1])}")
-
-
-def test_partial_downside_coverage_extends_the_series_only_through_available_columns(tmp_path):
-    """Only the downside columns that actually carry figures are in range: with
-    downside figures for FY+1 alone, the series stops at column H."""
-    period_raw = {"revenue": 100, "cost_of_sales": 40}
-
-    out_path = tmp_path / "partial.xlsx"
-    export_to_xlsx(
-        "Test Co", str(out_path),
-        downside_financial_data={"FY+1": period_raw},
-    )
-    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
-    for tagname in ("lineChart", "barChart"):
-        chart = _chart(ws, tagname)
-        for series in chart.series:
-            assert series.val.numRef.f.endswith(
-                f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
-        assert chart.series[0].cat.numRef.f == "'Financial Spreading'!$B$1:$H$1"
+    downside = lines[1]
+    assert [series.tx.strRef.f for series in downside.series] == [
+        f"'Financial Spreading'!$A${label_to_row['Gross Leverage']}",
+        f"'Financial Spreading'!$A${label_to_row['Net Debt / EBITDA']}",
+    ]
+    assert [series.val.numRef.f for series in downside.series] == [
+        f"'Financial Spreading'!$H${label_to_row['Gross Leverage']}:$J${label_to_row['Gross Leverage']}",
+        f"'Financial Spreading'!$H${label_to_row['Net Debt / EBITDA']}:$J${label_to_row['Net Debt / EBITDA']}",
+    ]
+    for series in downside.series:
+        assert series.cat.numRef.f == "'Financial Spreading'!$H$1:$J$1"
+    assert ws["H1"].value == "FY+1 (Downside)"
+    assert downside.display_blanks == "gap"
+    # anchored below the two existing charts, at a cell derived from the layout
+    assert _anchor_cell(downside) == \
+        f"A{_last_table_row() + CHART_MARGIN_ROWS + 2 * CHART_SPACING_ROWS}"
 
 
-def test_analyst_supplied_downside_figures_also_extend_the_series(tmp_path):
-    """Analyst-supplied downside figures count as downside figures for the chart
-    range just like framework-derived ones."""
-    out_path = tmp_path / "supplied.xlsx"
-    export_to_xlsx(
-        "Test Co", str(out_path),
-        supplied_downside_values={"FY+1": {"Revenue": 100, "Gross Leverage": 3.0}},
-    )
-    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
-    for tagname in ("lineChart", "barChart"):
-        chart = _chart(ws, tagname)
-        for series in chart.series:
-            assert series.val.numRef.f.endswith(
-                f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+def test_no_downside_chart_without_downside_figures(tmp_path):
+    ws = _export_with_downside(tmp_path, "plain.xlsx", financial_data={"FY-2": _PERIOD_RAW})
+    assert sorted(chart.tagname for chart in ws._charts) == ["barChart", "lineChart"]
+    # an empty downside block, and a downside marked unavailable, are not figures either
+    for kwargs in ({"downside_financial_data": {"FY+1": {}}},
+                   {"supplied_downside_values": {"FY+1": {}}},
+                   {"downside_financial_data": {"FY+1": _PERIOD_RAW}, "blank_downside_periods": {"FY+1"}}):
+        ws = _export_with_downside(tmp_path, "none.xlsx", **kwargs)
+        assert len(ws._charts) == 2, kwargs
 
 
-def test_a_downside_period_with_no_figures_does_not_extend_the_series(tmp_path):
-    """A period key alone is not figures: an empty raw block (framework-derived) or an
-    empty supplied mapping (analyst) leaves the column blank, so it is excluded from
-    the series range rather than shipped as a blank point."""
-    for kwargs in ("downside_financial_data", "supplied_downside_values"):
-        out_path = tmp_path / f"empty-{kwargs}.xlsx"
-        export_to_xlsx("Test Co", str(out_path), **{kwargs: {"FY+1": {}}})
-        ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
-        for tagname in ("lineChart", "barChart"):
-            chart = _chart(ws, tagname)
-            for series in chart.series:
-                assert series.val.numRef.f.endswith(
-                    f":$G${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+def test_analyst_supplied_downside_figures_also_create_the_downside_chart(tmp_path):
+    ws = _export_with_downside(
+        tmp_path, "supplied.xlsx", supplied_downside_values={"FY+1": {"Revenue": 100, "Gross Leverage": 3.0}})
+    assert len(_line_charts(ws)) == 2
 
 
-def test_a_period_marked_downside_unavailable_is_excluded_even_with_figures(tmp_path):
-    """blank_downside_periods is the workbook's own 'unavailable' signal (the column
-    header says so): such a column is excluded from the series range even if downside
-    figures happen to exist for it."""
-    period_raw = {"revenue": 100, "cost_of_sales": 40}
-
-    out_path = tmp_path / "unavailable.xlsx"
-    export_to_xlsx(
-        "Test Co", str(out_path),
-        downside_financial_data={"FY+1": period_raw},
-        blank_downside_periods={"FY+1"},
-    )
-    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
-    for tagname in ("lineChart", "barChart"):
-        chart = _chart(ws, tagname)
-        for series in chart.series:
-            assert series.val.numRef.f.endswith(
-                f":$G${int(series.val.numRef.f.rsplit('$', 1)[1])}")
-
-
-def test_a_downside_gap_stops_the_series_at_the_first_unavailable_column(tmp_path):
-    """A chart series reference must stay contiguous, so downside availability
-    is walked from column H: figures for FY+1 and FY+3 but not FY+2 end the
-    range at H rather than shipping the unavailable FY+2 column as a blank."""
-    period_raw = {"revenue": 100, "cost_of_sales": 40}
-
-    out_path = tmp_path / "gap.xlsx"
-    export_to_xlsx(
-        "Test Co", str(out_path),
-        downside_financial_data={"FY+1": period_raw, "FY+3": period_raw},
-    )
-    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
-    for tagname in ("lineChart", "barChart"):
-        chart = _chart(ws, tagname)
-        for series in chart.series:
-            assert series.val.numRef.f.endswith(
-                f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+def test_a_non_contiguous_downside_keeps_the_full_h_to_j_range_and_shows_a_gap(tmp_path):
+    """Figures for FY+1 and FY+3 but not FY+2: the downside chart still reads H to J (no
+    truncation at the first gap), the FY+2 inputs are blank, and gap rendering is configured."""
+    ws = _export_with_downside(
+        tmp_path, "gap.xlsx", downside_financial_data={"FY+1": _PERIOD_RAW, "FY+3": _PERIOD_RAW})
+    label_to_row = _label_to_row(ws)
+    downside = _line_charts(ws)[1]
+    row = label_to_row["Gross Leverage"]
+    assert downside.series[0].val.numRef.f == f"'Financial Spreading'!$H${row}:$J${row}"
+    # FY+2 has no figures: its input cells are blank, so the column stays in range with nothing in it
+    assert ws.cell(row=label_to_row["Revenue"], column=9).value is None
+    assert ws["I1"].value == "FY+2 (Downside)"
+    assert downside.display_blanks == "gap"
+    # the base-case charts are unaffected by the downside gap
+    assert _line_charts(ws)[0].series[0].val.numRef.f.endswith(f":$G${row}")
 
 
 def test_na_ratio_cells_stay_inside_the_chart_range(tmp_path):

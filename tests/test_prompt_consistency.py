@@ -314,9 +314,9 @@ def test_reviewer_prompt_wiring_statement_matches_the_review_command(risk_review
     """Regression guard for issue #197: the Reviewer prompt's "Before you begin"
     paragraph must not claim the `/review` slash command is unwired while
     .claude/commands/review.md runs policy_check.py for a named deal, and must
-    keep the authorised wording's three pinned phrases -- the last one ties the
-    sentence to the three case bullets below it, so reducing or adding a bullet
-    without rewording the sentence fails here."""
+    keep the authorised wording's three pinned phrases -- the last one names
+    the three case bullets below it, so a rewording of the sentence that no
+    longer matches the cases fails here."""
     review_command = _read(".claude/commands/review.md")
     assert _review_command_runs_policy_check(review_command), (
         "expected .claude/commands/review.md to invoke policy_check.py for a named deal -- "

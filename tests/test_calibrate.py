@@ -254,6 +254,24 @@ def test_prompt_is_asked_before_any_api_call_or_file_write(overflow_env):
     assert asked  # the prompt really was shown (and the assertions above ran)
 
 
+def test_overflow_prompt_lists_both_options_and_their_effects(monkeypatch, capsys):
+    monkeypatch.setattr(calibrate, "_stdin_is_tty", lambda: True)
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "s")
+    total_chars = calibrate.CHUNK_CHAR_LIMIT + 100
+
+    assert calibrate._choose_overflow_mode(total_chars, 2, "ask") == "split"
+
+    limit = calibrate.CHUNK_CHAR_LIMIT
+    assert prompts == ["Choice [i/s]: "]
+    assert capsys.readouterr().out.splitlines() == [
+        "",
+        f"Your samples contain {total_chars:,} characters; the limit per Claude call is {limit:,}.",
+        f"  [i] Ignore - use only the first {limit:,} characters (100 discarded)",
+        "  [s] Split  - process all 2 parts, then merge the results (at least 6 API calls instead of 2)",
+    ]
+
+
 def test_ignore_uses_only_the_first_limit_characters(overflow_env):
     overflow_env.monkeypatch.setattr(calibrate.sys, "stdin", FakeStdin(True))
     _answers(overflow_env.monkeypatch, "i")
@@ -488,7 +506,10 @@ def test_a_max_tokens_cutoff_is_warned_about(project_root, monkeypatch, capsys):
 
     run_calibration("corporate_credit")
 
-    assert "[WARN]" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    warning = ("[WARN] A response was cut off at the 3000-token output limit; "
+               "the style guide/template may be incomplete.")
+    assert [line for line in output.splitlines() if line.startswith("[WARN]")] == [warning, warning]
 
 
 def test_split_into_chunks_falls_back_to_spaces_and_ignores_too_early_boundaries():

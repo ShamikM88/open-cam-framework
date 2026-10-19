@@ -653,7 +653,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `covenant_results`
-- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_covenant()` (called by `evaluate_deal_policy()`)
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_covenant()` (called by
+  `evaluate_deal_policy()`, which hands each period's financials to the reason sentence via `_period_dict()`)
 - **Basis:** house convention (issue #169 equality and N/A rules)
 - **Status:** Implemented, not yet reviewed by an analyst
 

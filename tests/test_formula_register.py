@@ -19,6 +19,7 @@ deliberately one-directional on coverage: the register may explain more than
 the code computes (the "Proposed, not implemented" collateral entries), but
 never less.
 """
+import ast
 import json
 import re
 from pathlib import Path
@@ -183,6 +184,32 @@ def test_every_synthetic_example_key_has_an_entry():
         )
 
 
+def _policy_engine_rule_functions():
+    """The policy engine's rule functions, derived from source: every module-level
+    function that ``evaluate_deal_policy()`` calls directly. A new rule is a new
+    call inside ``evaluate_deal_policy()`` (or a call moved into a helper it
+    calls), so this inventory grows with the rules themselves rather than with
+    the result containers they share — a new security check inside
+    ``_evaluate_security()`` still needs its own register entry to be named
+    there, and a new top-level rule fails this inventory's check below.
+    """
+    source = (REPO_ROOT / "scripts" / "policy_engine.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    defined = {
+        node.name for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    rules = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "evaluate_deal_policy":
+            for child in ast.walk(node):
+                if (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)
+                        and child.func.id in defined
+                        and child.func.id != "evaluate_deal_policy"):
+                    rules.add(child.func.id)
+    return sorted(rules)
+
+
 def test_every_policy_engine_rule_has_an_entry():
     entries = _parse_register()
     covered = {key for entry in entries for key in _policy_outputs(entry)}
@@ -190,6 +217,17 @@ def test_every_policy_engine_rule_has_an_entry():
         assert key in covered, (
             f"policy-engine rule {key!r} (a key of evaluate_deal_policy()'s result) "
             "has no formula-register entry"
+        )
+    named_functions = {
+        token[:-2]
+        for entry in entries
+        for token in _backticked(entry["Implemented in"])
+        if token.endswith("()")
+    }
+    for rule in _policy_engine_rule_functions():
+        assert rule in named_functions, (
+            f"policy-engine rule function {rule!r} (called by evaluate_deal_policy()) "
+            "is not named in any register entry's 'Implemented in'"
         )
 
 

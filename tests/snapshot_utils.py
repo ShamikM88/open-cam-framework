@@ -11,7 +11,12 @@ block or cell -- so a snapshot is a readable, reviewable diff:
   paragraph; an image that could not be embedded is the visible placeholder paragraph). Core properties (created/modified timestamps, author) are never read.
 * xlsx: for each sheet its name, used range, column widths and merged ranges, then every non-empty cell as
   `<coordinate>: <value or formula>` plus its number format and bold/italic when not default. Formulas are kept
-  as text (the file is never opened by Excel, so there are no cached values).
+  as text (the file is never opened by Excel, so there are no cached values). Native charts are serialized after
+  the cells: one `chart <type> anchor=<cell> display_blanks=<gap>` line per chart plus one indented line per
+  series with its legend-title, values and categories references (issue #131) -- the reference strings the
+  workbook carries, so a chart that stops referencing the workbook's own cells fails the snapshot. The
+  absolute-reference `$` markers are stripped from the printed references: pii_scan.py reads `$`-prefixed numbers
+  as currency amounts, and stripping them loses only relative-vs-absolute detail the rest of the range pins.
 
 Nothing here is imported by production code.
 """
@@ -156,6 +161,38 @@ def _cell_attrs(cell):
     return f"  [{', '.join(notes)}]" if notes else ""
 
 
+def _chart_lines(sheet):
+    """A sheet's native charts as snapshot lines: type, anchor cell, blank-cell
+    rendering, then each series' legend-title / values / categories references.
+    Anchors are 0-based on the loaded objects, so they are printed as A1 cells; the
+    references' absolute `$` markers are stripped (see the module docstring)."""
+    from openpyxl.utils import get_column_letter
+
+    def _ref(reference):
+        return reference.replace("$", "") if reference else reference
+
+    lines = []
+    for chart in sheet._charts:
+        anchor = getattr(chart, "anchor", None)
+        anchor_from = getattr(anchor, "_from", None) if anchor is not None else None
+        if anchor_from is not None:
+            anchor_cell = f"{get_column_letter(anchor_from.col + 1)}{anchor_from.row + 1}"
+        else:
+            anchor_cell = "?"
+        lines.append(f"chart {chart.tagname} anchor={anchor_cell} display_blanks={chart.display_blanks}")
+        for series in chart.series:
+            title = series.tx.strRef.f if series.tx is not None and series.tx.strRef is not None else None
+            categories = None
+            if series.cat is not None:
+                if series.cat.numRef is not None:
+                    categories = series.cat.numRef.f
+                elif series.cat.strRef is not None:
+                    categories = series.cat.strRef.f
+            lines.append(f"  series title={_ref(title)!r} values={_ref(series.val.numRef.f)!r} "
+                         f"categories={_ref(categories)!r}")
+    return lines
+
+
 def normalize_xlsx(path):
     workbook = openpyxl.load_workbook(str(path))   # not data_only: keep formulas as text
     lines = []
@@ -170,6 +207,7 @@ def normalize_xlsx(path):
             for cell in row:
                 if cell.value is not None:
                     lines.append(f"{cell.coordinate}: {cell.value!r}{_cell_attrs(cell)}")
+        lines.extend(_chart_lines(sheet))
     return "\n".join(lines) + "\n"
 
 

@@ -556,7 +556,7 @@ def test_ground_truth_figures_excludes_undefined_non_current_base_case_figures()
 def _structured_draft(payload):
     import json
 
-    return "# Synthetic Draft\\n\\n```json\\n" + json.dumps(payload) + "\\n```"
+    return "# Synthetic Draft\n\n```json\n" + json.dumps(payload) + "\n```"
 
 
 def test_check_draft_compliance_pins_verbatim_reason_text_and_global_order():
@@ -640,8 +640,6 @@ def test_check_draft_compliance_pins_verbatim_reason_text_and_global_order():
 def test_check_draft_compliance_pins_risk_taxonomy_status_and_justification(
     market_entry, should_be_missing,
 ):
-    import json
-
     categories = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
     categories.pop("Market")
     categories["Market Risk"] = market_entry

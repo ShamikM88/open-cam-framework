@@ -231,6 +231,16 @@ def test_every_policy_engine_rule_has_an_entry():
         )
 
 
+def _defined_functions(path):
+    """Function names really defined in a Python file (AST nodes, not text —
+    a `def name(` inside a comment or string does not count)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {
+        node.name for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
 def test_implemented_entries_name_real_files_and_functions():
     for entry in _parse_register():
         if entry["Status"].startswith("Proposed"):
@@ -246,12 +256,15 @@ def test_implemented_entries_name_real_files_and_functions():
                 f"{entry['id']} ({entry['name']}): {token} named in 'Implemented in' "
                 "does not exist in the repository"
             )
-        for token in tokens:
-            if not token.endswith("()"):
-                continue
+        function_tokens = [t for t in tokens if t.endswith("()")]
+        assert function_tokens, (
+            f"{entry['id']} ({entry['name']}): an implemented entry must name at least "
+            "one function in 'Implemented in'"
+        )
+        for token in function_tokens:
             function = token[:-2]
             assert any(
-                f"def {function}(" in (REPO_ROOT / file_token).read_text(encoding="utf-8")
+                function in _defined_functions(REPO_ROOT / file_token)
                 for file_token in file_tokens
                 if file_token.endswith(".py")
             ), (

@@ -332,8 +332,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **State keys:** —
 - **Workbook rows:** TNW + Loan Notes / Preference Shares
 - **Policy outputs:** —
-- **Implemented in:** `scripts/spreading_builder.py` — workbook formula in `KEY_METRIC_ROWS` (Key Credit
-  Metrics) only; there is no computed state key
+- **Implemented in:** `scripts/spreading_builder.py` — the `KEY_METRIC_ROWS` formula, written to the sheet by
+  `_write_financial_spreading()`; there is no computed state key
 - **Basis:** standard definition (credit-agency tangible-equity adjustment)
 - **Status:** Implemented, not yet reviewed by an analyst
 

@@ -38,6 +38,7 @@ from state_manager import (
     read_state,
     state_path,
     resolve_date_str,
+    find_deal,
 )
 from template_resolver import cam_template_path
 from textio import read_text
@@ -496,6 +497,21 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # no headless API credentials are configured.
     # Resolved once and threaded through all state operations below so this
     # run always targets one dated folder.
+    try:
+        lookup = find_deal(company, proposal)
+    except OSError:
+        # The near-miss advisory is best effort: if the company folder cannot be listed, the
+        # run continues exactly as it did before the lookup existed.
+        lookup = {"record_found": True, "near_misses": []}
+    if not lookup["record_found"] and lookup["near_misses"]:
+        suggestions = ", ".join(
+            f"{item['proposal']!r} ({item['date']})" for item in lookup["near_misses"]
+        )
+        print(
+            f"warning: no saved deal record for {proposal!r} under {company!r}; "
+            f"normalized near match(es): {suggestions}. Continuing with current behaviour.",
+            file=sys.stderr,
+        )
     date_str = resolve_date_str(company, proposal, new_review=new_review)
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
     steps_completed = list(existing_state.get("steps_completed") or [])

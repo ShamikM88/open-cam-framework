@@ -157,9 +157,15 @@ plain local files, not a trained model.
 ## State manager and state.json
 
 **`scripts/state_manager.py`** — no `anthropic` dependency, same testability pattern as
-`template_resolver.py`. Its mutually exclusive `--check-steps` mode keeps its existing output; `--export-reviewer-view`
-validates state and writes the history-free first-pass copy and separate history copy described above, refusing invalid,
-newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
+`template_resolver.py`. Its mutually exclusive `--find` mode calls `find_deal(company, proposal)` and prints one JSON
+object without creating files or directories. An exact match returns `record_found: true`, the resolved `state_path`
+and newest date for the exact proposal's valid dated folder containing `state.json`; a corrupt-but-present state file
+still counts as found so the regular reader can report the established corruption error. If no exact record exists,
+the result has `record_found: false`, `company_folder_exists` and `near_misses`. The latter is advisory only and
+contains only valid dated folders with `state.json` whose proposal names exactly match after case-folding and collapsing
+runs of whitespace/hyphens. No fuzzy/prefix selection is performed. The `--check-steps` mode keeps its existing output;
+`--export-reviewer-view` validates state and writes the history-free first-pass copy and separate history copy described above,
+refusing invalid, newer-schema or malformed-schema state before writing. `state_path(company, proposal, date_str=None, base_dir=None)` resolves
 `deals/<Company>/<Proposal>_<Date>/state.json`; when `date_str` isn't given, it auto-discovers
 an existing dated folder for that company/proposal (most recent wins) instead of defaulting to
 today, so a deal resumed on a later calendar day still finds its original file. An explicit
@@ -189,6 +195,11 @@ file tools (`/triage`, `/research`, `/commercial`, `/collateral`, `/review`, `/a
 shows the refusal as one `error:` line and exit status 1 (see the next paragraph; `orchestrator.py` refuses at its
 first `write_state`, before any model call).
 A caller that passes `schema_version=` explicitly still overrides the stamp (unchanged behaviour).
+A read-only `state_manager.py --find` lookup is advisory. At the headless orchestrator's single state-resolution
+point, when no exact record exists and normalized candidates are present, it prints one stderr warning naming the
+candidate proposal/date and carries on with the existing resolution behavior. A missing record with no normalized near
+match produces no warning; the lookup does not change `policy_check.py` or `source_manifest.py` JSON output.
+
 **Malformed state fails clearly (issue #171).** `StateError` (a `ValueError`) is the base for "this state.json's
 content cannot be used": `SchemaVersionError` (above) and `StateShapeError` (corrupt JSON, a top level that is not
 an object, or a key of the wrong type). `validate_state(state, keys=None, path=...)` checks the container types

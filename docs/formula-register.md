@@ -104,7 +104,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-004 — Operating Profit (EBIT)
 
 - **Name:** Operating Profit / EBIT — workbook row "Operating Profit"; CAM/state key `operating_profit`
-- **Formula:** operating_profit = gross_profit − admin_expenses − depreciation − amortisation + other_income
+- **Formula:** operating_profit = gross_profit − admin_expenses − depreciation − amortisation + other_income (workbook: Operating Profit = Gross Profit − Admin Expenses − Depreciation − Amortisation + Other Income)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `operating_profit`
@@ -118,8 +118,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-005 — Operating Margin %
 
 - **Name:** Operating Margin % — workbook row "Operating Margin %"; no state key (workbook-only)
-- **Formula:** operating_margin = operating_profit / revenue (workbook: Operating Margin % = Operating Profit /
-  Revenue)
+- **Formula:** operating_margin = operating_profit / revenue (workbook: Operating Margin % = Operating Profit / Revenue)
 - **Unit and storage:** ratio (x); not stored in state
 - **Edge rules:** revenue ≤ 0 → N/A (workbook `_ratio` guard); no Python counterpart exists to store
 - **State keys:** —
@@ -133,7 +132,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-006 — EBITDA
 
 - **Name:** EBITDA — workbook row "EBITDA"; CAM/state key `ebitda`
-- **Formula:** ebitda = operating_profit + depreciation + amortisation
+- **Formula:** ebitda = operating_profit + depreciation + amortisation (workbook: EBITDA = Operating Profit + Depreciation + Amortisation)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** may be zero or negative (a negative EBITDA makes every ratio over it N/A — see F-026)
 - **State keys:** `ebitda`
@@ -147,7 +146,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-007 — Profit Before Tax
 
 - **Name:** Profit Before Tax — workbook row "Profit Before Tax"; CAM/state key `profit_before_tax`
-- **Formula:** profit_before_tax = operating_profit − interest_paid + interest_received − exceptional_costs
+- **Formula:** profit_before_tax = operating_profit − interest_paid + interest_received − exceptional_costs (workbook: Profit Before Tax = Operating Profit − Interest Paid + Interest Received − Exceptional Costs / (Income))
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `profit_before_tax`
@@ -161,7 +160,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-008 — Net Profit
 
 - **Name:** Net Profit — workbook row "Net Profit"; CAM/state key `net_profit`
-- **Formula:** net_profit = profit_before_tax − tax_paid
+- **Formula:** net_profit = profit_before_tax − tax_paid (workbook: Net Profit = Profit Before Tax − Tax)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `net_profit`
@@ -175,8 +174,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-009 — Free Cash Flow (FCF)
 
 - **Name:** Free Cash Flow — workbook row "FCF"; CAM/state key `fcf`
-- **Formula:** fcf = ebitda − capex − tax_paid − interest_paid + interest_received. Scheduled principal
-  repayment is deliberately NOT deducted: it is financing, and DSCR (F-021) already covers debt service
+- **Formula:** fcf = ebitda − capex − tax_paid − interest_paid + interest_received (workbook: FCF = EBITDA − Capital Expenditure − Tax − Interest Paid + Interest Received). Scheduled principal repayment is deliberately NOT deducted: it is financing, and DSCR (F-021) already covers debt service
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** may be negative; no denominator
 - **State keys:** `fcf`
@@ -191,7 +189,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-010 — FCF Conversion %
 
 - **Name:** FCF Conversion — workbook row "FCF Conversion %"; CAM/state key `fcf_conversion_pct`
-- **Formula:** fcf_conversion_pct = fcf / ebitda
+- **Formula:** fcf_conversion_pct = fcf / ebitda (workbook: FCF Conversion % = FCF / EBITDA)
 - **Unit and storage:** **percent-type ratio stored as a fraction** (`0.35` = 35%); applies to the value and to
   any covenant threshold on it; full precision, no rounding in storage
 - **Edge rules:** ebitda ≤ 0 → N/A (`None` in state, "N/A" in the workbook) and any covenant on it is
@@ -240,7 +238,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-013 — Total Assets
 
 - **Name:** Total Assets — workbook row "Total Assets"; CAM/state key `total_assets`
-- **Formula:** total_assets = total_fixed_assets + current_assets (see F-011, F-012)
+- **Formula:** total_assets = total_fixed_assets + current_assets (workbook: Total Assets = Total Fixed Assets + Total Current Assets; see F-011, F-012)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `total_assets`
@@ -255,7 +253,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** Total Current Liabilities — workbook row "Total Current Liabilities"; CAM/state key
   `current_liabilities` (state key drops the "total_" prefix)
-- **Formula:** current_liabilities = trade_creditors + current_debt + overdraft + other_current_liabilities
+- **Formula:** current_liabilities = trade_creditors + current_debt + overdraft + other_current_liabilities (workbook: Total Current Liabilities = Accounts Payable + Current Portion - Debt + Overdraft / Revolving Debt + Other Current Liabilities)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator); it is the denominator of the current
   ratio (F-024), where the zero/negative rule bites
@@ -271,7 +269,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** Total Long Term Liabilities — workbook row "Total Long Term Liabilities"; no direct state key (the
   stored aggregate is `total_liabilities`, F-016)
-- **Formula:** long_term_liabilities = long_term_debt + loan_notes + other_long_term_liabilities + provisions
+- **Formula:** long_term_liabilities = long_term_debt + loan_notes + other_long_term_liabilities + provisions (workbook: Total Long Term Liabilities = Long Term Debt + Loan Notes / Preference Shares + Other Long Term Liabilities + Provisions)
 - **Unit and storage:** currency amount; not itself stored in the financials dict
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** —
@@ -285,7 +283,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-016 — Total Liabilities
 
 - **Name:** Total Liabilities — workbook row "Total Liabilities"; CAM/state key `total_liabilities`
-- **Formula:** total_liabilities = current_liabilities + long_term_liabilities (F-014, F-015)
+- **Formula:** total_liabilities = current_liabilities + long_term_liabilities (workbook: Total Liabilities = Total Current Liabilities + Total Long Term Liabilities; F-014, F-015)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `total_liabilities`
@@ -299,7 +297,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-017 — Total Equity
 
 - **Name:** Total Equity — workbook row "Total Equity"; CAM/state key `total_equity`
-- **Formula:** total_equity = share_capital + retained_profit
+- **Formula:** total_equity = share_capital + retained_profit (workbook: Total Equity = Share Capital + Retained Profit)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** may be zero or negative (a non-positive equity makes gearing N/A — see F-025)
 - **State keys:** `total_equity`
@@ -313,7 +311,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-018 — Tangible Net Worth (TNW)
 
 - **Name:** Tangible Net Worth — workbook row "Tangible Net Worth (TNW)"; CAM/state key `tangible_net_worth`
-- **Formula:** tangible_net_worth = total_equity − intangible_assets
+- **Formula:** tangible_net_worth = total_equity − intangible_assets (workbook: Tangible Net Worth (TNW) = Total Equity − Intangible Fixed Assets)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator); may be negative
 - **State keys:** `tangible_net_worth`
@@ -328,7 +326,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** TNW plus Loan Notes / Preference Shares — workbook row "TNW + Loan Notes / Preference Shares"; no
   state key (workbook-only memo subtotal)
-- **Formula:** tnw_plus_loan_notes = tangible_net_worth + loan_notes
+- **Formula:** tnw_plus_loan_notes = tangible_net_worth + loan_notes (workbook: TNW + Loan Notes / Preference Shares = Tangible Net Worth (TNW) + Loan Notes / Preference Shares)
 - **Unit and storage:** currency amount; not stored in state
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** —
@@ -343,8 +341,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** Total Debt — no workbook row of its own (it is the numerator of F-025, F-026, F-027); CAM/state
   key `total_debt`
-- **Formula:** total_debt = current_debt + overdraft + long_term_debt + loan_notes. Provisions and trade
-  creditors are deliberately excluded
+- **Formula:** total_debt = current_debt + overdraft + long_term_debt + loan_notes (workbook: no row of its own — the same aggregate is written inline in the Gearing % / Gross Leverage / Net Debt / EBITDA formulas). Provisions and trade creditors are deliberately excluded
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** none beyond the input rules of F-001 (no denominator)
 - **State keys:** `total_debt`
@@ -360,7 +357,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-021 — DSCR
 
 - **Name:** DSCR (debt service coverage ratio) — workbook row "DSCR"; CAM/state key `dscr`
-- **Formula:** dscr = ebitda / (interest_paid + scheduled_principal)
+- **Formula:** dscr = ebitda / (interest_paid + scheduled_principal) (workbook: DSCR = EBITDA / (Interest Paid + Scheduled Principal Repayment))
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** denominator ≤ 0 → N/A (`None`) and any covenant on DSCR is UNRESOLVABLE, with the reason
   naming the denominator (e.g. "dscr not meaningful: interest paid plus scheduled principal is zero or
@@ -377,7 +374,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** EBIT interest cover — workbook row "EBIT/Interest"; CAM/state key `ebit_interest_cover` with the
   alias `EBIT/Interest` (both keys carry the same value)
-- **Formula:** ebit_interest_cover = operating_profit / interest_paid
+- **Formula:** ebit_interest_cover = operating_profit / interest_paid (workbook: EBIT/Interest = Operating Profit / Interest Paid)
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** interest_paid ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
 - **State keys:** `ebit_interest_cover`, `EBIT/Interest`
@@ -392,7 +389,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** EBITDA interest cover — workbook row "EBITDA/Interest"; CAM/state key `ebitda_interest_cover` with
   the alias `EBITDA/Interest`
-- **Formula:** ebitda_interest_cover = ebitda / interest_paid
+- **Formula:** ebitda_interest_cover = ebitda / interest_paid (workbook: EBITDA/Interest = EBITDA / Interest Paid)
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** interest_paid ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
 - **State keys:** `ebitda_interest_cover`, `EBITDA/Interest`
@@ -406,7 +403,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-024 — Current Ratio
 
 - **Name:** Current Ratio — workbook row "Current Ratio"; CAM/state key `current_ratio`
-- **Formula:** current_ratio = current_assets / current_liabilities
+- **Formula:** current_ratio = current_assets / current_liabilities (workbook: Current Ratio = Total Current Assets / Total Current Liabilities)
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** denominator ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
 - **State keys:** `current_ratio`
@@ -420,7 +417,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-025 — Gearing %
 
 - **Name:** Gearing — workbook row "Gearing % (Interest-Bearing Debt / Equity)"; CAM/state key `gearing`
-- **Formula:** gearing = total_debt / total_equity
+- **Formula:** gearing = total_debt / total_equity (workbook: Gearing % = (Current Portion - Debt + Overdraft / Revolving Debt + Long Term Debt + Loan Notes / Preference Shares) / Total Equity)
 - **Unit and storage:** **percent-type ratio stored as a fraction** (`0.87` = 87%); applies to the value and to
   any covenant threshold on it; full precision, no rounding in storage
 - **Edge rules:** total_equity ≤ 0 → N/A (`None`) and any covenant on gearing is UNRESOLVABLE; a stored value
@@ -438,7 +435,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-026 — Gross Leverage
 
 - **Name:** Gross Leverage — workbook row "Gross Leverage"; CAM/state key `gross_leverage`
-- **Formula:** gross_leverage = total_debt / ebitda
+- **Formula:** gross_leverage = total_debt / ebitda (workbook: Gross Leverage = (Current Portion - Debt + Overdraft / Revolving Debt + Long Term Debt + Loan Notes / Preference Shares) / EBITDA)
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** ebitda ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE, with the reason naming
   EBITDA (e.g. "gross leverage not meaningful: EBITDA is negative")
@@ -453,7 +450,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-027 — Net Debt / EBITDA
 
 - **Name:** Net Debt / EBITDA — workbook row "Net Debt / EBITDA"; CAM/state key `net_debt_to_ebitda`
-- **Formula:** net_debt_to_ebitda = (total_debt − cash) / ebitda; negative when cash exceeds debt (net cash)
+- **Formula:** net_debt_to_ebitda = (total_debt − cash) / ebitda (workbook: Net Debt / EBITDA = (Current Portion - Debt + Overdraft / Revolving Debt + Long Term Debt + Loan Notes / Preference Shares − Cash) / EBITDA); negative when cash exceeds debt (net cash)
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** ebitda ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
 - **State keys:** `net_debt_to_ebitda`
@@ -469,7 +466,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-028 — Trade Debtor Days
 
 - **Name:** Trade Debtor Days — workbook row "Trade Debtor Days"; CAM/state key `trade_debtor_days`
-- **Formula:** trade_debtor_days = trade_debtors / revenue × 365
+- **Formula:** trade_debtor_days = trade_debtors / revenue × 365 (workbook: Trade Debtor Days = Accounts Receivable / Revenue × 365)
 - **Unit and storage:** days; full precision, no rounding in storage
 - **Edge rules:** denominator ≤ 0 → N/A (`None`)
 - **State keys:** `trade_debtor_days`
@@ -483,7 +480,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-029 — Trade Creditor Days
 
 - **Name:** Trade Creditor Days — workbook row "Trade Creditor Days"; CAM/state key `trade_creditor_days`
-- **Formula:** trade_creditor_days = trade_creditors / cost_of_sales × 365
+- **Formula:** trade_creditor_days = trade_creditors / cost_of_sales × 365 (workbook: Trade Creditor Days = Accounts Payable / Cost of Goods Sold × 365)
 - **Unit and storage:** days; full precision, no rounding in storage
 - **Edge rules:** denominator ≤ 0 → N/A (`None`)
 - **State keys:** `trade_creditor_days`
@@ -497,7 +494,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-030 — Stock Days
 
 - **Name:** Stock Days — workbook row "Stock Days"; CAM/state key `stock_days`
-- **Formula:** stock_days = stock / cost_of_sales × 365
+- **Formula:** stock_days = stock / cost_of_sales × 365 (workbook: Stock Days = Stock / Cost of Goods Sold × 365)
 - **Unit and storage:** days; full precision, no rounding in storage
 - **Edge rules:** denominator ≤ 0 → N/A (`None`)
 - **State keys:** `stock_days`
@@ -512,8 +509,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 - **Name:** Working Capital Cycle — workbook row "Working Capital Cycle (days)"; CAM/state key
   `working_capital_cycle_days`
-- **Formula:** working_capital_cycle_days = trade_debtor_days + stock_days − trade_creditor_days (F-028 +
-  F-030 − F-029)
+- **Formula:** working_capital_cycle_days = trade_debtor_days + stock_days − trade_creditor_days (workbook: Working Capital Cycle (days) = Trade Debtor Days + Stock Days − Trade Creditor Days; F-028 + F-030 − F-029)
 - **Unit and storage:** days; full precision, no rounding in storage
 - **Edge rules:** if any component day count is N/A, the cycle is N/A (`None`) — never a partial sum
 - **State keys:** `working_capital_cycle_days`
@@ -551,8 +547,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-033 — Revenue haircut shock
 
 - **Name:** Revenue haircut — stress input `revenue_haircut_pct` (percent, whole-percent scale)
-- **Formula:** shocked_revenue = revenue × (1 − revenue_haircut_pct / 100). Every other raw line of the
-  period is carried through unchanged
+- **Formula:** shocked_revenue = revenue × (1 − revenue_haircut_pct / 100) — revenue is the state key for the workbook's Revenue row (workbook: the (Downside) column of the Revenue row). Every other raw line of the period is carried through unchanged
 - **Unit and storage:** the shocked revenue replaces `revenue` in the stressed copy only (the base case is
   never mutated)
 - **Edge rules:** non-negative and < 100 (a haircut of 100 or more would flip revenue negative or to zero);
@@ -569,8 +564,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-034 — Opex increase shock
 
 - **Name:** Operating expense increase — stress input `opex_increase_pct` (percent, whole-percent scale)
-- **Formula:** shocked_admin_expenses = admin_expenses × (1 + opex_increase_pct / 100). Admin expenses only:
-  cost of sales is never stressed
+- **Formula:** shocked_admin_expenses = admin_expenses × (1 + opex_increase_pct / 100) — admin_expenses is the state key for the workbook's Admin Expenses row (workbook: the (Downside) column of the Admin Expenses row). Admin expenses only: cost of sales is never stressed
 - **Unit and storage:** the shocked admin expenses replace `admin_expenses` in the stressed copy only
 - **Edge rules:** non-negative; non-finite or non-numeric refused; a value strictly between 0 and 1 is applied
   as written with a warning
@@ -585,9 +579,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-035 — Interest rate bump shock
 
 - **Name:** Interest rate bump — stress input `interest_rate_bump_bps` (basis points)
-- **Formula:** shocked_interest_paid = interest_paid + (current_debt + overdraft + long_term_debt +
-  loan_notes) × interest_rate_bump_bps / 10000 — i.e. the period's interest-bearing debt (F-020) repriced by
-  the bump
+- **Formula:** shocked_interest_paid = interest_paid + (current_debt + overdraft + long_term_debt + loan_notes) × interest_rate_bump_bps / 10000 — i.e. the period's interest-bearing debt (F-020) repriced by the bump (workbook: the (Downside) column of the Interest Paid row)
 - **Unit and storage:** the shocked interest paid replaces `interest_paid` in the stressed copy only
 - **Edge rules:** non-negative; non-finite or non-numeric refused
 - **State keys:** `interest_rate_bump_bps`
@@ -809,9 +801,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-047 — Collateral cover percentage (aggregate)
 
 - **Name:** Collateral cover percentage — the aggregate cover across the collateral list, as quoted in a CAM
-- **Formula:** collateral_cover_pct = (Σ collateral_value / Σ exposure) × 100 — summed over the collateral
-  list, expressed on a 0-100 scale (matching how a CAM quotes cover), not the 0-1 fraction convention of the
-  percent-type ratios
+- **Formula:** collateral_cover_pct = (Σ collateral_value / Σ exposure) × 100 — summed over the collateral list, expressed on a 0-100 scale (matching how a CAM quotes cover), not the 0-1 fraction convention of the percent-type ratios; no workbook row (the workbook's cover column is F-048)
 - **Unit and storage:** percent (0-100 scale); only added to the ground-truth figures when it resolves
 - **Edge rules:** nothing to compute from (no collateral, or a total exposure of 0) → the figure is omitted
   entirely rather than compared as a zero; a NEGATIVE total exposure is not refused here — see

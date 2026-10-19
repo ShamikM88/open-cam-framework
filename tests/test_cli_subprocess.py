@@ -1705,3 +1705,39 @@ def test_supplied_forecast_names_a_downside_period_whose_value_is_not_an_object(
     assert "must be an object of line items" in result.stderr
     assert "Traceback" not in result.stderr
     assert saved_path.read_bytes() == before
+
+
+def test_state_manager_find_reports_exact_record_as_one_json_object_without_writing(cli):
+    folder = cli.workdir / "deals" / "Synthetic Co" / "Credit Facility_2026-03-15"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_text('{"company":"Synthetic Co"}', encoding="utf-8")
+    before = sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*"))
+
+    result = cli("state_manager", "--find", "--company", "Synthetic Co", "--proposal", "Credit Facility")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert json.loads(result.stdout) == {
+        "record_found": True,
+        "state_path": str(folder / "state.json"),
+        "date": "2026-03-15",
+    }
+    assert result.stdout.endswith("\\n")
+    assert sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*")) == before
+
+
+def test_state_manager_find_reports_only_normalized_near_miss_and_no_write(cli):
+    folder = cli.workdir / "deals" / "Synthetic Co" / "Credit Facility_2026-03-15"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_text("{}", encoding="utf-8")
+    before = sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*"))
+
+    result = cli("state_manager", "--find", "--company", "Synthetic Co", "--proposal", "credit   facility")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    report = json.loads(result.stdout)
+    assert report["record_found"] is False
+    assert report["company_folder_exists"] is True
+    assert [item["proposal"] for item in report["near_misses"]] == ["Credit Facility"]
+    assert sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*")) == before

@@ -318,6 +318,11 @@ G64: '=IFERROR(G61+G63-G62,"N/A")'
 H64: '=IFERROR(H61+H63-H62,"N/A")'
 I64: '=IFERROR(I61+I63-I62,"N/A")'
 J64: '=IFERROR(J61+J63-J62,"N/A")'
+chart lineChart anchor=A66 display_blanks=gap
+  series title="'Financial Spreading'!A58" values="'Financial Spreading'!B58:G58" categories="'Financial Spreading'!B1:G1"
+  series title="'Financial Spreading'!A59" values="'Financial Spreading'!B59:G59" categories="'Financial Spreading'!B1:G1"
+chart barChart anchor=A84 display_blanks=gap
+  series title="'Financial Spreading'!A3" values="'Financial Spreading'!B3:G3" categories="'Financial Spreading'!B1:G1"
 == sheet 'Collateral & Exposure' dims=A1:I3
 widths: {'A': 22.0, 'B': 16.0, 'C': 16.0, 'D': 16.0, 'E': 16.0, 'F': 16.0, 'G': 16.0, 'H': 16.0, 'I': 16.0}
 A1: 'Asset Class'  [bold]

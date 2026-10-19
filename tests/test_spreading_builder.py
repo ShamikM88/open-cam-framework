@@ -985,7 +985,7 @@ def test_export_to_xlsx_scales_total_row_for_multiple_collateral_assets(tmp_path
     assert ws.cell(row=5, column=1).value == "Total"
     assert ws.cell(row=5, column=2).value == "=SUM(B2:B4)"
     assert ws.cell(row=5, column=7).value == "=SUM(G2:G4)"
-    assert ws.cell(row=5, column=8).value == '=IFERROR(G5/B5,"N/A")'
+    assert ws.cell(row=5, column=8).value == '=IFERROR(IF(B5>0,G5/B5,"N/A"),"N/A")'
 
     memo = {}
     total_exposure = _evaluate(ws, "B", 5, memo)

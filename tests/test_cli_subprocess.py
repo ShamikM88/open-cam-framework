@@ -1735,7 +1735,7 @@ def test_state_manager_find_reports_unsafe_company_as_one_error_without_writing(
     assert result.returncode == 1
     assert result.stdout == ""
     assert result.stderr.startswith("error:")
-    assert result.stderr.count("\\n") == 1
+    assert result.stderr.count("\n") == 1
     assert "Traceback" not in result.stderr
     assert not (cli.workdir / "deals").exists()
 

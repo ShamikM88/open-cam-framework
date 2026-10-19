@@ -69,7 +69,7 @@ The repository is public and forkable. Everything in it that looks like a deal i
 Anything derived from a user's real material lives in a git-ignored location, and a test enforces the list ([Security](security.md)).
 
 - **Adding a feature that stores something derived from real material?** Add its location to `.gitignore` *before* anything can write there, and add it to `PROTECTED_PATHS` in `tests/test_confidential_paths.py` in the same pull request. A new ignore line that is *not* confidential (build noise) goes in `NOT_CONFIDENTIAL` with a reason. Never store such material under a tracked path such as `templates/cam/`.
-- **Credentials.** The only credential is `ANTHROPIC_API_KEY`, read from the environment by the headless scripts. Do not write it into a file, a deal folder, a prompt, a command, an issue, a workflow or a chat with an AI assistant. A live key pasted anywhere should be treated as leaked and rotated. Do not add any other secret, token or `.env` reader without a reviewed design.
+- **Credentials.** The only credential you provide is `ANTHROPIC_API_KEY`, read from the environment by the headless scripts (the `wiki-publish` workflow additionally uses the `GITHUB_TOKEN` GitHub issues to that one job). Do not write it into a file, a deal folder, a prompt, a command, an issue, a workflow or a chat with an AI assistant. A live key pasted anywhere should be treated as leaked and rotated. Do not add any other secret, token or `.env` reader without a reviewed design.
 - **Live model calls.** No test, workflow or default code path makes one. Only `python scripts/run_evals.py --live`, run by hand with your own key under a call cap, does ([Evaluation](evaluation.md)).
 
 ## Testing and static analysis

@@ -40,8 +40,10 @@ the model, how it is authenticated and what it costs**.
 
 Two boundaries to keep in mind:
 
-- **Credentials.** The only credential the framework uses is the `ANTHROPIC_API_KEY` environment variable, and
-  only the headless scripts read it. Set it in your own shell; never write it into a file in this repository
+- **Credentials.** The only model credential the framework uses is the `ANTHROPIC_API_KEY` environment variable, and
+  only the headless scripts read it. (The one other token is the `wiki-publish` workflow's own `GITHUB_TOKEN`, which
+  GitHub issues to that job and `wiki_publish.py --publish` hands to git as an HTTP header; it is not a secret you
+  set, and there is no fallback token.) Set it in your own shell; never write it into a file in this repository
   (`config/settings.json` is git-tracked and is not read for keys), never put it in a deal folder, a prompt or a
   command, and never paste a live key into an AI assistant's chat, where it ends up in transcripts and logs. A
   `.env` file and `*.key` files are git-ignored as a safety net, but nothing in the framework reads a `.env`

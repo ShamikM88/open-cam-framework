@@ -1679,3 +1679,29 @@ def test_supplied_forecast_names_a_period_whose_value_is_not_an_object_of_line_i
     assert "must be an object of line items" in result.stderr
     assert "Traceback" not in result.stderr
     assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("token,kind", PERIOD_TYPE_TOKENS, ids=[kind for _, kind in PERIOD_TYPE_TOKENS])
+def test_supplied_forecast_names_a_downside_period_whose_value_is_not_an_object(cli, token, kind):
+    company, proposal, saved_path = _seed_analyst_supplied_stress_deal(cli)
+    before = saved_path.read_bytes()
+    forecast = cli.workdir / "forecast.json"
+    forecast.write_text(
+        '{"forecast":{"FY+1":{"subtotals":{"ebitda":300}}},'
+        '"downside":{"description":"Synthetic scenario","periods":{"FY+1":' + token + "}}}",
+        encoding="utf-8",
+    )
+
+    result = cli(
+        "supplied_forecast", "--company", company, "--proposal", proposal,
+        "--forecast", forecast, "--note", "Synthetic forecast convention",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "downside.periods.FY+1" in result.stderr
+    assert "must be an object of line items" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert saved_path.read_bytes() == before

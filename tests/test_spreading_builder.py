@@ -1189,6 +1189,41 @@ def test_analyst_supplied_downside_figures_also_extend_the_series(tmp_path):
                 f":$H${int(series.val.numRef.f.rsplit('$', 1)[1])}")
 
 
+def test_a_downside_period_with_no_figures_does_not_extend_the_series(tmp_path):
+    """A period key alone is not figures: an empty raw block (framework-derived) or an
+    empty supplied mapping (analyst) leaves the column blank, so it is excluded from
+    the series range rather than shipped as a blank point."""
+    for kwargs in ("downside_financial_data", "supplied_downside_values"):
+        out_path = tmp_path / f"empty-{kwargs}.xlsx"
+        export_to_xlsx("Test Co", str(out_path), **{kwargs: {"FY+1": {}}})
+        ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+        for tagname in ("lineChart", "barChart"):
+            chart = _chart(ws, tagname)
+            for series in chart.series:
+                assert series.val.numRef.f.endswith(
+                    f":$G${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+
+
+def test_a_period_marked_downside_unavailable_is_excluded_even_with_figures(tmp_path):
+    """blank_downside_periods is the workbook's own 'unavailable' signal (the column
+    header says so): such a column is excluded from the series range even if downside
+    figures happen to exist for it."""
+    period_raw = {"revenue": 100, "cost_of_sales": 40}
+
+    out_path = tmp_path / "unavailable.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        downside_financial_data={"FY+1": period_raw},
+        blank_downside_periods={"FY+1"},
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    for tagname in ("lineChart", "barChart"):
+        chart = _chart(ws, tagname)
+        for series in chart.series:
+            assert series.val.numRef.f.endswith(
+                f":$G${int(series.val.numRef.f.rsplit('$', 1)[1])}")
+
+
 def test_a_downside_gap_stops_the_series_at_the_first_unavailable_column(tmp_path):
     """A chart series reference must stay contiguous, so downside availability
     is walked from column H: figures for FY+1 and FY+3 but not FY+2 end the

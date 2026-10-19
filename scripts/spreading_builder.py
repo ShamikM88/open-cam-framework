@@ -781,24 +781,30 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
 
     _write_charts(ws, row_of, max(row_of.values()),
                   downside_financial_data=downside_financial_data,
-                  supplied_downside_values=supplied_downside_values)
+                  supplied_downside_values=supplied_downside_values,
+                  blank_downside_periods=blank_downside_periods)
 
 
-def _chart_last_col(downside_financial_data=None, supplied_downside_values=None):
+def _chart_last_col(downside_financial_data=None, supplied_downside_values=None, blank_downside_periods=None):
     """The last column (1-based) the chart series range spans.
 
     The historical and forward base-case columns (B-G) are always in range. A downside
-    column joins the range only while its period carries downside figures (framework-derived
-    or analyst-supplied); the walk stops at the first column without any, because a chart
-    series reference must stay contiguous and the issue-131 sign-off forbids shipping blank
-    points for unavailable columns. Downside availability is contiguous from column H in
-    every real data flow (evaluate_downside_case() derives a downside for each forward
-    period the base case has; the analyst-supplied basis is normally consecutive), so this
-    stops the range at the first gap rather than plotting the gap as a blank.
+    column joins the range only while its period carries downside figures -- a non-empty
+    raw block (framework-derived or analyst-supplied) for a period the workbook does not
+    mark unavailable (blank_downside_periods) -- and the walk stops at the first column
+    without any, because a chart series reference must stay contiguous and the issue-131
+    sign-off forbids shipping blank points for unavailable columns. That contiguity
+    requirement has a documented limitation: downside figures for FY+1 and FY+3 but not
+    FY+2 (reachable only through an analyst-supplied basis with a year gap) end the range
+    at column H, dropping the FY+3 observation -- the alternatives all violate the
+    sign-off or misrender (including the unavailable column plots it as a blank; a union
+    reference is not expressible with openpyxl.chart Reference; a separate series misaligns
+    because Excel plots each series against the category axis by index).
     """
     last_col = 7  # column G: three historical plus three forward base-case periods
     for col, period in DOWNSIDE_COL_TO_PERIOD_KEY.items():
-        if period in (downside_financial_data or {}) or period in (supplied_downside_values or {}):
+        figures = (downside_financial_data or {}).get(period) or (supplied_downside_values or {}).get(period)
+        if figures and period not in (blank_downside_periods or ()):
             last_col = PERIOD_COLS.index(col) + 2
         else:
             break
@@ -814,7 +820,8 @@ def _chart_series(ws, row, last_col):
     return series
 
 
-def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None):
+def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None,
+                  blank_downside_periods=None):
     """Native charts below the spreading table (issue #131).
 
     A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart
@@ -824,7 +831,8 @@ def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supp
     render as gaps because displayBlanksAs="gap" is set explicitly on every chart: never a
     misleading zero.
     """
-    last_col = _chart_last_col(downside_financial_data, supplied_downside_values)
+    last_col = _chart_last_col(downside_financial_data, supplied_downside_values,
+                              blank_downside_periods=blank_downside_periods)
 
     leverage = LineChart()
     leverage.title = "Leverage Trend"

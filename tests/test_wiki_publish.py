@@ -671,6 +671,12 @@ class TestCli:
         assert raised.value.code == 2
 
 
+def _make_dir(path):
+    """Create the directory a patched mkdtemp would have returned; give back its path as text."""
+    path.mkdir(parents=True)
+    return str(path)
+
+
 class TestPublish:
     """The `--publish` mode against a local bare repository standing in for the wiki.
 
@@ -1075,13 +1081,14 @@ class TestPublish:
         make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
         # TMPDIR pointing inside the repository: the clone must not land there
         monkeypatch.setattr(wiki_publish.tempfile, "mkdtemp",
-                            lambda *a, **k: str(tmp_path / "docs" / "tmp-work"))
+                            lambda *a, **k: _make_dir(tmp_path / "docs" / "tmp-work"))
         code = self.publish(tmp_path, remote)
         assert code == 1
         captured = capsys.readouterr()
         assert len(captured.err.splitlines()) == 1
         assert captured.err.count("error:") == 1
         assert "temporary" in captured.err
+        assert not (tmp_path / "docs" / "tmp-work").exists()  # CG361-4: the refused directory is removed
 
     def test_a_tracked_symlink_at_a_generated_name_cannot_redirect_the_write(self, tmp_path):
         # A wiki could track Home.md as a symlink; the publish must replace it with a

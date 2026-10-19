@@ -567,6 +567,7 @@ def _fresh_work_dir(root: Path) -> Path:
     """
     work = Path(tempfile.mkdtemp(prefix="wiki-publish-")).resolve()
     if work == root or root in work.parents:
+        shutil.rmtree(work, ignore_errors=True)  # the directory mkdtemp just made must not be left behind
         raise WikiPublishError(
             f"{work}: the temporary working directory must not be inside the repository "
             "(is TMPDIR set to a path inside it?)"

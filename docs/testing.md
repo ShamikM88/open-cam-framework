@@ -27,7 +27,7 @@ A full green run means the code does what its tests say, on the inputs the tests
 - **Show that a guard can fail.** Every contract test in this repository also runs its check on deliberately wrong input (a renamed flag, a missing anchor, an unpinned action) and expects it to be reported. A guard that has never been seen to fail is a guess.
 - **Be deterministic.** No network (`pytest-socket` enforces it), no real clock or randomness without a fixed seed, no dependence on the working directory (use `tmp_path`), and the `ci` Hypothesis profile (fixed seed, no example database). Tests of text-file handling use the `cp1252_default_open` fixture in `tests/conftest.py`, which makes an `open()` with no encoding behave as on Windows so such a bug cannot hide on Linux.
 - **Use the fakes, not the SDK.** Model calls are replaced by scripted clients (`tests/eval_fakes.py` and the orchestrator tests); a test that needs a key or a network is a bug.
-- **Do not make the passing count depend on the environment.** A test that skips where a tool is missing makes the count differ between machines, which the badge cannot allow (this is why `zizmor` runs in CI's `security` job and not from the suite).
+- **Do not make the passing count depend on the environment.** A test that skips where a tool is missing makes the count differ between machines, which the badge cannot allow (this is why `zizmor` runs in CI's `security` job and not from the suite). The one exception is a filename-legality limit rather than a missing tool: two `tests/test_wiki_publish.py` tests that use a colon-leading page name are skipped on Windows, where such a name cannot exist, so the Windows count is two lower than the badge; the badge is checked on Linux only, and the same behaviour is covered there by a mocked-git test that runs everywhere.
 - **Prefer an assertion to a snapshot.** Snapshots are for rendered documents, where a human reviews the diff; a number or a message is asserted directly.
 - **Record known-bad behaviour as a strict `xfail`** naming its issue, so fixing it fails the test until the marker is removed.
 - **Use synthetic data** ([contributing](contributing.md#synthetic-data-only)).
@@ -102,7 +102,9 @@ python scripts/check_coverage.py coverage.json
 ```
 CI runs four jobs: `test` (Ubuntu), `test-windows`, `runtime-smoke` (installs only `requirements.txt` and
 checks that a fresh clone works) and `security` (`pip-audit`, `zizmor`). All actions are pinned to commit
-SHAs and every job has read-only permissions. A reviewed advisory with no fix available is ignored only through
+SHAs and every job has read-only permissions, with two documented exceptions: `model-freshness`'s weekly report
+holds `issues: write`, and the `wiki-publish` job holds `contents: write` to push the generated wiki.
+A reviewed advisory with no fix available is ignored only through
 a reviewed PR that adds `--ignore-vuln <ID>` and a reason comment to the `pip-audit` command (see CLAUDE.md,
 "Testing and static analysis"); the audit itself is never switched off. Separately, a **weekly mutation-testing run**
 (`.github/workflows/mutation.yml`, Linux only, also startable by hand from the Actions tab) mutates the
@@ -237,7 +239,9 @@ PR that pins a fixed version, and the same advisory dismissed in GitHub's Depend
 reason that links that PR. Findings from `zizmor` are fixed, or silenced with a `# zizmor: ignore[<rule>]` comment
 on the line itself plus the same reason, reviewed the same way. Workflow rules, all tested:
 every third-party action is pinned to a full commit SHA with a `# vX.Y.Z` comment (Dependabot keeps
-them current); `permissions: {}` at the top and `contents: read` per job; `persist-credentials: false`
+them current); `permissions: {}` at the top and `contents: read` per job (the two documented exceptions:
+`model-freshness.yml`'s `issues: write` and `wiki-publish.yml`'s one-job `contents: write`);
+`persist-credentials: false`
 on every checkout; no `pull_request_target`; CI never passes `--write` or `--update-snapshots`.
 
 ### Mutation testing

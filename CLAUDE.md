@@ -535,7 +535,9 @@ must meet; the full description of each (what it checks, how it is tested, why) 
 - **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test` (Ubuntu)
   is one of the three ruleset-required checks (`test`, `test-windows`, `runtime-smoke`, each pinned to the GitHub
   Actions app) -- keep all three names; `security` and the weekly `mutation` run are not required. Workflow rules, all tested: every third-party action is pinned
-  to a full commit SHA with a `# vX.Y.Z` comment; `permissions: {}` at the top and `contents: read` per job;
+  to a full commit SHA with a `# vX.Y.Z` comment; `permissions: {}` at the top and `contents: read` per job
+  (the two documented exceptions: `model-freshness.yml`'s `issues: write` and `wiki-publish.yml`'s one-job
+  `contents: write`, which pushes the generated wiki);
   `persist-credentials: false` on every checkout; no `pull_request_target`; CI never passes `--write` or
   `--update-snapshots`.
 - **Ignoring a reviewed advisory.** Pin a fixed version if one exists; otherwise a reviewed PR adds `--ignore-vuln

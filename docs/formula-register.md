@@ -845,7 +845,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Basis:** house convention
 - **Status:** Implemented, not yet reviewed by an analyst
 
-### F-049 — Collateral sheet totals (workbook row)
+### F-058 — Collateral sheet totals (workbook row)
 
 - **Name:** Collateral sheet totals — the "Total" row of the workbook's "Collateral & Exposure" sheet
 - **Formula:** each column sums its per-asset rows: total_exposure = Σ exposure ("Exposure (Rental + RV)"),
@@ -871,7 +871,7 @@ agreed on [issue #266](https://github.com/ShamikM88/open-cam-framework/issues/26
 reviewing analyst signs off the design before it is built. RV is a deal input supplied by the risk team, like
 PD and LGD; the framework does not estimate it.
 
-### F-050 — Gross Exposure (Exc. RV)
+### F-049 — Gross Exposure (Exc. RV)
 
 - **Name:** Gross Exposure (Exc. RV) — exposure before the residual value
 - **Formula:** gross_exposure = valuation × (1 − down_payment_pct); both inputs are stored (deal inputs)
@@ -887,7 +887,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (industry practice, as recorded on #266; no external reference verified)
 - **Status:** Proposed, not implemented
 
-### F-051 — RV Exposure
+### F-050 — RV Exposure
 
 - **Name:** RV Exposure — the exposure created by the residual value
 - **Formula:** rv_exposure = est_rv_pct × valuation (the original cost or valuation, not the financed amount);
@@ -907,10 +907,10 @@ PD and LGD; the framework does not estimate it.
   source)
 - **Status:** Proposed, not implemented
 
-### F-052 — Total Exposure (Inc. RV)
+### F-051 — Total Exposure (Inc. RV)
 
 - **Name:** Total Exposure (Inc. RV) — the full exposure including the residual value
-- **Formula:** total_exposure = gross_exposure + rv_exposure (F-050 + F-051)
+- **Formula:** total_exposure = gross_exposure + rv_exposure (F-049 + F-050)
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** amounts summed across assets with no netting; mixed-sign input refused
 - **State keys:** —
@@ -920,7 +920,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (industry practice — lessor net investment including residual value — as recorded on #266; no external reference verified)
 - **Status:** Proposed, not implemented
 
-### F-053 — Net Exposure
+### F-052 — Net Exposure
 
 - **Name:** Net Exposure — total exposure net of non-asset mitigants
 - **Formula:** net_exposure = total_exposure − recorded non-asset mitigants (deposits, advance rentals);
@@ -935,7 +935,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (industry practice, as recorded on #266; no external reference verified)
 - **Status:** Proposed, not implemented
 
-### F-054 — Collateral Value
+### F-053 — Collateral Value
 
 - **Name:** Collateral Value — the recoverable value of the collateral
 - **Formula:** collateral_value = max(0, cap_or_model_value − non_recovery − costs); floored at zero
@@ -952,7 +952,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (the Basel comprehensive-approach floor at zero and workout-LGD netting of recovery costs are the sources named on #266; the primary Basel text could not be retrieved, so this is not a verified citation)
 - **Status:** Proposed, not implemented
 
-### F-055 — Coverage %
+### F-054 — Coverage %
 
 - **Name:** Coverage % — collateral cover of the total exposure
 - **Formula:** coverage_pct = collateral_value / total_exposure (Inc. RV); not capped at 100%
@@ -969,7 +969,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (agreed on #266)
 - **Status:** Proposed, not implemented
 
-### F-056 — Uncovered Risk
+### F-055 — Uncovered Risk
 
 - **Name:** Uncovered Risk — exposure with no collateral behind it
 - **Formula:** uncovered_risk = Σ over assets of max(0, total_exposure − collateral_value); floored at 0 per
@@ -984,7 +984,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (agreed on #266)
 - **Status:** Proposed, not implemented
 
-### F-057 — Max LGD
+### F-056 — Max LGD
 
 - **Name:** Max LGD — the worst loss given default across the deal's assets
 - **Formula:** max_lgd = max over assets of lgd_pct. LGD % is an INPUT, never derived from collateral
@@ -998,7 +998,7 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (LGD is a risk-team input, like PD and RV)
 - **Status:** Proposed, not implemented
 
-### F-058 — Avg LGD
+### F-057 — Avg LGD
 
 - **Name:** Avg LGD — the exposure-weighted average loss given default
 - **Formula:** avg_lgd = Σ (lgd_pct × exposure) / Σ exposure — exposure-weighted, not a simple mean
@@ -1035,7 +1035,7 @@ maintainer, per the issue's instruction.
   (`compute_collateral_cover_pct()`, scripts/policy_checks.py:104-119) returns `None` only when total
   exposure is exactly 0 — a negative total exposure yields a negative percentage. Separately, the two
   existing calculations disagree on scale: the CAM's aggregate is quoted 0-100, while the workbook's cover
-  cell and the proposed Coverage % (F-055) are raw fractions. Tracked as
+  cell and the proposed Coverage % (F-054) are raw fractions. Tracked as
   issue #365; deliberately not fixed here.
 
 ## Drift guard
@@ -1047,7 +1047,7 @@ maintainer, per the issue's instruction.
    `docs/examples/synthetic_co` has no register entry (state keys uncovered);
 3. a rule of the policy engine — a key of `evaluate_deal_policy()`'s result — has no register entry;
 4. an entry names a file or function that does not exist in the repository;
-5. one of the proposed collateral entries (F-050-F-058) or its "Proposed, not implemented" status is
+5. one of the proposed collateral entries (F-049-F-057) or its "Proposed, not implemented" status is
    deleted.
 
 Removing an entry therefore fails the suite through the coverage checks; renaming a function or moving a

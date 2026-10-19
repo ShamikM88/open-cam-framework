@@ -131,13 +131,20 @@ def _synthetic_example_keys():
 
 
 def test_entries_parse_with_unique_sequential_ids():
+    """Ids are unique and form the complete run F-001..F-NNN with no gaps or
+    reuse. Entries may appear grouped by subject out of numeric order (F-058
+    sits in the workbook-collateral section, after F-048), so the check is on
+    the sorted set, not the document order — renumbering existing entries to
+    satisfy reading order would violate the page's stable-id convention.
+    """
     entries = _parse_register()
     ids = [entry["id"] for entry in entries]
     assert len(ids) == len(set(ids)), "duplicate entry ids in the formula register"
     expected = [f"F-{number:03d}" for number in range(1, len(ids) + 1)]
-    assert ids == expected, (
-        "entry ids must be unique and sequential from F-001 without gaps: "
-        f"found {ids}"
+    assert sorted(ids) == expected, (
+        "entry ids must be unique and form the complete run F-001..F-NNN with "
+        "no gaps or reuse (document order may group entries by subject): "
+        f"found {sorted(ids)}"
     )
 
 

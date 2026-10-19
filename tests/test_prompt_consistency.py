@@ -317,7 +317,12 @@ def test_reviewer_prompt_wiring_statement_matches_the_review_command(risk_review
     keep the authorised wording's three pinned phrases -- the last one ties the
     sentence to the three case bullets below it, so reducing or adding a bullet
     without rewording the sentence fails here."""
-    problems = _wiring_problems(risk_reviewer_prompt, _read(".claude/commands/review.md"))
+    review_command = _read(".claude/commands/review.md")
+    assert _review_command_runs_policy_check(review_command), (
+        "expected .claude/commands/review.md to invoke policy_check.py for a named deal -- "
+        "without that premise the contradiction check below cannot fire"
+    )
+    problems = _wiring_problems(risk_reviewer_prompt, review_command)
     assert problems == [], "\n" + "\n".join(problems)
 
 

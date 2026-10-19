@@ -603,7 +603,7 @@ def _empty_underwriter_output():
     "draft_text",
     [
         None,
-        _fenced_underwriter_payload({}),
+        "",
         _fenced_underwriter_payload({"unrelated": "not Underwriter structured output"}),
     ],
 )

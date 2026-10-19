@@ -20,6 +20,7 @@ the code computes (the "Proposed, not implemented" collateral entries), but
 never less.
 """
 import ast
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -280,6 +281,96 @@ def test_implemented_entries_name_real_files_and_functions():
             f"{entry['id']} ({entry['name']}): an implemented entry must name at least "
             "one function in 'Implemented in'"
         )
+
+
+def _named_implementation_functions():
+    """Every function the register's 'Implemented in' fields name."""
+    return {
+        token[:-2]
+        for entry in _parse_register()
+        for token in _backticked(entry["Implemented in"])
+        if token.endswith("()")
+    }
+
+
+def _formula_definition_fingerprints():
+    """sha256 fingerprints of the formula definitions the register describes:
+    the `SECTIONS` row structure (labels and formula templates — a template
+    change is a formula change) and the AST of every function the register
+    names. A change to any of them changes a fingerprint, so the register
+    cannot silently drift from the code it describes: the build fails until
+    the fingerprints are refreshed, and the failure instructs the author to
+    update the affected register entries in the same change.
+    """
+    fingerprints = {
+        "SECTIONS": hashlib.sha256(
+            repr(spreading_builder.SECTIONS).encode("utf-8")
+        ).hexdigest()[:16]
+    }
+    named = _named_implementation_functions()
+    for script in sorted((REPO_ROOT / "scripts").glob("*.py")):
+        tree = ast.parse(script.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name in named:
+                fingerprints[f"{script.stem}:{node.name}"] = hashlib.sha256(
+                    ast.dump(node).encode("utf-8")
+                ).hexdigest()[:16]
+    return fingerprints
+
+
+# Recorded fingerprints of the formula definitions the register describes.
+# Refresh ONLY together with the register entries that describe what changed.
+FORMULA_DEFINITION_FINGERPRINTS = {
+    "SECTIONS": "5c7d3a8773a50300",
+    "financial_conventions:warn_percent_type_values": "9c5e57e1157d46d8",
+    "numeric_validation:validate_stress_assumptions": "c2450567be8d02e1",
+    "numeric_validation:validate_raw_line_items": "6212f84436f57abe",
+    "numeric_validation:validate_period_objects": "e25c8ed19e13a1ec",
+    "numeric_validation:validate_finite_numbers": "cbb774b471a34e60",
+    "policy_checks:compute_collateral_cover_pct": "1f11ab4f0688ea76",
+    "policy_checks:ground_truth_figures": "317c14a975e83fe3",
+    "policy_checks:values_match": "9679f0b05cc13770",
+    "policy_checks:check_reported_figures": "bfd00f5b4059ba96",
+    "policy_engine:_slugify": "481bf51f909eb0b7",
+    "policy_engine:_evaluate_covenant": "0dcbf53e32e9e42f",
+    "policy_engine:_unique_id": "008bf6d7e5c2d085",
+    "policy_engine:_evaluate_security": "a75c170b34bd637a",
+    "policy_engine:_guarantee_cps": "803ade22a9d1b434",
+    "policy_engine:_covenant_compliance_cs": "c7398494f04dacc8",
+    "policy_engine:_security_reconfirmation_cs": "2b3a80db766324c5",
+    "policy_engine:_guarantee_standing_cs": "6ee1b822ca77a56a",
+    "policy_engine:_evaluate_downside_covenants": "fae9e85723a44900",
+    "policy_engine:_evaluate_forward_covenants": "0190258f3e208715",
+    "policy_engine:_period_dict": "7b3d95f5b764e5e0",
+    "policy_engine:evaluate_deal_policy": "f26ee465473d5578",
+    "spreading_builder:_ratio": "6baced0909ccef1f",
+    "spreading_builder:describe_undefined_ratio": "e0fbe127b5d52e14",
+    "spreading_builder:evaluate_financial_model": "4a51a62de1fedc3a",
+    "spreading_builder:apply_stress_shocks": "c8a189012d3c4ba7",
+    "spreading_builder:evaluate_downside_case": "756e5ddfef057937",
+    "spreading_builder:_column_headers": "49b376916dc1a6fd",
+    "spreading_builder:_write_financial_spreading": "f42f330c946c9460",
+    "spreading_builder:_write_collateral_sheet": "4300d46a1edfe120",
+    "supplied_forecast:build_downside": "a2bf33be943f43ef",
+}
+
+
+def test_formula_definitions_match_the_register():
+    current = _formula_definition_fingerprints()
+    recorded = dict(FORMULA_DEFINITION_FINGERPRINTS)
+    changed = sorted(
+        key for key in set(current) & set(recorded)
+        if current[key] != recorded[key]
+    )
+    added = sorted(set(current) - set(recorded))
+    removed = sorted(set(recorded) - set(current))
+    assert not (changed or added or removed), (
+        "a formula definition changed since the register's fingerprints were "
+        f"recorded. changed: {changed}; new: {added}; gone: {removed}. If the "
+        "change affects what an entry describes, update that register entry in "
+        "the same change; then refresh FORMULA_DEFINITION_FINGERPRINTS in this "
+        "file to match the new code."
+    )
 
 
 def test_collateral_metrics_stay_proposed_entries():

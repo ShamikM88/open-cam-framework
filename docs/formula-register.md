@@ -1,0 +1,1027 @@
+# Formula register
+
+Every metric the framework computes, on one reviewable page. The code is the source of truth; this page
+describes it. An analyst signs off each entry here; the signed record itself lives **outside the repository**
+(decided on [issue #366](https://github.com/ShamikM88/open-cam-framework/issues/366), comment 6259301815) —
+this page records only the reviewer's role, the date and the commit, never a personal name.
+
+How to keep this page true is a [design decision](decisions.md#d18-code-defines-the-register-describes): the
+code defines, the register describes, and a formula change updates the register in the same pull request.
+[tests/test_formula_register.py](../tests/test_formula_register.py) fails the build when the two drift apart.
+
+## Conventions used by every entry
+
+- **Percent-type ratios are stored as fractions.** `0.87` means 87%. This applies to the ratio value and to any
+  covenant threshold on it (`gearing`, `fcf_conversion_pct`). Amounts are stored in whatever currency units
+  the deal supplies; the framework labels no currency.
+- **A zero or negative denominator is N/A, not a number.** A ratio whose denominator is zero or negative is
+  stored as `N/A`/`None` (issue #169), never as zero or a negative quotient. A covenant tested on an N/A ratio
+  is **UNRESOLVABLE** — never PASS and never FAIL.
+- **Non-finite inputs are refused.** NaN and infinity (and non-numeric values for recognised raw fields) are
+  rejected with one error line before anything is written.
+- **No rounding in storage.** Figures are stored at full precision; rounding is display-only.
+- **Ids are stable.** `F-001`…`F-NNN` are never reused or renumbered; a withdrawn entry keeps its id with a
+  status saying so, and a new entry takes the next number.
+
+## Status forms
+
+- **Implemented, not yet reviewed by an analyst** — the code computes it; no analyst has signed it off yet.
+- **Reviewed (role, date, commit)** — an analyst signed it off; the signed copy is outside the repository.
+- **Change requested (issue #N)** — an analyst asked for a change; the issue is the record.
+- **Proposed, not implemented** — agreed design (conventions cited), no code yet.
+
+## How to review
+
+Review entry by entry, in id order. For each entry mark exactly one of **Agree**, **Change** or **Question**:
+
+- **Agree** — the formula, units, edge rules, basis and implemented-in all match your understanding.
+- **Change** — something is wrong; open an issue naming the entry id and say what must change. The entry's
+  status becomes "Change requested (issue #N)".
+- **Question** — you are not sure; ask in the tracking issue naming the entry id.
+
+Sign-off is recorded **outside this repository**. When every implemented entry you reviewed is Agreed, update
+each entry's status line here to `Reviewed (role, date, commit)` — role, date and the commit hash only; no
+personal names appear anywhere on this page. If you cannot verify an entry's "Implemented in" reference, treat
+it as a Question, not an Agree.
+
+The entries below were written from the code, never from memory; where the code does not compute something,
+the entry says so and it is listed under [Known differences](#known-differences).
+
+---
+
+## Inputs
+
+### F-001 — Raw line items (inputs)
+
+- **Name:** Raw line items — the deal's raw financial inputs per period; workbook rows use the labels in the
+  "Workbook rows" field, CAM/state keys are the snake_case names in the "State keys" field
+- **Formula:** Not computed — inputs. A missing key defaults to 0 (`g()` / `.get(field, 0)`); a `null` is the established spelling of an unavailable input. Periods: `FY-2`, `FY-1`, `FY-Current` (historical) and `FY+1`…`FY+3` (forward, [F-032](#f-032--forward-base-case))
+- **Unit and storage:** currency amounts (or counts, for unit lines); full precision, no rounding in storage
+- **Edge rules:** a recognised raw field that is not a finite JSON number or `null` is refused with one error
+  line and nothing written; a period that is not an object of line items is refused; non-finite numbers
+  anywhere in the policy state are refused
+- **State keys:** `revenue`, `cost_of_sales`, `admin_expenses`, `depreciation`, `amortisation`, `other_income`, `interest_paid`, `interest_received`, `scheduled_principal`, `capex`, `exceptional_costs`, `tax_paid`, `tangible_assets`, `intangible_assets`, `other_fixed_assets`, `cash`, `trade_debtors`, `stock`, `other_current_assets`, `trade_creditors`, `current_debt`, `overdraft`, `other_current_liabilities`, `long_term_debt`, `loan_notes`, `other_long_term_liabilities`, `provisions`, `share_capital`, `retained_profit`
+- **Workbook rows:** Revenue · Cost of Goods Sold · Admin Expenses · Depreciation · Amortisation · Other Income · Interest Paid · Interest Received · Scheduled Principal Repayment · Capital Expenditure · Exceptional Costs / (Income) · Tax · Tangible Fixed Assets · Intangible Fixed Assets · Investments · Cash · Accounts Receivable · Stock · Other Current Assets · Accounts Payable · Current Portion - Debt · Overdraft / Revolving Debt · Other Current Liabilities · Long Term Debt · Loan Notes / Preference Shares · Other Long Term Liabilities · Provisions · Share Capital · Retained Profit
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (the `g()` default-0
+  convention and `FIELD_LABELS` mapping); input validation in `scripts/numeric_validation.py` —
+  `validate_raw_line_items()` and `validate_period_objects()`; `validate_finite_numbers()` for the policy state
+- **Basis:** house convention (default-0 inputs, null = unavailable)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Statement subtotals and margins
+
+### F-002 — Gross Profit
+
+- **Name:** Gross Profit — workbook row "Gross Profit"; CAM/state key `gross_profit`
+- **Formula:** gross_profit = revenue − cost_of_sales (workbook: Gross Profit = Revenue − Cost of Goods Sold)
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `gross_profit`
+- **Workbook rows:** Gross Profit
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `PNL_ROWS` (Profit & Loss)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-003 — Gross Profit Margin %
+
+- **Name:** Gross Profit Margin % — workbook row "Gross Profit Margin %"; no state key (workbook-only: margins
+  are not written to state.json)
+- **Formula:** gross_profit_margin = gross_profit / revenue (workbook: Gross Profit Margin % = Gross Profit /
+  Revenue)
+- **Unit and storage:** ratio (x); workbook cell shows "N/A" outside the meaningful range; not stored in state
+- **Edge rules:** revenue ≤ 0 → N/A (the workbook `_ratio` guard; the edge rules of [F-021](#f-021--dscr) apply to every ratio cell); no Python counterpart exists to store
+- **State keys:** —
+- **Workbook rows:** Gross Profit Margin %
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — the `_ratio()` workbook formula in `PNL_ROWS` only;
+  there is no computed state key (see [Known differences](#known-differences), KD-1)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-004 — Operating Profit (EBIT)
+
+- **Name:** Operating Profit / EBIT — workbook row "Operating Profit"; CAM/state key `operating_profit`
+- **Formula:** operating_profit = gross_profit − admin_expenses − depreciation − amortisation + other_income
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `operating_profit`
+- **Workbook rows:** Operating Profit
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `PNL_ROWS` (Profit & Loss)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-005 — Operating Margin %
+
+- **Name:** Operating Margin % — workbook row "Operating Margin %"; no state key (workbook-only)
+- **Formula:** operating_margin = operating_profit / revenue (workbook: Operating Margin % = Operating Profit /
+  Revenue)
+- **Unit and storage:** ratio (x); not stored in state
+- **Edge rules:** revenue ≤ 0 → N/A (workbook `_ratio` guard); no Python counterpart exists to store
+- **State keys:** —
+- **Workbook rows:** Operating Margin %
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — the `_ratio()` workbook formula in `PNL_ROWS` only;
+  there is no computed state key (see [Known differences](#known-differences), KD-1)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-006 — EBITDA
+
+- **Name:** EBITDA — workbook row "EBITDA"; CAM/state key `ebitda`
+- **Formula:** ebitda = operating_profit + depreciation + amortisation
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** may be zero or negative (a negative EBITDA makes every ratio over it N/A — see F-026)
+- **State keys:** `ebitda`
+- **Workbook rows:** EBITDA
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `PNL_ROWS` (Profit & Loss)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-007 — Profit Before Tax
+
+- **Name:** Profit Before Tax — workbook row "Profit Before Tax"; CAM/state key `profit_before_tax`
+- **Formula:** profit_before_tax = operating_profit − interest_paid + interest_received − exceptional_costs
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `profit_before_tax`
+- **Workbook rows:** Profit Before Tax
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `PNL_ROWS` (Profit & Loss)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-008 — Net Profit
+
+- **Name:** Net Profit — workbook row "Net Profit"; CAM/state key `net_profit`
+- **Formula:** net_profit = profit_before_tax − tax_paid
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `net_profit`
+- **Workbook rows:** Net Profit
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `PNL_ROWS` (Profit & Loss)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-009 — Free Cash Flow (FCF)
+
+- **Name:** Free Cash Flow — workbook row "FCF"; CAM/state key `fcf`
+- **Formula:** fcf = ebitda − capex − tax_paid − interest_paid + interest_received. Scheduled principal
+  repayment is deliberately NOT deducted: it is financing, and DSCR (F-021) already covers debt service
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** may be negative; no denominator
+- **State keys:** `fcf`
+- **Workbook rows:** FCF
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `RATIO_ROWS` (Key Ratios)
+- **Basis:** house convention (FCF excludes scheduled principal; see the
+  [financial model](financial-model.md#statement-figures))
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-010 — FCF Conversion %
+
+- **Name:** FCF Conversion — workbook row "FCF Conversion %"; CAM/state key `fcf_conversion_pct`
+- **Formula:** fcf_conversion_pct = fcf / ebitda
+- **Unit and storage:** **percent-type ratio stored as a fraction** (`0.35` = 35%); applies to the value and to
+  any covenant threshold on it; full precision, no rounding in storage
+- **Edge rules:** ebitda ≤ 0 → N/A (`None` in state, "N/A" in the workbook) and any covenant on it is
+  UNRESOLVABLE; a stored value or threshold with absolute magnitude > 10 is treated as a likely unit mismatch —
+  the covenant engine refuses to PASS/FAIL it (see F-039)
+- **State keys:** `fcf_conversion_pct`
+- **Workbook rows:** FCF Conversion %
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
+  workbook formula in `RATIO_ROWS` (Key Ratios); unit guard in `scripts/policy_engine.py` — `_evaluate_covenant()`
+  and `scripts/financial_conventions.py` — `warn_percent_type_values()`
+- **Basis:** house convention (percent-type fraction storage, issue #357)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-011 — Total Fixed Assets
+
+- **Name:** Total Fixed Assets — workbook row "Total Fixed Assets"; no state key (intermediate only: it feeds
+  `total_assets`, which is the stored subtotal)
+- **Formula:** total_fixed_assets = tangible_assets + intangible_assets + other_fixed_assets (workbook:
+  Total Fixed Assets = Tangible Fixed Assets + Intangible Fixed Assets + Investments)
+- **Unit and storage:** currency amount; not itself stored in the financials dict
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** —
+- **Workbook rows:** Total Fixed Assets
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (intermediate) and the
+  workbook formula in `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-012 — Total Current Assets
+
+- **Name:** Total Current Assets — workbook row "Total Current Assets"; CAM/state key `current_assets` (note
+  the state key drops the "total_" prefix)
+- **Formula:** current_assets = cash + trade_debtors + stock + other_current_assets
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `current_assets`
+- **Workbook rows:** Total Current Assets
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-013 — Total Assets
+
+- **Name:** Total Assets — workbook row "Total Assets"; CAM/state key `total_assets`
+- **Formula:** total_assets = total_fixed_assets + current_assets (see F-011, F-012)
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `total_assets`
+- **Workbook rows:** Total Assets
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-014 — Total Current Liabilities
+
+- **Name:** Total Current Liabilities — workbook row "Total Current Liabilities"; CAM/state key
+  `current_liabilities` (state key drops the "total_" prefix)
+- **Formula:** current_liabilities = trade_creditors + current_debt + overdraft + other_current_liabilities
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator); it is the denominator of the current
+  ratio (F-024), where the zero/negative rule bites
+- **State keys:** `current_liabilities`
+- **Workbook rows:** Total Current Liabilities
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-015 — Total Long Term Liabilities
+
+- **Name:** Total Long Term Liabilities — workbook row "Total Long Term Liabilities"; no direct state key (the
+  stored aggregate is `total_liabilities`, F-016)
+- **Formula:** long_term_liabilities = long_term_debt + loan_notes + other_long_term_liabilities + provisions
+- **Unit and storage:** currency amount; not itself stored in the financials dict
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** —
+- **Workbook rows:** Total Long Term Liabilities
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (intermediate) and the
+  workbook formula in `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-016 — Total Liabilities
+
+- **Name:** Total Liabilities — workbook row "Total Liabilities"; CAM/state key `total_liabilities`
+- **Formula:** total_liabilities = current_liabilities + long_term_liabilities (F-014, F-015)
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `total_liabilities`
+- **Workbook rows:** Total Liabilities
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-017 — Total Equity
+
+- **Name:** Total Equity — workbook row "Total Equity"; CAM/state key `total_equity`
+- **Formula:** total_equity = share_capital + retained_profit
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** may be zero or negative (a non-positive equity makes gearing N/A — see F-025)
+- **State keys:** `total_equity`
+- **Workbook rows:** Total Equity
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `BALANCE_SHEET_ROWS` (Balance Sheet)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-018 — Tangible Net Worth (TNW)
+
+- **Name:** Tangible Net Worth — workbook row "Tangible Net Worth (TNW)"; CAM/state key `tangible_net_worth`
+- **Formula:** tangible_net_worth = total_equity − intangible_assets
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator); may be negative
+- **State keys:** `tangible_net_worth`
+- **Workbook rows:** Tangible Net Worth (TNW)
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `KEY_METRIC_ROWS` (Key Credit Metrics)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-019 — TNW + Loan Notes / Preference Shares
+
+- **Name:** TNW plus Loan Notes / Preference Shares — workbook row "TNW + Loan Notes / Preference Shares"; no
+  state key (workbook-only memo subtotal)
+- **Formula:** tnw_plus_loan_notes = tangible_net_worth + loan_notes
+- **Unit and storage:** currency amount; not stored in state
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** —
+- **Workbook rows:** TNW + Loan Notes / Preference Shares
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — workbook formula in `KEY_METRIC_ROWS` (Key Credit
+  Metrics) only; there is no computed state key
+- **Basis:** standard definition (credit-agency tangible-equity adjustment)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-020 — Total Debt (interest-bearing)
+
+- **Name:** Total Debt — no workbook row of its own (it is the numerator of F-025, F-026, F-027); CAM/state
+  key `total_debt`
+- **Formula:** total_debt = current_debt + overdraft + long_term_debt + loan_notes. Provisions and trade
+  creditors are deliberately excluded
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** none beyond the input rules of F-001 (no denominator)
+- **State keys:** `total_debt`
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; the same aggregate is
+  written inline in the `KEY_METRIC_ROWS` ratio formulas
+- **Basis:** standard definition (interest-bearing debt)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Coverage and leverage ratios
+
+### F-021 — DSCR
+
+- **Name:** DSCR (debt service coverage ratio) — workbook row "DSCR"; CAM/state key `dscr`
+- **Formula:** dscr = ebitda / (interest_paid + scheduled_principal)
+- **Unit and storage:** ratio (x); full precision, no rounding in storage
+- **Edge rules:** denominator ≤ 0 → N/A (`None`) and any covenant on DSCR is UNRESOLVABLE, with the reason
+  naming the denominator (e.g. "dscr not meaningful: interest paid plus scheduled principal is zero or
+  negative")
+- **State keys:** `dscr`
+- **Workbook rows:** DSCR
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`),
+  `describe_undefined_ratio()` for the UNRESOLVABLE reason; workbook formula in `RATIO_ROWS` (Key Ratios)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-022 — EBIT/Interest
+
+- **Name:** EBIT interest cover — workbook row "EBIT/Interest"; CAM/state key `ebit_interest_cover` with the
+  alias `EBIT/Interest` (both keys carry the same value)
+- **Formula:** ebit_interest_cover = operating_profit / interest_paid
+- **Unit and storage:** ratio (x); full precision, no rounding in storage
+- **Edge rules:** interest_paid ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
+- **State keys:** `ebit_interest_cover`, `EBIT/Interest`
+- **Workbook rows:** EBIT/Interest
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
+  workbook formula in `RATIO_ROWS` (Key Ratios)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-023 — EBITDA/Interest
+
+- **Name:** EBITDA interest cover — workbook row "EBITDA/Interest"; CAM/state key `ebitda_interest_cover` with
+  the alias `EBITDA/Interest`
+- **Formula:** ebitda_interest_cover = ebitda / interest_paid
+- **Unit and storage:** ratio (x); full precision, no rounding in storage
+- **Edge rules:** interest_paid ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
+- **State keys:** `ebitda_interest_cover`, `EBITDA/Interest`
+- **Workbook rows:** EBITDA/Interest
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
+  workbook formula in `RATIO_ROWS` (Key Ratios)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-024 — Current Ratio
+
+- **Name:** Current Ratio — workbook row "Current Ratio"; CAM/state key `current_ratio`
+- **Formula:** current_ratio = current_assets / current_liabilities
+- **Unit and storage:** ratio (x); full precision, no rounding in storage
+- **Edge rules:** denominator ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
+- **State keys:** `current_ratio`
+- **Workbook rows:** Current Ratio
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
+  workbook formula in `KEY_METRIC_ROWS` (Key Credit Metrics)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-025 — Gearing %
+
+- **Name:** Gearing — workbook row "Gearing % (Interest-Bearing Debt / Equity)"; CAM/state key `gearing`
+- **Formula:** gearing = total_debt / total_equity
+- **Unit and storage:** **percent-type ratio stored as a fraction** (`0.87` = 87%); applies to the value and to
+  any covenant threshold on it; full precision, no rounding in storage
+- **Edge rules:** total_equity ≤ 0 → N/A (`None`) and any covenant on gearing is UNRESOLVABLE; a stored value
+  or threshold with absolute magnitude > 10 is treated as a likely unit mismatch — the covenant engine refuses
+  to PASS/FAIL it (see F-039)
+- **State keys:** `gearing`
+- **Workbook rows:** Gearing % (Interest-Bearing Debt / Equity)
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
+  workbook formula in `KEY_METRIC_ROWS` (Key Credit Metrics); unit guard in `scripts/policy_engine.py` —
+  `_evaluate_covenant()` and `scripts/financial_conventions.py` — `warn_percent_type_values()`
+- **Basis:** house convention (percent-type fraction storage, issue #357)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-026 — Gross Leverage
+
+- **Name:** Gross Leverage — workbook row "Gross Leverage"; CAM/state key `gross_leverage`
+- **Formula:** gross_leverage = total_debt / ebitda
+- **Unit and storage:** ratio (x); full precision, no rounding in storage
+- **Edge rules:** ebitda ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE, with the reason naming
+  EBITDA (e.g. "gross leverage not meaningful: EBITDA is negative")
+- **State keys:** `gross_leverage`
+- **Workbook rows:** Gross Leverage
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`),
+  `describe_undefined_ratio()`; workbook formula in `KEY_METRIC_ROWS` (Key Credit Metrics)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-027 — Net Debt / EBITDA
+
+- **Name:** Net Debt / EBITDA — workbook row "Net Debt / EBITDA"; CAM/state key `net_debt_to_ebitda`
+- **Formula:** net_debt_to_ebitda = (total_debt − cash) / ebitda; negative when cash exceeds debt (net cash)
+- **Unit and storage:** ratio (x); full precision, no rounding in storage
+- **Edge rules:** ebitda ≤ 0 → N/A (`None`) and any covenant on it is UNRESOLVABLE
+- **State keys:** `net_debt_to_ebitda`
+- **Workbook rows:** Net Debt / EBITDA
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
+  workbook formula in `KEY_METRIC_ROWS` (Key Credit Metrics)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Working capital days
+
+### F-028 — Trade Debtor Days
+
+- **Name:** Trade Debtor Days — workbook row "Trade Debtor Days"; CAM/state key `trade_debtor_days`
+- **Formula:** trade_debtor_days = trade_debtors / revenue × 365
+- **Unit and storage:** days; full precision, no rounding in storage
+- **Edge rules:** denominator ≤ 0 → N/A (`None`)
+- **State keys:** `trade_debtor_days`
+- **Workbook rows:** Trade Debtor Days
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div_days`);
+  workbook formula in `WORKING_CAPITAL_ROWS` (Working Capital)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-029 — Trade Creditor Days
+
+- **Name:** Trade Creditor Days — workbook row "Trade Creditor Days"; CAM/state key `trade_creditor_days`
+- **Formula:** trade_creditor_days = trade_creditors / cost_of_sales × 365
+- **Unit and storage:** days; full precision, no rounding in storage
+- **Edge rules:** denominator ≤ 0 → N/A (`None`)
+- **State keys:** `trade_creditor_days`
+- **Workbook rows:** Trade Creditor Days
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div_days`);
+  workbook formula in `WORKING_CAPITAL_ROWS` (Working Capital)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-030 — Stock Days
+
+- **Name:** Stock Days — workbook row "Stock Days"; CAM/state key `stock_days`
+- **Formula:** stock_days = stock / cost_of_sales × 365
+- **Unit and storage:** days; full precision, no rounding in storage
+- **Edge rules:** denominator ≤ 0 → N/A (`None`)
+- **State keys:** `stock_days`
+- **Workbook rows:** Stock Days
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div_days`);
+  workbook formula in `WORKING_CAPITAL_ROWS` (Working Capital)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-031 — Working Capital Cycle
+
+- **Name:** Working Capital Cycle — workbook row "Working Capital Cycle (days)"; CAM/state key
+  `working_capital_cycle_days`
+- **Formula:** working_capital_cycle_days = trade_debtor_days + stock_days − trade_creditor_days (F-028 +
+  F-030 − F-029)
+- **Unit and storage:** days; full precision, no rounding in storage
+- **Edge rules:** if any component day count is N/A, the cycle is N/A (`None`) — never a partial sum
+- **State keys:** `working_capital_cycle_days`
+- **Workbook rows:** Working Capital Cycle (days)
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
+  `WORKING_CAPITAL_ROWS` (Working Capital)
+- **Basis:** standard definition
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Forward base case
+
+### F-032 — Forward base case
+
+- **Name:** Forward base case — the FY+1…FY+3 columns of every workbook row and the `FY+1`…`FY+3` entries of
+  the state's `financials`/`ratios`
+- **Formula:** No construction formula: the framework extrapolates nothing. Forward periods are raw line items
+  (F-001) supplied by the analyst or a forecast, evaluated by exactly the same subtotal and ratio formulas
+  (F-002…F-031) as the historical periods. The default forward periods are `FY+1`, `FY+2`, `FY+3`
+- **Unit and storage:** as each underlying entry; a forward period is simply absent if not supplied
+- **Edge rules:** a missing forward period is not an error — nothing is computed for it and every covenant
+  list says nothing about it (F-041); an analyst-supplied forecast cannot be stressed (see F-036's unavailable
+  rule)
+- **State keys:** —
+- **Workbook rows:** the FY+1…FY+3 columns of every section row; downside columns are headed
+  "{period} (Downside)"
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` over all supplied periods,
+  `DEFAULT_FORWARD_PERIODS`, `_column_headers()`; workbook written by `_write_financial_spreading()`
+- **Basis:** house convention (the framework never invents projections)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Downside stress shocks
+
+### F-033 — Revenue haircut shock
+
+- **Name:** Revenue haircut — stress input `revenue_haircut_pct` (percent, whole-percent scale)
+- **Formula:** shocked_revenue = revenue × (1 − revenue_haircut_pct / 100). Every other raw line of the
+  period is carried through unchanged
+- **Unit and storage:** the shocked revenue replaces `revenue` in the stressed copy only (the base case is
+  never mutated)
+- **Edge rules:** non-negative and < 100 (a haircut of 100 or more would flip revenue negative or to zero);
+  non-finite or non-numeric refused; a value strictly between 0 and 1 is applied as written with a warning
+  that it is not a whole-percent value
+- **State keys:** `revenue_haircut_pct`
+- **Workbook rows:** the "(Downside)" columns of the Profit & Loss rows
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `apply_stress_shocks()`; validated by
+  `scripts/numeric_validation.py` — `validate_stress_assumptions()`
+- **Basis:** house convention (agreed stress design)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-034 — Opex increase shock
+
+- **Name:** Operating expense increase — stress input `opex_increase_pct` (percent, whole-percent scale)
+- **Formula:** shocked_admin_expenses = admin_expenses × (1 + opex_increase_pct / 100). Admin expenses only:
+  cost of sales is never stressed
+- **Unit and storage:** the shocked admin expenses replace `admin_expenses` in the stressed copy only
+- **Edge rules:** non-negative; non-finite or non-numeric refused; a value strictly between 0 and 1 is applied
+  as written with a warning
+- **State keys:** `opex_increase_pct`
+- **Workbook rows:** the "(Downside)" columns of the Profit & Loss rows
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `apply_stress_shocks()`; validated by
+  `scripts/numeric_validation.py` — `validate_stress_assumptions()`
+- **Basis:** house convention (agreed stress design)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-035 — Interest rate bump shock
+
+- **Name:** Interest rate bump — stress input `interest_rate_bump_bps` (basis points)
+- **Formula:** shocked_interest_paid = interest_paid + (current_debt + overdraft + long_term_debt +
+  loan_notes) × interest_rate_bump_bps / 10000 — i.e. the period's interest-bearing debt (F-020) repriced by
+  the bump
+- **Unit and storage:** the shocked interest paid replaces `interest_paid` in the stressed copy only
+- **Edge rules:** non-negative; non-finite or non-numeric refused
+- **State keys:** `interest_rate_bump_bps`
+- **Workbook rows:** the "(Downside)" columns of the Profit & Loss rows
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `apply_stress_shocks()`; validated by
+  `scripts/numeric_validation.py` — `validate_stress_assumptions()`
+- **Basis:** house convention (agreed stress design)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-036 — Downside case evaluation
+
+- **Name:** Downside case — the state's `downside_case` (`financials`, `ratios`, and `unavailable`)
+- **Formula:** for each forward period present in the base case, apply the three shocks (F-033, F-034, F-035)
+  to that period's raw lines and re-run the whole model (F-002…F-031) on the shocked inputs. Nothing is
+  stressed in historical periods
+- **Unit and storage:** a full parallel set of `financials` and `ratios` per stressed forward period; stored
+  under `downside_case`, never over the base case
+- **Edge rules:** a forward year whose figures are analyst-supplied (a forecast the shocks cannot act on)
+  produces no downside: it is recorded under `unavailable` with the reason, and a covenant that PASSes there
+  in the base case is recorded UNRESOLVABLE, never silently absent (issue #124)
+- **State keys:** —
+- **Workbook rows:** the "(Downside)" columns
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_downside_case()` and
+  `apply_stress_shocks()`; workbook downside columns written by `_write_financial_spreading()`
+- **Basis:** house convention (agreed stress design)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-037 — Stress assumption validation
+
+- **Name:** Stress assumption validation — the guard on the three shock inputs before any stress is applied
+- **Formula:** rules, not arithmetic: each of `revenue_haircut_pct`, `opex_increase_pct`,
+  `interest_rate_bump_bps` must be a finite JSON number; all three must be non-negative;
+  `revenue_haircut_pct` must be < 100
+- **Unit and storage:** no stored figure — refusal or warning only
+- **Edge rules:** a violation raises one error line and nothing is written (warnings are emitted only after
+  all errors have been checked); a percent-type value strictly between 0 and 1 warns "applied as written, not
+  treated as a whole-percent value"
+- **State keys:** `revenue_haircut_pct`, `opex_increase_pct`, `interest_rate_bump_bps`
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/numeric_validation.py` — `validate_stress_assumptions()`
+- **Basis:** house convention (agreed stress design)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Covenant evaluation
+
+### F-038 — Covenant test
+
+- **Name:** Covenant test — the per-covenant PASS/FAIL/UNRESOLVABLE evaluation
+- **Formula:** minimum covenant: PASS iff actual ≥ threshold; headroom_pct = (actual − threshold) / threshold.
+  maximum covenant: PASS iff actual ≤ threshold; headroom_pct = (threshold − actual) / threshold. Equality
+  passes for both directions
+- **Unit and storage:** status string plus `headroom_pct` as a fraction of the threshold; actual/threshold kept
+  at full precision
+- **Edge rules:** an N/A ratio (zero/negative denominator, the rule of [F-021](#f-021--dscr)) makes the covenant UNRESOLVABLE —
+  never PASS, never FAIL — with a one-sentence reason naming the metric and denominator; an unrecognized
+  metric, an unrecognized type (not "minimum"/"maximum"), a missing or non-numeric threshold, or a
+  non-numeric actual is UNRESOLVABLE, never silently skipped; a threshold of exactly 0 leaves headroom_pct
+  `None` (undefined, not zero) but the status is still decided by direct comparison; a RECORDED value next to a
+  zero/negative denominator is ignored — the ratio is N/A whatever number is stored (issue #169)
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** `covenant_results`
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_covenant()` (called by `evaluate_deal_policy()`)
+- **Basis:** house convention (issue #169 equality and N/A rules)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-039 — Percent-type unit guard
+
+- **Name:** Percent-type unit guard — the unit check on `gearing` and `fcf_conversion_pct` before any covenant
+  comparison
+- **Formula:** if the absolute value of the recorded actual ratio or of the covenant threshold exceeds 10 on a
+  percent-type metric, the covenant is UNRESOLVABLE with a reason asking for the unit to be confirmed (a
+  value that looks like 87 rather than 0.87)
+- **Unit and storage:** no stored figure — refusal only; the existing N/A rules take precedence over this guard
+- **Edge rules:** advisory at input (one aggregated stderr warning, value retained as supplied) and blocking
+  at covenant time (UNRESOLVABLE, never compared)
+- **State keys:** `gearing`, `fcf_conversion_pct`
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_covenant()` (unit-mismatch branch) and
+  `scripts/financial_conventions.py` — `warn_percent_type_values()`
+- **Basis:** house convention (percent-type fraction storage, issue #357)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-040 — Downside covenant breaches
+
+- **Name:** Downside covenant breaches — where the stress breaks a covenant the base case passes
+- **Formula:** for each covenant and each forward period that has both a base-case and a downside ratio set:
+  base PASS and downside FAIL or UNRESOLVABLE → a breach entry with a stable id `DOWNSIDE-<period>-<metric>`
+  (numeric suffix -2, -3… when two covenants name the same metric in the same year). A downside UNRESOLVABLE
+  (the stress drove a denominator to zero or below) counts as a breach exactly like a FAIL; a downside year
+  with no analysis (the unavailable rule of [F-036](#f-036--downside-case-evaluation)) records the same way when the base case PASSes
+- **Unit and storage:** a list of breach records (year, metric, base_actual, downside_actual, threshold,
+  breach_id, downside_status, reason); never mutates the base case
+- **Edge rules:** a breach is only recorded where the base case PASSes — a covenant already failing in the
+  base case is that failure, not a downside breach
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** `downside_covenant_breaches`
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_downside_covenants()` (called by
+  `evaluate_deal_policy()`)
+- **Basis:** house convention (issue #169 / #124 rules carried into the stress)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-041 — Forward covenant results
+
+- **Name:** Forward covenant results — every covenant against every forward base-case year
+- **Formula:** for each forward period (`FY+1`, `FY+2`, `FY+3`) that has a recorded, non-empty ratio set, each
+  covenant is evaluated exactly as F-038 and recorded with a stable id `FORWARD-<year>-<metric>` (numeric
+  suffix on collision), in year order then covenant order
+- **Unit and storage:** a complete disclosure record next to `covenant_results`; DISCLOSURE ONLY — nothing
+  code-enforced reads it, so a forward-year FAIL or UNRESOLVABLE never rejects a deal by itself but can never
+  go unrecorded
+- **Edge rules:** a year with no projection (absent, null or empty) is not evaluated; state.json carries no
+  covenant tenor, so "covered by the projection" is the whole definition — a covenant that really ends earlier
+  is still reported for later projected years
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** `forward_covenant_results`
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_forward_covenants()` (called by
+  `evaluate_deal_policy()`)
+- **Basis:** house convention (issue #176)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Policy-engine rules
+
+### F-042 — Security package evaluation
+
+- **Name:** Security package evaluation — the collateral-to-security cross-reference
+- **Formula:** collateral assets and security charges are joined on `asset_id` ↔ `secures_asset_id`; every
+  charge on an asset is evaluated. Gaps: an asset with no charge ("Uncharged Asset"), a charge whose
+  `perfection_status` is not "Perfected" ("Unperfected Security"), a charge whose `ranking` is not "First"
+  ("Subordinate Ranking"), and a charge referencing an asset absent from the collateral records ("Dangling
+  Reference")
+- **Unit and storage:** a list of human-readable gap strings plus one Conditions Precedent per gap (see F-043)
+- **Edge rules:** each failure gets its own gap entry and its own CP — a compliant charge never hides a
+  non-compliant one on the same asset
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** `security_gaps`
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_security()` (called by `evaluate_deal_policy()`)
+- **Basis:** house convention
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-043 — Required Conditions Precedent
+
+- **Name:** Required Conditions Precedent — the CP list a draft must carry
+- **Formula:** the standard two (`KYC-AML`, `FACILITY-EXECUTION`) plus one CP per security gap (ids
+  `SEC-MAPPING-…`, `SEC-PERFECT-…`, `SEC-PRIORITY-…`) plus one per guarantee (`GUARANTEE-<slug>`, keyed on
+  `guarantee_id` when supplied, else provider, with a stable numeric suffix on collision)
+- **Unit and storage:** a list of `{"cp_id", "text"}`; `cp_id` is the join key the Underwriter must echo back
+  exactly — never paraphrased
+- **Edge rules:** an absent/blank guarantee amount reads "Unlimited Facility"; a falsy-but-real amount like 0
+  is kept, never overwritten
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** `required_conditions_precedent`
+- **Implemented in:** `scripts/policy_engine.py` — `evaluate_deal_policy()` with `_evaluate_security()` and
+  `_guarantee_cps()`; id building in `_unique_id()` / `_slugify()`
+- **Basis:** house convention
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-044 — Required Conditions Subsequent
+
+- **Name:** Required Conditions Subsequent — the post-drawdown monitoring obligations
+- **Formula:** the standard `MI-REPORTING` plus one deal-level `CS-COVENANT-COMPLIANCE` when any covenants
+  exist (one for the whole package, not one per covenant), plus one `CS-SEC-REPERFECT-<asset>` per
+  currently-Perfected charge, plus one `CS-GUARANTEE-<slug>` per guarantee (same keying as F-043)
+- **Unit and storage:** a list of `{"cs_id", "text"}`; `cs_id` is a namespace distinct from `cp_id`
+- **Edge rules:** a charge that is not Perfected today gets no CS here — its CP (F-042) already covers it;
+  a qualitative obligation carries no invented numeric deadline (the grounding rule bars inventing figures)
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** `required_conditions_subsequent`
+- **Implemented in:** `scripts/policy_engine.py` — `evaluate_deal_policy()` with `_covenant_compliance_cs()`,
+  `_security_reconfirmation_cs()` and `_guarantee_standing_cs()`
+- **Basis:** house convention
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Draft audit
+
+### F-045 — Ground-truth figures set
+
+- **Name:** Ground-truth figures — the complete set of figures a draft may cite a number for
+- **Formula:** every FY-Current ratio and subtotal under its plain metric name (F-002…F-031); every other
+  base-case period suffixed `_<period>` (e.g. `ebitda_FY-1`, `dscr_FY+1`); downside figures suffixed
+  `_<period>_downside`; plus the aggregate collateral cover percentage (F-047). This is a pure function of
+  figures already computed — never a new calculation
+- **Unit and storage:** a flat dict of figure name → value; a ratio the model left `None` is excluded
+  entirely (it is not a figure this deal has a number for), as is the collateral cover when unresolvable
+- **Edge rules:** an unknown reported figure is flagged UNRESOLVABLE rather than ignored; the nested `raw`
+  input dicts are not figures and are excluded
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/policy_checks.py` — `ground_truth_figures()`
+- **Basis:** house convention
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-046 — Figure-matching tolerance
+
+- **Name:** Figure-matching tolerance — the draft-audit comparison rule for reported figures
+- **Formula:** a reported figure matches iff |reported − actual| / |actual| ≤ 0.005 (0.5% relative), applied
+  uniformly to ratios and currency amounts alike
+- **Unit and storage:** no stored figure — a pass/fail rule
+- **Edge rules:** an actual of exactly 0 matches only a reported value with absolute magnitude < 1e-9
+  (relative tolerance is undefined against zero); a non-numeric reported or actual value is a mismatch, never
+  an error
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/policy_checks.py` — `values_match()`, compared by `check_reported_figures()`
+- **Basis:** house convention (fixed 0.5%, one rule for every metric)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-047 — Collateral cover percentage (aggregate)
+
+- **Name:** Collateral cover percentage — the aggregate cover across the collateral list, as quoted in a CAM
+- **Formula:** collateral_cover_pct = (Σ collateral_value / Σ exposure) × 100 — summed over the collateral
+  list, expressed on a 0-100 scale (matching how a CAM quotes cover), not the 0-1 fraction convention of the
+  percent-type ratios
+- **Unit and storage:** percent (0-100 scale); only added to the ground-truth figures when it resolves
+- **Edge rules:** nothing to compute from (no collateral, or a total exposure of 0) → the figure is omitted
+  entirely rather than compared as a zero; a NEGATIVE total exposure is not refused here — see
+  [Known differences](#known-differences) KD-2
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/policy_checks.py` — `compute_collateral_cover_pct()` (used by
+  `ground_truth_figures()`)
+- **Basis:** house convention
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Collateral and exposure (workbook)
+
+### F-048 — CV % of Exposure (workbook row)
+
+- **Name:** CV % of Exposure — the per-asset and total cover column of the workbook's "Collateral & Exposure"
+  sheet. State keys `exposure` and `collateral_value` are deal inputs (the sheet does not compute them)
+- **Formula:** cv_pct = collateral_value / exposure (workbook: `=IFERROR(G{row}/B{row},"N/A")` per asset and
+  the same on the total row)
+- **Unit and storage:** ratio as written by Excel (0-1 fraction of the inputs supplied); display-only cell
+- **Edge rules:** IFERROR only: a zero exposure shows N/A via the division error, but a NEGATIVE exposure
+  produces a negative percentage rather than the N/A rule every other ratio follows — this is
+  [Known differences](#known-differences) KD-2 (issue #365), not fixed in this register's PR
+- **State keys:** —
+- **Workbook rows:** CV % of Exposure
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `_write_collateral_sheet()` (per-asset formula at
+  spreading_builder.py:812, total-row formula at spreading_builder.py:825)
+- **Basis:** house convention
+- **Status:** Implemented, not yet reviewed by an analyst
+
+## Collateral and exposure (proposed)
+
+The entries below are **Proposed, not implemented**: no code computes them yet. They record the conventions
+agreed on [issue #266](https://github.com/ShamikM88/open-cam-framework/issues/266) (comment 6259256219) so the
+reviewing analyst signs off the design before it is built. RV is a deal input supplied by the risk team, like
+PD and LGD; the framework does not estimate it.
+
+### F-049 — Gross Exposure (Exc. RV)
+
+- **Name:** Gross Exposure (Exc. RV) — exposure before the residual value
+- **Formula:** gross_exposure = valuation × (1 − down_payment_pct); both inputs are stored (deal inputs)
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** down payment % outside 0-100% refused with one error line and nothing written; negative
+  amounts refused; mixed-sign inputs refused with no netting
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
+- **Basis:** industry practice (lessor exposure net of the down payment)
+- **Status:** Proposed, not implemented
+
+### F-050 — RV Exposure
+
+- **Name:** RV Exposure — the exposure created by the residual value
+- **Formula:** rv_exposure = est_rv_pct × valuation (the original cost or valuation, not the financed amount);
+  `est_rv_pct` is the risk team's input, like PD and LGD
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** RV % over 100% is a warning, not an error; negative amounts refused; mixed-sign inputs
+  refused
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219). The base (valuation
+  rather than financed amount) is a practitioner convention with no source retrieved — the first thing the
+  reviewing analyst should check
+- **Basis:** house convention (practitioner convention; the #266 discussion could not retrieve a primary
+  source)
+- **Status:** Proposed, not implemented
+
+### F-051 — Total Exposure (Inc. RV)
+
+- **Name:** Total Exposure (Inc. RV) — the full exposure including the residual value
+- **Formula:** total_exposure = gross_exposure + rv_exposure (F-049 + F-050)
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** amounts summed across assets with no netting; mixed-sign input refused
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
+- **Basis:** industry practice (lessor net investment including residual value)
+- **Status:** Proposed, not implemented
+
+### F-052 — Net Exposure
+
+- **Name:** Net Exposure — total exposure net of non-asset mitigants
+- **Formula:** net_exposure = total_exposure − recorded non-asset mitigants (deposits, advance rentals);
+  computed only where those mitigants are recorded
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** a mitigant is only deducted where it is recorded — never assumed; negative amounts
+  refused; mixed-sign inputs refused
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
+- **Basis:** industry practice (exposure net of non-asset mitigants)
+- **Status:** Proposed, not implemented
+
+### F-053 — Collateral Value
+
+- **Name:** Collateral Value — the recoverable value of the collateral
+- **Formula:** collateral_value = max(0, cap_or_model_value − non_recovery − costs); floored at zero
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** floored at 0 (a negative recovery is never stored); negative amounts refused; mixed-sign
+  inputs refused. Note: in the current workbook, `collateral_value` is an INPUT to the
+  "Collateral & Exposure" sheet (F-048), not a computed figure
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented as a computation — proposed in issue #266 (comment 6259256219);
+  the Basel comprehensive-approach floor at zero is the cited reference (primary Basel text could not be
+  retrieved)
+- **Basis:** cited reference (Basel comprehensive approach, floor at zero; workout LGD netting recovery costs)
+- **Status:** Proposed, not implemented
+
+### F-054 — Coverage %
+
+- **Name:** Coverage % — collateral cover of the total exposure
+- **Formula:** coverage_pct = collateral_value / total_exposure (Inc. RV); not capped at 100%
+- **Unit and storage:** **percent-type ratio stored as a fraction** (0.87 = 87%), per the fraction convention
+  of F-010/F-025
+- **Edge rules:** total exposure zero or negative → N/A (and uncovered risk is 0 for a zero exposure);
+  coverage is not capped at 100%
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219). The existing workbook
+  row and CAM figure (F-047, F-048) are a 0-100 percentage, and the workbook row does not refuse a negative
+  denominator — reconciling them is exactly what issue #365 tracks (see KD-2)
+- **Basis:** house convention (agreed on #266)
+- **Status:** Proposed, not implemented
+
+### F-055 — Uncovered Risk
+
+- **Name:** Uncovered Risk — exposure with no collateral behind it
+- **Formula:** uncovered_risk = Σ over assets of max(0, total_exposure − collateral_value); floored at 0 per
+  asset. Deliberately NOT exposure × LGD
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** floored at 0 per asset; 0 when total exposure is 0; negative amounts refused; mixed-sign
+  inputs refused
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
+- **Basis:** house convention (agreed on #266)
+- **Status:** Proposed, not implemented
+
+### F-056 — Max LGD
+
+- **Name:** Max LGD — the worst loss given default across the deal's assets
+- **Formula:** max_lgd = max over assets of lgd_pct. LGD % is an INPUT, never derived from collateral
+- **Unit and storage:** percent as supplied by the risk team; full precision
+- **Edge rules:** LGD % outside 0-100% refused with one error line and nothing written
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
+- **Basis:** house convention (LGD is a risk-team input, like PD and RV)
+- **Status:** Proposed, not implemented
+
+### F-057 — Avg LGD
+
+- **Name:** Avg LGD — the exposure-weighted average loss given default
+- **Formula:** avg_lgd = Σ (lgd_pct × exposure) / Σ exposure — exposure-weighted, not a simple mean
+- **Unit and storage:** percent; full precision, no rounding in storage
+- **Edge rules:** LGD % outside 0-100% refused; total exposure of 0 → N/A (zero/negative denominator rule)
+- **State keys:** —
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** Not implemented — proposed in issue #266 (comment 6259256219)
+- **Basis:** house convention (exposure weighting)
+- **Status:** Proposed, not implemented
+
+## Known differences
+
+Disagreements found while writing this register. None is fixed in this PR; each is recorded here for the
+maintainer, per the issue's instruction.
+
+- **KD-1. Margin rows have no state.json counterpart.** The workbook computes "Gross Profit Margin %"
+  (F-003) and "Operating Margin %" (F-005) as ratio cells, but `evaluate_financial_model()` computes no
+  margin state key, so no CAM figure, covenant or ground-truth entry exists for either. Both sides are
+  working as designed: `scripts/spreading_builder.py` — the `_ratio()` formulas in `PNL_ROWS`
+  (spreading_builder.py:64 and :71) — against the absence of any margin computation in
+  `evaluate_financial_model()` (spreading_builder.py:425-609). Documented at
+  [financial-model.md](financial-model.md) (the "margin rows … have no `state.json` counterpart" note,
+  financial-model.md:399-400). An analyst reviewing F-003/F-005 can only review the workbook formula.
+- **KD-2. The collateral cover percentage does not follow the N/A rule (issue #365).** Every ratio in
+  F-021-F-031 refuses a zero or negative denominator (`_ratio()`, spreading_builder.py:49-53, mirroring
+  `safe_div()` in `evaluate_financial_model()`), but the collateral cover does not:
+  the workbook's "CV % of Exposure" is `=IFERROR(G{row}/B{row},"N/A")` (spreading_builder.py:812 per asset
+  and :825 total) — a zero exposure shows N/A only via the division error, and a negative exposure produces
+  a negative percentage rather than N/A; and the CAM's aggregate cover
+  (`compute_collateral_cover_pct()`, scripts/policy_checks.py:104-119) returns `None` only when total
+  exposure is exactly 0 — a negative total exposure yields a negative percentage. The cover is also quoted on
+  a 0-100 scale there, against the fraction convention of the proposed Coverage % (F-054). Tracked as
+  issue #365; deliberately not fixed here.
+
+## Drift guard
+
+[tests/test_formula_register.py](../tests/test_formula_register.py) fails the build when:
+
+1. a formula row in `SECTIONS` has no register entry (workbook rows uncovered);
+2. a key produced by `evaluate_financial_model()` on the synthetic example in
+   `docs/examples/synthetic_co` has no register entry (state keys uncovered);
+3. a rule of the policy engine — a key of `evaluate_deal_policy()`'s result — has no register entry;
+4. an entry names a file or function that does not exist in the repository;
+5. one of the proposed collateral entries (F-049-F-057) or its "Proposed, not implemented" status is
+   deleted.
+
+Removing an entry therefore fails the suite through the coverage checks; renaming a function or moving a
+file fails it through the existence check. The guard is one-directional by design: the register may describe
+more than the code computes (the proposed entries), never less.

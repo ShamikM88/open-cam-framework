@@ -27,7 +27,9 @@ Documentation describes the system; the source defines it. Flags are defined by 
 commands by `.claude/commands/`, agent behaviour by `agents/*.md`, financial semantics by the implementation and
 its tests, the state schema by `scripts/state_manager.py` and its tests, CI by `.github/workflows/`, tool
 settings by `pyproject.toml`, and the operating rules by this file. When a page and its source disagree, fix the
-page in the same change.
+page in the same change. A change to a formula must update the formula register
+([docs/formula-register.md](docs/formula-register.md)) in the same change; the drift guard in
+`tests/test_formula_register.py` fails otherwise.
 
 Several headings in this file are cited by name from code, commands and the registry (`Context Window & State
 Management Protocol`, `Source material persistence`, `Persisted conventions`, `Execution scripts`, `What

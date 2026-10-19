@@ -11,6 +11,8 @@ to trust by inspection.
 import json
 import os
 
+import pytest
+import policy_check
 from policy_check import compute
 from state_manager import write_state
 
@@ -219,3 +221,241 @@ def test_compute_passes_declared_credit_policy_consideration_when_calibrated(tmp
     result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
     assert result["compliant"] is True
     assert result["reasons"] == []
+
+# ---------------------------------------------------------------------------
+# Mutation-survivor coverage for policy_check.compute(): state projection,
+# default normalization, draft-path handling, and result contract.
+# ---------------------------------------------------------------------------
+
+def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=None, truth=None, reasons=None):
+    """Stub compute's deterministic collaborators and record its public orchestration."""
+    calls = {
+        "read_state": [],
+        "evaluate_deal_policy": [],
+        "ground_truth_figures": [],
+        "check_draft_compliance": [],
+    }
+    result_policy_state = {"synthetic": "policy state"} if policy_state is None else policy_state
+    result_truth = {"synthetic_figure": 12.5} if truth is None else truth
+    result_reasons = [] if reasons is None else reasons
+
+    def fake_read_state(company, proposal, *, keys):
+        calls["read_state"].append((company, proposal, keys))
+        return loaded_state
+
+    def fake_evaluate_deal_policy(policy_input):
+        calls["evaluate_deal_policy"].append(policy_input)
+        return result_policy_state
+
+    def fake_ground_truth_figures(financials, ratios, collateral, downside_case):
+        calls["ground_truth_figures"].append((financials, ratios, collateral, downside_case))
+        return result_truth
+
+    def fake_check_draft_compliance(
+        draft_text, actual_policy_state, actual_truth, *,
+        financials_source=None, credit_policy_present=False,
+    ):
+        calls["check_draft_compliance"].append((
+            draft_text, actual_policy_state, actual_truth,
+            financials_source, credit_policy_present,
+        ))
+        return result_reasons
+
+    monkeypatch.setattr(policy_check, "read_state", fake_read_state)
+    monkeypatch.setattr(policy_check, "evaluate_deal_policy", fake_evaluate_deal_policy)
+    monkeypatch.setattr(policy_check, "ground_truth_figures", fake_ground_truth_figures)
+    monkeypatch.setattr(policy_check, "check_draft_compliance", fake_check_draft_compliance)
+    return calls, result_policy_state, result_truth, result_reasons
+
+
+def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
+    tmp_path, monkeypatch, cp1252_default_open,
+):
+    """A UTF-8 draft and every state component reach their intended policy
+    boundary; the public result preserves reason order and exact result keys."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "credit_policy.md").write_text(
+        "Synthetic calibrated policy\n", encoding="utf-8",
+    )
+    loaded_state = {
+        "financials": {"FY-Current": {"revenue": 1200.0}},
+        "ratios": {"FY-Current": {"dscr": 1.35}},
+        "collateral": [{"asset_id": "SYN-AST-001", "value": 500.0}],
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.2}],
+        "security_package": [{
+            "secures_asset_id": "SYN-AST-001",
+            "perfection_status": "Perfected",
+            "ranking": "First",
+        }],
+        "guarantees": [{"provider": "Synthetic Guarantor", "type": "corporate", "amount": 300.0}],
+        "downside_case": {
+            "financials": {"FY+1": {"ebitda": 100.0}},
+            "ratios": {"FY+1": {"dscr": 0.9}},
+        },
+        "financials_source": "analyst-supplied",
+    }
+    policy_state = {"covenant_results": [{"metric": "dscr", "status": "UNRESOLVABLE"}]}
+    truth = {"dscr": 1.35, "dscr_FY+1": 0.9}
+    reasons = ["Synthetic first rejection reason.", "Synthetic second rejection reason."]
+    calls, _, _, _ = pc_stub_compute_collaborators(
+        monkeypatch, loaded_state, policy_state=policy_state, truth=truth, reasons=reasons,
+    )
+    draft_text = "# Synthetic Draft — café\nSources: Synthetic filing.\n"
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(draft_text, encoding="utf-8")
+
+    result = compute("Synthetic Co", "Synthetic Facility", draft_path=str(draft_path))
+
+    assert result == {
+        "policy_state": policy_state,
+        "reasons": reasons,
+        "compliant": False,
+        "cam_data_present": True,
+    }
+    assert calls["read_state"] == [(
+        "Synthetic Co", "Synthetic Facility",
+        (
+            "financials", "ratios", "collateral", "covenants",
+            "security_package", "guarantees", "downside_case", "financials_source",
+        ),
+    )]
+    assert calls["evaluate_deal_policy"] == [{
+        "financials": loaded_state["financials"],
+        "ratios": loaded_state["ratios"],
+        "collateral": loaded_state["collateral"],
+        "covenants": loaded_state["covenants"],
+        "security_package": loaded_state["security_package"],
+        "guarantees": loaded_state["guarantees"],
+        "downside_case": loaded_state["downside_case"],
+    }]
+    assert calls["ground_truth_figures"] == [(
+        loaded_state["financials"], loaded_state["ratios"],
+        loaded_state["collateral"], loaded_state["downside_case"],
+    )]
+    assert calls["check_draft_compliance"] == [(
+        draft_text, policy_state, truth, "analyst-supplied", True,
+    )]
+
+
+@pytest.mark.parametrize(
+    "loaded_state",
+    [
+        None,
+        {},
+        {
+            "financials": None,
+            "ratios": None,
+            "collateral": None,
+            "covenants": None,
+            "security_package": None,
+            "guarantees": None,
+            "downside_case": None,
+            "financials_source": None,
+        },
+    ],
+    ids=["state-file-missing", "empty-state", "nullable-state-fields"],
+)
+def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
+    tmp_path, monkeypatch, loaded_state,
+):
+    monkeypatch.chdir(tmp_path)
+    policy_state = {"synthetic": "empty policy result"}
+    truth = {"synthetic": "empty ground truth"}
+    calls, _, _, _ = pc_stub_compute_collaborators(
+        monkeypatch, loaded_state, policy_state=policy_state, truth=truth, reasons=[],
+    )
+
+    result = compute("Synthetic Co", "Synthetic Facility")
+
+    empty_policy_input = {
+        "financials": {},
+        "ratios": {},
+        "collateral": [],
+        "covenants": [],
+        "security_package": [],
+        "guarantees": [],
+        "downside_case": {},
+    }
+    assert result == {
+        "policy_state": policy_state,
+        "reasons": [],
+        "compliant": True,
+        "cam_data_present": False,
+    }
+    assert calls["read_state"] == [(
+        "Synthetic Co", "Synthetic Facility",
+        (
+            "financials", "ratios", "collateral", "covenants",
+            "security_package", "guarantees", "downside_case", "financials_source",
+        ),
+    )]
+    assert calls["evaluate_deal_policy"] == [empty_policy_input]
+    assert calls["ground_truth_figures"] == [({}, {}, [], {})]
+    assert calls["check_draft_compliance"] == [(None, policy_state, truth, None, False)]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("ratios", {"FY-Current": {"dscr": 1.1}}, True),
+        ("security_package", [{
+            "secures_asset_id": "SYN-AST-001",
+            "perfection_status": "Perfected",
+            "ranking": "First",
+        }], True),
+        ("collateral", [{"asset_id": "SYN-AST-001"}], False),
+        ("downside_case", {
+            "financials": {"FY+1": {"ebitda": 100.0}},
+            "ratios": {"FY+1": {"dscr": 0.9}},
+        }, False),
+        ("guarantees", [{"provider": "Synthetic Guarantor", "amount": 300.0}], False),
+    ],
+)
+def test_compute_cam_data_present_tracks_only_spreading_and_security_inputs(
+    tmp_path, monkeypatch, field, value, expected,
+):
+    """Ratios and the security package each qualify; collateral, downside
+    and guarantees alone do not make a research-only deal a spread CAM."""
+    monkeypatch.chdir(tmp_path)
+    calls, _, _, _ = pc_stub_compute_collaborators(
+        monkeypatch, {field: value}, reasons=[],
+    )
+
+    result = compute("Synthetic Co", "Synthetic Facility")
+
+    assert result["cam_data_present"] is expected
+    assert calls["evaluate_deal_policy"][0].get(field) == value
+
+
+def test_compute_treats_an_empty_string_draft_path_as_no_draft(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls, policy_state, truth, reasons = pc_stub_compute_collaborators(
+        monkeypatch, {}, reasons=[],
+    )
+
+    result = compute("Synthetic Co", "Synthetic Facility", draft_path="")
+
+    assert result == {
+        "policy_state": policy_state,
+        "reasons": reasons,
+        "compliant": True,
+        "cam_data_present": False,
+    }
+    assert calls["check_draft_compliance"] == [(None, policy_state, truth, None, False)]
+
+
+def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_compliance(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.chdir(tmp_path)
+    calls, _, _, _ = pc_stub_compute_collaborators(monkeypatch, {})
+
+    with pytest.raises(FileNotFoundError):
+        compute("Synthetic Co", "Synthetic Facility", draft_path=str(tmp_path / "missing.md"))
+
+    assert len(calls["read_state"]) == 1
+    assert len(calls["evaluate_deal_policy"]) == 1
+    assert calls["ground_truth_figures"] == []
+    assert calls["check_draft_compliance"] == []
+

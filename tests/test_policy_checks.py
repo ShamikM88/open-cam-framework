@@ -576,6 +576,188 @@ def test_ground_truth_figures_excludes_undefined_non_current_base_case_figures()
     assert truth["dscr"] == 1.5
 
 # ---------------------------------------------------------------------------
+# Mutation-survivor coverage for check_draft_compliance(): pin the combined
+# rejection contract, boundaries, and the ordering the revision prompt uses.
+# ---------------------------------------------------------------------------
+
+def _structured_draft(payload):
+    import json
+
+    return "# Synthetic Draft\n\n```json\n" + json.dumps(payload) + "\n```"
+
+
+def test_check_draft_compliance_pins_verbatim_reason_text_and_global_order():
+    """A rejected draft's reasons are sent to the Underwriter for revision.
+    Keep exact wording and ordering across CPs, CSs, taxonomy, downside,
+    disclosures, covenant/security facts, and reported figures."""
+    draft = _structured_draft({
+        "cp_ids_included": [],
+        "cs_ids_included": [],
+        "risk_categories_covered": {},
+        "reported_figures": {"unlisted_metric": 123, "dscr": 2.0},
+        "downside_breaches_acknowledged": [],
+        "sources": [],
+    })
+    policy_state = _policy_state(
+        required_cps=[
+            {"cp_id": "CP-ALPHA", "text": "Register the all-assets charge."},
+            {"cp_id": "CP-BETA", "text": "Deliver the insurance certificate."},
+        ],
+        required_css=[
+            {"cs_id": "CS-REPORTING", "text": "Provide quarterly management accounts."},
+        ],
+        covenant_results=[
+            {
+                "metric": "dscr", "type": "minimum", "threshold": 1.25,
+                "actual": 1.0, "status": "FAIL", "reason": "below minimum",
+            },
+            {
+                "metric": "net_leverage", "type": "maximum", "threshold": 4.0,
+                "actual": None, "status": "UNRESOLVABLE", "reason": "no debt figure",
+            },
+        ],
+        security_gaps=["Uncharged Asset: AST-001 lacks a registered charge.", "Guarantee gap: guarantor signature missing."],
+        downside_covenant_breaches=[{
+            "breach_id": "DOWNSIDE-FY-1-DSCR",
+            "metric": "dscr",
+            "year": "FY+1",
+            "downside_status": "UNRESOLVABLE",
+            "reason": "forward ratios missing",
+        }],
+    )
+
+    assert check_draft_compliance(
+        draft, policy_state, {"dscr": 1.0},
+        financials_source="analyst-supplied", credit_policy_present=True,
+    ) == [
+        "Missing Required CP CP-ALPHA: Register the all-assets charge.",
+        "Missing Required CP CP-BETA: Deliver the insurance certificate.",
+        "Missing Required Condition Subsequent CS-REPORTING: Provide quarterly management accounts.",
+        "Missing or malformed Risk Category: Market",
+        "Missing or malformed Risk Category: Refinance",
+        "Missing or malformed Risk Category: Operational",
+        "Missing or malformed Risk Category: Concentration",
+        "Missing or malformed Risk Category: Key Man",
+        "Missing or malformed Risk Category: Financial",
+        "Missing or malformed Risk Category: Legal",
+        "Undisclosed Downside Breach DOWNSIDE-FY-1-DSCR: dscr cannot be tested in FY+1 under stress (forward ratios missing) and is not addressed in the draft.",
+        "Missing Narrative Sources: no citation sources were declared for this draft's narrative claims (company history, management, market/competitive) -- see agents/underwriter_agent.md's Structured Output guideline.",
+        "Missing Analyst-Supplied Spreading Disclosure: this deal's financials_source is 'analyst-supplied', but the draft did not declare financials_source_disclosed=true -- see agents/underwriter_agent.md's Guideline 9 (the CAM's Financial Analysis section must carry an explicit caveat when spreading wasn't independently recomputed by the framework).",
+        "Missing Credit Policy Consideration: this fork has a calibrated institutional credit policy (config/credit_policy.md), but the draft did not declare credit_policy_considered=true -- see agents/underwriter_agent.md's Guideline 10.",
+        "Covenant FAIL: dscr (minimum 1.25, actual 1.0) -- below minimum",
+        "Covenant UNRESOLVABLE: net_leverage (maximum 4.0, actual None) -- no debt figure",
+        "Uncharged Asset: AST-001 lacks a registered charge.",
+        "Guarantee gap: guarantor signature missing.",
+        "UNRESOLVABLE_REPORTED_FIGURE: 'unlisted_metric' is not a recognized computed figure (reported value: 123).",
+        "Narrative/Ground-Truth Mismatch: reported dscr 2.0 vs computed 1.0",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("market_entry", "should_be_missing"),
+    [
+        ({"status": " COVERED "}, False),
+        ({"status": "not_applicable", "justification": "outside this facility's scope"}, False),
+        ({"status": "not_applicable", "justification": "  \t "}, True),
+        ({"status": "rejected", "justification": "not accepted"}, True),
+        ("covered", True),
+        (None, True),
+    ],
+)
+def test_check_draft_compliance_pins_risk_taxonomy_status_and_justification(
+    market_entry, should_be_missing,
+):
+    categories = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
+    categories.pop("Market")
+    categories["Market Risk"] = market_entry
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": categories,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+        "sources": ["Synthetic filing"],
+    }
+    reasons = check_draft_compliance(_structured_draft(payload), _policy_state(), {})
+    assert ("Missing or malformed Risk Category: Market" in reasons) is should_be_missing
+    assert not any(reason != "Missing or malformed Risk Category: Market" for reason in reasons)
+
+
+@pytest.mark.parametrize(
+    ("actual", "reported", "should_mismatch"),
+    [
+        (100.0, 100.5, False),       # exactly +0.5% is accepted
+        (100.0, 100.5001, True),     # just outside the +0.5% edge
+        (100.0, 99.5, False),        # exactly -0.5% is accepted
+        (100.0, 99.4999, True),      # just outside the -0.5% edge
+        (0.0, 0.0, False),
+        (0.0, 0.000000000999, False),  # strictly below the zero guard
+        (0.0, 0.000000001, True),      # the zero guard is strict
+    ],
+)
+def test_check_draft_compliance_pins_reported_figure_tolerance_edges(
+    actual, reported, should_mismatch,
+):
+    draft = _compliant_draft(
+        cp_ids=["KYC-AML"], reported_figures={"dscr": reported},
+    )
+    reasons = check_draft_compliance(draft, _policy_state(), {"dscr": actual})
+    mismatch_reasons = [reason for reason in reasons if "Narrative/Ground-Truth Mismatch" in reason]
+    assert bool(mismatch_reasons) is should_mismatch
+    if should_mismatch:
+        assert mismatch_reasons == [
+            f"Narrative/Ground-Truth Mismatch: reported dscr {reported} vs computed {actual}"
+        ]
+    else:
+        assert reasons == []
+
+
+@pytest.mark.parametrize("status", ["PASS", "pass", "MET", "NOT_APPLICABLE"])
+def test_check_draft_compliance_does_not_reject_non_failure_covenant_statuses(status):
+    policy_state = _policy_state(covenant_results=[{
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "actual": 1.4, "status": status,
+    }])
+    assert check_draft_compliance(None, policy_state, {}) == []
+
+
+@pytest.mark.parametrize("financials_source", ["Analyst-Supplied", "analyst-supplied ", "framework-computed"])
+def test_check_draft_compliance_requires_analyst_disclosure_only_for_exact_source_value(
+    financials_source,
+):
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    assert check_draft_compliance(
+        draft, _policy_state(), {}, financials_source=financials_source,
+    ) == []
+
+def test_check_draft_compliance_treats_absent_policy_state_collections_as_empty():
+    """The caller may supply a structurally empty policy state before any
+    deal step has populated collections; absent collections must not crash
+    or invent a rejection for an otherwise complete synthetic draft."""
+    assert check_draft_compliance(_compliant_draft(), {}, {}) == []
+
+
+@pytest.mark.parametrize("reason_field", [{}, {"reason": None}, {"reason": ""}])
+def test_check_draft_compliance_omits_empty_covenant_explanation(reason_field):
+    covenant_result = {
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "actual": 1.0, "status": "FAIL",
+        **reason_field,
+    }
+    assert check_draft_compliance(
+        None, {"covenant_results": [covenant_result]}, {},
+    ) == ["Covenant FAIL: dscr (minimum 1.25, actual 1.0)"]
+
+
+def test_check_draft_compliance_pins_default_downside_breach_reason_verbatim():
+    reasons = check_draft_compliance(
+        _compliant_draft(cp_ids=["KYC-AML"]),
+        _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH]),
+        {},
+    )
+    assert reasons == [
+        "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR: dscr breaches threshold in FY+2 under stress but is not addressed in the draft."
+    ]
 # Mutation-survivor coverage for parse_underwriter_output(): schema key
 # recognition, reverse scanning, malformed blocks, defaults and field types.
 # ---------------------------------------------------------------------------

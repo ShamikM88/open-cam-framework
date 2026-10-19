@@ -48,6 +48,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [skills.md](skills.md) | The analyst skills that ship with the framework: what each does and runs, what they never do, and how to use them safely |
 | [skill-design.md](skill-design.md) | Skills: the taxonomy, how they are invoked, why none is input to the Maker or the Checker, the single command-and-skill inventory, the planned first tranche and what is deferred |
 | [financial-model.md](financial-model.md) | Financial terms and ratios with worked numbers, N/A and UNRESOLVABLE, covenants, the downside case, what the policy engine decides |
+| [formula-register.md](formula-register.md) | The reviewable page of every computed metric: formula, unit, edge rules, implementation reference, basis and status, per stable F-NNN id |
 | [glossary.md](glossary.md) | Short definitions of abbreviations and terms used in the UK credit workflows |
 | [data-model.md](data-model.md) | `state.json`, its keys and versioning, the two raw-figure stores, sources, persisted conventions |
 | [cli-reference.md](cli-reference.md) | Every script's usage, flags, output and exit status; the headless pipeline |

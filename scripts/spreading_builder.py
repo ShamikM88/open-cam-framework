@@ -1,6 +1,9 @@
 import re
 
 import openpyxl
+from openpyxl.chart import BarChart, LineChart, Reference, Series
+from openpyxl.chart.data_source import StrRef
+from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font
 
 from numeric_validation import validate_finite_numbers, validate_raw_line_items
@@ -39,6 +42,13 @@ DOWNSIDE_COLS = PERIOD_COLS[6:9]
 COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_KEYS + FORWARD_PERIOD_KEYS,
                              strict=True))
 DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict=True))
+
+# Chart placement (issue #131): both anchors are derived from the table's last row -- these are the
+# margins that derivation uses, never hard-coded cells. CHART_MARGIN_ROWS is the gap between the
+# table and the first chart; CHART_SPACING_ROWS is the vertical distance between the two anchors
+# (a default-size openpyxl chart is roughly 15 rows tall, so 18 rows keeps them from overlapping).
+CHART_MARGIN_ROWS = 2
+CHART_SPACING_ROWS = 18
 
 # {Label} in a formula template is resolved to `{col}{row}` for whatever row
 # that label ends up on -- see _row_layout()/_resolve_formula(). This is what
@@ -768,6 +778,69 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
     ws.column_dimensions["A"].width = 34
     for col in PERIOD_COLS:
         ws.column_dimensions[col].width = 14
+
+    _write_charts(ws, row_of, max(row_of.values()),
+                  downside_financial_data=downside_financial_data,
+                  supplied_downside_values=supplied_downside_values)
+
+
+def _chart_last_col(downside_financial_data=None, supplied_downside_values=None):
+    """The last column (1-based) the chart series range spans.
+
+    The historical and forward base-case columns (B-G) are always in range. A downside
+    column joins the range only while its period carries downside figures (framework-derived
+    or analyst-supplied); the walk stops at the first column without any, because a chart
+    series reference must stay contiguous and the issue-131 sign-off forbids shipping blank
+    points for unavailable columns. Downside availability is contiguous from column H in
+    every real data flow (evaluate_downside_case() derives a downside for each forward
+    period the base case has; the analyst-supplied basis is normally consecutive), so this
+    stops the range at the first gap rather than plotting the gap as a blank.
+    """
+    last_col = 7  # column G: three historical plus three forward base-case periods
+    for col, period in DOWNSIDE_COL_TO_PERIOD_KEY.items():
+        if period in (downside_financial_data or {}) or period in (supplied_downside_values or {}):
+            last_col = PERIOD_COLS.index(col) + 2
+        else:
+            break
+    return last_col
+
+
+def _chart_series(ws, row, last_col):
+    """One chart series for a table row. Values, legend title and categories all
+    reference the workbook's own cells (openpyxl Reference / StrRef) -- no value
+    is ever copied into the chart (issue #131)."""
+    series = Series(Reference(ws, min_col=2, max_col=last_col, min_row=row, max_row=row))
+    series.tx = SeriesLabel(strRef=StrRef(f"'{ws.title}'!$A${row}"))
+    return series
+
+
+def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None):
+    """Native charts below the spreading table (issue #131).
+
+    A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart
+    over the historical plus forward base-case periods, plus the downside columns that
+    carry figures. The anchor cell is derived from the layout -- the table's last row plus
+    a margin -- never hard-coded. Blank cells (a period with no figures, or an N/A ratio)
+    render as gaps because displayBlanksAs="gap" is set explicitly on every chart: never a
+    misleading zero.
+    """
+    last_col = _chart_last_col(downside_financial_data, supplied_downside_values)
+
+    leverage = LineChart()
+    leverage.title = "Leverage Trend"
+    leverage.display_blanks = "gap"
+    for label in ("Gross Leverage", "Net Debt / EBITDA"):
+        leverage.series.append(_chart_series(ws, row_of[label], last_col))
+    leverage.set_categories(Reference(ws, min_col=2, max_col=last_col, min_row=1, max_row=1))
+    anchor_row = last_table_row + CHART_MARGIN_ROWS
+    ws.add_chart(leverage, f"A{anchor_row}")
+
+    revenue = BarChart()
+    revenue.title = "Revenue Trend"
+    revenue.display_blanks = "gap"
+    revenue.series.append(_chart_series(ws, row_of["Revenue"], last_col))
+    revenue.set_categories(Reference(ws, min_col=2, max_col=last_col, min_row=1, max_row=1))
+    ws.add_chart(revenue, f"A{anchor_row + CHART_SPACING_ROWS}")
 
 
 def _formula_or_supplied(label, formula_template, row_of, col, supplied_values, supplied_downside_values,

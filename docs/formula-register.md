@@ -1033,9 +1033,9 @@ maintainer, per the issue's instruction.
   and :825 total) — a zero exposure shows N/A only via the division error, and a negative exposure produces
   a negative percentage rather than N/A; and the CAM's aggregate cover
   (`compute_collateral_cover_pct()`, scripts/policy_checks.py:104-119) returns `None` only when total
-  exposure is exactly 0 — a negative total exposure yields a negative percentage. The CAM's aggregate
-  cover is also quoted on a 0-100 scale there, while the workbook's cover cell is a raw fraction — both
-  against the fraction convention of the proposed Coverage % (F-055). Tracked as
+  exposure is exactly 0 — a negative total exposure yields a negative percentage. Separately, the two
+  existing calculations disagree on scale: the CAM's aggregate is quoted 0-100, while the workbook's cover
+  cell and the proposed Coverage % (F-055) are raw fractions. Tracked as
   issue #365; deliberately not fixed here.
 
 ## Drift guard

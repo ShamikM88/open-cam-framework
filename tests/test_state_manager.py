@@ -1202,11 +1202,13 @@ def test_find_deal_misspelling_is_not_fuzzy_matched_and_creates_nothing(tmp_path
 def test_find_deal_normalizes_case_whitespace_and_hyphen_runs_only_for_advice(tmp_path, requested):
     base = str(tmp_path)
     write_state("Synthetic Co", "Oakhaven Capital", date_str="2026-01-10", base_dir=base)
+    write_state("Synthetic Co", "Oakhaven Capital", date_str="2026-05-16", base_dir=base)
 
     result = state_manager.find_deal("Synthetic Co", requested, base_dir=base)
 
     assert result["record_found"] is False
     assert [item["proposal"] for item in result["near_misses"]] == ["Oakhaven Capital"]
+    assert result["near_misses"][0]["date"] == "2026-05-16"
 
 
 def test_find_deal_never_uses_a_prefix_match_to_select_or_suggest_a_proposal(tmp_path):
@@ -1253,6 +1255,8 @@ def test_find_deal_excludes_export_only_and_malformed_date_folders_from_candidat
     base = tmp_path
     company_dir = base / "deals" / "Synthetic Co"
     (company_dir / "Oakhaven Capital_2026-01-10").mkdir(parents=True)
+    (company_dir / "not-a-dated-folder").mkdir()
+    (company_dir / "standalone-file.txt").write_text("not a deal", encoding="utf-8")
     malformed = company_dir / "Oakhaven Capital_2026-02-30"
     malformed.mkdir(parents=True)
     (malformed / "state.json").write_text("{}", encoding="utf-8")

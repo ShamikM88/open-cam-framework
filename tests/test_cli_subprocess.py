@@ -1726,6 +1726,19 @@ def test_state_manager_find_reports_exact_record_as_one_json_object_without_writ
     assert sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*")) == before
 
 
+
+
+
+def test_state_manager_find_reports_unsafe_company_as_one_error_without_writing(cli):
+    result = cli("state_manager", "--find", "--company", "..", "--proposal", "Synthetic Loan")
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert result.stderr.count("\\n") == 1
+    assert "Traceback" not in result.stderr
+    assert not (cli.workdir / "deals").exists()
+
 def test_state_manager_find_reports_only_normalized_near_miss_and_no_write(cli):
     folder = cli.workdir / "deals" / "Synthetic Co" / "Credit Facility_2026-03-15"
     folder.mkdir(parents=True)

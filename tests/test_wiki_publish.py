@@ -396,6 +396,30 @@ class TestLinkRewriting:
         })
         assert f"[x]({U}/wiki/Home)" in tree["source.md"]
 
+    def test_a_heading_is_its_own_block_not_paired_with_the_next_paragraph(
+        self, tmp_path
+    ):
+        # A heading's dangling backtick must not pair with a run in the
+        # paragraph below it and hide that paragraph's live link.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# Heading with `tick\nA paragraph [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_table_row_is_its_own_block_not_paired_with_the_next_line(
+        self, tmp_path
+    ):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n| row with `tick\nThen [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
     def test_mermaid_blocks_and_tables_are_preserved_byte_for_byte(self, tmp_path):
         mermaid = '```mermaid\nflowchart LR\n  A[Start] --> B{"end<br/>x"}\n```'
         table = "| a | b |\n| :--- | :--- |\n| [x](README.md) | plain |"

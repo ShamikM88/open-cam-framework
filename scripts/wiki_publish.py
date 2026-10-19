@@ -321,7 +321,14 @@ def _code_span_intervals(lines: list[str]) -> dict[int, list[tuple[int, int]]]:
             else "item" if _LIST_ITEM_RE.match(line)
             else "text"
         )
-        if kind in ("heading", "table") or (kind == "quote" and last_kind not in (None, "quote")):
+        if kind in ("heading", "table"):
+            # A heading or table row is a block of its own: nothing before it
+            # or after it pairs with its backtick runs.
+            _flush()
+            block.append((line_index, line))
+            _flush()
+            continue
+        if kind == "quote" and last_kind not in (None, "quote"):
             _flush()
         elif kind == "item":
             _flush()

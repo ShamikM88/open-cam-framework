@@ -40,14 +40,17 @@ U = "https://github.com/example/repo"
 def _live_links(content: str) -> list[str]:
     """Every real link destination in a generated page: fenced code blocks are
     skipped (example links inside them are prose, not links), with the same
-    fence rule the generator uses (tilde fences, longer fences)."""
+    fence rule the generator uses (tilde fences, longer fences) and the same
+    block-wide code-span pairing (`_code_span_intervals`)."""
+    lines = content.split("\n")
+    code_spans = wiki_publish._code_span_intervals(lines)
     dests = []
-    for _, line, in_fence in wiki_publish._lines_with_fences(content.split("\n")):
+    for line_no, line, in_fence in wiki_publish._lines_with_fences(lines):
         if in_fence:
             continue
-        code_spans = wiki_publish._code_span_ranges(line)
+        spans = code_spans.get(line_no - 1, [])
         for match in re.finditer(r"(!?)\[[^\]\n]*\]\(([^)\s]+)\)", line):
-            if any(s <= match.start() < e for s, e in code_spans):
+            if any(s <= match.start() < e for s, e in spans):
                 continue  # a code span hides the link
             dests.append(match.group(2))
     return dests
@@ -344,6 +347,88 @@ class TestLinkRewriting:
         })
         assert "[gone](gone.md)" in tree["source.md"]
 
+    def test_a_link_inside_a_multiline_code_span_is_left_alone(self, tmp_path):
+        # PX192-1 / PX358-3: a code span may open and close on different lines
+        # (CommonMark pairs a backtick string with the next backtick string of
+        # equal length in the same block, across soft line breaks); a link
+        # inside it is code, not a link. The per-line span detection the
+        # generator used left such a link live.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\nRun `python scripts/check.py --flag\n"
+                "value [flag](README.md)` as a step.\n\n[ok](README.md)\n"
+            ),
+        })
+        assert "value [flag](README.md)`" in tree["source.md"]
+
+    def test_a_link_after_a_multiline_code_span_is_still_rewritten(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n`opens here\nand closes` [ok](README.md)\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_multiline_code_span_in_a_list_item_hides_a_link(self, tmp_path):
+        # The corpus's real cases (commands.md, cli-reference.md): the span is
+        # a continuation of a bullet item's text, and the link sits before the
+        # closing backtick on the span's closing line.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n- run `python scripts/spread.py --company <name>\n"
+                "  --proposal <name> [opt](README.md)` as a Bash step\n"
+            ),
+        })
+        assert "[opt](README.md)`" in tree["source.md"]
+
+    def test_a_multiline_code_span_across_a_table_row_boundary_is_not_paired(
+        self, tmp_path
+    ):
+        # Table cells are separate inline contexts: a dangling opener in one
+        # row must not pair with a closer in the next and hide the next row's
+        # live link.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n| `dangling\n| [x](README.md) closer`\n"
+            ),
+        })
+        assert f"[x]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_heading_is_its_own_block_not_paired_with_the_next_paragraph(
+        self, tmp_path
+    ):
+        # A heading's dangling backtick must not pair with a run in the
+        # paragraph below it and hide that paragraph's live link.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# Heading with `tick\nA paragraph [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_table_row_is_its_own_block_not_paired_with_the_next_line(
+        self, tmp_path
+    ):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n| row with `tick\nThen [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_quote_after_a_paragraph_is_its_own_block(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\nA paragraph with `tick\n> a quote with [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
     def test_mermaid_blocks_and_tables_are_preserved_byte_for_byte(self, tmp_path):
         mermaid = '```mermaid\nflowchart LR\n  A[Start] --> B{"end<br/>x"}\n```'
         table = "| a | b |\n| :--- | :--- |\n| [x](README.md) | plain |"
@@ -387,6 +472,37 @@ class TestLinkRewriting:
 
 
 class TestValidationFailures:
+
+    def test_a_backtick_run_inside_a_closed_span_does_not_open_another_span(self, tmp_path):
+        # CommonMark resumes scanning after a span's closing run, so a shorter
+        # run inside the span is content and never an opener: the lone backtick
+        # later in the paragraph is literal, and the link between is live.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n`` a ` b `` then [ok](README.md) and a lone ` tick\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
+        spans = wiki_publish._code_span_intervals(["`` a ` b `` then [ok](x) and a lone ` tick"])
+        assert spans == {0: [(0, 11)]}
+
+    def test_a_fence_indented_four_or_more_spaces_fails_the_build(self, tmp_path):
+        # PX358-3: a fence indented four or more spaces is an indented code
+        # block in CommonMark, not a fence. The generator supports only the
+        # Markdown subset the corpus uses and fails closed on this construct:
+        # misdetecting it would toggle the fence state and wrongly expose or
+        # hide links around it.
+        with pytest.raises(WikiPublishError, match="indented 4 or more spaces"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n",
+                "source.md": "# S\n\n    ```\n    [code](README.md)\n    ```\n",
+            })
+
+    def test_a_fence_indented_three_spaces_is_still_a_fence(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n   ```\n   [code](README.md)\n   ```\n",
+        })
+        assert "[code](README.md)" in tree["source.md"]
 
     def test_a_missing_target_is_an_error(self, tmp_path):
         with pytest.raises(WikiPublishError, match=r"docs/source.md:5.*gone.md.*does not exist"):

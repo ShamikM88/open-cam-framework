@@ -449,8 +449,11 @@ def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_complian
     tmp_path, monkeypatch,
 ):
     monkeypatch.chdir(tmp_path)
-    pc_stub_compute_collaborators(monkeypatch, {})
+    calls, *_ = pc_stub_compute_collaborators(monkeypatch, {})
 
     with pytest.raises(FileNotFoundError):
         compute("Synthetic Co", "Synthetic Facility", draft_path=str(tmp_path / "missing.md"))
+
+    assert calls["ground_truth_figures"] == []
+    assert calls["check_draft_compliance"] == []
 

@@ -910,6 +910,20 @@ class TestSidebarLabels:
             f"- [source]({U}/wiki/source)",
         ]
 
+    def test_a_closing_tag_may_not_carry_attributes(self, tmp_path):
+        # Pass-7 follow-up to CG390-2: a closing tag has no attributes
+        # (CommonMark), so '</em title="x">' is literal text, not raw HTML
+        # to strip -- the page falls back to its file name rather than get
+        # a wrong label with the tag silently removed.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": '# A </em title="x">useful guide\n',
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
     def test_quoted_attribute_values_do_not_end_a_tag_early(self, tmp_path):
         # Pass-5 follow-up to CG390-2: a quoted attribute value may contain
         # '>', so the tag must swallow it whole instead of ending at the

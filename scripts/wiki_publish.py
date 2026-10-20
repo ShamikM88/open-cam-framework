@@ -574,7 +574,11 @@ def _extract_code_spans(text: str) -> tuple[str, list[str], list[str]]:
 # wrong label from silently stripping it.
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _HTML_ATTR = r"[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+))?"
-HTML_TAG_RE = re.compile(rf"</?[A-Za-z][A-Za-z0-9-]*(?:\s+{_HTML_ATTR})*\s*/?>")
+# Opening tags carry attributes and may self-close; closing tags never do
+# (CommonMark), so the two forms are matched separately.
+HTML_TAG_RE = re.compile(
+    rf"<[A-Za-z][A-Za-z0-9-]*(?:\s+{_HTML_ATTR})*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>"
+)
 
 # A '<' that still starts something tag-like after the two forms above were
 # removed is a raw-HTML construct this reducer does not know how to render

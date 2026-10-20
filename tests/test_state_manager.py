@@ -1299,3 +1299,274 @@ def test_find_cli_reports_an_unlistable_company_folder_as_one_error_line(
     assert "Traceback" not in str(excinfo.value)
     assert "\n" not in str(excinfo.value)
     assert capsys.readouterr().out == ""
+
+# ---------------------------------------------------------------------------
+# Additional reviewer-view / review-trail survivor cases.
+# Prefixes are intentionally distinct from the find_deal job and each other.
+# ---------------------------------------------------------------------------
+
+class reviewer_view_fixed_datetime:
+    @classmethod
+    def now(cls):
+        return datetime(2026, 1, 15, 12, 34, 56, 123456)
+
+
+class review_trail_fixed_datetime:
+    @classmethod
+    def now(cls):
+        return datetime(2026, 1, 15, 12, 34, 56, 123456)
+
+
+def test_reviewer_view_exports_exact_paths_and_preserves_every_non_history_field(tmp_path):
+    base = str(tmp_path)
+    trail = [
+        {
+            "iteration": 1,
+            "verdict": "REJECTED",
+            "notes": "Synthetic finding one",
+            "timestamp": "2026-01-15T10:00:00",
+        },
+        {
+            "iteration": 2,
+            "verdict": "APPROVED",
+            "notes": None,
+            "timestamp": "2026-01-15T11:00:00",
+        },
+    ]
+    write_state(
+        "Synthetic Co",
+        "Synthetic Loan",
+        date_str="2026-01-15",
+        base_dir=base,
+        deal_type="asset_finance",
+        steps_completed=["triage", "spread", "review"],
+        synthetic_extension={"nested": {"labels": ["alpha", 3], "enabled": True}},
+        note="Preserve this note",
+        review_verdict="APPROVED",
+        review_trail=trail,
+    )
+    source_path = state_path(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+    )
+    with open(source_path, "rb") as source_file:
+        source_before = source_file.read()
+
+    paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+
+    expected_review_dir = os.path.join(
+        base, "deals", "Synthetic Co", "Synthetic Loan_2026-01-15", "review_view",
+    )
+    assert paths == {
+        "state_for_review": os.path.join(expected_review_dir, "state_for_review.json"),
+        "review_trail": os.path.join(expected_review_dir, "review_trail.json"),
+    }
+    with open(paths["state_for_review"], encoding="utf-8") as review_file:
+        record = json.load(review_file)
+    with open(paths["review_trail"], encoding="utf-8") as trail_file:
+        exported_trail = json.load(trail_file)
+
+    assert record == {
+        "company": "Synthetic Co",
+        "proposal": "Synthetic Loan",
+        "date": "2026-01-15",
+        "schema_version": SCHEMA_VERSION,
+        "deal_type": "asset_finance",
+        "steps_completed": ["triage", "spread", "review"],
+        "synthetic_extension": {"nested": {"labels": ["alpha", 3], "enabled": True}},
+        "note": "Preserve this note",
+    }
+    assert exported_trail == trail
+    with open(source_path, "rb") as source_file:
+        assert source_file.read() == source_before
+
+
+def test_reviewer_view_missing_state_pins_exact_error_and_does_not_create_a_deal_folder(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(state_manager, "datetime", reviewer_view_fixed_datetime)
+    base = str(tmp_path)
+    expected_source_path = os.path.join(
+        base, "deals", "Synthetic Co", "Synthetic Loan_2026-01-15", "state.json",
+    )
+
+    with pytest.raises(StateShapeError) as excinfo:
+        export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+
+    assert str(excinfo.value) == (
+        f"Cannot export the Reviewer view: no state.json exists at {expected_source_path}; "
+        "nothing was written."
+    )
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize(
+    "use_empty_timestamp",
+    [False, True],
+    ids=["timestamp-omitted", "timestamp-empty-string"],
+)
+def test_review_trail_defaults_notes_to_none_and_uses_iso_now_for_a_falsey_timestamp(
+    tmp_path, monkeypatch, use_empty_timestamp,
+):
+    monkeypatch.setattr(state_manager, "datetime", review_trail_fixed_datetime)
+    kwargs = {"timestamp": ""} if use_empty_timestamp else {}
+
+    state = append_review_trail(
+        "Synthetic Co", "Synthetic Loan", verdict="REJECTED",
+        date_str="2026-01-15", base_dir=str(tmp_path), **kwargs,
+    )
+
+    expected_timestamp = review_trail_fixed_datetime.now().isoformat()
+    assert state["review_trail"] == [{
+        "iteration": 1,
+        "verdict": "REJECTED",
+        "notes": None,
+        "timestamp": expected_timestamp,
+    }]
+    assert state["review_verdict"] == "REJECTED"
+
+
+def test_review_trail_reserved_extra_fields_cannot_replace_the_history_or_latest_verdict(tmp_path):
+    base = str(tmp_path)
+    first_entry = {
+        "iteration": 1,
+        "verdict": "REJECTED",
+        "notes": "Synthetic first finding",
+        "timestamp": "2026-01-15T10:00:00",
+    }
+    write_state(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+        review_verdict="REJECTED", review_trail=[first_entry], note="Keep this field",
+    )
+
+    state = append_review_trail(
+        "Synthetic Co", "Synthetic Loan", verdict="APPROVED", notes=None,
+        timestamp="2026-01-15T11:00:00", date_str="2026-01-15", base_dir=base,
+        review_verdict="FORGED",
+        review_trail=[{"iteration": 99, "verdict": "FORGED"}],
+        synthetic_extension={"kept": True},
+    )
+
+    assert state["review_trail"] == [
+        first_entry,
+        {
+            "iteration": 2,
+            "verdict": "APPROVED",
+            "notes": None,
+            "timestamp": "2026-01-15T11:00:00",
+        },
+    ]
+    assert state["review_verdict"] == "APPROVED"
+    assert state["synthetic_extension"] == {"kept": True}
+    assert state["note"] == "Keep this field"
+
+
+def test_review_trail_rejects_a_malformed_existing_history_without_changing_any_file(tmp_path):
+    base = str(tmp_path)
+    path, before = _write_raw_state(
+        base, SCHEMA_VERSION, review_trail={"iteration": 1, "verdict": "REJECTED"},
+    )
+    parent = os.path.dirname(path)
+    before_names = sorted(os.listdir(parent))
+
+    with pytest.raises(StateShapeError, match="review_trail"):
+        append_review_trail(
+            "Acme Corp", "Fleet Loan", verdict="APPROVED",
+            date_str="2026-01-15", base_dir=base,
+        )
+
+    with open(path, "rb") as state_file:
+        assert state_file.read() == before
+    assert sorted(os.listdir(parent)) == before_names
+
+
+@pytest.mark.parametrize("version", ["v1.1.0", "1.2", None], ids=["prefixed", "short", "null"])
+def test_review_trail_refuses_a_malformed_schema_version_without_changing_any_file(
+    tmp_path, version,
+):
+    base = str(tmp_path)
+    path, before = _write_raw_state(base, version, future_extension={"synthetic": True})
+    parent = os.path.dirname(path)
+    before_names = sorted(os.listdir(parent))
+
+    with pytest.raises(SchemaVersionError, match="not a MAJOR.MINOR.PATCH"):
+        append_review_trail(
+            "Acme Corp", "Fleet Loan", verdict="APPROVED",
+            date_str="2026-01-15", base_dir=base,
+        )
+
+    with open(path, "rb") as state_file:
+        assert state_file.read() == before
+    assert sorted(os.listdir(parent)) == before_names
+
+
+def test_review_trail_upgrades_a_legacy_state_and_preserves_unknown_fields(tmp_path):
+    base = str(tmp_path)
+    path, _ = _write_raw_state(
+        base, MISSING, future_extension={"nested": [1, 2, {"retained": True}]},
+    )
+
+    state = append_review_trail(
+        "Acme Corp", "Fleet Loan", verdict="APPROVED", notes=None,
+        timestamp="2026-01-15T12:00:00", date_str="2026-01-15", base_dir=base,
+    )
+
+    assert state["schema_version"] == SCHEMA_VERSION
+    assert state["future_extension"] == {"nested": [1, 2, {"retained": True}]}
+    assert state["review_trail"] == [{
+        "iteration": 1,
+        "verdict": "APPROVED",
+        "notes": None,
+        "timestamp": "2026-01-15T12:00:00",
+    }]
+    with open(path, encoding="utf-8") as state_file:
+        persisted = json.load(state_file)
+    assert persisted["schema_version"] == SCHEMA_VERSION
+    assert persisted["future_extension"] == {"nested": [1, 2, {"retained": True}]}
+
+def test_reviewer_view_normalizes_a_null_history_to_an_empty_json_array(tmp_path):
+    base = str(tmp_path)
+    write_state(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+        review_verdict="REJECTED", review_trail=None, note="Keep source unchanged",
+    )
+    source_path = state_path(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+    )
+    with open(source_path, "rb") as source_file:
+        source_before = source_file.read()
+
+    paths = export_reviewer_view("Synthetic Co", "Synthetic Loan", base_dir=base)
+
+    with open(paths["review_trail"], encoding="utf-8") as trail_file:
+        assert json.load(trail_file) == []
+    with open(paths["state_for_review"], encoding="utf-8") as review_file:
+        record = json.load(review_file)
+    assert record["note"] == "Keep source unchanged"
+    assert "review_trail" not in record
+    assert "review_verdict" not in record
+    with open(source_path, "rb") as source_file:
+        assert source_file.read() == source_before
+
+
+def test_review_trail_appends_to_a_null_history_as_iteration_one(tmp_path):
+    base = str(tmp_path)
+    write_state(
+        "Synthetic Co", "Synthetic Loan", date_str="2026-01-15", base_dir=base,
+        review_trail=None, note="Preserve unrelated state",
+    )
+
+    state = append_review_trail(
+        "Synthetic Co", "Synthetic Loan", verdict="REJECTED",
+        notes="Synthetic finding", timestamp="2026-01-15T10:00:00",
+        date_str="2026-01-15", base_dir=base,
+    )
+
+    assert state["review_trail"] == [{
+        "iteration": 1,
+        "verdict": "REJECTED",
+        "notes": "Synthetic finding",
+        "timestamp": "2026-01-15T10:00:00",
+    }]
+    assert state["review_verdict"] == "REJECTED"
+    assert state["note"] == "Preserve unrelated state"
+

@@ -878,6 +878,7 @@ def test_dx_analyst_forecast_columns_filters_downside_basis_availability_and_num
     })
 
     assert supplied == {
+        "FY-1": {"EBITDA": 777},
         "FY+1": {"EBITDA": 101, "DSCR": 1.7},
         "FY+2": {"Current Ratio": "N/A"},
         "FY+3": {},

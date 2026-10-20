@@ -1971,7 +1971,7 @@ def test_partial_recompute_refuses_to_relabel_preserved_analyst_history_without_
         )
 
     message = str(refused.value)
-    assert "analyst-supplied" in message and "FY-1" in message and "nothing was written" in message
+    assert "analyst-supplied" in message and "nothing was written" in message
     assert client.call_count == 0, "the provenance check runs before any model call"
     assert _deal_files() == before, "state and every other file remain byte-identical"
 

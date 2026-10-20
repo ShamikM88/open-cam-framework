@@ -1570,3 +1570,160 @@ def test_review_trail_appends_to_a_null_history_as_iteration_one(tmp_path):
     assert state["review_verdict"] == "REJECTED"
     assert state["note"] == "Preserve unrelated state"
 
+def _find_deal_snapshot(base):
+    """Capture every path and the bytes of every existing file under a lookup root."""
+    paths = [base, *base.rglob("*")]
+    return sorted(
+        (
+            "." if path == base else str(path.relative_to(base)),
+            path.is_dir(),
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in paths
+    )
+
+
+# ---------------------------------------------------------------------------
+# Additional read-only find_deal() survivor cases (job prefix: find_deal).
+# Existing tests already pin exact matching, newest exact date, one normalized
+# candidate, misspellings, prefix rejection, corrupt state and CLI errors.
+# ---------------------------------------------------------------------------
+
+def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_date(
+    tmp_path, monkeypatch,
+):
+    base = str(tmp_path)
+    company = "Synthetic Co"
+    proposals = {
+        "Synthetic Alpha - Capital": ("2026-01-11", "2026-06-12"),
+        "Synthetic Alpha--Capital": ("2026-02-10", "2026-05-12"),
+        "Synthetic Alpha-Capital": ("2026-03-11",),
+    }
+    for proposal, dates in proposals.items():
+        for date_str in dates:
+            write_state(company, proposal, date_str=date_str, base_dir=base)
+    before = _find_deal_snapshot(tmp_path)
+
+    real_scandir = os.scandir
+    company_dir = os.path.normcase(os.path.join(base, "deals", company))
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def reversed_company_scandir(path="."):
+        if os.path.normcase(os.fspath(path)) != company_dir:
+            with real_scandir(path) as entries:
+                yield entries
+            return
+        with real_scandir(path) as entries:
+            ordered_entries = sorted(entries, key=lambda entry: entry.name, reverse=True)
+            insertion_proposals = list(dict.fromkeys(
+                entry.name.rsplit("_", 1)[0] for entry in ordered_entries
+                if entry.is_dir(follow_symlinks=False)
+            ))
+            assert insertion_proposals == [
+                "Synthetic Alpha-Capital",
+                "Synthetic Alpha--Capital",
+                "Synthetic Alpha - Capital",
+            ]
+            yield iter(ordered_entries)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "scandir", reversed_company_scandir)
+        result = state_manager.find_deal(
+            company, "Synthetic Alpha Capital", base_dir=base,
+        )
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [
+            {
+                "proposal": "Synthetic Alpha - Capital",
+                "date": "2026-06-12",
+                "state_path": str(
+                    tmp_path / "deals" / company
+                    / "Synthetic Alpha - Capital_2026-06-12" / "state.json"
+                ),
+            },
+            {
+                "proposal": "Synthetic Alpha--Capital",
+                "date": "2026-05-12",
+                "state_path": str(
+                    tmp_path / "deals" / company
+                    / "Synthetic Alpha--Capital_2026-05-12" / "state.json"
+                ),
+            },
+            {
+                "proposal": "Synthetic Alpha-Capital",
+                "date": "2026-03-11",
+                "state_path": str(
+                    tmp_path / "deals" / company
+                    / "Synthetic Alpha-Capital_2026-03-11" / "state.json"
+                ),
+            },
+        ],
+    }
+    after = _find_deal_snapshot(tmp_path)
+    assert after == before
+
+
+def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_path):
+    base = tmp_path
+    deals_dir = base / "deals"
+    deals_dir.mkdir()
+    company_file = deals_dir / "Synthetic Co"
+    company_file.write_text("not a directory", encoding="utf-8")
+    before = _find_deal_snapshot(base)
+
+    result = state_manager.find_deal(
+        "Synthetic Co", "Synthetic Facility", base_dir=str(base),
+    )
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": False,
+        "near_misses": [],
+    }
+    after = _find_deal_snapshot(base)
+    assert after == before
+
+
+@pytest.mark.parametrize(
+    ("company", "proposal", "field_name"),
+    [
+        ("Synthetic/Co", "Synthetic Facility", "company"),
+        ("Synthetic Co", "Synthetic/Facility", "proposal"),
+    ],
+)
+def test_find_deal_rejects_unsafe_path_components_without_creating_files(
+    tmp_path, company, proposal, field_name,
+):
+    before = _find_deal_snapshot(tmp_path)
+
+    with pytest.raises(ValueError, match=field_name):
+        state_manager.find_deal(company, proposal, base_dir=str(tmp_path))
+
+    after = _find_deal_snapshot(tmp_path)
+    assert after == before
+
+
+def test_find_deal_excludes_candidate_dates_that_are_not_exact_iso_shape(tmp_path):
+    base = tmp_path
+    company_dir = base / "deals" / "Synthetic Co"
+    malformed = company_dir / "Synthetic Alpha-Capital_2026-1-10"
+    malformed.mkdir(parents=True)
+    (malformed / "state.json").write_text("{}", encoding="utf-8")
+    before = _find_deal_snapshot(base)
+
+    result = state_manager.find_deal(
+        "Synthetic Co", "Synthetic Alpha Capital", base_dir=str(base),
+    )
+
+    assert result == {
+        "record_found": False,
+        "company_folder_exists": True,
+        "near_misses": [],
+    }
+    after = _find_deal_snapshot(base)
+    assert after == before

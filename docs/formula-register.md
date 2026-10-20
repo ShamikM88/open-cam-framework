@@ -748,7 +748,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Unit and storage:** a list of `{"cp_id", "text"}`; `cp_id` is the join key the Underwriter must echo back
   exactly — never paraphrased
 - **Edge rules:** an absent/blank guarantee amount reads "Unlimited Facility"; a falsy-but-real amount like 0
-  is kept, never overwritten
+  is kept, never overwritten; a guarantee with no type, or a blank (empty or whitespace-only) type, reads
+  "Execution of Guarantee by <provider> for <amount>." (the word "Guarantee" once), while a typed one reads
+  "Execution of <type> Guarantee by <provider> for <amount>."
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `required_conditions_precedent`

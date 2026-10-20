@@ -896,6 +896,20 @@ class TestSidebarLabels:
             f"- [source]({U}/wiki/source)",
         ]
 
+    def test_invalid_tag_syntax_is_not_stripped(self, tmp_path):
+        # Pass-5 follow-up to CG390-2: a quote or slash is not a valid
+        # attribute-name character (CommonMark), so '<em bad"name>' is not
+        # raw HTML but literal text -- the page falls back to its file name
+        # instead of the tag being silently stripped into a wrong label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": '# A <em bad"name>useful</em> guide\n',
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
     def test_quoted_attribute_values_do_not_end_a_tag_early(self, tmp_path):
         # Pass-5 follow-up to CG390-2: a quoted attribute value may contain
         # '>', so the tag must swallow it whole instead of ending at the

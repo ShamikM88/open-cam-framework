@@ -568,8 +568,12 @@ def _extract_code_spans(text: str) -> tuple[str, list[str], list[str]]:
 # whole rather than ending the tag at the first '>' inside quotes. A
 # comment may span lines (DOTALL), which for a heading is moot (headings are
 # single lines) but keeps the pattern honest about what it claims to match.
+# Attribute names and unquoted values follow CommonMark's grammar exactly:
+# a quote or slash in a name (or '='/'<'/'>' in a bare value) makes the tag
+# invalid raw HTML, which is literal text -- the file-name fallback, never a
+# wrong label from silently stripping it.
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-_HTML_ATTR = r"[^\s<>=]+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'>]+))?"
+_HTML_ATTR = r"[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+))?"
 HTML_TAG_RE = re.compile(rf"</?[A-Za-z][A-Za-z0-9-]*(?:\s+{_HTML_ATTR})*\s*/?>")
 
 # A '<' that still starts something tag-like after the two forms above were

@@ -838,13 +838,16 @@ class TestSidebarLabels:
 
     def test_spaces_inside_a_code_span_are_preserved(self, tmp_path):
         # CG390-3: code-span content is literal text, so whitespace
-        # collapsing must not reach inside a span: 'a  b' keeps both spaces.
+        # collapsing must not reach inside a span: 'a  b' keeps both spaces,
+        # and a span padded with one space at each end loses them (CommonMark).
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",
             "source.md": "# label `a  b` tail\n",
+            "other.md": "# ` padded ` span\n",
         })
         assert self.sidebar_entries(tree) == [
             f"- [Home]({U}/wiki/Home)",
+            f"- [padded span]({U}/wiki/other)",
             f"- [label a  b tail]({U}/wiki/source)",
         ]
 

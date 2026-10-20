@@ -512,7 +512,12 @@ def _extract_code_spans(text: str) -> tuple[str, list[str]]:
             while m < n and text[m] == "`":
                 m += 1
             if m - k == run:
-                spans.append(text[j:k])
+                content = text[j:k]
+                # CommonMark: a span whose content begins and ends with a
+                # space (and is not all spaces) loses one space at each end.
+                if len(content) > 1 and content.startswith(" ") and content.endswith(" ") and content.strip():
+                    content = content[1:-1]
+                spans.append(content)
                 out.append(f"\x00{len(spans) - 1}\x00")
                 k = m
                 break
@@ -562,8 +567,12 @@ def _plain_text(heading: str) -> str | None:
     text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic (asterisks; intraword is emphasis)
     text = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"\1", text)  # italic underscores
     text = re.sub(r"~~(.+?)~~", r"\1", text)  # strikethrough
+    # Collapse whitespace before restoring the code spans: a span's content
+    # is literal text, so the collapse must not reach inside it (CommonMark
+    # preserves a span's interior spacing).
+    text = " ".join(text.split())
     text = re.sub(r"\x00(\d+)\x00", lambda m: code_spans[int(m.group(1))], text)
-    return " ".join(text.split())
+    return text
 
 
 # The characters that can change how a Markdown link label renders: the label

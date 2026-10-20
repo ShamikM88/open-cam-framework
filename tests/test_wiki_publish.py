@@ -909,6 +909,19 @@ class TestSidebarLabels:
             f"- [A useful guide]({U}/wiki/source)",
         ]
 
+    def test_escaped_punctuation_is_literal_not_markup(self, tmp_path):
+        # Pass-5 follow-up to CG390-4: an escaped '*' or '_' is a literal
+        # character, not an emphasis marker, and the backslash never leaks
+        # into the label; the literals are re-escaped for the link label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# \\*literal\\* and \\_text\\_\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [\\*literal\\* and \\_text\\_]({U}/wiki/source)",
+        ]
+
     def test_markdown_significant_characters_are_escaped(self, tmp_path):
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",

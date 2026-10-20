@@ -503,22 +503,27 @@ def _first_heading(text: str) -> str | None:
     return None
 
 
-def _extract_code_spans(text: str) -> tuple[str, list[str]]:
-    """Replace CommonMark code spans with placeholders; return the text and the
-    stashed contents. A span opens with a backtick run and closes on the next
-    run of exactly the same length (a longer run in between is content, not a
-    closer); a run with no matching closer is literal text, not a span.
+def _extract_code_spans(text: str) -> tuple[str, list[str], list[str]]:
+    """Replace CommonMark code spans with placeholders; return the text, the
+    stashed contents and the stashed backslash-escaped characters. A span
+    opens with a backtick run and closes on the next run of exactly the same
+    length (a longer run in between is content, not a closer); a run with no
+    matching closer is literal text, not a span.
 
-    Backslash-escaped punctuation is stashed too (as \\x01char\\x01): it is
-    literal text, so an escaped backtick cannot open a span and an escaped
-    emphasis marker is not emphasis. Backslashes have no effect inside a
-    span (CommonMark), so the closer search ignores them."""
+    Backslash-escaped punctuation is stashed too (as numeric \\x01N\\x01
+    placeholders, so the literal character is invisible to the later markup
+    reductions): an escaped backtick cannot open a span, an escaped marker
+    is not markup, and no backslash leaks into the label. Backslashes have
+    no effect inside a span (CommonMark), so the closer search ignores them.
+    """
     out: list[str] = []
     spans: list[str] = []
+    escapes: list[str] = []
     i, n = 0, len(text)
     while i < n:
         if text[i] == "\\" and i + 1 < n and text[i + 1] in ESCAPABLE:
-            out.append(f"\x01{text[i + 1]}\x01")
+            escapes.append(text[i + 1])
+            out.append(f"\x01{len(escapes) - 1}\x01")
             i += 2
             continue
         if text[i] != "`":
@@ -554,7 +559,7 @@ def _extract_code_spans(text: str) -> tuple[str, list[str]]:
             i = j
             continue
         i = k
-    return "".join(out), spans
+    return "".join(out), spans, escapes
 
 
 # Raw inline HTML, reduced to its rendered text: comments and open/close
@@ -593,7 +598,7 @@ def _plain_text(heading: str) -> str | None:
     to the text between them; any other tag-like construct returns None, so
     the caller falls back to the file-name label instead of a wrong label.
     """
-    text, code_spans = _extract_code_spans(heading)
+    text, code_spans, escapes = _extract_code_spans(heading)
     text = HTML_COMMENT_RE.sub("", text)
     text = HTML_TAG_RE.sub("", text)
     if RAW_HTML_LIKE_RE.search(text):
@@ -610,7 +615,7 @@ def _plain_text(heading: str) -> str | None:
     # preserves a span's interior spacing). Escaped punctuation is restored
     # as the literal character it renders as.
     text = " ".join(text.split())
-    text = re.sub(r"\x01(.)\x01", r"\1", text)
+    text = re.sub(r"\x01(\d+)\x01", lambda m: escapes[int(m.group(1))], text)
     text = re.sub(r"\x00(\d+)\x00", lambda m: code_spans[int(m.group(1))], text)
     return text
 

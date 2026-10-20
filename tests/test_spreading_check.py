@@ -627,7 +627,6 @@ def test_sc_main_refuses_non_object_period_values_with_one_error_and_no_write(
     assert caught.value.code == (
         f"error: financial inputs: period 'FY+1' must be an object of line items; found {type_name}"
     )
-    # In-process sys.exit(string) prints nothing until interpreter exit; subprocess tests cover real-CLI one-line error/exit-1.
     output = capsys.readouterr()
     assert output.out == ""
     assert output.err == ""

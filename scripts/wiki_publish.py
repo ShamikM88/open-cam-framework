@@ -556,6 +556,15 @@ HTML_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 RAW_HTML_LIKE_RE = re.compile(r"<[A-Za-z/?!]")
 
 
+# A link as the label reducer sees it: [text](destination), an optional
+# quoted title, and a destination that may carry one balanced paren pair
+# (CommonMark) -- as in 'https://example.test/a_(b))' -- so the pair does
+# not end the destination early and leak a stray ')' into the label.
+LABEL_LINK_RE = re.compile(
+    r"(!?)\[([^\]\n]*)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)(\s+\"[^\"]*\")?\)"
+)
+
+
 def _plain_text(heading: str) -> str | None:
     """Heading text with inline markup reduced to plain text, or None.
 
@@ -573,7 +582,7 @@ def _plain_text(heading: str) -> str | None:
     text = HTML_TAG_RE.sub("", text)
     if RAW_HTML_LIKE_RE.search(text):
         return None
-    text = LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
+    text = LABEL_LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
     text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)  # bold (asterisks; intraword is emphasis)
     text = re.sub(r"(?<!\w)__(?!\s)(.+?)(?<!\s)__(?!\w)", r"\1", text)  # bold underscores

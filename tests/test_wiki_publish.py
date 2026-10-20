@@ -894,6 +894,19 @@ class TestSidebarLabels:
             f"- [source]({U}/wiki/source)",
         ]
 
+    def test_quoted_attribute_values_do_not_end_a_tag_early(self, tmp_path):
+        # Pass-5 follow-up to CG390-2: a quoted attribute value may contain
+        # '>', so the tag must swallow it whole instead of ending at the
+        # first '>' and leaking the rest of the attribute into the label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": '# A <em title=">">useful</em> guide\n',
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [A useful guide]({U}/wiki/source)",
+        ]
+
     def test_markdown_significant_characters_are_escaped(self, tmp_path):
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",

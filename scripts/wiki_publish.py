@@ -558,9 +558,11 @@ def _extract_code_spans(text: str) -> tuple[str, list[str]]:
 
 # Raw inline HTML, reduced to its rendered text: comments and open/close
 # tags render as nothing, so the label keeps only the text between them.
-# (Attributes may not contain '<' or '>', the two forms this subset spans.)
+# A quoted attribute value may contain '>' or '<', so values are matched
+# whole rather than ending the tag at the first '>' inside quotes.
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->")
-HTML_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
+_HTML_ATTR = r"[^\s<>=]+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'>]+))?"
+HTML_TAG_RE = re.compile(rf"</?[A-Za-z][A-Za-z0-9-]*(?:\s+{_HTML_ATTR})*\s*/?>")
 
 # A '<' that still starts something tag-like after the two forms above were
 # removed is a raw-HTML construct this reducer does not know how to render

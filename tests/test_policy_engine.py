@@ -1128,3 +1128,401 @@ def test_non_finite_collateral_or_security_is_rejected_before_policy_evaluation(
     }
     with pytest.raises(ValueError, match="non-finite numeric value"):
         evaluate_deal_policy(state)
+
+# ---------------------------------------------------------------------------
+# Mutation-survivor contracts for policy output, ordering and boundary guards.
+# These exercise the public policy entry point so they pin behaviour rather
+# than the shape of a particular private helper.
+# ---------------------------------------------------------------------------
+
+def test_pe_empty_policy_output_has_the_complete_ordered_return_shape():
+    result = evaluate_deal_policy({})
+
+    assert list(result) == [
+        "covenant_results",
+        "security_gaps",
+        "required_conditions_precedent",
+        "required_conditions_subsequent",
+        "downside_covenant_breaches",
+        "forward_covenant_results",
+    ]
+    assert result == {
+        "covenant_results": [],
+        "security_gaps": [],
+        "required_conditions_precedent": STANDARD_CONDITIONS_PRECEDENT,
+        "required_conditions_subsequent": STANDARD_CONDITIONS_SUBSEQUENT,
+        "downside_covenant_breaches": [],
+        "forward_covenant_results": [],
+    }
+
+
+@pytest.mark.parametrize("actual, covenant_type, expected_status", [
+    (True, "maximum", "UNRESOLVABLE"),
+    (False, "minimum", "UNRESOLVABLE"),
+], ids=["true-is-not-numeric", "false-is-not-numeric"])
+def test_pe_boolean_ratio_values_are_not_accepted_as_numeric(actual, covenant_type, expected_status):
+    result = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gross_leverage": actual}},
+        "covenants": [{"metric": "gross_leverage", "type": covenant_type, "threshold": 3.5}],
+    })["covenant_results"][0]
+
+    assert result == {
+        "metric": "gross_leverage",
+        "type": covenant_type,
+        "threshold": 3.5,
+        "actual": None,
+        "status": expected_status,
+        "headroom_pct": None,
+        "reason": "gross_leverage has no computed value for this period",
+    }
+
+
+@pytest.mark.parametrize("actual, covenant_type, expected_status", [
+    (-10, "minimum", "FAIL"),
+    (10, "maximum", "FAIL"),
+], ids=["negative-ten-is-a-real-ratio", "positive-ten-is-a-real-ratio"])
+def test_pe_percent_ratio_actual_at_absolute_ten_is_not_flagged_as_percent(actual, covenant_type, expected_status):
+    result = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gearing": actual}},
+        "covenants": [{"metric": "gearing", "type": covenant_type, "threshold": 1}],
+    })["covenant_results"][0]
+
+    assert result["actual"] == actual
+    assert result["status"] == expected_status
+    assert result["reason"] is None
+
+
+@pytest.mark.parametrize("threshold, covenant_type, expected_status", [
+    (-10, "minimum", "PASS"),
+    (10, "maximum", "PASS"),
+], ids=["negative-ten-threshold", "positive-ten-threshold"])
+def test_pe_percent_ratio_threshold_at_absolute_ten_is_not_flagged_as_percent(
+    threshold, covenant_type, expected_status,
+):
+    result = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gearing": 0}},
+        "covenants": [{"metric": "gearing", "type": covenant_type, "threshold": threshold}],
+    })["covenant_results"][0]
+
+    assert result["actual"] == 0
+    assert result["status"] == expected_status
+    assert result["reason"] is None
+
+
+@pytest.mark.parametrize("ebitda, reason", [
+    (0, "gross leverage not defined: EBITDA is zero"),
+    (-10, "gross leverage not meaningful: EBITDA is negative"),
+], ids=["zero-denominator", "negative-denominator"])
+def test_pe_nonpositive_ebitda_makes_a_recorded_gross_leverage_unresolvable(ebitda, reason):
+    result = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gross_leverage": 2.0}},
+        "financials": {"FY-Current": {"ebitda": ebitda}},
+        "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+    })["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["headroom_pct"] is None
+    assert result["reason"] == f"{reason} (the recorded value 2.0 is ignored)"
+
+
+def test_pe_security_failure_outputs_both_gaps_and_conditions_in_perfection_then_priority_order():
+    result = evaluate_deal_policy({
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [{
+            "secures_asset_id": "AST-001",
+            "perfection_status": "Pending",
+            "ranking": "Second",
+        }],
+    })
+
+    assert result["security_gaps"] == [
+        "Unperfected Security: Asset AST-001 charge status is 'Pending', not Perfected.",
+        "Subordinate Ranking: Asset AST-001 charge ranking is 'Second', not First.",
+    ]
+    assert [
+        cp for cp in result["required_conditions_precedent"]
+        if cp["cp_id"].startswith(("SEC-PERFECT-", "SEC-PRIORITY-"))
+    ] == [
+        {
+            "cp_id": "SEC-PERFECT-AST-001",
+            "text": "Execution and completion of registration to perfect charge over asset AST-001 "
+                    "(Current Status: Pending).",
+        },
+        {
+            "cp_id": "SEC-PRIORITY-AST-001",
+            "text": "Negotiation, execution, and stamping of a formal Intercreditor Deed / Deed of Priority "
+                    "with existing chargeholders for asset AST-001 (Current Ranking: Second).",
+        },
+    ]
+
+
+def test_pe_security_mapping_conditions_disambiguate_colliding_asset_slugs_across_gap_kinds():
+    result = evaluate_deal_policy({
+        "collateral": [{"asset_id": "AST+A"}],
+        "security_package": [{"secures_asset_id": "AST A", "perfection_status": "Perfected", "ranking": "First"}],
+    })
+
+    assert result["security_gaps"] == [
+        "Uncharged Asset: AST+A has no corresponding security charge registered.",
+        "Dangling Reference: AST A does not exist in collateral records.",
+    ]
+    assert [
+        cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("SEC-MAPPING-")
+    ] == [
+        {
+            "cp_id": "SEC-MAPPING-AST-A",
+            "text": "Resolution of collateral security mapping discrepancy for asset AST+A.",
+        },
+        {
+            "cp_id": "SEC-MAPPING-AST-A-2",
+            "text": "Resolution of collateral security mapping discrepancy for asset AST A.",
+        },
+    ]
+
+
+def test_pe_security_reconfirmation_condition_ids_avoid_natural_slug_collisions_and_keep_order():
+    result = evaluate_deal_policy({
+        "security_package": [
+            {"secures_asset_id": "AST-1", "perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": "AST-1", "perfection_status": "Perfected", "ranking": "Second"},
+            {"secures_asset_id": "AST-1-2", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    })
+
+    assert [
+        cs for cs in result["required_conditions_subsequent"] if cs["cs_id"].startswith("CS-SEC-REPERFECT-")
+    ] == [
+        {
+            "cs_id": "CS-SEC-REPERFECT-AST-1",
+            "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of "
+                    "the security charge over asset AST-1.",
+        },
+        {
+            "cs_id": "CS-SEC-REPERFECT-AST-1-2",
+            "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of "
+                    "the security charge over asset AST-1.",
+        },
+        {
+            "cs_id": "CS-SEC-REPERFECT-AST-1-2-2",
+            "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of "
+                    "the security charge over asset AST-1-2.",
+        },
+    ]
+
+
+@pytest.mark.parametrize(("guarantee", "expected_id"), [
+    ({"provider": "Synthetic Guarantor"}, "CS-GUARANTEE-SYNTHETIC-GUARANTOR"),
+    ({"guarantee_id": None, "provider": "Synthetic Guarantor"}, "CS-GUARANTEE-SYNTHETIC-GUARANTOR"),
+    ({"guarantee_id": "   ", "provider": "Synthetic Guarantor"}, "CS-GUARANTEE-SYNTHETIC-GUARANTOR"),
+    ({"guarantee_id": 0, "provider": "Synthetic Guarantor"}, "CS-GUARANTEE-0"),
+    ({"guarantee_id": "GRT/001", "provider": "Synthetic Guarantor"}, "CS-GUARANTEE-GRT-001"),
+], ids=["missing-id-falls-back", "null-id-falls-back", "blank-id-falls-back", "zero-id-is-present", "explicit-id-is-used"])
+def test_pe_guarantee_standing_condition_uses_the_correct_identity_source(guarantee, expected_id):
+    result = evaluate_deal_policy({"guarantees": [guarantee]})
+
+    assert [
+        cs for cs in result["required_conditions_subsequent"] if cs["cs_id"].startswith("CS-GUARANTEE-")
+    ] == [{
+        "cs_id": expected_id,
+        "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor Synthetic Guarantor.",
+    }]
+
+
+@pytest.mark.parametrize(
+    ("has_type", "type_value"),
+    [(False, None), (True, ""), (True, "   ")],
+    ids=["missing-type", "empty-type", "whitespace-type"],
+)
+@pytest.mark.xfail(
+    strict=True,
+    reason="#391: a guarantee with no (or blank) type generates 'Guarantee Guarantee' in the CP text",
+)
+def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_type, type_value):
+    guarantee = {
+        "guarantee_id": "   ",
+        "provider": "Synthetic Guarantor",
+    }
+    if has_type:
+        guarantee["type"] = type_value
+    result = evaluate_deal_policy({"guarantees": [guarantee]})
+
+    assert [
+        cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
+    ] == [{
+        "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
+        "text": "Execution of Guarantee by Synthetic Guarantor for Unlimited Facility.",
+    }]
+
+
+def test_pe_composed_standing_conditions_have_the_exact_contract_text_and_order():
+    result = evaluate_deal_policy({
+        "ratios": RATIOS,
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [{
+            "secures_asset_id": "AST-001",
+            "perfection_status": "Perfected",
+            "ranking": "First",
+        }],
+        "guarantees": [{"provider": "Synthetic Guarantor", "type": "Corporate", "amount": 0}],
+    })
+
+    assert result["required_conditions_subsequent"] == STANDARD_CONDITIONS_SUBSEQUENT + [
+        {
+            "cs_id": "CS-COVENANT-COMPLIANCE",
+            "text": "Ongoing certification of continued compliance with all financial covenants "
+                    "set out in the Facility Agreement.",
+        },
+        {
+            "cs_id": "CS-SEC-REPERFECT-AST-001",
+            "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of "
+                    "the security charge over asset AST-001.",
+        },
+        {
+            "cs_id": "CS-GUARANTEE-SYNTHETIC-GUARANTOR",
+            "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor Synthetic Guarantor.",
+        },
+    ]
+
+
+@pytest.mark.parametrize("state_key", [
+    "financials",
+    "multi_period_financials",
+    "analyst_supplied_financials",
+    "stress_assumptions",
+    "downside_case",
+], ids=["financials", "computed-raw-store", "supplied-raw-store", "stress-assumptions", "downside-case"])
+def test_pe_policy_entry_rejects_non_finite_numbers_in_each_financial_input_store(state_key):
+    with pytest.raises(ValueError, match="non-finite numeric value"):
+        evaluate_deal_policy({state_key: {"synthetic-period": {"synthetic-line": float("inf")}}})
+
+def test_pe_percent_unit_error_lists_actual_before_threshold_and_keeps_exact_guidance():
+    result = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gearing": -87}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 80}],
+    })["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["headroom_pct"] is None
+    assert result["reason"] == (
+        "gearing actual ratio -87 and covenant threshold 80 looks like a percent; percent-type ratios and their "
+        "covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing."
+    )
+
+
+def test_pe_guarantee_standing_condition_ids_avoid_natural_slug_collisions():
+    result = evaluate_deal_policy({
+        "guarantees": [
+            {"provider": "Acme Corp"},
+            {"provider": "Acme Corp"},
+            {"provider": "Acme Corp 2"},
+        ],
+    })
+
+    assert [
+        cs["cs_id"] for cs in result["required_conditions_subsequent"] if cs["cs_id"].startswith("CS-GUARANTEE-")
+    ] == [
+        "CS-GUARANTEE-ACME-CORP",
+        "CS-GUARANTEE-ACME-CORP-2",
+        "CS-GUARANTEE-ACME-CORP-2-2",
+    ]
+
+
+def test_pe_precedent_conditions_keep_standard_security_then_guarantee_order_and_exact_text():
+    result = evaluate_deal_policy({
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [{
+            "secures_asset_id": "AST-001",
+            "perfection_status": "Pending",
+            "ranking": "Second",
+        }],
+        "guarantees": [{"provider": "Synthetic Guarantor", "type": "Corporate", "amount": 0}],
+    })
+
+    assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT + [
+        {
+            "cp_id": "SEC-PERFECT-AST-001",
+            "text": "Execution and completion of registration to perfect charge over asset AST-001 "
+                    "(Current Status: Pending).",
+        },
+        {
+            "cp_id": "SEC-PRIORITY-AST-001",
+            "text": "Negotiation, execution, and stamping of a formal Intercreditor Deed / Deed of Priority "
+                    "with existing chargeholders for asset AST-001 (Current Ranking: Second).",
+        },
+        {
+            "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
+            "text": "Execution of Corporate Guarantee by Synthetic Guarantor for 0.",
+        },
+    ]
+
+@pytest.mark.parametrize(("downside_period_ratios", "reason"), [
+    ({}, "metric 'dscr' is not among this period's computed ratios"),
+    ({"dscr": None}, "dscr has no computed value for this period"),
+], ids=["ratio-key-absent", "ratio-value-null"])
+def test_pe_downside_base_pass_with_missing_stress_ratio_is_an_unresolvable_breach(downside_period_ratios, reason):
+    breaches = _evaluate_downside_covenants(
+        [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+        {"FY+1": {"dscr": 2.0}},
+        {"FY+1": downside_period_ratios},
+    )
+
+    assert breaches == [{
+        "year": "FY+1",
+        "metric": "dscr",
+        "base_actual": 2.0,
+        "downside_actual": None,
+        "threshold": 1.25,
+        "breach_id": "DOWNSIDE-FY-1-DSCR",
+        "downside_status": "UNRESOLVABLE",
+        "reason": reason,
+    }]
+
+
+def test_pe_downside_breach_results_are_sorted_by_period_not_input_mapping_order():
+    breaches = _evaluate_downside_covenants(
+        [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+        {
+            "FY+2": {"gross_leverage": 2.0},
+            "FY+1": {"gross_leverage": 2.0},
+        },
+        {
+            "FY+2": {"gross_leverage": 5.0},
+            "FY+1": {"gross_leverage": 5.0},
+        },
+    )
+
+    assert [(breach["year"], breach["breach_id"]) for breach in breaches] == [
+        ("FY+1", "DOWNSIDE-FY-1-GROSS-LEVERAGE"),
+        ("FY+2", "DOWNSIDE-FY-2-GROSS-LEVERAGE"),
+    ]
+
+
+def test_pe_guarantee_cps_avoid_natural_slug_collision_with_an_earlier_numeric_suffix():
+    result = evaluate_deal_policy({
+        "guarantees": [
+            {"provider": "Acme Corp", "type": "Corporate", "amount": 10},
+            {"provider": "Acme Corp", "type": "Corporate", "amount": 20},
+            {"provider": "Acme Corp 2", "type": "Corporate", "amount": 30},
+        ],
+    })
+
+    assert [
+        cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
+    ] == [
+        {
+            "cp_id": "GUARANTEE-ACME-CORP",
+            "text": "Execution of Corporate Guarantee by Acme Corp for 10.",
+        },
+        {
+            "cp_id": "GUARANTEE-ACME-CORP-2",
+            "text": "Execution of Corporate Guarantee by Acme Corp for 20.",
+        },
+        {
+            "cp_id": "GUARANTEE-ACME-CORP-2-2",
+            "text": "Execution of Corporate Guarantee by Acme Corp 2 for 30.",
+        },
+    ]
+

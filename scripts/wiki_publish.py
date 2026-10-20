@@ -462,12 +462,23 @@ SIDEBAR_HEADING = "## What is in this folder"
 ESCAPABLE = frozenset(r"!\"#$%&'()*+,-./:;<=>?@[\]^_`{|}~")
 
 # An ATX level-1 heading line: up to three leading spaces (four make an
-# indented code block in CommonMark), one '#', required whitespace, heading
-# text, an optional closing '#' run. '## deeper' does not match (the
-# character after the single '#' must be whitespace). The closing '#' run
-# only counts when whitespace precedes it (CommonMark), so '# Feature#' keeps
-# its hash as heading text while '# Feature ###' drops the run.
-H1_RE = re.compile(r"^ {0,3}#\s+(.*?)(?:[ \t]+#+[ \t]*$|[ \t]*$)")
+# indented code block in CommonMark), one '#', required whitespace, then
+# the heading text with trailing spaces/tabs removed. '## deeper' does not
+# match (the character after the single '#' must be whitespace). The
+# optional closing '#' run is stripped separately (CLOSING_HASHES_RE) so it
+# only counts when whitespace precedes it: '# Feature#' keeps its hash as
+# heading text while '# Feature ###' drops the run.
+H1_RE = re.compile(r"^ {0,3}#\s+(.*?)[ \t]*$")
+
+# A closing '#' run: whitespace, the hashes, nothing after but spaces/tabs
+# (CommonMark: the run must be preceded by spaces or tabs, followed by
+# spaces or tabs only).
+CLOSING_HASHES_RE = re.compile(r"[ \t]+#+[ \t]*$")
+
+# A heading whose entire text is one '#' run ('# ###', '# #') is empty: the
+# run is a closing sequence preceded by the opening whitespace, so the
+# page falls back to its file name; '# ### ###' keeps the first run.
+HASH_RUN_RE = re.compile(r"#+")
 
 
 def _first_heading(text: str) -> str | None:
@@ -485,7 +496,9 @@ def _first_heading(text: str) -> str | None:
         match = H1_RE.match(line)
         if match is None:
             continue
-        plain = _plain_text(match.group(1))
+        if HASH_RUN_RE.fullmatch(match.group(1)):
+            return None
+        plain = _plain_text(CLOSING_HASHES_RE.sub("", match.group(1)))
         return plain or None
     return None
 

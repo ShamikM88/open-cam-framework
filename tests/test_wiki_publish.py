@@ -878,6 +878,22 @@ class TestSidebarLabels:
             f"- [See docs and more]({U}/wiki/source)",
         ]
 
+    def test_a_heading_of_only_a_closing_hash_run_is_empty(self, tmp_path):
+        # Pass-5 follow-up to CG390-1: '# ###' is an empty ATX heading (the
+        # run is a closing sequence preceded by the opening whitespace), so
+        # the page falls back to its file name; but '# ### ###' keeps the
+        # first run as content, because only the final run closes.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# ###\n",
+            "other.md": "# ### ###\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [###]({U}/wiki/other)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
     def test_markdown_significant_characters_are_escaped(self, tmp_path):
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",

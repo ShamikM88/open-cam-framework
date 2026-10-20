@@ -565,8 +565,10 @@ def _extract_code_spans(text: str) -> tuple[str, list[str], list[str]]:
 # Raw inline HTML, reduced to its rendered text: comments and open/close
 # tags render as nothing, so the label keeps only the text between them.
 # A quoted attribute value may contain '>' or '<', so values are matched
-# whole rather than ending the tag at the first '>' inside quotes.
-HTML_COMMENT_RE = re.compile(r"<!--.*?-->")
+# whole rather than ending the tag at the first '>' inside quotes. A
+# comment may span lines (DOTALL), which for a heading is moot (headings are
+# single lines) but keeps the pattern honest about what it claims to match.
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _HTML_ATTR = r"[^\s<>=]+(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'>]+))?"
 HTML_TAG_RE = re.compile(rf"</?[A-Za-z][A-Za-z0-9-]*(?:\s+{_HTML_ATTR})*\s*/?>")
 

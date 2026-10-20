@@ -622,7 +622,9 @@ class TestHomeAndSidebar:
 
     def test_the_sidebar_lists_home_first_then_the_table_order(self, tmp_path):
         # The index table lists zeta BEFORE alpha on purpose: the sidebar must
-        # follow the table's stated order, not the page-name alphabet.
+        # follow the table's stated order, not the page-name alphabet. Each
+        # label is the page's own first heading (decision comment 6278039251):
+        # zeta's is "The zeta guide", alpha's "The alpha guide".
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "README.md").write_text(
             "# Index\n\n## What is in this folder\n\n"
@@ -630,16 +632,16 @@ class TestHomeAndSidebar:
             "| [zeta.md](zeta.md) | x |\n| [alpha.md](alpha.md) | x |\n",
             encoding="utf-8",
         )
-        (tmp_path / "docs" / "zeta.md").write_text("# z\n", encoding="utf-8")
-        (tmp_path / "docs" / "alpha.md").write_text("# a\n", encoding="utf-8")
+        (tmp_path / "docs" / "zeta.md").write_text("# The zeta guide\n", encoding="utf-8")
+        (tmp_path / "docs" / "alpha.md").write_text("# The alpha guide\n", encoding="utf-8")
         tree = build_tree(tmp_path, "example/repo")
         lines = tree["_Sidebar.md"].split("\n")
         assert lines[0] == notice_for("docs/README.md")
         entries = [line for line in lines if line.startswith("- [")]
         assert entries == [
             f"- [Home]({U}/wiki/Home)",
-            f"- [zeta]({U}/wiki/zeta)",
-            f"- [alpha]({U}/wiki/alpha)",
+            f"- [The zeta guide]({U}/wiki/zeta)",
+            f"- [The alpha guide]({U}/wiki/alpha)",
         ]
 
     def test_a_missing_index_table_is_an_error(self, tmp_path):
@@ -659,15 +661,20 @@ class TestHomeAndSidebar:
 
     def test_example_pages_need_not_be_in_the_table(self, tmp_path):
         # The docs index table lists the top-level pages only; the two example
-        # pages are published (linked from other pages) but are deliberately
-        # not index rows, matching the repository's own index contract.
+        # pages are published (linked from other pages) and now close the
+        # sidebar as an Examples group, but are deliberately still not index
+        # rows in docs/README.md, matching the repository's own index contract.
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",
             "source.md": "[brief](examples/synthetic_co/brief.md)\n",
-            "examples/synthetic_co/brief.md": "# Brief\n",
+            "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
         })
         assert "examples-synthetic_co-brief.md" in tree
-        assert "examples-synthetic_co-brief" not in tree["_Sidebar.md"]
+        # the Examples group lists the page; the index table never did
+        assert f"[Research Brief - Synthetic Co]({U}/wiki/examples-synthetic_co-brief)" \
+            in tree["_Sidebar.md"]
+        table_rows = [line for line in tree["Home.md"].split("\n") if line.startswith("|")]
+        assert not any("brief" in row for row in table_rows)
 
     def test_a_table_row_that_is_not_a_page_is_an_error(self, tmp_path):
         (tmp_path / "docs").mkdir()
@@ -680,6 +687,151 @@ class TestHomeAndSidebar:
         )
         with pytest.raises(WikiPublishError, match="gone.md"):
             build_tree(tmp_path, "example/repo")
+
+
+class TestSidebarLabels:
+    """PX192-2 (decision comment 6278039251): every sidebar label is the page's
+    OWN first heading -- the first ATX level-1 heading line outside any fenced
+    code block in the source docs/*.md text, trailing # and surrounding
+    whitespace removed, inline markup reduced to plain text, whitespace
+    collapsed, Markdown-significant characters escaped -- never a hard-coded
+    name. A page with no first heading falls back to its file name; Home keeps
+    its label; link targets and order are unchanged."""
+
+    def sidebar_entries(self, tree):
+        return [line for line in tree["_Sidebar.md"].split("\n") if line.startswith("- [")]
+
+    def test_labels_come_from_each_pages_own_first_heading(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# A slash command reference\n",
+            "other.md": "# Outputs and templates\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Outputs and templates]({U}/wiki/other)",
+            f"- [A slash command reference]({U}/wiki/source)",
+        ]
+
+    def test_a_heading_inside_a_fenced_code_block_is_not_a_first_heading(self, tmp_path):
+        # the only level-1 heading line sits inside a fenced code block, so the
+        # page has no first heading and falls back to its file name
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "## Level two only\n\n```\n# Not a heading\n```\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_a_page_with_no_first_heading_falls_back_to_its_file_name(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "## Only a level-two heading\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_inline_markup_and_closing_hashes_reduce_to_plain_text(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# The `spreading` **workbook** ##\n",
+            "other.md": "# See [the docs](README.md)\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [See the docs]({U}/wiki/other)",
+            f"- [The spreading workbook]({U}/wiki/source)",
+        ]
+
+    def test_markdown_significant_characters_are_escaped(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# A [bracketed] label\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [A \\[bracketed\\] label]({U}/wiki/source)",
+        ]
+
+    def test_home_keeps_its_label_whatever_the_index_heading(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# The full documentation index\n",
+            "source.md": "# S\n",
+        })
+        assert self.sidebar_entries(tree)[0] == f"- [Home]({U}/wiki/Home)"
+
+    def test_link_targets_and_order_are_unchanged(self, tmp_path):
+        # the table lists source BEFORE other on purpose: whatever the labels,
+        # the entries' targets stay the page names in the table's order
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n"
+            "| Document | Contents |\n| :--- | :--- |\n"
+            "| [source.md](source.md) | x |\n| [other.md](other.md) | x |\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "docs" / "source.md").write_text("# Second label\n", encoding="utf-8")
+        (tmp_path / "docs" / "other.md").write_text("# First label\n", encoding="utf-8")
+        tree = build_tree(tmp_path, "example/repo")
+        assert [entry.rsplit("(", 1)[1] for entry in self.sidebar_entries(tree)] == [
+            f"{U}/wiki/Home)",
+            f"{U}/wiki/source)",
+            f"{U}/wiki/other)",
+        ]
+
+
+class TestSidebarExamplesGroup:
+    """PX192-3 (decision comment 6278039251): the two pages published from
+    docs/examples/synthetic_co/*.md close the sidebar as a short Examples
+    group, each labelled from its own first heading, with identical labels
+    disambiguated minimally. They stay published pages and are still not
+    index rows in docs/README.md."""
+
+    def test_the_examples_group_closes_the_sidebar(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
+            "examples/synthetic_co/draft.md": "# Credit Assessment Memorandum - Synthetic Co\n",
+        })
+        assert tree["_Sidebar.md"].endswith(
+            f"\n\n**Examples**\n\n"
+            f"- [Research Brief - Synthetic Co]({U}/wiki/examples-synthetic_co-brief)\n"
+            f"- [Credit Assessment Memorandum - Synthetic Co]({U}/wiki/examples-synthetic_co-draft)\n"
+        )
+
+    def test_identical_example_labels_are_disambiguated_minimally(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Synthetic example\n",
+            "examples/synthetic_co/draft.md": "# Synthetic example\n",
+        })
+        assert tree["_Sidebar.md"].endswith(
+            f"\n\n**Examples**\n\n"
+            f"- [Synthetic example (brief)]({U}/wiki/examples-synthetic_co-brief)\n"
+            f"- [Synthetic example (draft)]({U}/wiki/examples-synthetic_co-draft)\n"
+        )
+
+    def test_no_examples_group_without_example_pages(self, tmp_path):
+        tree = make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert "**Examples**" not in tree["_Sidebar.md"]
+        assert tree["_Sidebar.md"].endswith(f"- [S]({U}/wiki/source)\n")
+
+    def test_repeated_builds_produce_identical_sidebars(self, tmp_path):
+        make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
+            "examples/synthetic_co/draft.md": "# Credit Assessment Memorandum - Synthetic Co\n",
+        })
+        first = wiki_publish.build_tree(tmp_path, "example/repo")["_Sidebar.md"]
+        second = wiki_publish.build_tree(tmp_path, "example/repo")["_Sidebar.md"]
+        assert first == second
 
 
 class TestCli:

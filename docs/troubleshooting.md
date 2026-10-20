@@ -92,6 +92,12 @@ It is created for a brand-new deal, or on purpose by `orchestrator.py --new-revi
 differently spelled company or proposal name created it, move the files together or re-run with the original
 spelling.
 
+## A deal name does not match a saved record
+
+When an interactive command reports `No deal record exists for company "<company>" and proposal "<proposal>". Check the spelling and confirm the deal has been created before running this step.`, the supplied company/proposal pair did not resolve to a saved deal. Check the returned near-miss candidates and correct the name before re-running. A command that requires an existing record does not create a deal folder or `state.json` when the record is missing.
+
+A genuinely new deal should begin with `/triage`, `/spread` or `/research`: these starters announce that they will create a new deal under the supplied name and identify returned near matches, if any. If `company_folder_exists: false`, the company folder is absent and near matches are not offered. `/commercial`, `/collateral`, `/project` and `/assemble` stop when no record exists; `/review` also stops and offers only normalization-only near matches returned by `state_manager.py --find`. The headless orchestrator instead warns and carries on; this interactive behaviour is intentionally stricter.
+
 ## Figures
 
 ### A ratio shows `null` in `state.json`, or `N/A` in the workbook

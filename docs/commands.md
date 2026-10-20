@@ -15,6 +15,7 @@ worked examples are in [Workflows](workflows.md).
 - **State.** A step starts by reading the deal's `state.json` (treating every figure already there as the source of
   truth) and ends by writing its results back, merged with what other steps recorded and appending its name to
   `steps_completed`. When looking up state, consider only an exact `<proposal>_YYYY-MM-DD` folder and choose the latest by comparing the date text; stop if the lookup reaches 100 files because the list may be incomplete. Nothing important lives only in the conversation. See the [data model](data-model.md).
+- **Missing deal record.** Interactive starters (`/triage`, `/spread` and `/research`) announce when no matching record exists and say they will start a new deal under the supplied name. `/commercial`, `/collateral`, `/project` and `/assemble` stop if no record exists; `/review` stops too and offers only returned normalization-only near matches. This is deliberately stricter than the headless orchestrator, which warns and carries on.
 - **Sources.** A step that fetches or is given a document saves the document itself to the deal's `sources/` folder
   with `scripts/source_manifest.py`, so a claim can be checked against the exact material later. Scratch artefacts are
   not saved.
@@ -73,6 +74,7 @@ worked examples are in [Workflows](workflows.md).
 ### /triage
 
 - **What:** a legal-identity, ownership and charges screen with a Go/No-Go status.
+- **No-record behavior:** Before creating anything, runs `state_manager.py --find`; if no record exists, it announces that `/triage` will create a new deal under the supplied name and names any returned near matches so you can correct a typo first.
 - **Use when:** the first step of a full CAM. For a screen plus company research and no financials, use `/research`.
 - **Inputs:** company registration number, credit bureau summary, charges/mortgages register (it asks for what is
   missing).
@@ -86,6 +88,7 @@ worked examples are in [Workflows](workflows.md).
 ### /research
 
 - **What:** `/triage` and `/commercial` combined, with one exported brief, no financials.
+- **No-record behavior:** Before creating anything, runs `state_manager.py --find`; if no record exists, it announces that `/research` will create a new deal under the supplied name and names any returned near matches so you can correct a typo first.
 - **Use when:** you need a screen and company research now, or ever, without a full CAM.
 - **Inputs:** everything `/triage` and `/commercial` ask for.
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
@@ -119,6 +122,7 @@ worked examples are in [Workflows](workflows.md).
 
 - **What:** spreads profit-and-loss and balance-sheet data into the core ratios, or records your own pre-spread
   figures as given.
+- **No-record behavior:** Before creating anything, runs `state_manager.py --find`; if no record exists, it announces that `/spread` will create a new deal under the supplied name and names any returned near matches so you can correct a typo first. If the company folder is absent, it says so instead of offering near matches.
 - **Use when:** the financial step of a full CAM. It is the only hard prerequisite of `/assemble`.
 - **Inputs:** 3 to 5 years of figures, or a pre-spread snapshot. Raw line items use these field names (omit any the
   source lacks; they default to 0 and are never invented): `revenue`, `cost_of_sales`, `admin_expenses`,
@@ -155,6 +159,7 @@ worked examples are in [Workflows](workflows.md).
 ### /commercial
 
 - **What:** company history, management, parent/ultimate-owner support, sector, concentration and competition.
+- **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
 - **Inputs:** sector, management bios, customer/supplier notes, business model.
 - **Produces:** the drafted sections, each claim cited to a source (the company, its filings, a credible public
   source or what you said); it traces the full ownership chain and checks actively for recent ownership change.
@@ -163,6 +168,7 @@ worked examples are in [Workflows](workflows.md).
 ### /collateral
 
 - **What:** exposure, collateral coverage and uncovered risk for each asset, and the charge over each.
+- **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
 - **Inputs:** asset description, valuation/invoice amount, down payment %, LGD grade and %, residual value %, PD
   grade, ranking of the charge, a bureau score if one exists. PD, LGD and any bureau score are **inputs** you supply;
   the framework has no rating integration and never adjusts them.
@@ -177,6 +183,7 @@ worked examples are in [Workflows](workflows.md).
 ### /project
 
 - **What:** forward-year financials, a stress-test downside case, covenants and guarantees; all four optional.
+- **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
 - **Use when:** the deal has a forecast, covenants or guarantees; skip anything that does not apply.
 - **Inputs:** `FY+1` to `FY+3` raw figures in the same shape as `/spread`; stress assumptions
   `revenue_haircut_pct`, `opex_increase_pct` (admin expenses only), `interest_rate_bump_bps` (each optional,
@@ -203,6 +210,7 @@ worked examples are in [Workflows](workflows.md).
 ### /assemble
 
 - **What:** drafts the CAM into the template, audits it through `/review` until `APPROVED`, and exports it.
+- **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
 - **Inputs:** `--company`, `--proposal`, `--type <deal_type>`, `--pd`, `--lgd`; the results of `/triage`, `/spread`,
   `/commercial`, `/collateral` (from `state.json` or the conversation; if any is unavailable it says which and stops).
   `/project` is optional.
@@ -229,6 +237,7 @@ worked examples are in [Workflows](workflows.md).
 - **What:** audits a saved draft (or, with `--research-brief`, a saved `/research` brief) and returns `APPROVED` or
   `REJECTED` with revision notes. `/review` is the orchestrator; the qualitative audit is done by a fresh, read-only
   `risk-reviewer` sub-agent.
+- **No-record behavior:** Before stopping, runs `state_manager.py --find` and offers returned normalization-only near-miss candidates, if any; it does not invent candidates.
 - **Inputs:** `--company`, `--proposal`, optionally `--research-brief` and `--draft "<path>"`. The draft is a file on
   disk: by default `deals/<company>/<proposal>_draft.md` (a CAM) or `..._brief.md` (a brief), which `/assemble` and
   `/research` save before calling it. `/review` never reviews "the latest draft in the conversation" and does not take

@@ -40,14 +40,17 @@ U = "https://github.com/example/repo"
 def _live_links(content: str) -> list[str]:
     """Every real link destination in a generated page: fenced code blocks are
     skipped (example links inside them are prose, not links), with the same
-    fence rule the generator uses (tilde fences, longer fences)."""
+    fence rule the generator uses (tilde fences, longer fences) and the same
+    block-wide code-span pairing (`_code_span_intervals`)."""
+    lines = content.split("\n")
+    code_spans = wiki_publish._code_span_intervals(lines)
     dests = []
-    for _, line, in_fence in wiki_publish._lines_with_fences(content.split("\n")):
+    for line_no, line, in_fence in wiki_publish._lines_with_fences(lines):
         if in_fence:
             continue
-        code_spans = wiki_publish._code_span_ranges(line)
+        spans = code_spans.get(line_no - 1, [])
         for match in re.finditer(r"(!?)\[[^\]\n]*\]\(([^)\s]+)\)", line):
-            if any(s <= match.start() < e for s, e in code_spans):
+            if any(s <= match.start() < e for s, e in spans):
                 continue  # a code span hides the link
             dests.append(match.group(2))
     return dests
@@ -344,6 +347,88 @@ class TestLinkRewriting:
         })
         assert "[gone](gone.md)" in tree["source.md"]
 
+    def test_a_link_inside_a_multiline_code_span_is_left_alone(self, tmp_path):
+        # PX192-1 / PX358-3: a code span may open and close on different lines
+        # (CommonMark pairs a backtick string with the next backtick string of
+        # equal length in the same block, across soft line breaks); a link
+        # inside it is code, not a link. The per-line span detection the
+        # generator used left such a link live.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\nRun `python scripts/check.py --flag\n"
+                "value [flag](README.md)` as a step.\n\n[ok](README.md)\n"
+            ),
+        })
+        assert "value [flag](README.md)`" in tree["source.md"]
+
+    def test_a_link_after_a_multiline_code_span_is_still_rewritten(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n`opens here\nand closes` [ok](README.md)\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_multiline_code_span_in_a_list_item_hides_a_link(self, tmp_path):
+        # The corpus's real cases (commands.md, cli-reference.md): the span is
+        # a continuation of a bullet item's text, and the link sits before the
+        # closing backtick on the span's closing line.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n- run `python scripts/spread.py --company <name>\n"
+                "  --proposal <name> [opt](README.md)` as a Bash step\n"
+            ),
+        })
+        assert "[opt](README.md)`" in tree["source.md"]
+
+    def test_a_multiline_code_span_across_a_table_row_boundary_is_not_paired(
+        self, tmp_path
+    ):
+        # Table cells are separate inline contexts: a dangling opener in one
+        # row must not pair with a closer in the next and hide the next row's
+        # live link.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n| `dangling\n| [x](README.md) closer`\n"
+            ),
+        })
+        assert f"[x]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_heading_is_its_own_block_not_paired_with_the_next_paragraph(
+        self, tmp_path
+    ):
+        # A heading's dangling backtick must not pair with a run in the
+        # paragraph below it and hide that paragraph's live link.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# Heading with `tick\nA paragraph [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_table_row_is_its_own_block_not_paired_with_the_next_line(
+        self, tmp_path
+    ):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\n| row with `tick\nThen [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
+    def test_a_quote_after_a_paragraph_is_its_own_block(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": (
+                "# S\n\nA paragraph with `tick\n> a quote with [link](README.md) and `tock\n"
+            ),
+        })
+        assert f"[link]({U}/wiki/Home)" in tree["source.md"]
+
     def test_mermaid_blocks_and_tables_are_preserved_byte_for_byte(self, tmp_path):
         mermaid = '```mermaid\nflowchart LR\n  A[Start] --> B{"end<br/>x"}\n```'
         table = "| a | b |\n| :--- | :--- |\n| [x](README.md) | plain |"
@@ -387,6 +472,37 @@ class TestLinkRewriting:
 
 
 class TestValidationFailures:
+
+    def test_a_backtick_run_inside_a_closed_span_does_not_open_another_span(self, tmp_path):
+        # CommonMark resumes scanning after a span's closing run, so a shorter
+        # run inside the span is content and never an opener: the lone backtick
+        # later in the paragraph is literal, and the link between is live.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n`` a ` b `` then [ok](README.md) and a lone ` tick\n",
+        })
+        assert f"[ok]({U}/wiki/Home)" in tree["source.md"]
+        spans = wiki_publish._code_span_intervals(["`` a ` b `` then [ok](x) and a lone ` tick"])
+        assert spans == {0: [(0, 11)]}
+
+    def test_a_fence_indented_four_or_more_spaces_fails_the_build(self, tmp_path):
+        # PX358-3: a fence indented four or more spaces is an indented code
+        # block in CommonMark, not a fence. The generator supports only the
+        # Markdown subset the corpus uses and fails closed on this construct:
+        # misdetecting it would toggle the fence state and wrongly expose or
+        # hide links around it.
+        with pytest.raises(WikiPublishError, match="indented 4 or more spaces"):
+            make_corpus(tmp_path, {
+                "README.md": "# Index\n",
+                "source.md": "# S\n\n    ```\n    [code](README.md)\n    ```\n",
+            })
+
+    def test_a_fence_indented_three_spaces_is_still_a_fence(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# S\n\n   ```\n   [code](README.md)\n   ```\n",
+        })
+        assert "[code](README.md)" in tree["source.md"]
 
     def test_a_missing_target_is_an_error(self, tmp_path):
         with pytest.raises(WikiPublishError, match=r"docs/source.md:5.*gone.md.*does not exist"):
@@ -506,7 +622,9 @@ class TestHomeAndSidebar:
 
     def test_the_sidebar_lists_home_first_then_the_table_order(self, tmp_path):
         # The index table lists zeta BEFORE alpha on purpose: the sidebar must
-        # follow the table's stated order, not the page-name alphabet.
+        # follow the table's stated order, not the page-name alphabet. Each
+        # label is the page's own first heading (decision comment 6278039251):
+        # zeta's is "The zeta guide", alpha's "The alpha guide".
         (tmp_path / "docs").mkdir()
         (tmp_path / "docs" / "README.md").write_text(
             "# Index\n\n## What is in this folder\n\n"
@@ -514,16 +632,16 @@ class TestHomeAndSidebar:
             "| [zeta.md](zeta.md) | x |\n| [alpha.md](alpha.md) | x |\n",
             encoding="utf-8",
         )
-        (tmp_path / "docs" / "zeta.md").write_text("# z\n", encoding="utf-8")
-        (tmp_path / "docs" / "alpha.md").write_text("# a\n", encoding="utf-8")
+        (tmp_path / "docs" / "zeta.md").write_text("# The zeta guide\n", encoding="utf-8")
+        (tmp_path / "docs" / "alpha.md").write_text("# The alpha guide\n", encoding="utf-8")
         tree = build_tree(tmp_path, "example/repo")
         lines = tree["_Sidebar.md"].split("\n")
         assert lines[0] == notice_for("docs/README.md")
         entries = [line for line in lines if line.startswith("- [")]
         assert entries == [
             f"- [Home]({U}/wiki/Home)",
-            f"- [zeta]({U}/wiki/zeta)",
-            f"- [alpha]({U}/wiki/alpha)",
+            f"- [The zeta guide]({U}/wiki/zeta)",
+            f"- [The alpha guide]({U}/wiki/alpha)",
         ]
 
     def test_a_missing_index_table_is_an_error(self, tmp_path):
@@ -543,15 +661,20 @@ class TestHomeAndSidebar:
 
     def test_example_pages_need_not_be_in_the_table(self, tmp_path):
         # The docs index table lists the top-level pages only; the two example
-        # pages are published (linked from other pages) but are deliberately
-        # not index rows, matching the repository's own index contract.
+        # pages are published (linked from other pages) and now close the
+        # sidebar as an Examples group, but are deliberately still not index
+        # rows in docs/README.md, matching the repository's own index contract.
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",
             "source.md": "[brief](examples/synthetic_co/brief.md)\n",
-            "examples/synthetic_co/brief.md": "# Brief\n",
+            "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
         })
         assert "examples-synthetic_co-brief.md" in tree
-        assert "examples-synthetic_co-brief" not in tree["_Sidebar.md"]
+        # the Examples group lists the page; the index table never did
+        assert f"[Research Brief - Synthetic Co]({U}/wiki/examples-synthetic_co-brief)" \
+            in tree["_Sidebar.md"]
+        table_rows = [line for line in tree["Home.md"].split("\n") if line.startswith("|")]
+        assert not any("brief" in row for row in table_rows)
 
     def test_a_table_row_that_is_not_a_page_is_an_error(self, tmp_path):
         (tmp_path / "docs").mkdir()
@@ -564,6 +687,368 @@ class TestHomeAndSidebar:
         )
         with pytest.raises(WikiPublishError, match="gone.md"):
             build_tree(tmp_path, "example/repo")
+
+
+class TestSidebarLabels:
+    """PX192-2 (decision comment 6278039251): every sidebar label is the page's
+    OWN first heading -- the first ATX level-1 heading line outside any fenced
+    code block in the source docs/*.md text, trailing # and surrounding
+    whitespace removed, inline markup reduced to plain text, whitespace
+    collapsed, Markdown-significant characters escaped -- never a hard-coded
+    name. A page with no first heading falls back to its file name; Home keeps
+    its label; link targets and order are unchanged."""
+
+    def sidebar_entries(self, tree):
+        return [line for line in tree["_Sidebar.md"].split("\n") if line.startswith("- [")]
+
+    def test_labels_come_from_each_pages_own_first_heading(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# A slash command reference\n",
+            "other.md": "# Outputs and templates\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Outputs and templates]({U}/wiki/other)",
+            f"- [A slash command reference]({U}/wiki/source)",
+        ]
+
+    def test_a_heading_inside_a_fenced_code_block_is_not_a_first_heading(self, tmp_path):
+        # the first level-1 line sits inside a fenced code block; the page's
+        # real first heading follows the fence and is the label
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "## Level two only\n\n```\n# Not a heading\n```\n\n# The real heading\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [The real heading]({U}/wiki/source)",
+        ]
+
+    def test_code_span_contents_survive_markup_reduction(self, tmp_path):
+        # an underscore inside a code span is content, not emphasis; a shorter
+        # backtick run inside a longer span stays in the label (escaped); a
+        # span closes only on a run of exactly its opening length
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Reads `state_json` and ``a`b``\n",
+            "other.md": "# Use `a``b` and `a`b`\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Use a\\`\\`b and ab\\`]({U}/wiki/other)",
+            f"- [Reads state\\_json and a\\`b]({U}/wiki/source)",
+        ]
+
+    def test_intraword_underscores_are_content_not_emphasis(self, tmp_path):
+        # foo_bar_baz carries no emphasis in CommonMark (underscores only
+        # emphasise at word boundaries), so the label keeps them (escaped)
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# foo_bar_baz and _emphasised_\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [foo\\_bar\\_baz and emphasised]({U}/wiki/source)",
+        ]
+
+    def test_html_and_emphasis_characters_are_escaped(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Use `<item>` & `a*b`\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Use \\<item\\> \\& a\\*b]({U}/wiki/source)",
+        ]
+
+    def test_an_indented_level_one_heading_is_used(self, tmp_path):
+        # up to three leading spaces is still an ATX heading in CommonMark;
+        # four make an indented code block, so that page has no first heading
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "  # The real page title\n",
+            "other.md": "    # Four spaces is code, not a heading\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [other]({U}/wiki/other)",
+            f"- [The real page title]({U}/wiki/source)",
+        ]
+
+    def test_a_page_with_no_first_heading_falls_back_to_its_file_name(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "## Only a level-two heading\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_inline_markup_and_closing_hashes_reduce_to_plain_text(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# The `spreading` **workbook** ##\n",
+            "other.md": "# See [the docs](README.md)\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [See the docs]({U}/wiki/other)",
+            f"- [The spreading workbook]({U}/wiki/source)",
+        ]
+
+    def test_a_trailing_hash_without_preceding_whitespace_is_content(self, tmp_path):
+        # CG390-1: CommonMark only treats a '#' run as a closing sequence
+        # when whitespace precedes it, so the hash is heading text and the
+        # label keeps it (the escaped form needs no escaping for '#').
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Feature#\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Feature#]({U}/wiki/source)",
+        ]
+
+    def test_raw_inline_html_reduces_to_its_text(self, tmp_path):
+        # CG390-2: '<em>useful</em>' renders as emphasised 'useful', so the
+        # label is the text between the tags, not the escaped literal tags.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# A <em>useful</em> guide\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [A useful guide]({U}/wiki/source)",
+        ]
+
+    def test_other_tag_like_constructs_fall_back_to_the_file_name(self, tmp_path):
+        # The conservative rule: a raw-HTML-like construct the reducer does
+        # not know how to render (here a processing instruction) never
+        # produces a wrong label -- the page falls back to its file name.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Config <?include?> file\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_spaces_inside_a_code_span_are_preserved(self, tmp_path):
+        # CG390-3: code-span content is literal text, so whitespace
+        # collapsing must not reach inside a span: 'a  b' keeps both spaces,
+        # and a span padded with one space at each end loses them (CommonMark).
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# label `a  b` tail\n",
+            "other.md": "# ` padded ` span\n",
+            "tabs.md": "# x ` \t ` y\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [padded span]({U}/wiki/other)",
+            f"- [label a  b tail]({U}/wiki/source)",
+            f"- [x \t y]({U}/wiki/tabs)",
+        ]
+
+    def test_an_escaped_backtick_is_literal_and_cannot_open_a_span(self, tmp_path):
+        # CG390-4: a backslash-escaped backtick renders as a literal
+        # backtick and is not a code-span opener, so 'Use \\`ticks and
+        # `code` title' reduces to the label below; the literal backtick is
+        # escaped again for the link label (a label-significant character).
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Use \\`ticks and `code` title\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Use \\`ticks and code title]({U}/wiki/source)",
+        ]
+
+    def test_balanced_parentheses_in_a_link_destination(self, tmp_path):
+        # CG390-5: a link destination may carry one balanced paren pair
+        # (CommonMark), so the whole '...(a_(b))' is the destination and no
+        # stray ')' leaks into the label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# See [docs](https://example.test/a_(b)) and more\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [See docs and more]({U}/wiki/source)",
+        ]
+
+    def test_a_heading_of_only_a_closing_hash_run_is_empty(self, tmp_path):
+        # Pass-5 follow-up to CG390-1: '# ###' is an empty ATX heading (the
+        # run is a closing sequence preceded by the opening whitespace), so
+        # the page falls back to its file name; but '# ### ###' keeps the
+        # first run as content, because only the final run closes.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# ###\n",
+            "other.md": "# ### ###\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [###]({U}/wiki/other)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_invalid_tag_syntax_is_not_stripped(self, tmp_path):
+        # Pass-5 follow-up to CG390-2: a quote or slash is not a valid
+        # attribute-name character (CommonMark), so '<em bad"name>' is not
+        # raw HTML but literal text -- the page falls back to its file name
+        # instead of the tag being silently stripped into a wrong label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": '# A <em bad"name>useful</em> guide\n',
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_a_closing_tag_may_not_carry_attributes(self, tmp_path):
+        # Pass-7 follow-up to CG390-2: a closing tag has no attributes
+        # (CommonMark), so '</em title="x">' is literal text, not raw HTML
+        # to strip -- the page falls back to its file name rather than get
+        # a wrong label with the tag silently removed.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": '# A </em title="x">useful guide\n',
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_quoted_attribute_values_do_not_end_a_tag_early(self, tmp_path):
+        # Pass-5 follow-up to CG390-2: a quoted attribute value may contain
+        # '>', so the tag must swallow it whole instead of ending at the
+        # first '>' and leaking the rest of the attribute into the label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": '# A <em title=">">useful</em> guide\n',
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [A useful guide]({U}/wiki/source)",
+        ]
+
+    def test_escaped_punctuation_is_literal_not_markup(self, tmp_path):
+        # Pass-5 follow-up to CG390-4: an escaped '*' or '_' is a literal
+        # character, not an emphasis marker, and the backslash never leaks
+        # into the label; the literals are re-escaped for the link label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# \\*literal\\* and \\_text\\_\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [\\*literal\\* and \\_text\\_]({U}/wiki/source)",
+        ]
+
+    def test_nested_paren_link_destinations_fall_back_to_the_file_name(self, tmp_path):
+        # Pass-5 follow-up to CG390-5: CommonMark link destinations may
+        # nest parentheses deeper than the simple-link pattern allows;
+        # a heading carrying one falls back to the file name instead of
+        # showing raw link syntax in the label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# See [docs](https://example.test/a_(b_(c))) and more\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
+    def test_markdown_significant_characters_are_escaped(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# A [bracketed] label\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [A \\[bracketed\\] label]({U}/wiki/source)",
+        ]
+
+    def test_home_keeps_its_label_whatever_the_index_heading(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# The full documentation index\n",
+            "source.md": "# S\n",
+        })
+        assert self.sidebar_entries(tree)[0] == f"- [Home]({U}/wiki/Home)"
+
+    def test_link_targets_and_order_are_unchanged(self, tmp_path):
+        # the table lists source BEFORE other on purpose: whatever the labels,
+        # the entries' targets stay the page names in the table's order
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "README.md").write_text(
+            "# Index\n\n## What is in this folder\n\n"
+            "| Document | Contents |\n| :--- | :--- |\n"
+            "| [source.md](source.md) | x |\n| [other.md](other.md) | x |\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "docs" / "source.md").write_text("# Second label\n", encoding="utf-8")
+        (tmp_path / "docs" / "other.md").write_text("# First label\n", encoding="utf-8")
+        tree = build_tree(tmp_path, "example/repo")
+        assert [entry.rsplit("(", 1)[1] for entry in self.sidebar_entries(tree)] == [
+            f"{U}/wiki/Home)",
+            f"{U}/wiki/source)",
+            f"{U}/wiki/other)",
+        ]
+
+
+class TestSidebarExamplesGroup:
+    """PX192-3 (decision comment 6278039251): the two pages published from
+    docs/examples/synthetic_co/*.md close the sidebar as a short Examples
+    group, each labelled from its own first heading, with identical labels
+    disambiguated minimally. They stay published pages and are still not
+    index rows in docs/README.md."""
+
+    def test_the_examples_group_closes_the_sidebar(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
+            "examples/synthetic_co/draft.md": "# Credit Assessment Memorandum - Synthetic Co\n",
+        })
+        assert tree["_Sidebar.md"].endswith(
+            f"\n\n**Examples**\n\n"
+            f"- [Research Brief - Synthetic Co]({U}/wiki/examples-synthetic_co-brief)\n"
+            f"- [Credit Assessment Memorandum - Synthetic Co]({U}/wiki/examples-synthetic_co-draft)\n"
+        )
+
+    def test_identical_example_labels_are_disambiguated_minimally(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Synthetic example\n",
+            "examples/synthetic_co/draft.md": "# Synthetic example\n",
+        })
+        assert tree["_Sidebar.md"].endswith(
+            f"\n\n**Examples**\n\n"
+            f"- [Synthetic example (brief)]({U}/wiki/examples-synthetic_co-brief)\n"
+            f"- [Synthetic example (draft)]({U}/wiki/examples-synthetic_co-draft)\n"
+        )
+
+    def test_no_examples_group_without_example_pages(self, tmp_path):
+        tree = make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        assert "**Examples**" not in tree["_Sidebar.md"]
+        assert tree["_Sidebar.md"].endswith(f"- [S]({U}/wiki/source)\n")
+
+    def test_repeated_builds_produce_identical_sidebars(self, tmp_path):
+        make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "[brief](examples/synthetic_co/brief.md)\n",
+            "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
+            "examples/synthetic_co/draft.md": "# Credit Assessment Memorandum - Synthetic Co\n",
+        })
+        first = wiki_publish.build_tree(tmp_path, "example/repo")["_Sidebar.md"]
+        second = wiki_publish.build_tree(tmp_path, "example/repo")["_Sidebar.md"]
+        assert first == second
 
 
 class TestCli:
@@ -748,7 +1233,9 @@ class TestPublish:
 
     def test_an_identical_republish_makes_no_new_commit(self, tmp_path, capsys):
         remote = self.bare_remote(tmp_path)
-        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n",
+                               "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
+                               "examples/synthetic_co/draft.md": "# Credit Assessment Memorandum - Synthetic Co\n"})
         assert self.publish(tmp_path, remote, sha=self.SHA1) == 0
         head, count = self.remote_head(remote), self.remote_commit_count(remote)
         capsys.readouterr()

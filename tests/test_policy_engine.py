@@ -1362,7 +1362,9 @@ def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_t
         ("Corporate Guarantee ", "Corporate Guarantee "),
         ("Corporate", "Corporate Guarantee"),
         ("Personal", "Personal Guarantee"),
-        ("Guarantee Bond", "Guarantee Bond Guarantee"),
+        ("Guarantee Bond", "Guarantee Bond"),
+        ("Corporate Guarantee and Indemnity", "Corporate Guarantee and Indemnity"),
+        ("Guarantor Support", "Guarantor Support Guarantee"),
     ],
     ids=[
         "ends-with-guarantee",
@@ -1373,10 +1375,12 @@ def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_t
         "trailing-space-kept-as-written",
         "corporate-gets-the-word",
         "personal-gets-the-word",
-        "word-only-at-the-start-gets-the-word",
+        "word-at-the-start-is-used-as-written",
+        "word-in-the-middle-is-used-as-written",
+        "guarantor-is-not-the-word",
     ],
 )
-def test_pe_guarantee_cp_does_not_repeat_a_type_that_already_ends_in_guarantee(type_value, expected_label):
+def test_pe_guarantee_cp_does_not_repeat_a_type_that_already_contains_guarantee(type_value, expected_label):
     result = evaluate_deal_policy({"guarantees": [{
         "provider": "Synthetic Guarantor",
         "type": type_value,

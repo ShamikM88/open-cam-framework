@@ -1,7 +1,7 @@
 import re
 
 import openpyxl
-from openpyxl.chart import BarChart, LineChart, Reference, Series
+from openpyxl.chart import BarChart, Reference, Series
 from openpyxl.chart.data_source import StrRef
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font
@@ -806,26 +806,46 @@ def _chart_series(ws, row, first_col, last_col):
     return series
 
 
+def _column_chart():
+    """A clustered column chart, as the maintainer decided on the manual Excel check
+    (issue #131, comment 6278038868, option A). A column, unlike a line, cannot misrepresent
+    a text "N/A" or a blank cell as a zero-valued point on a curve. The configuration fixes
+    the three presentation defects that check found: both axes are kept visible (openpyxl
+    3.1 or newer writes an axis as deleted unless delete=False is set explicitly), and
+    varyColors is off (so the legend names the series, never one colour per period). A
+    column series carries no line smoothing."""
+    chart = BarChart()
+    chart.type = "col"
+    chart.grouping = "clustered"
+    chart.varyColors = False
+    chart.x_axis.delete = False
+    chart.y_axis.delete = False
+    return chart
+
+
 def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None,
                   blank_downside_periods=None):
-    """Native charts below the spreading table (issue #131, decision D1).
+    """Native charts below the spreading table (issue #131, decisions D1 and option A).
 
-    A leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart over the
-    historical and forward base-case columns (B to G) only. When downside figures exist, one
-    further, separate line chart for the same two leverage metrics reads the downside columns
-    (H to J) directly with their own header cells as category labels: a downside year is a stress
-    of a forward year, not the next period, so it is never joined to the base-case time axis.
-    Anchors are derived from the table's last row plus margins, never hard-coded.
-    `displayBlanksAs="gap"` is set explicitly on every chart, so a blank cell (a period with no
-    figures, including a non-contiguous downside) is configured to render as a gap rather than a
-    misleading zero; how Excel actually draws a cell whose formula evaluates to the text "N/A" is
-    precisely what the maintainer's pending manual check verifies and is not claimed here.
+    Three clustered column charts: a leverage chart (Gross Leverage and Net Debt / EBITDA)
+    and a revenue chart over the historical and forward base-case columns (B to G) only,
+    and, when downside figures exist, one further, separate leverage chart for the same
+    two metrics reading the downside columns (H to J) directly with their own header cells
+    as category labels: a downside year is a stress of a forward year, not the next
+    period, so it is never joined to the base-case time axis. Anchors are derived from the
+    table's last row plus margins, never hard-coded. `displayBlanksAs="gap"` is set
+    explicitly on every chart, so a truly blank cell (a period with no figures, including
+    a non-contiguous downside) renders as a gap; a cell whose formula evaluates to the
+    text "N/A" is not a blank -- in a column chart it draws as an empty slot, a
+    zero-height column -- and neither is ever plotted as a zero (the manual Excel check
+    of comment 6277984249 showed a line chart does plot that text as zero; that is why
+    every chart here is a column chart).
     """
     first_col = PERIOD_COLS.index(HISTORICAL_COLS[0]) + 2
     last_col = PERIOD_COLS.index(FORWARD_COLS[-1]) + 2
     categories = Reference(ws, min_col=first_col, max_col=last_col, min_row=1, max_row=1)
 
-    leverage = LineChart()
+    leverage = _column_chart()
     leverage.title = "Leverage Trend"
     leverage.display_blanks = "gap"
     for label in LEVERAGE_LABELS:
@@ -834,7 +854,7 @@ def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supp
     anchor_row = last_table_row + CHART_MARGIN_ROWS
     ws.add_chart(leverage, f"A{anchor_row}")
 
-    revenue = BarChart()
+    revenue = _column_chart()
     revenue.title = "Revenue Trend"
     revenue.display_blanks = "gap"
     revenue.series.append(_chart_series(ws, row_of["Revenue"], first_col, last_col))
@@ -844,7 +864,7 @@ def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supp
     if _has_downside_figures(downside_financial_data, supplied_downside_values, blank_downside_periods):
         down_first = PERIOD_COLS.index(DOWNSIDE_COLS[0]) + 2
         down_last = PERIOD_COLS.index(DOWNSIDE_COLS[-1]) + 2
-        downside = LineChart()
+        downside = _column_chart()
         downside.title = "Leverage Trend (Downside)"
         downside.display_blanks = "gap"
         for label in LEVERAGE_LABELS:

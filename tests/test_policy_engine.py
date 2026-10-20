@@ -1351,6 +1351,46 @@ def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_t
     }]
 
 
+@pytest.mark.parametrize(
+    ("type_value", "expected_label"),
+    [
+        ("Corporate Guarantee", "Corporate Guarantee"),
+        ("Personal guarantee", "Personal guarantee"),
+        ("Bank GUARANTEE", "Bank GUARANTEE"),
+        ("Counter-guarantee", "Counter-guarantee"),
+        ("Guarantee", "Guarantee"),
+        ("Corporate Guarantee ", "Corporate Guarantee "),
+        ("Corporate", "Corporate Guarantee"),
+        ("Personal", "Personal Guarantee"),
+        ("Guarantee Bond", "Guarantee Bond Guarantee"),
+    ],
+    ids=[
+        "ends-with-guarantee",
+        "lower-case-guarantee",
+        "upper-case-guarantee",
+        "hyphenated-guarantee",
+        "just-guarantee",
+        "trailing-space-kept-as-written",
+        "corporate-gets-the-word",
+        "personal-gets-the-word",
+        "word-only-at-the-start-gets-the-word",
+    ],
+)
+def test_pe_guarantee_cp_does_not_repeat_a_type_that_already_ends_in_guarantee(type_value, expected_label):
+    result = evaluate_deal_policy({"guarantees": [{
+        "provider": "Synthetic Guarantor",
+        "type": type_value,
+        "amount": 500,
+    }]})
+
+    assert [
+        cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
+    ] == [{
+        "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
+        "text": f"Execution of {expected_label} by Synthetic Guarantor for 500.",
+    }]
+
+
 def test_pe_composed_standing_conditions_have_the_exact_contract_text_and_order():
     result = evaluate_deal_policy({
         "ratios": RATIOS,

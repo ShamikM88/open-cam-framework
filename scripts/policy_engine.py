@@ -349,7 +349,14 @@ def _guarantee_cps(guarantees):
 
         cp_id = _unique_id("GUARANTEE", base_slug, used_ids)
 
-        guarantee_label = f"{guarantee_type} Guarantee" if guarantee_type is not None else "Guarantee"
+        if guarantee_type is None:
+            guarantee_label = "Guarantee"
+        elif isinstance(guarantee_type, str) and guarantee_type.rstrip().lower().endswith("guarantee"):
+            # The analyst already named it a guarantee ("Corporate Guarantee"):
+            # use the type as written rather than appending the word again.
+            guarantee_label = guarantee_type
+        else:
+            guarantee_label = f"{guarantee_type} Guarantee"
 
         cps.append({
             "cp_id": cp_id,

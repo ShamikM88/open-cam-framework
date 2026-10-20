@@ -750,7 +750,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Edge rules:** an absent/blank guarantee amount reads "Unlimited Facility"; a falsy-but-real amount like 0
   is kept, never overwritten; a guarantee with no type, or a blank (empty or whitespace-only) type, reads
   "Execution of Guarantee by <provider> for <amount>." (the word "Guarantee" once), while a typed one reads
-  "Execution of <type> Guarantee by <provider> for <amount>."
+  "Execution of <type> Guarantee by <provider> for <amount>." — except that a type already ending in the word
+  "Guarantee" (any case, e.g. "Corporate Guarantee") is used as written, so the word is not repeated
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `required_conditions_precedent`

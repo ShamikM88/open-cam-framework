@@ -922,6 +922,20 @@ class TestSidebarLabels:
             f"- [\\*literal\\* and \\_text\\_]({U}/wiki/source)",
         ]
 
+    def test_nested_paren_link_destinations_fall_back_to_the_file_name(self, tmp_path):
+        # Pass-5 follow-up to CG390-5: CommonMark link destinations may
+        # nest parentheses deeper than the simple-link pattern allows;
+        # a heading carrying one falls back to the file name instead of
+        # showing raw link syntax in the label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# See [docs](https://example.test/a_(b_(c))) and more\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
     def test_markdown_significant_characters_are_escaped(self, tmp_path):
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",

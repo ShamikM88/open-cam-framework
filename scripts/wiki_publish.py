@@ -578,9 +578,10 @@ RAW_HTML_LIKE_RE = re.compile(r"<[A-Za-z/?!]")
 
 
 # A link as the label reducer sees it: [text](destination), an optional
-# quoted title, and a destination that may carry one balanced paren pair
-# (CommonMark) -- as in 'https://example.test/a_(b))' -- so the pair does
-# not end the destination early and leak a stray ')' into the label.
+# quoted title, and a destination whose parentheses are at most one
+# non-nested balanced pair -- as in 'https://example.test/a_(b))'. CommonMark
+# allows deeper nesting; a destination beyond this pattern leaves a ']('
+# behind, which _plain_text turns into the file-name label.
 LABEL_LINK_RE = re.compile(
     r"(!?)\[([^\]\n]*)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)(\s+\"[^\"]*\")?\)"
 )
@@ -595,8 +596,9 @@ def _plain_text(heading: str) -> str | None:
     only reduced at word boundaries -- an intraword underscore is content
     (``foo_bar_baz`` has no emphasis in CommonMark), while intraword asterisks
     are still emphasis. Raw inline HTML comments and open/close tags reduce
-    to the text between them; any other tag-like construct returns None, so
-    the caller falls back to the file-name label instead of a wrong label.
+    to the text between them; any other tag-like construct, or a leftover
+    '](' from a link form beyond the simple ones, returns None, so the
+    caller falls back to the file-name label instead of a wrong label.
     """
     text, code_spans, escapes = _extract_code_spans(heading)
     text = HTML_COMMENT_RE.sub("", text)
@@ -605,6 +607,12 @@ def _plain_text(heading: str) -> str | None:
         return None
     text = LABEL_LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
     text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
+    # A leftover '](' means the heading carries a link form the simple
+    # pattern above does not cover (deeper nested parens, an angle-bracket
+    # destination, a single-quoted title, ...). Fall back to the file name
+    # rather than show raw link syntax in a label.
+    if "](" in text:
+        return None
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)  # bold (asterisks; intraword is emphasis)
     text = re.sub(r"(?<!\w)__(?!\s)(.+?)(?<!\s)__(?!\w)", r"\1", text)  # bold underscores
     text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic (asterisks; intraword is emphasis)

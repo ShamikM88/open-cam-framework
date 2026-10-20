@@ -1329,7 +1329,11 @@ def test_pe_guarantee_standing_condition_uses_the_correct_identity_source(guaran
     }]
 
 
-def test_pe_guarantee_cp_defaults_type_and_uses_provider_when_explicit_id_is_blank():
+@pytest.mark.xfail(
+    strict=True,
+    reason="issue to be filed: missing guarantee type duplicates 'Guarantee' in the generated CP text",
+)
+def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text():
     result = evaluate_deal_policy({
         "guarantees": [{
             "guarantee_id": "   ",
@@ -1341,7 +1345,7 @@ def test_pe_guarantee_cp_defaults_type_and_uses_provider_when_explicit_id_is_bla
         cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
     ] == [{
         "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
-        "text": "Execution of Guarantee Guarantee by Synthetic Guarantor for Unlimited Facility.",
+        "text": "Execution of Guarantee by Synthetic Guarantor for Unlimited Facility.",
     }]
 
 

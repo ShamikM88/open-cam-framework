@@ -24,6 +24,7 @@ latest of those by comparing the date text: that is the folder the scripts read 
 rule). Read its `state.json` and note the folder.
 If found, treat every figure already recorded there as the source of truth — never re-derive a number from a summarized/compacted conversation when state.json already has it.
 If none exists, this is the first step run for this deal.
+Run `python scripts/state_manager.py --find --company "<company>" --proposal "<proposal>"` before creating anything. If it reports `record_found: false`, say plainly that no deal record exists and that this step will create a new deal under this name, and name any near matches it returned so the analyst can correct the name first. If it reports `company_folder_exists: false`, say the company folder is absent rather than offering near matches.
 
 ### Check for a persisted convention
 

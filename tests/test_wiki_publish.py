@@ -844,11 +844,13 @@ class TestSidebarLabels:
             "README.md": "# Index\n",
             "source.md": "# label `a  b` tail\n",
             "other.md": "# ` padded ` span\n",
+            "tabs.md": "# x ` \t ` y\n",
         })
         assert self.sidebar_entries(tree) == [
             f"- [Home]({U}/wiki/Home)",
             f"- [padded span]({U}/wiki/other)",
             f"- [label a  b tail]({U}/wiki/source)",
+            f"- [x \t y]({U}/wiki/tabs)",
         ]
 
     def test_an_escaped_backtick_is_literal_and_cannot_open_a_span(self, tmp_path):

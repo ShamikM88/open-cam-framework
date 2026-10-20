@@ -540,8 +540,9 @@ def _extract_code_spans(text: str) -> tuple[str, list[str]]:
             if m - k == run:
                 content = text[j:k]
                 # CommonMark: a span whose content begins and ends with a
-                # space (and is not all spaces) loses one space at each end.
-                if len(content) > 1 and content.startswith(" ") and content.endswith(" ") and content.strip():
+                # space character (and is not all spaces) loses one space
+                # at each end. Only ASCII spaces count, so a tab is content.
+                if len(content) > 1 and content[0] == " " and content[-1] == " " and content.strip(" "):
                     content = content[1:-1]
                 spans.append(content)
                 out.append(f"\x00{len(spans) - 1}\x00")

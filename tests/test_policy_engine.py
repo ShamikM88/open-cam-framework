@@ -1329,17 +1329,23 @@ def test_pe_guarantee_standing_condition_uses_the_correct_identity_source(guaran
     }]
 
 
+@pytest.mark.parametrize(
+    ("has_type", "type_value"),
+    [(False, None), (True, ""), (True, "   ")],
+    ids=["missing-type", "empty-type", "whitespace-type"],
+)
 @pytest.mark.xfail(
     strict=True,
     reason="issue to be filed: missing guarantee type duplicates 'Guarantee' in the generated CP text",
 )
-def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text():
-    result = evaluate_deal_policy({
-        "guarantees": [{
-            "guarantee_id": "   ",
-            "provider": "Synthetic Guarantor",
-        }],
-    })
+def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_type, type_value):
+    guarantee = {
+        "guarantee_id": "   ",
+        "provider": "Synthetic Guarantor",
+    }
+    if has_type:
+        guarantee["type"] = type_value
+    result = evaluate_deal_policy({"guarantees": [guarantee]})
 
     assert [
         cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")

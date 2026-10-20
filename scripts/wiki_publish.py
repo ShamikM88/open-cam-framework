@@ -457,6 +457,10 @@ def _transform_page(
 
 SIDEBAR_HEADING = "## What is in this folder"
 
+# The punctuation a backslash can escape in CommonMark: the escaped
+# character is literal text wherever it appears outside a code span.
+ESCAPABLE = frozenset(r"!\"#$%&'()*+,-./:;<=>?@[\]^_`{|}~")
+
 # An ATX level-1 heading line: up to three leading spaces (four make an
 # indented code block in CommonMark), one '#', required whitespace, heading
 # text, an optional closing '#' run. '## deeper' does not match (the
@@ -490,11 +494,20 @@ def _extract_code_spans(text: str) -> tuple[str, list[str]]:
     """Replace CommonMark code spans with placeholders; return the text and the
     stashed contents. A span opens with a backtick run and closes on the next
     run of exactly the same length (a longer run in between is content, not a
-    closer); a run with no matching closer is literal text, not a span."""
+    closer); a run with no matching closer is literal text, not a span.
+
+    Backslash-escaped punctuation is stashed too (as \\x01char\\x01): it is
+    literal text, so an escaped backtick cannot open a span and an escaped
+    emphasis marker is not emphasis. Backslashes have no effect inside a
+    span (CommonMark), so the closer search ignores them."""
     out: list[str] = []
     spans: list[str] = []
     i, n = 0, len(text)
     while i < n:
+        if text[i] == "\\" and i + 1 < n and text[i + 1] in ESCAPABLE:
+            out.append(f"\x01{text[i + 1]}\x01")
+            i += 2
+            continue
         if text[i] != "`":
             out.append(text[i])
             i += 1
@@ -569,8 +582,10 @@ def _plain_text(heading: str) -> str | None:
     text = re.sub(r"~~(.+?)~~", r"\1", text)  # strikethrough
     # Collapse whitespace before restoring the code spans: a span's content
     # is literal text, so the collapse must not reach inside it (CommonMark
-    # preserves a span's interior spacing).
+    # preserves a span's interior spacing). Escaped punctuation is restored
+    # as the literal character it renders as.
     text = " ".join(text.split())
+    text = re.sub(r"\x01(.)\x01", r"\1", text)
     text = re.sub(r"\x00(\d+)\x00", lambda m: code_spans[int(m.group(1))], text)
     return text
 

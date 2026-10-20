@@ -224,7 +224,7 @@ AUTHORISED_NO_RECORD_STOP = (
     "delegate to the Reviewer, or write anything; record nothing. Tell the analyst plainly: No deal record exists for "
     'company "<company>" and proposal "<proposal>". Check the spelling and confirm the deal has been created before '
     "reviewing it. "
-    + "Before stopping, run `python scripts/state_manager.py --find --company \"<company>\" --proposal \"<proposal>\"` and offer the near-miss candidates it returned (normalization-only matches), if any; do not invent others."
+    + "Before stopping, run python scripts/state_manager.py --find --company \"<company>\" --proposal \"<proposal>\" and offer the near-miss candidates it returned (normalization-only matches), if any; do not invent others."
     + " Do "
     "not create a deal folder or state file."
 )

@@ -10,7 +10,7 @@ from response_utils import EmptyModelResponseError, require_response_text
 
 client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
-_DEFAULT_MODEL = "claude-sonnet-5"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
 
 
 def _load_settings():

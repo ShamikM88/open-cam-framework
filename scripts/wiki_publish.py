@@ -460,8 +460,10 @@ SIDEBAR_HEADING = "## What is in this folder"
 # An ATX level-1 heading line: up to three leading spaces (four make an
 # indented code block in CommonMark), one '#', required whitespace, heading
 # text, an optional closing '#' run. '## deeper' does not match (the
-# character after the single '#' must be whitespace).
-H1_RE = re.compile(r"^ {0,3}#\s+(.*?)\s*#*\s*$")
+# character after the single '#' must be whitespace). The closing '#' run
+# only counts when whitespace precedes it (CommonMark), so '# Feature#' keeps
+# its hash as heading text while '# Feature ###' drops the run.
+H1_RE = re.compile(r"^ {0,3}#\s+(.*?)(?:[ \t]+#+[ \t]*$|[ \t]*$)")
 
 
 def _first_heading(text: str) -> str | None:

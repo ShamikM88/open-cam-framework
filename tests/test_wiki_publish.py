@@ -798,6 +798,70 @@ class TestSidebarLabels:
             f"- [The spreading workbook]({U}/wiki/source)",
         ]
 
+    def test_a_trailing_hash_without_preceding_whitespace_is_content(self, tmp_path):
+        # CG390-1: CommonMark only treats a '#' run as a closing sequence
+        # when whitespace precedes it, so the hash is heading text and the
+        # label keeps it (the escaped form needs no escaping for '#').
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Feature#\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Feature#]({U}/wiki/source)",
+        ]
+
+    def test_raw_inline_html_reduces_to_its_text(self, tmp_path):
+        # CG390-2: '<em>useful</em>' renders as emphasised 'useful', so the
+        # label is the text between the tags, not the escaped literal tags.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# A <em>useful</em> guide\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [A useful guide]({U}/wiki/source)",
+        ]
+
+    def test_spaces_inside_a_code_span_are_preserved(self, tmp_path):
+        # CG390-3: code-span content is literal text, so whitespace
+        # collapsing must not reach inside a span: 'a  b' keeps both spaces.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# label `a  b` tail\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [label a  b tail]({U}/wiki/source)",
+        ]
+
+    def test_an_escaped_backtick_is_literal_and_cannot_open_a_span(self, tmp_path):
+        # CG390-4: a backslash-escaped backtick renders as a literal
+        # backtick and is not a code-span opener, so 'Use \\`ticks and
+        # `code` title' reduces to the label below; the literal backtick is
+        # escaped again for the link label (a label-significant character).
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Use \\`ticks and `code` title\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Use \\`ticks and code title]({U}/wiki/source)",
+        ]
+
+    def test_balanced_parentheses_in_a_link_destination(self, tmp_path):
+        # CG390-5: a link destination may carry one balanced paren pair
+        # (CommonMark), so the whole '...(a_(b))' is the destination and no
+        # stray ')' leaks into the label.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# See [docs](https://example.test/a_(b)) and more\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [See docs and more]({U}/wiki/source)",
+        ]
+
     def test_markdown_significant_characters_are_escaped(self, tmp_path):
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",

@@ -1260,21 +1260,28 @@ def test_vary_colors_is_off_so_the_legend_names_the_series(tmp_path):
 def test_the_series_names_are_the_legend_entries(tmp_path):
     """Every series' name is a reference to its own label cell in column A (the
     row label the workbook already shows), so with varyColors off the legend
-    names the series. Asserted from the chart XML the saved file carries."""
+    names the series. Asserted per chart, in order, from the chart XML the
+    saved file carries (a union across charts could not tell a chart that lost
+    its series names apart from one that kept them)."""
     out_path = tmp_path / "legend.xlsx"
     export_to_xlsx("Test Co", str(out_path), downside_financial_data={"FY+1": _PERIOD_RAW})
 
     label_to_row = _label_to_row(openpyxl.load_workbook(out_path)["Financial Spreading"])
-    expected_refs = {
-        f"'Financial Spreading'!$A${label_to_row['Gross Leverage']}",
-        f"'Financial Spreading'!$A${label_to_row['Net Debt / EBITDA']}",
-        f"'Financial Spreading'!$A${label_to_row['Revenue']}",
+
+    def ref(label):
+        return f"'Financial Spreading'!$A${label_to_row[label]}"
+
+    expected = {
+        "Leverage Trend": [ref("Gross Leverage"), ref("Net Debt / EBITDA")],
+        "Revenue Trend": [ref("Revenue")],
+        "Leverage Trend (Downside)": [ref("Gross Leverage"), ref("Net Debt / EBITDA")],
     }
-    found_refs = set()
     for _xml_name, xml in _chart_xmls(out_path):
-        for match in re.finditer(r"<tx><strRef><f>([^<]+)</f></strRef></tx>", xml):
-            found_refs.add(match.group(1))
-    assert found_refs == expected_refs
+        title = re.search(r"<a:t>([^<]+)</a:t>", xml).group(1)
+        assert title in expected, f"unexpected chart title {title!r}"
+        found = [match.group(1) for match in
+                 re.finditer(r"<tx><strRef><f>([^<]+)</f></strRef></tx>", xml)]
+        assert found == expected[title], f"{title}: series names are not the label cells"
 
 
 def _export_with_downside(tmp_path, name, **kwargs):

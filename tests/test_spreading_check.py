@@ -447,3 +447,254 @@ def test_forward_only_input_on_an_analyst_supplied_deal_is_still_allowed_with_no
     assert state["financials_source"] == "analyst-supplied"
     assert state["financials"]["FY-Current"] == {"ebitda": 300, "gross_profit": 999}, "history is untouched"
     assert set(state["multi_period_financials"]) == {"FY+1"}
+
+# ---------------------------------------------------------------------------
+# Mutation-survivor contracts for plan_fields(), compute() and main().
+# The assertions pin input refusal, exact user-facing error values, deep merge
+# outcomes and the guarantee that rejected CLI inputs do not write state.
+# ---------------------------------------------------------------------------
+
+def test_sc_plan_fields_refuses_analyst_supplied_forward_periods_with_exact_reason_and_no_mutation():
+    existing = {
+        "forecast_source": "analyst-supplied",
+        "financials_source": "analyst-supplied",
+        "multi_period_financials": {"FY-Current": {"revenue": 1000}},
+    }
+    incoming = {"FY+2": {"revenue": 1250}}
+    existing_before = json.loads(json.dumps(existing))
+    incoming_before = json.loads(json.dumps(incoming))
+
+    with pytest.raises(ValueError) as caught:
+        plan_fields(existing, incoming, update_financials_source=False)
+
+    assert str(caught.value) == (
+        "This deal's forecast (FY+1 to FY+3) was supplied by the analyst and is recorded as given; "
+        "computing forward years from raw lines here would overwrite or blend it. Record forward-year "
+        "changes with scripts/supplied_forecast.py."
+    )
+    assert existing == existing_before
+    assert incoming == incoming_before
+
+
+def test_sc_plan_fields_refuses_historical_framework_computation_over_supplied_forecast_with_exact_reason():
+    existing = {"forecast_source": "analyst-supplied"}
+    incoming = {"FY-Current": {"revenue": 1000}}
+
+    with pytest.raises(ValueError) as caught:
+        plan_fields(existing, incoming, update_financials_source=True)
+
+    assert str(caught.value) == (
+        "This deal's forecast was supplied by the analyst, so its basis is analyst-supplied for the whole "
+        "deal; spreading historical years in framework-computed mode here would stamp the whole deal "
+        "framework-computed over it. Record the historical years in /spread's analyst-supplied mode."
+    )
+    assert existing == {"forecast_source": "analyst-supplied"}
+    assert incoming == {"FY-Current": {"revenue": 1000}}
+
+
+def test_sc_plan_fields_lists_all_refused_historical_periods_in_sorted_order():
+    existing = {"financials_source": "analyst-supplied"}
+    incoming = {
+        "FY-2": {"revenue": 700},
+        "FY+1": {"revenue": 1100},
+        "FY-1": {"revenue": 800},
+    }
+
+    with pytest.raises(ValueError) as caught:
+        plan_fields(existing, incoming, update_financials_source=False)
+
+    assert str(caught.value) == (
+        "This deal is analyst-supplied; one deal never mixes the two modes, "
+        "so historical periods (FY-1, FY-2) cannot be recomputed here. "
+        "Use /spread's analyst-supplied mode to record financial figures."
+    )
+    assert existing == {"financials_source": "analyst-supplied"}
+    assert incoming == {
+        "FY-2": {"revenue": 700},
+        "FY+1": {"revenue": 1100},
+        "FY-1": {"revenue": 800},
+    }
+
+
+def test_sc_plan_fields_stress_only_call_without_a_forward_period_refuses_without_changing_input():
+    existing = {
+        "multi_period_financials": {"FY-Current": {"revenue": 1000}},
+        "stress_assumptions": {"revenue_haircut_pct": 10},
+    }
+    stress = {"opex_increase_pct": 5}
+    existing_before = json.loads(json.dumps(existing))
+    stress_before = dict(stress)
+
+    with pytest.raises(ValueError) as caught:
+        plan_fields(existing, stress_assumptions=stress)
+
+    assert str(caught.value) == (
+        "Nothing to compute: --financials produced no new periods and no "
+        "stress assumptions (existing or given) produced a downside case."
+    )
+    assert existing == existing_before
+    assert stress == stress_before
+
+
+def test_sc_plan_fields_preserves_untouched_computed_period_values_when_recomputing_one_period():
+    existing = {
+        "multi_period_financials": {
+            "FY-1": {"revenue": 800, "cost_of_sales": 500},
+            "FY-Current": {"revenue": 1000, "cost_of_sales": 600},
+        },
+        "financials": {
+            "FY-1": {"revenue": 800, "gross_profit": 300, "raw": {"revenue": 800, "cost_of_sales": 500}},
+            "FY-Current": {"revenue": 1000, "gross_profit": 400, "raw": {"revenue": 1000, "cost_of_sales": 600}},
+        },
+        "ratios": {"FY-1": {"dscr": 1.4}, "FY-Current": {"dscr": 1.6}},
+    }
+
+    fields = plan_fields(existing, {"FY-Current": {"revenue": 1050}})
+
+    assert fields["multi_period_financials"] == {
+        "FY-1": {"revenue": 800, "cost_of_sales": 500},
+        "FY-Current": {"revenue": 1050, "cost_of_sales": 600},
+    }
+    assert fields["financials"]["FY-Current"]["raw"] == {"revenue": 1050, "cost_of_sales": 600}
+    assert fields["financials"]["FY-Current"]["gross_profit"] == 450
+    assert fields["financials"]["FY-1"] == existing["financials"]["FY-1"]
+    assert fields["ratios"]["FY-1"] == {"dscr": 1.4}
+
+
+@pytest.mark.parametrize(("shock", "message"), [
+    ({"revenue_haircut_pct": True},
+     "stress assumptions: revenue_haircut_pct must be a finite JSON number; found True"),
+    ({"opex_increase_pct": "5"},
+     "stress assumptions: opex_increase_pct must be a finite JSON number; found '5'"),
+    ({"revenue_haircut_pct": -1},
+     "stress assumptions: revenue_haircut_pct must be non-negative; found -1"),
+    ({"revenue_haircut_pct": 100},
+     "stress assumptions: revenue_haircut_pct must be less than 100; found 100"),
+    ({"interest_rate_bump_bps": float("inf")},
+     "non-finite numeric value at stress assumptions['interest_rate_bump_bps']: inf"),
+], ids=["boolean-is-not-a-number", "numeric-string-is-not-a-number", "negative-shock",
+        "hundred-percent-haircut", "nonfinite-shock"])
+def test_sc_compute_refuses_invalid_stress_values_before_creating_deal_state(tmp_path, monkeypatch, shock, message):
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError) as caught:
+        compute("Synthetic Co", "Credit Facility", stress_assumptions=shock)
+
+    assert str(caught.value) == message
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize(("raw_value", "expected_repr"), [
+    ("1000", "'1000'"),
+    (True, "True"),
+    (float("inf"), "inf"),
+], ids=["numeric-string", "boolean", "infinity"])
+def test_sc_main_refuses_invalid_recognized_raw_values_with_one_error_and_no_write(
+    tmp_path, monkeypatch, capsys, raw_value, expected_repr,
+):
+    monkeypatch.chdir(tmp_path)
+    financials = _json_file(tmp_path, "financials.json", {"FY+1": {"revenue": raw_value}})
+
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Co", "--proposal", "Credit Facility", "--financials", financials])
+
+    assert caught.value.code == (
+        "error: financial inputs: period 'FY+1', field 'revenue' must be a finite JSON number or null; "
+        f"found {expected_repr}"
+    )
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize(("period_value", "type_name"), [
+    ("not a period object", "str"),
+    (["revenue", 1000], "list"),
+    (1000, "int"),
+    (None, "NoneType"),
+], ids=["string-period", "list-period", "scalar-period", "null-period"])
+def test_sc_main_refuses_non_object_period_values_with_one_error_and_no_write(
+    tmp_path, monkeypatch, capsys, period_value, type_name,
+):
+    monkeypatch.chdir(tmp_path)
+    financials = _json_file(tmp_path, "financials.json", {"FY+1": period_value})
+
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Co", "--proposal", "Credit Facility", "--financials", financials])
+
+    assert caught.value.code == (
+        f"error: financial inputs: period 'FY+1' must be an object of line items; found {type_name}"
+    )
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize(("flag", "payload"), [
+    ("--financials", ["FY+1", {"revenue": 1000}]),
+    ("--stress-assumptions", ["revenue_haircut_pct", 10]),
+], ids=["financial-root-list", "stress-root-list"])
+def test_sc_main_refuses_non_object_json_roots_with_one_error_and_no_write(
+    tmp_path, monkeypatch, capsys, flag, payload,
+):
+    monkeypatch.chdir(tmp_path)
+    input_file = _json_file(tmp_path, "input.json", payload)
+
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Co", "--proposal", "Credit Facility", flag, input_file])
+
+    assert caught.value.code == f"error: {input_file} must contain a JSON object, found list"
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize(("shock", "message"), [
+    ({"revenue_haircut_pct": True},
+     "error: stress assumptions: revenue_haircut_pct must be a finite JSON number; found True"),
+    ({"opex_increase_pct": "5"},
+     "error: stress assumptions: opex_increase_pct must be a finite JSON number; found '5'"),
+    ({"opex_increase_pct": -1},
+     "error: stress assumptions: opex_increase_pct must be non-negative; found -1"),
+    ({"revenue_haircut_pct": 100},
+     "error: stress assumptions: revenue_haircut_pct must be less than 100; found 100"),
+], ids=["boolean", "string", "negative", "upper-bound"])
+def test_sc_main_refuses_invalid_stress_json_with_one_error_and_no_write(
+    tmp_path, monkeypatch, capsys, shock, message,
+):
+    monkeypatch.chdir(tmp_path)
+    stress = _json_file(tmp_path, "stress.json", shock)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--stress-assumptions", stress,
+        ])
+
+    assert caught.value.code == message
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert not (tmp_path / "deals").exists()
+
+
+def test_sc_main_reports_a_missing_stress_file_as_one_error_without_writing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    missing = str(tmp_path / "missing-stress.json")
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--stress-assumptions", missing,
+        ])
+
+    assert caught.value.code.startswith(f"error: cannot read {missing}: ")
+    assert "\n" not in caught.value.code
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert not (tmp_path / "deals").exists()
+

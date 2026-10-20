@@ -1300,6 +1300,19 @@ def test_find_cli_reports_an_unlistable_company_folder_as_one_error_line(
     assert "\n" not in str(excinfo.value)
     assert capsys.readouterr().out == ""
 
+def _find_deal_snapshot(base):
+    """Capture every path and the bytes of every existing file under a lookup root."""
+    paths = [base, *base.rglob("*")]
+    return sorted(
+        (
+            "." if path == base else str(path.relative_to(base)),
+            path.is_dir(),
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in paths
+    )
+
+
 # ---------------------------------------------------------------------------
 # Additional read-only find_deal() survivor cases (job prefix: find_deal).
 # Existing tests already pin exact matching, newest exact date, one normalized
@@ -1317,11 +1330,7 @@ def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_dat
     for proposal, dates in proposals.items():
         for date_str in dates:
             write_state(company, proposal, date_str=date_str, base_dir=base)
-    before_files = sorted(
-        str(path.relative_to(tmp_path))
-        for path in tmp_path.rglob("*")
-        if path.is_file()
-    )
+    before = _find_deal_snapshot(tmp_path)
 
     result = state_manager.find_deal(
         company, "Synthetic Alpha Capital", base_dir=base,
@@ -1357,12 +1366,8 @@ def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_dat
             },
         ],
     }
-    after_files = sorted(
-        str(path.relative_to(tmp_path))
-        for path in tmp_path.rglob("*")
-        if path.is_file()
-    )
-    assert after_files == before_files
+    after = _find_deal_snapshot(tmp_path)
+    assert after == before
 
 
 def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_path):
@@ -1371,11 +1376,7 @@ def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_pa
     deals_dir.mkdir()
     company_file = deals_dir / "Synthetic Co"
     company_file.write_text("not a directory", encoding="utf-8")
-    before = sorted(
-        str(path.relative_to(base))
-        for path in base.rglob("*")
-        if path.is_file()
-    )
+    before = _find_deal_snapshot(base)
 
     result = state_manager.find_deal(
         "Synthetic Co", "Synthetic Facility", base_dir=str(base),
@@ -1386,11 +1387,7 @@ def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_pa
         "company_folder_exists": False,
         "near_misses": [],
     }
-    after = sorted(
-        str(path.relative_to(base))
-        for path in base.rglob("*")
-        if path.is_file()
-    )
+    after = _find_deal_snapshot(base)
     assert after == before
 
 
@@ -1404,12 +1401,12 @@ def test_find_deal_does_not_treat_a_file_as_an_existing_company_directory(tmp_pa
 def test_find_deal_rejects_unsafe_path_components_without_creating_files(
     tmp_path, company, proposal, field_name,
 ):
-    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    before = _find_deal_snapshot(tmp_path)
 
     with pytest.raises(ValueError, match=field_name):
         state_manager.find_deal(company, proposal, base_dir=str(tmp_path))
 
-    after = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    after = _find_deal_snapshot(tmp_path)
     assert after == before
 
 
@@ -1419,6 +1416,7 @@ def test_find_deal_excludes_candidate_dates_that_are_not_exact_iso_shape(tmp_pat
     malformed = company_dir / "Synthetic Alpha-Capital_2026-1-10"
     malformed.mkdir(parents=True)
     (malformed / "state.json").write_text("{}", encoding="utf-8")
+    before = _find_deal_snapshot(base)
 
     result = state_manager.find_deal(
         "Synthetic Co", "Synthetic Alpha Capital", base_dir=str(base),
@@ -1429,4 +1427,6 @@ def test_find_deal_excludes_candidate_dates_that_are_not_exact_iso_shape(tmp_pat
         "company_folder_exists": True,
         "near_misses": [],
     }
+    after = _find_deal_snapshot(base)
+    assert after == before
 

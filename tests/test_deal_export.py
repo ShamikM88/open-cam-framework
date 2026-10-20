@@ -762,3 +762,224 @@ def test_financial_data_from_state_drops_supplied_forward_period_without_compute
         "FY-Current": {"revenue": 5000},
         "FY+2": {"revenue": 4800},
     }
+
+# ---------------------------------------------------------------------------
+# Mutation-survivor contracts for raw-store selection and analyst annotations.
+# Kept in this mutation-selected file even where broader integration coverage
+# lives elsewhere, because the mutation job only executes this fixed file.
+# ---------------------------------------------------------------------------
+
+def test_dx_raw_financials_projects_only_raw_values_and_keeps_empty_periods():
+    from deal_export import _raw_financials
+
+    assert _raw_financials({
+        "FY-Current": {
+            "raw": {"revenue": 0, "cost_of_sales": None},
+            "ebitda": 999,
+            "ratios": {"dscr": 2.0},
+        },
+        "FY-1": {"ebitda": 50},
+        "FY-2": None,
+        "FY+1": "malformed period record",
+    }) == {
+        "FY-Current": {"revenue": 0, "cost_of_sales": None},
+        "FY-1": {},
+        "FY-2": {},
+        "FY+1": {},
+    }
+    assert _raw_financials(None) == {}
+
+
+def test_dx_analyst_forecast_columns_returns_four_none_values_when_neither_basis_is_supplied():
+    from deal_export import _analyst_forecast_columns
+
+    assert _analyst_forecast_columns({
+        "financials": {"FY-Current": {"ebitda": 100}},
+        "ratios": {"FY-Current": {"dscr": 2.0}},
+        "downside_case": {"basis": {"FY+1": "analyst-supplied"}},
+    }) == (None, None, None, None)
+
+
+def test_dx_analyst_forecast_columns_selects_only_historical_supplied_periods_without_downside_outputs():
+    from deal_export import _analyst_forecast_columns
+
+    supplied, downside, unavailable, derived = _analyst_forecast_columns({
+        "financials_source": "analyst-supplied",
+        "forecast_source": "framework-computed",
+        "financials": {
+            "FY-2": {"ebitda": 12, "net_profit": None},
+            "FY-1": "not a period object",
+            "FY-Current": {},
+            "FY+1": {"ebitda": 999},
+        },
+        "ratios": {
+            "FY-1": {"dscr": None},
+            "FY+2": {"dscr": 2.0},
+        },
+        "downside_case": {
+            "basis": {"FY+1": "analyst-supplied"},
+            "financials": {"FY+1": {"ebitda": 50}},
+        },
+    })
+
+    assert list(supplied) == ["FY-2", "FY-1", "FY-Current"]
+    assert supplied == {
+        "FY-2": {"EBITDA": 12},
+        "FY-1": {"DSCR": "N/A"},
+        "FY-Current": {},
+    }
+    assert downside is None
+    assert unavailable is None
+    assert derived is None
+
+
+def test_dx_analyst_forecast_columns_filters_downside_basis_availability_and_numeric_raw_fields():
+    from deal_export import _analyst_forecast_columns
+
+    supplied, supplied_downside, unavailable, derived = _analyst_forecast_columns({
+        "financials_source": "analyst-supplied",
+        "forecast_source": "analyst-supplied",
+        "financials": {
+            "FY+1": {"ebitda": 101, "net_profit": None},
+            "FY+2": "malformed financials",
+            "FY+3": {},
+            "FY-1": {"ebitda": 777},
+        },
+        "ratios": {
+            "FY+1": {"dscr": 1.7},
+            "FY+2": {"current_ratio": None},
+            "FY+3": "malformed ratios",
+        },
+        "downside_case": {
+            "basis": {
+                "FY+1": "analyst-supplied",
+                "FY+2": "framework-computed",
+                "FY+3": "framework-computed",
+                "FY-1": "analyst-supplied",
+                "FY+4": "analyst-supplied",
+            },
+            "financials": {
+                "FY+1": {"ebitda": 90},
+                "FY-1": {"ebitda": 700},
+            },
+            "ratios": {"FY+1": {"dscr": None}},
+            "unavailable": {
+                "FY+2": "no positive denominator",
+                "FY-1": "not a forward period",
+                "FY+4": "outside the model horizon",
+            },
+        },
+        "analyst_supplied_financials": {
+            "FY+1": {"revenue": 111, "cash": 10},
+            "FY+2": {"revenue": 222, "flag": True},
+            "FY+3": {"revenue": 333, "cash": 0, "flag": False, "note": "not numeric"},
+            "FY+4": {"revenue": 444},
+        },
+    })
+
+    assert supplied == {
+        "FY+1": {"EBITDA": 101, "DSCR": 1.7},
+        "FY+2": {"Current Ratio": "N/A"},
+        "FY+3": {},
+    }
+    assert supplied_downside == {"FY+1": {"EBITDA": 90, "DSCR": "N/A"}}
+    assert unavailable == {"FY+2"}
+    assert derived == {"FY+3": {"revenue", "cash"}}
+
+
+def test_dx_analyst_forecast_columns_normalizes_malformed_nested_downside_and_raw_stores():
+    from deal_export import _analyst_forecast_columns
+
+    assert _analyst_forecast_columns({
+        "forecast_source": "analyst-supplied",
+        "financials": {"FY+1": []},
+        "ratios": [],
+        "downside_case": {
+            "basis": [],
+            "financials": "malformed",
+            "ratios": None,
+            "unavailable": ["FY+2"],
+        },
+        "analyst_supplied_financials": "malformed",
+    }) == (None, None, set(), {})
+
+
+def test_dx_export_preserves_supplied_forecast_values_and_distinguishes_downside_labels(tmp_path):
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "asset_finance_cam.md"))
+    write_state(
+        "Synthetic Co", "Credit Facility", date_str="2026-10-04", base_dir=base,
+        financials_source="analyst-supplied",
+        forecast_source="analyst-supplied",
+        analyst_supplied_financials={
+            "FY-Current": {"revenue": 500, "cost_of_sales": 250},
+            "FY+1": {"revenue": 888, "cost_of_sales": 444},
+        },
+        financials={
+            "FY-Current": {"ebitda": 120, "raw": {"revenue": 999}},
+            "FY+1": {"ebitda": 600, "raw": {"revenue": 999}},
+        },
+        ratios={
+            "FY+1": {"dscr": 2.2},
+        },
+        downside_case={
+            "basis": {
+                "FY+1": "analyst-supplied",
+                "FY+2": "framework-computed",
+                "FY+3": "framework-computed",
+            },
+            "financials": {
+                "FY+1": {"ebitda": 123, "raw": {"revenue": 777}},
+                "FY+3": {"raw": {"revenue": 333, "cost_of_sales": 100}},
+            },
+            "ratios": {"FY+1": {"dscr": None}},
+            "unavailable": {"FY+2": "denominator not positive"},
+        },
+    )
+
+    output_dir = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic CAM",
+        date_str="2026-10-04", base_dir=base,
+    )
+    workbook = openpyxl.load_workbook(
+        os.path.join(output_dir, "Synthetic Co_Credit Facility_Spreading.xlsx"),
+    )
+    sheet = workbook["Financial Spreading"]
+    row_by_label = {
+        sheet.cell(row=row, column=1).value: row
+        for row in range(1, sheet.max_row + 1)
+    }
+
+    assert sheet.cell(row=1, column=4).value == "FY-Current (analyst-supplied)"
+    assert sheet.cell(row=1, column=5).value == "FY+1 (analyst-supplied)"
+    assert sheet.cell(row=1, column=8).value == "FY+1 (Downside, analyst-supplied)"
+    assert sheet.cell(row=1, column=9).value == "FY+2 (Downside, unavailable)"
+    assert sheet.cell(row=row_by_label["Revenue"], column=5).value == 888
+    assert sheet.cell(row=row_by_label["Revenue"], column=5).value != 999
+    assert sheet.cell(row=row_by_label["EBITDA"], column=5).value == 600
+    assert sheet.cell(row=row_by_label["DSCR"], column=5).value == 2.2
+    assert sheet.cell(row=row_by_label["EBITDA"], column=8).value == 123
+    assert sheet.cell(row=row_by_label["DSCR"], column=8).value == "N/A"
+    assert sheet.cell(row=row_by_label["Revenue"], column=9).value is None
+
+
+def test_dx_cli_rejects_non_utf8_draft_as_one_error_without_creating_outputs(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "draft.md"
+    draft.write_bytes(b"\xffnot UTF-8")
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--draft", str(draft),
+        ])
+
+    assert str(caught.value.code) == (
+        "error: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte"
+    )
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()
+

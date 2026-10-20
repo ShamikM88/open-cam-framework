@@ -1334,10 +1334,6 @@ def test_pe_guarantee_standing_condition_uses_the_correct_identity_source(guaran
     [(False, None), (True, ""), (True, "   ")],
     ids=["missing-type", "empty-type", "whitespace-type"],
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="#391: a guarantee with no (or blank) type generates 'Guarantee Guarantee' in the CP text",
-)
 def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_type, type_value):
     guarantee = {
         "guarantee_id": "   ",

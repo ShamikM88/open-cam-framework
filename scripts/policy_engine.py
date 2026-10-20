@@ -351,9 +351,10 @@ def _guarantee_cps(guarantees):
 
         if guarantee_type is None:
             guarantee_label = "Guarantee"
-        elif isinstance(guarantee_type, str) and guarantee_type.rstrip().lower().endswith("guarantee"):
-            # The analyst already named it a guarantee ("Corporate Guarantee"):
-            # use the type as written rather than appending the word again.
+        elif isinstance(guarantee_type, str) and "guarantee" in guarantee_type.lower():
+            # The analyst already named it a guarantee ("Corporate Guarantee",
+            # "Guarantee Bond"): use the type as written rather than appending
+            # the word again.
             guarantee_label = guarantee_type
         else:
             guarantee_label = f"{guarantee_type} Guarantee"

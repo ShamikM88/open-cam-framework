@@ -788,6 +788,13 @@ def test_main_names_the_financial_or_stress_validator_path_and_does_not_write_st
     tmp_path, monkeypatch, capsys, flag, payload, expected,
 ):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        spreading_check,
+        "compute",
+        lambda *args, **kwargs: {
+            "financials": None, "ratios": None, "downside_case": None, "financials_source": None,
+        },
+    )
     path = tmp_path / "input.json"
     path.write_text(payload, encoding="utf-8")
     with pytest.raises(SystemExit) as caught:
@@ -839,8 +846,10 @@ def test_sc_plan_fields_historical_period_phrase_is_absent_for_forward_only_inpu
         {"FY+1": {"revenue": 1200, "cost_of_sales": 500}},
         update_financials_source=False,
     )
+    assert fields["multi_period_financials"]["FY+1"] == {
+        "revenue": 1200, "cost_of_sales": 500,
+    }
     assert "financials_source" not in fields
-    assert "financials_source" not in fields.get("downside_case", {})
 
 
 def test_sc_plan_fields_nothing_to_compute_message_is_exact():

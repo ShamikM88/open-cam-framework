@@ -160,7 +160,8 @@ workbook can see exactly how each figure was derived and re-check it. A second s
 that exact layout, so you can inspect the format without running any code.
 
 The Financial Spreading sheet also carries **native Excel charts** below the table: a
-leverage line chart (Gross Leverage and Net Debt / EBITDA) and a revenue bar chart. They are
+leverage chart (Gross Leverage and Net Debt / EBITDA) and a revenue chart, both
+clustered column charts. They are
 anchored at a cell derived from the table's last row (plus a margin), and every series, legend
 title and category label references the workbook's own cells, so the charts always show what
 the sheet shows -- nothing is copied in. These two charts cover the historical and forward
@@ -176,11 +177,14 @@ category labels. There is no downside revenue chart. A downside that is not cont
 example FY+1 and FY+3 but no FY+2) is not truncated: the chart still spans H to J and the
 period without figures is left as a gap.
 
-`displayBlanksAs="gap"` is set explicitly on every chart, so a blank cell is configured
-to render as a gap rather than a zero. (How Excel actually draws a cell whose formula
-evaluates to the workbook's `"N/A"` marker -- e.g. a zero-EBITDA period's leverage
-ratios -- is being verified by hand in Excel; the configuration is asserted in tests, the
-drawing is not.)
+`displayBlanksAs="gap"` is set explicitly on every chart, so a truly blank cell is
+configured to render as a gap rather than a zero. A cell whose formula evaluates to the
+workbook's `"N/A"` marker (e.g. a zero-EBITDA period's leverage ratios) is not a blank:
+in a column chart it draws as an empty slot, a zero-height column, and it is never plotted
+as a zero-valued point on a curve. Both axes of every chart are explicitly kept visible
+and `varyColors` is off, so the legend names the series rather than one colour per period
+(how Excel actually draws these settings is the maintainer's check, re-run after this
+change; the configuration is asserted in tests, the drawing is not).
 
 > **Custom spreading templates:** if your organization already has a standard spreading Excel
 > template, that's on the roadmap to support directly (see the roadmap in the README) — it would live alongside the

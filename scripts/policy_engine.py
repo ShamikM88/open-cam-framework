@@ -335,7 +335,9 @@ def _guarantee_cps(guarantees):
     cps = []
     for guarantee in guarantees:
         provider = guarantee.get("provider", "")
-        guarantee_type = guarantee.get("type", "Guarantee")
+        guarantee_type = guarantee.get("type")
+        if isinstance(guarantee_type, str) and not guarantee_type.strip():
+            guarantee_type = None
         amount = guarantee.get("amount")
         # Only an absent/blank amount means "no cap specified" -- a
         # legitimate falsy amount like 0 must not be overwritten with
@@ -347,9 +349,11 @@ def _guarantee_cps(guarantees):
 
         cp_id = _unique_id("GUARANTEE", base_slug, used_ids)
 
+        guarantee_label = f"{guarantee_type} Guarantee" if guarantee_type is not None else "Guarantee"
+
         cps.append({
             "cp_id": cp_id,
-            "text": f"Execution of {guarantee_type} Guarantee by {provider} for {amount}.",
+            "text": f"Execution of {guarantee_label} by {provider} for {amount}.",
         })
     return cps
 

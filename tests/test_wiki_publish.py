@@ -714,15 +714,51 @@ class TestSidebarLabels:
         ]
 
     def test_a_heading_inside_a_fenced_code_block_is_not_a_first_heading(self, tmp_path):
-        # the only level-1 heading line sits inside a fenced code block, so the
-        # page has no first heading and falls back to its file name
+        # the first level-1 line sits inside a fenced code block; the page's
+        # real first heading follows the fence and is the label
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",
-            "source.md": "## Level two only\n\n```\n# Not a heading\n```\n",
+            "source.md": "## Level two only\n\n```\n# Not a heading\n```\n\n# The real heading\n",
         })
         assert self.sidebar_entries(tree) == [
             f"- [Home]({U}/wiki/Home)",
-            f"- [source]({U}/wiki/source)",
+            f"- [The real heading]({U}/wiki/source)",
+        ]
+
+    def test_code_span_contents_survive_markup_reduction(self, tmp_path):
+        # an underscore inside a code span is content, not emphasis; a shorter
+        # backtick run inside a longer span stays in the label (escaped)
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Reads `state_json` and ``a`b``\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Reads state\\_json and a\\`b]({U}/wiki/source)",
+        ]
+
+    def test_html_and_emphasis_characters_are_escaped(self, tmp_path):
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Use `<item>` & `a*b`\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [Use \\<item\\> \\& a\\*b]({U}/wiki/source)",
+        ]
+
+    def test_an_indented_level_one_heading_is_used(self, tmp_path):
+        # up to three leading spaces is still an ATX heading in CommonMark;
+        # four make an indented code block, so that page has no first heading
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "  # The real page title\n",
+            "other.md": "    # Four spaces is code, not a heading\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [other]({U}/wiki/other)",
+            f"- [The real page title]({U}/wiki/source)",
         ]
 
     def test_a_page_with_no_first_heading_falls_back_to_its_file_name(self, tmp_path):
@@ -1016,7 +1052,9 @@ class TestPublish:
 
     def test_an_identical_republish_makes_no_new_commit(self, tmp_path, capsys):
         remote = self.bare_remote(tmp_path)
-        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n"})
+        make_corpus(tmp_path, {"README.md": "# Index\n", "source.md": "# S\n",
+                               "examples/synthetic_co/brief.md": "# Research Brief - Synthetic Co\n",
+                               "examples/synthetic_co/draft.md": "# Credit Assessment Memorandum - Synthetic Co\n"})
         assert self.publish(tmp_path, remote, sha=self.SHA1) == 0
         head, count = self.remote_head(remote), self.remote_commit_count(remote)
         capsys.readouterr()

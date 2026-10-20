@@ -457,10 +457,11 @@ def _transform_page(
 
 SIDEBAR_HEADING = "## What is in this folder"
 
-# An ATX level-1 heading line: one '#', required whitespace, heading text, an
-# optional closing '#' run. '## deeper' does not match (the character after the
-# single '#' must be whitespace).
-H1_RE = re.compile(r"^#\s+(.*?)\s*#*\s*$")
+# An ATX level-1 heading line: up to three leading spaces (four make an
+# indented code block in CommonMark), one '#', required whitespace, heading
+# text, an optional closing '#' run. '## deeper' does not match (the
+# character after the single '#' must be whitespace).
+H1_RE = re.compile(r"^ {0,3}#\s+(.*?)\s*#*\s*$")
 
 
 def _first_heading(text: str) -> str | None:
@@ -484,20 +485,38 @@ def _first_heading(text: str) -> str | None:
 
 
 def _plain_text(heading: str) -> str:
-    """Heading text with inline markup reduced to plain text."""
-    text = LINK_RE.sub(r"\2", heading)  # [text](target) and images -> text
+    """Heading text with inline markup reduced to plain text.
+
+    Code spans are stashed first and restored last, so their contents are
+    literal text: an underscore inside `` `snake_case` `` is content, not
+    emphasis, and a shorter backtick run inside a longer span stays put.
+    """
+    code_spans: list[str] = []
+
+    def _stash_code(match: re.Match) -> str:
+        code_spans.append(match.group(2))
+        return f"\x00{len(code_spans) - 1}\x00"
+
+    text = re.sub(r"(`+)(.+?)\1", _stash_code, heading)  # code spans -> placeholders
+    text = LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
     text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
     text = re.sub(r"(\*\*|__)(.+?)\1", r"\2", text)  # bold
     text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic
     text = re.sub(r"_([^_\n]+)_", r"\1", text)  # italic
     text = re.sub(r"~~(.+?)~~", r"\1", text)  # strikethrough
-    text = re.sub(r"`+([^`]*)`+", r"\1", text)  # code spans
+    text = re.sub(r"\x00(\d+)\x00", lambda m: code_spans[int(m.group(1))], text)
     return " ".join(text.split())
+
+
+# The characters that can change how a Markdown link label renders: the label
+# delimiters, the escape character itself, and the inline-markup and HTML
+# metacharacters (backticks, emphasis, strikethrough, autolinks/entities).
+LABEL_ESCAPE_RE = re.compile(r"[\\\[\]`<>*_&~]")
 
 
 def _escape_label(label: str) -> str:
     """Escape the characters that are significant inside a Markdown link label."""
-    return label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+    return LABEL_ESCAPE_RE.sub(lambda m: f"\\{m.group(0)}", label)
 
 
 def _sidebar(

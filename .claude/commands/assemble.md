@@ -21,6 +21,7 @@ two-digit day); ignore every other folder, including another proposal that merel
 latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
 rule). Read its `state.json` and note the folder.
 If found, it may already hold the outputs of `/triage`, `/spread`, `/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous session, or from after a context compaction. Treat it as the source of truth for any figure it has recorded; never fall back to a summarized/compacted memory of a step when state.json already has that step's result.
+**No matching record is a stop, not an empty record.** Run `python scripts/state_manager.py --find --company "<company>" --proposal "<proposal>"` first. If it reports `record_found: false`, stop and tell the analyst plainly: `No deal record exists for company "<company>" and proposal "<proposal>". Check the spelling and confirm the deal has been created before running this step.` Offer the near-miss candidates it returned, if any; do not invent others. Do not create a deal folder or state file. If it reports `company_folder_exists: false`, say the company folder is absent rather than offering near matches.
 
 ### Analyst-defined terms
 

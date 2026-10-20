@@ -51,8 +51,7 @@ rule). Read its `state.json` (you need its `review_trail` and `steps_completed` 
 **No matching record is a stop, not an empty record.** If `--company`/`--proposal` were given and no matching dated
 `state.json` exists, **stop here, before the reviewer-view export and before step 3**. Do not run `policy_check.py`, delegate to
 the Reviewer, or write anything; record nothing. Tell the analyst plainly: `No deal record exists for company "<company>" and
-proposal "<proposal>". Check the spelling and confirm the deal has been created before reviewing it.` This command has no
-supported listing of a company's existing deals, so do not invent a list. Do not create a deal folder or state file.
+proposal "<proposal>". Check the spelling and confirm the deal has been created before reviewing it.` Before stopping, run `python scripts/state_manager.py --find --company "<company>" --proposal "<proposal>"` and offer the near-miss candidates it returned (normalization-only matches), if any; do not invent others. Do not create a deal folder or state file.
 
 Run `python scripts/state_manager.py --export-reviewer-view --company "<company>" --proposal "<proposal>"`. It writes
 `review_view/state_for_review.json` (the deal record without `review_trail` and `review_verdict`) and

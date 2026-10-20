@@ -1,7 +1,7 @@
 ---
 description: Standalone research deliverable -- legal identity/Go-No-Go screen plus company/sector/competitive research, no financial spreading (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [registration number, credit bureau summary, charges register] [sector, management bios, customer/supplier notes]"
-allowed-tools: AskUserQuestion, Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *)
+allowed-tools: AskUserQuestion, Bash(python scripts/research_export.py *), Bash(python scripts/source_manifest.py *), Bash(python scripts/state_manager.py *)
 disable-model-invocation: true
 ---
 
@@ -30,6 +30,7 @@ latest of those by comparing the date text: that is the folder the scripts read 
 rule). Read its `state.json` and note the folder.
 If found, treat every fact already recorded there as the source of truth — never re-derive something from a summarized/compacted conversation when state.json already has it.
 If none exists, this is the first step run for this deal.
+Run `python scripts/state_manager.py --find --company "<company>" --proposal "<proposal>"` before creating anything. If it reports `record_found: false`, say plainly that no deal record exists and that this step will create a new deal under this name, and name any near matches it returned so the analyst can correct the name first.
 
 ### Analyst-defined terms
 

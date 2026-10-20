@@ -484,25 +484,62 @@ def _first_heading(text: str) -> str | None:
     return None
 
 
+def _extract_code_spans(text: str) -> tuple[str, list[str]]:
+    """Replace CommonMark code spans with placeholders; return the text and the
+    stashed contents. A span opens with a backtick run and closes on the next
+    run of exactly the same length (a longer run in between is content, not a
+    closer); a run with no matching closer is literal text, not a span."""
+    out: list[str] = []
+    spans: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != "`":
+            out.append(text[i])
+            i += 1
+            continue
+        j = i
+        while j < n and text[j] == "`":
+            j += 1
+        run = j - i
+        k = j
+        while k < n:
+            if text[k] != "`":
+                k += 1
+                continue
+            m = k
+            while m < n and text[m] == "`":
+                m += 1
+            if m - k == run:
+                spans.append(text[j:k])
+                out.append(f"\x00{len(spans) - 1}\x00")
+                k = m
+                break
+            k = m  # a run of another length is content, not a closer
+        else:
+            out.append(text[i:j])  # no matching closer: the run is literal
+            i = j
+            continue
+        i = k
+    return "".join(out), spans
+
+
 def _plain_text(heading: str) -> str:
     """Heading text with inline markup reduced to plain text.
 
     Code spans are stashed first and restored last, so their contents are
     literal text: an underscore inside `` `snake_case` `` is content, not
-    emphasis, and a shorter backtick run inside a longer span stays put.
+    emphasis, and backticks inside a span stay put. Underscore emphasis is
+    only reduced at word boundaries -- an intraword underscore is content
+    (``foo_bar_baz`` has no emphasis in CommonMark), while intraword asterisks
+    are still emphasis.
     """
-    code_spans: list[str] = []
-
-    def _stash_code(match: re.Match) -> str:
-        code_spans.append(match.group(2))
-        return f"\x00{len(code_spans) - 1}\x00"
-
-    text = re.sub(r"(`+)(.+?)\1", _stash_code, heading)  # code spans -> placeholders
+    text, code_spans = _extract_code_spans(heading)
     text = LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
     text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
-    text = re.sub(r"(\*\*|__)(.+?)\1", r"\2", text)  # bold
-    text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic
-    text = re.sub(r"_([^_\n]+)_", r"\1", text)  # italic
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)  # bold (asterisks; intraword is emphasis)
+    text = re.sub(r"(?<!\w)__(?!\s)(.+?)(?<!\s)__(?!\w)", r"\1", text)  # bold underscores
+    text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic (asterisks; intraword is emphasis)
+    text = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"\1", text)  # italic underscores
     text = re.sub(r"~~(.+?)~~", r"\1", text)  # strikethrough
     text = re.sub(r"\x00(\d+)\x00", lambda m: code_spans[int(m.group(1))], text)
     return " ".join(text.split())

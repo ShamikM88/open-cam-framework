@@ -727,14 +727,29 @@ class TestSidebarLabels:
 
     def test_code_span_contents_survive_markup_reduction(self, tmp_path):
         # an underscore inside a code span is content, not emphasis; a shorter
-        # backtick run inside a longer span stays in the label (escaped)
+        # backtick run inside a longer span stays in the label (escaped); a
+        # span closes only on a run of exactly its opening length
         tree = make_corpus(tmp_path, {
             "README.md": "# Index\n",
             "source.md": "# Reads `state_json` and ``a`b``\n",
+            "other.md": "# Use `a``b` and `a`b`\n",
         })
         assert self.sidebar_entries(tree) == [
             f"- [Home]({U}/wiki/Home)",
+            f"- [Use a\\`\\`b and ab\\`]({U}/wiki/other)",
             f"- [Reads state\\_json and a\\`b]({U}/wiki/source)",
+        ]
+
+    def test_intraword_underscores_are_content_not_emphasis(self, tmp_path):
+        # foo_bar_baz carries no emphasis in CommonMark (underscores only
+        # emphasise at word boundaries), so the label keeps them (escaped)
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# foo_bar_baz and _emphasised_\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [foo\\_bar\\_baz and emphasised]({U}/wiki/source)",
         ]
 
     def test_html_and_emphasis_characters_are_escaped(self, tmp_path):

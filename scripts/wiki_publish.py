@@ -457,6 +457,197 @@ def _transform_page(
 
 SIDEBAR_HEADING = "## What is in this folder"
 
+# The punctuation a backslash can escape in CommonMark: the escaped
+# character is literal text wherever it appears outside a code span.
+ESCAPABLE = frozenset(r"!\"#$%&'()*+,-./:;<=>?@[\]^_`{|}~")
+
+# An ATX level-1 heading line: up to three leading spaces (four make an
+# indented code block in CommonMark), one '#', required whitespace, then
+# the heading text with trailing spaces/tabs removed. '## deeper' does not
+# match (the character after the single '#' must be whitespace). The
+# optional closing '#' run is stripped separately (CLOSING_HASHES_RE) so it
+# only counts when whitespace precedes it: '# Feature#' keeps its hash as
+# heading text while '# Feature ###' drops the run.
+H1_RE = re.compile(r"^ {0,3}#\s+(.*?)[ \t]*$")
+
+# A closing '#' run: whitespace, the hashes, nothing after but spaces/tabs
+# (CommonMark: the run must be preceded by spaces or tabs, followed by
+# spaces or tabs only).
+CLOSING_HASHES_RE = re.compile(r"[ \t]+#+[ \t]*$")
+
+# A heading whose entire text is one '#' run ('# ###', '# #') is empty: the
+# run is a closing sequence preceded by the opening whitespace, so the
+# page falls back to its file name; '# ### ###' keeps the first run.
+HASH_RUN_RE = re.compile(r"#+")
+
+
+def _first_heading(text: str) -> str | None:
+    """The page's own first ATX level-1 heading, as plain text, or None.
+
+    The first level-1 heading line outside any fenced code block, trailing '#'
+    and surrounding whitespace removed, inline markup (links, code spans,
+    bold/italic markers) reduced to plain text and whitespace collapsed. A
+    page whose only level-1 line sits inside a fenced code block, or that has
+    none, has no first heading (the sidebar then falls back to the file name).
+    """
+    for _line_no, line, in_fence in _lines_with_fences(text.replace("\r\n", "\n").split("\n")):
+        if in_fence:
+            continue
+        match = H1_RE.match(line)
+        if match is None:
+            continue
+        if HASH_RUN_RE.fullmatch(match.group(1)):
+            return None
+        plain = _plain_text(CLOSING_HASHES_RE.sub("", match.group(1)))
+        return plain or None
+    return None
+
+
+def _extract_code_spans(text: str) -> tuple[str, list[str], list[str]]:
+    """Replace CommonMark code spans with placeholders; return the text, the
+    stashed contents and the stashed backslash-escaped characters. A span
+    opens with a backtick run and closes on the next run of exactly the same
+    length (a longer run in between is content, not a closer); a run with no
+    matching closer is literal text, not a span.
+
+    Backslash-escaped punctuation is stashed too (as numeric \\x01N\\x01
+    placeholders, so the literal character is invisible to the later markup
+    reductions): an escaped backtick cannot open a span, an escaped marker
+    is not markup, and no backslash leaks into the label. Backslashes have
+    no effect inside a span (CommonMark), so the closer search ignores them.
+    """
+    out: list[str] = []
+    spans: list[str] = []
+    escapes: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "\\" and i + 1 < n and text[i + 1] in ESCAPABLE:
+            escapes.append(text[i + 1])
+            out.append(f"\x01{len(escapes) - 1}\x01")
+            i += 2
+            continue
+        if text[i] != "`":
+            out.append(text[i])
+            i += 1
+            continue
+        j = i
+        while j < n and text[j] == "`":
+            j += 1
+        run = j - i
+        k = j
+        while k < n:
+            if text[k] != "`":
+                k += 1
+                continue
+            m = k
+            while m < n and text[m] == "`":
+                m += 1
+            if m - k == run:
+                content = text[j:k]
+                # CommonMark: a span whose content begins and ends with a
+                # space character (and is not all spaces) loses one space
+                # at each end. Only ASCII spaces count, so a tab is content.
+                if len(content) > 1 and content[0] == " " and content[-1] == " " and content.strip(" "):
+                    content = content[1:-1]
+                spans.append(content)
+                out.append(f"\x00{len(spans) - 1}\x00")
+                k = m
+                break
+            k = m  # a run of another length is content, not a closer
+        else:
+            out.append(text[i:j])  # no matching closer: the run is literal
+            i = j
+            continue
+        i = k
+    return "".join(out), spans, escapes
+
+
+# Raw inline HTML, reduced to its rendered text: comments and open/close
+# tags render as nothing, so the label keeps only the text between them.
+# A quoted attribute value may contain '>' or '<', so values are matched
+# whole rather than ending the tag at the first '>' inside quotes. A
+# comment may span lines (DOTALL), which for a heading is moot (headings are
+# single lines) but keeps the pattern honest about what it claims to match.
+# Attribute names and unquoted values follow CommonMark's grammar exactly:
+# a quote or slash in a name (or '='/'<'/'>' in a bare value) makes the tag
+# invalid raw HTML, which is literal text -- the file-name fallback, never a
+# wrong label from silently stripping it.
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_HTML_ATTR = r"[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"'=<>`]+))?"
+# Opening tags carry attributes and may self-close; closing tags never do
+# (CommonMark), so the two forms are matched separately.
+HTML_TAG_RE = re.compile(
+    rf"<[A-Za-z][A-Za-z0-9-]*(?:\s+{_HTML_ATTR})*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>"
+)
+
+# A '<' that still starts something tag-like after the two forms above were
+# removed is a raw-HTML construct this reducer does not know how to render
+# (a processing instruction, declaration, autolink, ...): fail safe by giving
+# the page its file-name label rather than guess at a wrong one.
+RAW_HTML_LIKE_RE = re.compile(r"<[A-Za-z/?!]")
+
+
+# A link as the label reducer sees it: [text](destination), an optional
+# quoted title, and a destination whose parentheses are at most one
+# non-nested balanced pair -- as in 'https://example.test/a_(b))'. CommonMark
+# allows deeper nesting; a destination beyond this pattern leaves a ']('
+# behind, which _plain_text turns into the file-name label.
+LABEL_LINK_RE = re.compile(
+    r"(!?)\[([^\]\n]*)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)(\s+\"[^\"]*\")?\)"
+)
+
+
+def _plain_text(heading: str) -> str | None:
+    """Heading text with inline markup reduced to plain text, or None.
+
+    Code spans are stashed first and restored last, so their contents are
+    literal text: an underscore inside `` `snake_case` `` is content, not
+    emphasis, and backticks inside a span stay put. Underscore emphasis is
+    only reduced at word boundaries -- an intraword underscore is content
+    (``foo_bar_baz`` has no emphasis in CommonMark), while intraword asterisks
+    are still emphasis. Raw inline HTML comments and open/close tags reduce
+    to the text between them; any other tag-like construct, or a leftover
+    '](' from a link form beyond the simple ones, returns None, so the
+    caller falls back to the file-name label instead of a wrong label.
+    """
+    text, code_spans, escapes = _extract_code_spans(heading)
+    text = HTML_COMMENT_RE.sub("", text)
+    text = HTML_TAG_RE.sub("", text)
+    if RAW_HTML_LIKE_RE.search(text):
+        return None
+    text = LABEL_LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
+    text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
+    # A leftover '](' means the heading carries a link form the simple
+    # pattern above does not cover (deeper nested parens, an angle-bracket
+    # destination, a single-quoted title, ...). Fall back to the file name
+    # rather than show raw link syntax in a label.
+    if "](" in text:
+        return None
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)  # bold (asterisks; intraword is emphasis)
+    text = re.sub(r"(?<!\w)__(?!\s)(.+?)(?<!\s)__(?!\w)", r"\1", text)  # bold underscores
+    text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic (asterisks; intraword is emphasis)
+    text = re.sub(r"(?<!\w)_([^_\n]+)_(?!\w)", r"\1", text)  # italic underscores
+    text = re.sub(r"~~(.+?)~~", r"\1", text)  # strikethrough
+    # Collapse whitespace before restoring the code spans: a span's content
+    # is literal text, so the collapse must not reach inside it (CommonMark
+    # preserves a span's interior spacing). Escaped punctuation is restored
+    # as the literal character it renders as.
+    text = " ".join(text.split())
+    text = re.sub(r"\x01(\d+)\x01", lambda m: escapes[int(m.group(1))], text)
+    text = re.sub(r"\x00(\d+)\x00", lambda m: code_spans[int(m.group(1))], text)
+    return text
+
+
+# The characters that can change how a Markdown link label renders: the label
+# delimiters, the escape character itself, and the inline-markup and HTML
+# metacharacters (backticks, emphasis, strikethrough, autolinks/entities).
+LABEL_ESCAPE_RE = re.compile(r"[\\\[\]`<>*_&~]")
+
+
+def _escape_label(label: str) -> str:
+    """Escape the characters that are significant inside a Markdown link label."""
+    return LABEL_ESCAPE_RE.sub(lambda m: f"\\{m.group(0)}", label)
+
 
 def _sidebar(
     root: Path, page_names: dict[str, str], page_texts: dict[str, str], repo_url: str
@@ -464,10 +655,16 @@ def _sidebar(
     """The `_Sidebar.md` content: the docs index's reading order.
 
     The docs index table is the sidebar's source: Home first, then one link
-    per row, in the order the table gives. Every top-level page must be in
-    the table (the repository's own index contract); the two example pages
-    under `docs/examples/` are published pages but deliberately not index
-    rows, so they appear in the wiki without a sidebar entry.
+    per row, in the order the table gives. Home keeps its label; every other
+    entry's label is its page's OWN first heading (the first ATX level-1
+    heading line outside any fenced code block, markup reduced to plain text,
+    Markdown-significant characters escaped), never a hard-coded name; a page
+    with no first heading falls back to its file name. Link targets and order
+    are the table's. The pages published from `docs/examples/` close the
+    sidebar as a short "Examples" group, each labelled from its own first
+    heading (identical labels disambiguated minimally by their file names);
+    they are published pages but deliberately not index rows in
+    `docs/README.md`, so the group is the only place the sidebar names them.
     """
     lines = page_texts["docs/README.md"].replace("\r\n", "\n").split("\n")
     try:
@@ -488,7 +685,7 @@ def _sidebar(
         raise WikiPublishError(
             "docs/README.md: no 'What is in this folder' index table to build the sidebar from"
         )
-    entries: list[str] = ["Home"]
+    entries: list[tuple[str, str]] = [("Home", "Home")]
     table_rels: list[str] = []
     for row_no, (line_no, row) in enumerate(table):
         if set(row) <= {"|", " ", ":", "-"}:
@@ -510,7 +707,8 @@ def _sidebar(
                 "published page"
             )
         table_rels.append(relative)
-        entries.append(page_names[relative])
+        label = _first_heading(page_texts[relative]) or Path(relative).stem
+        entries.append((label, page_names[relative]))
     top_level = {
         relative
         for relative in page_names
@@ -522,7 +720,22 @@ def _sidebar(
             "docs/README.md: page(s) missing from the 'What is in this folder' index table: "
             + ", ".join(sorted(missing))
         )
-    body = "\n".join(f"- [{name}]({repo_url}/wiki/{name})" for name in entries)
+    lines = [f"- [{_escape_label(label)}]({repo_url}/wiki/{name})" for label, name in entries]
+    examples = sorted(relative for relative in page_names if relative.startswith("docs/examples/"))
+    if examples:
+        example_labels = {relative: _first_heading(page_texts[relative]) or Path(relative).stem
+                          for relative in examples}
+        duplicated = {label for label in example_labels.values()
+                      if list(example_labels.values()).count(label) > 1}
+        lines.append("")
+        lines.append("**Examples**")
+        lines.append("")
+        for relative in examples:
+            label = example_labels[relative]
+            if label in duplicated:  # disambiguate identical labels minimally
+                label = f"{label} ({Path(relative).stem})"
+            lines.append(f"- [{_escape_label(label)}]({repo_url}/wiki/{page_names[relative]})")
+    body = "\n".join(lines)
     return notice_for("docs/README.md") + "\n\n" + body + "\n"
 
 

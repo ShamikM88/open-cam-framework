@@ -1448,3 +1448,71 @@ def test_pe_precedent_conditions_keep_standard_security_then_guarantee_order_and
         },
     ]
 
+@pytest.mark.parametrize(("downside_period_ratios", "reason"), [
+    ({}, "metric 'dscr' is not among this period's computed ratios"),
+    ({"dscr": None}, "dscr has no computed value for this period"),
+], ids=["ratio-key-absent", "ratio-value-null"])
+def test_pe_downside_base_pass_with_missing_stress_ratio_is_an_unresolvable_breach(downside_period_ratios, reason):
+    breaches = _evaluate_downside_covenants(
+        [{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+        {"FY+1": {"dscr": 2.0}},
+        {"FY+1": downside_period_ratios},
+    )
+
+    assert breaches == [{
+        "year": "FY+1",
+        "metric": "dscr",
+        "base_actual": 2.0,
+        "downside_actual": None,
+        "threshold": 1.25,
+        "breach_id": "DOWNSIDE-FY-1-DSCR",
+        "downside_status": "UNRESOLVABLE",
+        "reason": reason,
+    }]
+
+
+def test_pe_downside_breach_results_are_sorted_by_period_not_input_mapping_order():
+    breaches = _evaluate_downside_covenants(
+        [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+        {
+            "FY+2": {"gross_leverage": 2.0},
+            "FY+1": {"gross_leverage": 2.0},
+        },
+        {
+            "FY+2": {"gross_leverage": 5.0},
+            "FY+1": {"gross_leverage": 5.0},
+        },
+    )
+
+    assert [(breach["year"], breach["breach_id"]) for breach in breaches] == [
+        ("FY+1", "DOWNSIDE-FY-1-GROSS-LEVERAGE"),
+        ("FY+2", "DOWNSIDE-FY-2-GROSS-LEVERAGE"),
+    ]
+
+
+def test_pe_guarantee_cps_avoid_natural_slug_collision_with_an_earlier_numeric_suffix():
+    result = evaluate_deal_policy({
+        "guarantees": [
+            {"provider": "Acme Corp", "type": "Corporate", "amount": 10},
+            {"provider": "Acme Corp", "type": "Corporate", "amount": 20},
+            {"provider": "Acme Corp 2", "type": "Corporate", "amount": 30},
+        ],
+    })
+
+    assert [
+        cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
+    ] == [
+        {
+            "cp_id": "GUARANTEE-ACME-CORP",
+            "text": "Execution of Corporate Guarantee by Acme Corp for 10.",
+        },
+        {
+            "cp_id": "GUARANTEE-ACME-CORP-2",
+            "text": "Execution of Corporate Guarantee by Acme Corp for 20.",
+        },
+        {
+            "cp_id": "GUARANTEE-ACME-CORP-2-2",
+            "text": "Execution of Corporate Guarantee by Acme Corp 2 for 30.",
+        },
+    ]
+

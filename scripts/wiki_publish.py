@@ -525,17 +525,36 @@ def _extract_code_spans(text: str) -> tuple[str, list[str]]:
     return "".join(out), spans
 
 
-def _plain_text(heading: str) -> str:
-    """Heading text with inline markup reduced to plain text.
+# Raw inline HTML, reduced to its rendered text: comments and open/close
+# tags render as nothing, so the label keeps only the text between them.
+# (Attributes may not contain '<' or '>', the two forms this subset spans.)
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->")
+HTML_TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
+
+# A '<' that still starts something tag-like after the two forms above were
+# removed is a raw-HTML construct this reducer does not know how to render
+# (a processing instruction, declaration, autolink, ...): fail safe by giving
+# the page its file-name label rather than guess at a wrong one.
+RAW_HTML_LIKE_RE = re.compile(r"<[A-Za-z/?!]")
+
+
+def _plain_text(heading: str) -> str | None:
+    """Heading text with inline markup reduced to plain text, or None.
 
     Code spans are stashed first and restored last, so their contents are
     literal text: an underscore inside `` `snake_case` `` is content, not
     emphasis, and backticks inside a span stay put. Underscore emphasis is
     only reduced at word boundaries -- an intraword underscore is content
     (``foo_bar_baz`` has no emphasis in CommonMark), while intraword asterisks
-    are still emphasis.
+    are still emphasis. Raw inline HTML comments and open/close tags reduce
+    to the text between them; any other tag-like construct returns None, so
+    the caller falls back to the file-name label instead of a wrong label.
     """
     text, code_spans = _extract_code_spans(heading)
+    text = HTML_COMMENT_RE.sub("", text)
+    text = HTML_TAG_RE.sub("", text)
+    if RAW_HTML_LIKE_RE.search(text):
+        return None
     text = LINK_RE.sub(r"\2", text)  # [text](target) and images -> text
     text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
     text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)  # bold (asterisks; intraword is emphasis)

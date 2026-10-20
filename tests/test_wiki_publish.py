@@ -823,6 +823,19 @@ class TestSidebarLabels:
             f"- [A useful guide]({U}/wiki/source)",
         ]
 
+    def test_other_tag_like_constructs_fall_back_to_the_file_name(self, tmp_path):
+        # The conservative rule: a raw-HTML-like construct the reducer does
+        # not know how to render (here a processing instruction) never
+        # produces a wrong label -- the page falls back to its file name.
+        tree = make_corpus(tmp_path, {
+            "README.md": "# Index\n",
+            "source.md": "# Config <?include?> file\n",
+        })
+        assert self.sidebar_entries(tree) == [
+            f"- [Home]({U}/wiki/Home)",
+            f"- [source]({U}/wiki/source)",
+        ]
+
     def test_spaces_inside_a_code_span_are_preserved(self, tmp_path):
         # CG390-3: code-span content is literal text, so whitespace
         # collapsing must not reach inside a span: 'a  b' keeps both spaces.

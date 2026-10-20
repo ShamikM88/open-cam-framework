@@ -1387,3 +1387,64 @@ def test_pe_policy_entry_rejects_non_finite_numbers_in_each_financial_input_stor
     with pytest.raises(ValueError, match="non-finite numeric value"):
         evaluate_deal_policy({state_key: {"synthetic-period": {"synthetic-line": float("inf")}}})
 
+def test_pe_percent_unit_error_lists_actual_before_threshold_and_keeps_exact_guidance():
+    result = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gearing": -87}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 80}],
+    })["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["headroom_pct"] is None
+    assert result["reason"] == (
+        "gearing actual ratio -87 and covenant threshold 80 looks like a percent; percent-type ratios and their "
+        "covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing."
+    )
+
+
+def test_pe_guarantee_standing_condition_ids_avoid_natural_slug_collisions():
+    result = evaluate_deal_policy({
+        "guarantees": [
+            {"provider": "Acme Corp"},
+            {"provider": "Acme Corp"},
+            {"provider": "Acme Corp 2"},
+        ],
+    })
+
+    assert [
+        cs["cs_id"] for cs in result["required_conditions_subsequent"] if cs["cs_id"].startswith("CS-GUARANTEE-")
+    ] == [
+        "CS-GUARANTEE-ACME-CORP",
+        "CS-GUARANTEE-ACME-CORP-2",
+        "CS-GUARANTEE-ACME-CORP-2-2",
+    ]
+
+
+def test_pe_precedent_conditions_keep_standard_security_then_guarantee_order_and_exact_text():
+    result = evaluate_deal_policy({
+        "collateral": [{"asset_id": "AST-001"}],
+        "security_package": [{
+            "secures_asset_id": "AST-001",
+            "perfection_status": "Pending",
+            "ranking": "Second",
+        }],
+        "guarantees": [{"provider": "Synthetic Guarantor", "type": "Corporate", "amount": 0}],
+    })
+
+    assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT + [
+        {
+            "cp_id": "SEC-PERFECT-AST-001",
+            "text": "Execution and completion of registration to perfect charge over asset AST-001 "
+                    "(Current Status: Pending).",
+        },
+        {
+            "cp_id": "SEC-PRIORITY-AST-001",
+            "text": "Negotiation, execution, and stamping of a formal Intercreditor Deed / Deed of Priority "
+                    "with existing chargeholders for asset AST-001 (Current Ranking: Second).",
+        },
+        {
+            "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
+            "text": "Execution of Corporate Guarantee by Synthetic Guarantor for 0.",
+        },
+    ]
+

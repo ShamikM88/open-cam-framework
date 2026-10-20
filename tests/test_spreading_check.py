@@ -887,3 +887,22 @@ def test_sc_plan_fields_stores_downside_when_either_financials_or_ratios_exist(
     assert ("stress_assumptions" in fields) is expected_stored
     if expected_stored:
         assert fields["downside_case"] == downside_case
+
+
+def test_main_names_financial_inputs_in_raw_line_item_validation_error(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "financials.json"
+    path.write_text('{"FY+1":{"revenue":"not a number"}}', encoding="utf-8")
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--financials", str(path),
+        ])
+    assert caught.value.code == (
+        "error: financial inputs: period 'FY+1', field 'revenue' must be a finite JSON number or null; "
+        "found 'not a number'"
+    )
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "deals").exists()

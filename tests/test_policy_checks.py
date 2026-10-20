@@ -574,3 +574,316 @@ def test_ground_truth_figures_excludes_undefined_non_current_base_case_figures()
     assert "dscr_FY+1" not in truth
     assert truth["ebitda"] == 1000
     assert truth["dscr"] == 1.5
+
+# ---------------------------------------------------------------------------
+# Mutation-survivor coverage for check_draft_compliance(): pin the combined
+# rejection contract, boundaries, and the ordering the revision prompt uses.
+# ---------------------------------------------------------------------------
+
+def _structured_draft(payload):
+    import json
+
+    return "# Synthetic Draft\n\n```json\n" + json.dumps(payload) + "\n```"
+
+
+def test_check_draft_compliance_pins_verbatim_reason_text_and_global_order():
+    """A rejected draft's reasons are sent to the Underwriter for revision.
+    Keep exact wording and ordering across CPs, CSs, taxonomy, downside,
+    disclosures, covenant/security facts, and reported figures."""
+    draft = _structured_draft({
+        "cp_ids_included": [],
+        "cs_ids_included": [],
+        "risk_categories_covered": {},
+        "reported_figures": {"unlisted_metric": 123, "dscr": 2.0},
+        "downside_breaches_acknowledged": [],
+        "sources": [],
+    })
+    policy_state = _policy_state(
+        required_cps=[
+            {"cp_id": "CP-ALPHA", "text": "Register the all-assets charge."},
+            {"cp_id": "CP-BETA", "text": "Deliver the insurance certificate."},
+        ],
+        required_css=[
+            {"cs_id": "CS-REPORTING", "text": "Provide quarterly management accounts."},
+        ],
+        covenant_results=[
+            {
+                "metric": "dscr", "type": "minimum", "threshold": 1.25,
+                "actual": 1.0, "status": "FAIL", "reason": "below minimum",
+            },
+            {
+                "metric": "net_leverage", "type": "maximum", "threshold": 4.0,
+                "actual": None, "status": "UNRESOLVABLE", "reason": "no debt figure",
+            },
+        ],
+        security_gaps=["Uncharged Asset: AST-001 lacks a registered charge.", "Guarantee gap: guarantor signature missing."],
+        downside_covenant_breaches=[{
+            "breach_id": "DOWNSIDE-FY-1-DSCR",
+            "metric": "dscr",
+            "year": "FY+1",
+            "downside_status": "UNRESOLVABLE",
+            "reason": "forward ratios missing",
+        }],
+    )
+
+    assert check_draft_compliance(
+        draft, policy_state, {"dscr": 1.0},
+        financials_source="analyst-supplied", credit_policy_present=True,
+    ) == [
+        "Missing Required CP CP-ALPHA: Register the all-assets charge.",
+        "Missing Required CP CP-BETA: Deliver the insurance certificate.",
+        "Missing Required Condition Subsequent CS-REPORTING: Provide quarterly management accounts.",
+        "Missing or malformed Risk Category: Market",
+        "Missing or malformed Risk Category: Refinance",
+        "Missing or malformed Risk Category: Operational",
+        "Missing or malformed Risk Category: Concentration",
+        "Missing or malformed Risk Category: Key Man",
+        "Missing or malformed Risk Category: Financial",
+        "Missing or malformed Risk Category: Legal",
+        "Undisclosed Downside Breach DOWNSIDE-FY-1-DSCR: dscr cannot be tested in FY+1 under stress (forward ratios missing) and is not addressed in the draft.",
+        "Missing Narrative Sources: no citation sources were declared for this draft's narrative claims (company history, management, market/competitive) -- see agents/underwriter_agent.md's Structured Output guideline.",
+        "Missing Analyst-Supplied Spreading Disclosure: this deal's financials_source is 'analyst-supplied', but the draft did not declare financials_source_disclosed=true -- see agents/underwriter_agent.md's Guideline 9 (the CAM's Financial Analysis section must carry an explicit caveat when spreading wasn't independently recomputed by the framework).",
+        "Missing Credit Policy Consideration: this fork has a calibrated institutional credit policy (config/credit_policy.md), but the draft did not declare credit_policy_considered=true -- see agents/underwriter_agent.md's Guideline 10.",
+        "Covenant FAIL: dscr (minimum 1.25, actual 1.0) -- below minimum",
+        "Covenant UNRESOLVABLE: net_leverage (maximum 4.0, actual None) -- no debt figure",
+        "Uncharged Asset: AST-001 lacks a registered charge.",
+        "Guarantee gap: guarantor signature missing.",
+        "UNRESOLVABLE_REPORTED_FIGURE: 'unlisted_metric' is not a recognized computed figure (reported value: 123).",
+        "Narrative/Ground-Truth Mismatch: reported dscr 2.0 vs computed 1.0",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("market_entry", "should_be_missing"),
+    [
+        ({"status": " COVERED "}, False),
+        ({"status": "not_applicable", "justification": "outside this facility's scope"}, False),
+        ({"status": "not_applicable", "justification": "  \t "}, True),
+        ({"status": "rejected", "justification": "not accepted"}, True),
+        ("covered", True),
+        (None, True),
+    ],
+)
+def test_check_draft_compliance_pins_risk_taxonomy_status_and_justification(
+    market_entry, should_be_missing,
+):
+    categories = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
+    categories.pop("Market")
+    categories["Market Risk"] = market_entry
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": categories,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+        "sources": ["Synthetic filing"],
+    }
+    reasons = check_draft_compliance(_structured_draft(payload), _policy_state(), {})
+    assert ("Missing or malformed Risk Category: Market" in reasons) is should_be_missing
+    assert not any(reason != "Missing or malformed Risk Category: Market" for reason in reasons)
+
+
+@pytest.mark.parametrize(
+    ("actual", "reported", "should_mismatch"),
+    [
+        (100.0, 100.5, False),       # exactly +0.5% is accepted
+        (100.0, 100.5001, True),     # just outside the +0.5% edge
+        (100.0, 99.5, False),        # exactly -0.5% is accepted
+        (100.0, 99.4999, True),      # just outside the -0.5% edge
+        (0.0, 0.0, False),
+        (0.0, 0.000000000999, False),  # strictly below the zero guard
+        (0.0, 0.000000001, True),      # the zero guard is strict
+    ],
+)
+def test_check_draft_compliance_pins_reported_figure_tolerance_edges(
+    actual, reported, should_mismatch,
+):
+    draft = _compliant_draft(
+        cp_ids=["KYC-AML"], reported_figures={"dscr": reported},
+    )
+    reasons = check_draft_compliance(draft, _policy_state(), {"dscr": actual})
+    mismatch_reasons = [reason for reason in reasons if "Narrative/Ground-Truth Mismatch" in reason]
+    assert bool(mismatch_reasons) is should_mismatch
+    if should_mismatch:
+        assert mismatch_reasons == [
+            f"Narrative/Ground-Truth Mismatch: reported dscr {reported} vs computed {actual}"
+        ]
+    else:
+        assert reasons == []
+
+
+@pytest.mark.parametrize("status", ["PASS", "pass", "MET", "NOT_APPLICABLE"])
+def test_check_draft_compliance_does_not_reject_non_failure_covenant_statuses(status):
+    policy_state = _policy_state(covenant_results=[{
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "actual": 1.4, "status": status,
+    }])
+    assert check_draft_compliance(None, policy_state, {}) == []
+
+
+@pytest.mark.parametrize("financials_source", ["Analyst-Supplied", "analyst-supplied ", "framework-computed"])
+def test_check_draft_compliance_requires_analyst_disclosure_only_for_exact_source_value(
+    financials_source,
+):
+    draft = _compliant_draft(cp_ids=["KYC-AML"])
+    assert check_draft_compliance(
+        draft, _policy_state(), {}, financials_source=financials_source,
+    ) == []
+
+def test_check_draft_compliance_treats_absent_policy_state_collections_as_empty():
+    """The caller may supply a structurally empty policy state before any
+    deal step has populated collections; absent collections must not crash
+    or invent a rejection for an otherwise complete synthetic draft."""
+    assert check_draft_compliance(_compliant_draft(), {}, {}) == []
+
+
+@pytest.mark.parametrize("reason_field", [{}, {"reason": None}, {"reason": ""}])
+def test_check_draft_compliance_omits_empty_covenant_explanation(reason_field):
+    covenant_result = {
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "actual": 1.0, "status": "FAIL",
+        **reason_field,
+    }
+    assert check_draft_compliance(
+        None, {"covenant_results": [covenant_result]}, {},
+    ) == ["Covenant FAIL: dscr (minimum 1.25, actual 1.0)"]
+
+
+def test_check_draft_compliance_pins_default_downside_breach_reason_verbatim():
+    reasons = check_draft_compliance(
+        _compliant_draft(cp_ids=["KYC-AML"]),
+        _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH]),
+        {},
+    )
+    assert reasons == [
+        "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR: dscr breaches threshold in FY+2 under stress but is not addressed in the draft."
+    ]
+# Mutation-survivor coverage for parse_underwriter_output(): schema key
+# recognition, reverse scanning, malformed blocks, defaults and field types.
+# ---------------------------------------------------------------------------
+
+def _fenced_underwriter_payload(payload):
+    import json
+
+    return "```json\n" + json.dumps(payload) + "\n```"
+
+
+def _empty_underwriter_output():
+    return {
+        "cp_ids_included": [],
+        "cs_ids_included": [],
+        "risk_categories_covered": {},
+        "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+        "sources": [],
+        "financials_source_disclosed": False,
+        "credit_policy_considered": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "draft_text",
+    [
+        None,
+        "",
+        _fenced_underwriter_payload({"unrelated": "not Underwriter structured output"}),
+    ],
+)
+def test_parse_underwriter_output_returns_exact_empty_defaults_when_no_schema_block_exists(draft_text):
+    assert parse_underwriter_output(draft_text) == _empty_underwriter_output()
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "output_field"),
+    [
+        ("cp_ids_included", ["CP-SYNTHETIC-1"], "cp_ids_included"),
+        ("cs_ids_included", ["CS-SYNTHETIC-1"], "cs_ids_included"),
+        ("risk_categories_covered", {"Market": {"status": "covered"}}, "risk_categories_covered"),
+        ("reported_figures", {"dscr": 1.25}, "reported_figures"),
+        ("downside_breaches_acknowledged", ["DOWNSIDE-SYNTHETIC-1"], "downside_breaches_acknowledged"),
+        ("sources", ["Synthetic annual report"], "sources"),
+        ("financials_source_disclosed", True, "financials_source_disclosed"),
+        ("credit_policy_considered", True, "credit_policy_considered"),
+    ],
+)
+def test_parse_underwriter_output_recognizes_each_schema_key_when_it_is_the_only_key(
+    field, value, output_field,
+):
+    """Each key is an independent reason to recognise a structured block.
+    Keeping each case to one key kills deletion of any individual `or` arm."""
+    expected = _empty_underwriter_output()
+    expected[output_field] = value
+
+    assert parse_underwriter_output(_fenced_underwriter_payload({field: value})) == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "wrong_type"),
+    [
+        ("cs_ids_included", "CS-SYNTHETIC-1"),
+        ("downside_breaches_acknowledged", {"DOWNSIDE-SYNTHETIC-1": True}),
+    ],
+)
+def test_parse_underwriter_output_degrades_wrong_schema_field_types_to_empty_values(field, wrong_type):
+    payload = {field: wrong_type}
+
+    assert parse_underwriter_output(_fenced_underwriter_payload(payload)) == _empty_underwriter_output()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        (field, value)
+        for field in ("financials_source_disclosed", "credit_policy_considered")
+        for value in (False, None, 0, 1, "true")
+    ],
+)
+def test_parse_underwriter_output_requires_literal_json_true_for_disclosure_flags(field, value):
+    assert parse_underwriter_output(_fenced_underwriter_payload({field: value})) == _empty_underwriter_output()
+
+
+def test_parse_underwriter_output_uses_the_last_relevant_block_without_merging_earlier_values():
+    earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-OLDER"]})
+    later = _fenced_underwriter_payload({"sources": ["Synthetic later source"]})
+
+    expected = _empty_underwriter_output()
+    expected["sources"] = ["Synthetic later source"]
+    assert parse_underwriter_output(earlier + "\n\n" + later) == expected
+
+
+def test_parse_underwriter_output_skips_a_newer_irrelevant_dict_and_keeps_older_relevant_block():
+    earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-OLDER"]})
+    later = _fenced_underwriter_payload({"commentary": "not a schema key"})
+
+    expected = _empty_underwriter_output()
+    expected["cp_ids_included"] = ["CP-OLDER"]
+    assert parse_underwriter_output(earlier + "\n\n" + later) == expected
+
+
+def test_parse_underwriter_output_warns_on_malformed_newest_block_and_continues_to_prior_valid_block(capsys):
+    earlier = _fenced_underwriter_payload({"cp_ids_included": ["CP-SYNTHETIC-VALID"]})
+    malformed = "```json\n{not json}\n```"
+
+    result = parse_underwriter_output(earlier + "\n\n" + malformed)
+    captured = capsys.readouterr()
+
+    expected = _empty_underwriter_output()
+    expected["cp_ids_included"] = ["CP-SYNTHETIC-VALID"]
+    assert result == expected
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "[parse_underwriter_output] Skipping unparseable fenced JSON block:"
+    )
+    assert captured.err.count("[parse_underwriter_output] Skipping unparseable fenced JSON block:") == 1
+
+
+def test_parse_underwriter_output_malformed_only_block_returns_defaults_and_warns(capsys):
+    result = parse_underwriter_output("```json\n{not json}\n```")
+    captured = capsys.readouterr()
+
+    assert result == _empty_underwriter_output()
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "[parse_underwriter_output] Skipping unparseable fenced JSON block:"
+    )
+

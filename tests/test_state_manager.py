@@ -1319,7 +1319,9 @@ def _find_deal_snapshot(base):
 # candidate, misspellings, prefix rejection, corrupt state and CLI errors.
 # ---------------------------------------------------------------------------
 
-def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_date(tmp_path):
+def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_date(
+    tmp_path, monkeypatch,
+):
     base = str(tmp_path)
     company = "Synthetic Co"
     proposals = {
@@ -1332,9 +1334,35 @@ def test_find_deal_sorts_multiple_normalized_candidates_and_uses_each_newest_dat
             write_state(company, proposal, date_str=date_str, base_dir=base)
     before = _find_deal_snapshot(tmp_path)
 
-    result = state_manager.find_deal(
-        company, "Synthetic Alpha Capital", base_dir=base,
-    )
+    real_scandir = os.scandir
+    company_dir = os.path.normcase(os.path.join(base, "deals", company))
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def reversed_company_scandir(path="."):
+        if os.path.normcase(os.fspath(path)) != company_dir:
+            with real_scandir(path) as entries:
+                yield entries
+            return
+        with real_scandir(path) as entries:
+            ordered_entries = sorted(entries, key=lambda entry: entry.name, reverse=True)
+            insertion_proposals = list(dict.fromkeys(
+                entry.name.rsplit("_", 1)[0] for entry in ordered_entries
+                if entry.is_dir(follow_symlinks=False)
+            ))
+            assert insertion_proposals == [
+                "Synthetic Alpha-Capital",
+                "Synthetic Alpha--Capital",
+                "Synthetic Alpha - Capital",
+            ]
+            yield iter(ordered_entries)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "scandir", reversed_company_scandir)
+        result = state_manager.find_deal(
+            company, "Synthetic Alpha Capital", base_dir=base,
+        )
 
     assert result == {
         "record_found": False,

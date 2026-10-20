@@ -457,6 +457,48 @@ def _transform_page(
 
 SIDEBAR_HEADING = "## What is in this folder"
 
+# An ATX level-1 heading line: one '#', required whitespace, heading text, an
+# optional closing '#' run. '## deeper' does not match (the character after the
+# single '#' must be whitespace).
+H1_RE = re.compile(r"^#\s+(.*?)\s*#*\s*$")
+
+
+def _first_heading(text: str) -> str | None:
+    """The page's own first ATX level-1 heading, as plain text, or None.
+
+    The first level-1 heading line outside any fenced code block, trailing '#'
+    and surrounding whitespace removed, inline markup (links, code spans,
+    bold/italic markers) reduced to plain text and whitespace collapsed. A
+    page whose only level-1 line sits inside a fenced code block, or that has
+    none, has no first heading (the sidebar then falls back to the file name).
+    """
+    for _line_no, line, in_fence in _lines_with_fences(text.replace("\r\n", "\n").split("\n")):
+        if in_fence:
+            continue
+        match = H1_RE.match(line)
+        if match is None:
+            continue
+        plain = _plain_text(match.group(1))
+        return plain or None
+    return None
+
+
+def _plain_text(heading: str) -> str:
+    """Heading text with inline markup reduced to plain text."""
+    text = LINK_RE.sub(r"\2", heading)  # [text](target) and images -> text
+    text = re.sub(r"\[([^\]]*)\]\[[^\]]*\]", r"\1", text)  # reference links
+    text = re.sub(r"(\*\*|__)(.+?)\1", r"\2", text)  # bold
+    text = re.sub(r"\*([^*\n]+)\*", r"\1", text)  # italic
+    text = re.sub(r"_([^_\n]+)_", r"\1", text)  # italic
+    text = re.sub(r"~~(.+?)~~", r"\1", text)  # strikethrough
+    text = re.sub(r"`+([^`]*)`+", r"\1", text)  # code spans
+    return " ".join(text.split())
+
+
+def _escape_label(label: str) -> str:
+    """Escape the characters that are significant inside a Markdown link label."""
+    return label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
 
 def _sidebar(
     root: Path, page_names: dict[str, str], page_texts: dict[str, str], repo_url: str
@@ -464,10 +506,16 @@ def _sidebar(
     """The `_Sidebar.md` content: the docs index's reading order.
 
     The docs index table is the sidebar's source: Home first, then one link
-    per row, in the order the table gives. Every top-level page must be in
-    the table (the repository's own index contract); the two example pages
-    under `docs/examples/` are published pages but deliberately not index
-    rows, so they appear in the wiki without a sidebar entry.
+    per row, in the order the table gives. Home keeps its label; every other
+    entry's label is its page's OWN first heading (the first ATX level-1
+    heading line outside any fenced code block, markup reduced to plain text,
+    Markdown-significant characters escaped), never a hard-coded name; a page
+    with no first heading falls back to its file name. Link targets and order
+    are the table's. The pages published from `docs/examples/` close the
+    sidebar as a short "Examples" group, each labelled from its own first
+    heading (identical labels disambiguated minimally by their file names);
+    they are published pages but deliberately not index rows in
+    `docs/README.md`, so the group is the only place the sidebar names them.
     """
     lines = page_texts["docs/README.md"].replace("\r\n", "\n").split("\n")
     try:
@@ -488,7 +536,7 @@ def _sidebar(
         raise WikiPublishError(
             "docs/README.md: no 'What is in this folder' index table to build the sidebar from"
         )
-    entries: list[str] = ["Home"]
+    entries: list[tuple[str, str]] = [("Home", "Home")]
     table_rels: list[str] = []
     for row_no, (line_no, row) in enumerate(table):
         if set(row) <= {"|", " ", ":", "-"}:
@@ -510,7 +558,8 @@ def _sidebar(
                 "published page"
             )
         table_rels.append(relative)
-        entries.append(page_names[relative])
+        label = _first_heading(page_texts[relative]) or Path(relative).stem
+        entries.append((label, page_names[relative]))
     top_level = {
         relative
         for relative in page_names
@@ -522,7 +571,22 @@ def _sidebar(
             "docs/README.md: page(s) missing from the 'What is in this folder' index table: "
             + ", ".join(sorted(missing))
         )
-    body = "\n".join(f"- [{name}]({repo_url}/wiki/{name})" for name in entries)
+    lines = [f"- [{_escape_label(label)}]({repo_url}/wiki/{name})" for label, name in entries]
+    examples = sorted(relative for relative in page_names if relative.startswith("docs/examples/"))
+    if examples:
+        example_labels = {relative: _first_heading(page_texts[relative]) or Path(relative).stem
+                          for relative in examples}
+        duplicated = {label for label in example_labels.values()
+                      if list(example_labels.values()).count(label) > 1}
+        lines.append("")
+        lines.append("**Examples**")
+        lines.append("")
+        for relative in examples:
+            label = example_labels[relative]
+            if label in duplicated:  # disambiguate identical labels minimally
+                label = f"{label} ({Path(relative).stem})"
+            lines.append(f"- [{_escape_label(label)}]({repo_url}/wiki/{page_names[relative]})")
+    body = "\n".join(lines)
     return notice_for("docs/README.md") + "\n\n" + body + "\n"
 
 

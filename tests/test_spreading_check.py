@@ -840,16 +840,16 @@ def test_sc_plan_fields_period_object_error_names_financial_inputs():
     )
 
 
-def test_sc_plan_fields_historical_period_phrase_is_absent_for_forward_only_input():
-    fields = plan_fields(
-        {"financials_source": "analyst-supplied"},
-        {"FY+1": {"revenue": 1200, "cost_of_sales": 500}},
-        update_financials_source=False,
+def test_sc_plan_fields_historical_period_phrase_is_absent_without_historical_periods():
+    with pytest.raises(ValueError) as caught:
+        plan_fields(
+            {"financials_source": "analyst-supplied"},
+            {"FY+1": {"revenue": 1200, "cost_of_sales": 500}},
+        )
+    assert str(caught.value) == (
+        "This deal is analyst-supplied; one deal never mixes the two modes. "
+        "Use /spread's analyst-supplied mode to record financial figures."
     )
-    assert fields["multi_period_financials"]["FY+1"] == {
-        "revenue": 1200, "cost_of_sales": 500,
-    }
-    assert "financials_source" not in fields
 
 
 def test_sc_plan_fields_nothing_to_compute_message_is_exact():

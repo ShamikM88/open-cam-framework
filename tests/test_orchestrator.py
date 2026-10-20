@@ -1971,9 +1971,38 @@ def test_partial_recompute_refuses_to_relabel_preserved_analyst_history_without_
         )
 
     message = str(refused.value)
-    assert "analyst-supplied" in message and "FY-1" in message and "nothing was written" in message
+    assert "analyst-supplied" in message and "nothing was written" in message
     assert client.call_count == 0, "the provenance check runs before any model call"
     assert _deal_files() == before, "state and every other file remain byte-identical"
+
+
+def test_forward_only_refusal_without_raw_lines_gives_the_exact_plain_message(project_root):
+    """A recorded period without raw lines no longer gets its own message: the refusal is the one
+    plain forward-year-only message, nothing is written and no model is called (issue #364)."""
+    write_state(
+        "Acme Corp", "Fleet Loan",
+        financials_source="analyst-supplied",
+        financials={"FY-1": {"ebitda": 777}},
+        ratios={"FY-1": {"dscr": 9.99}},
+        steps_completed=["spread"],
+    )
+    before = _deal_files()
+    client = MockClient([])
+
+    with pytest.raises(StateError) as refused:
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            multi_period_financials={"FY+1": {"revenue": 2000, "cost_of_sales": 1000}},
+            client=client,
+        )
+
+    assert str(refused.value) == (
+        "refused: a headless run cannot recompute or reset an analyst-supplied deal, even "
+        "for forward-year-only input; use /spread's analyst-supplied mode to record financial "
+        "figures; nothing was written."
+    )
+    assert client.call_count == 0
+    assert _deal_files() == before
 
 
 def test_partial_recompute_refuses_to_relabel_analyst_periods_when_raw_inputs_exist(project_root):

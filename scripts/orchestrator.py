@@ -527,39 +527,6 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 "analyst-supplied mode; nothing was written."
             )
 
-        planning_state = existing_state
-        if existing_state.get("forecast_source") == "analyst-supplied":
-            planning_state = dict(existing_state)
-            planning_state["forecast_source"] = None
-            for field in ("multi_period_financials", "financials", "ratios"):
-                planning_state[field] = {
-                    period: value
-                    for period, value in (existing_state.get(field) or {}).items()
-                    if period not in FORWARD_PERIOD_KEYS
-                }
-
-        recorded_periods = {
-            period
-            for field in ("financials", "ratios")
-            for period, value in (planning_state.get(field) or {}).items()
-            if isinstance(value, dict) and value
-        }
-        existing_raw = planning_state.get("multi_period_financials") or {}
-        incoming_raw = multi_period_financials or {}
-        available_raw_periods = {
-            period for period, raw in existing_raw.items() if isinstance(raw, dict) and raw
-        } | {
-            period for period, raw in incoming_raw.items() if isinstance(raw, dict) and raw
-        }
-        missing_raw_periods = sorted(recorded_periods - available_raw_periods)
-        if missing_raw_periods:
-            raise StateError(
-                "refused: a headless run cannot recompute or reset an analyst-supplied deal; recorded "
-                f"period(s) without raw line items ({', '.join(missing_raw_periods)}) are additionally "
-                "unavailable for recomputation. Use /spread's analyst-supplied mode to record financial "
-                "figures; nothing was written."
-            )
-
         raise StateError(
             "refused: a headless run cannot recompute or reset an analyst-supplied deal, even "
             "for forward-year-only input; use /spread's analyst-supplied mode to record financial "

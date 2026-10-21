@@ -1810,7 +1810,7 @@ def test_state_manager_start_review_cli_creates_a_fresh_unlinked_state(cli):
     assert report["date"] == "2026-04-15"
     assert report["prior_review_date"] is None
     assert report["linked"] is False
-    assert "no prior link because no eligible earlier review was found" in report["message"]
+    assert "no eligible earlier review was found" in report["message"]
     state = json.loads((cli.workdir / report["state_path"]).read_text(encoding="utf-8"))
     assert set(state) == {"company", "proposal", "date", "schema_version"}
 

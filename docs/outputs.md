@@ -67,7 +67,7 @@ images in `cam_images.docx.txt`), so an unintended change shows up as a readable
 
 ## The spreading workbook (`.xlsx`)
 
-`scripts/spreading_builder.py` writes two sheets.
+`scripts/spreading_builder.py` always writes two base sheets; a valid `group_basis` adds a third sheet described below.
 
 **Financial Spreading** has one row per line item and one column per period: `Metric`, `FY-2`, `FY-1`, `FY-Current`,
 `FY+1`, `FY+2`, `FY+3`, then `FY+1 (Downside)`, `FY+2 (Downside)`, `FY+3 (Downside)`. It runs from Profit & Loss

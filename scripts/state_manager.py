@@ -68,9 +68,10 @@ class StateShapeError(StateError):
     """state.json is not valid JSON, or a key this code relies on has the wrong type (see validate_state())."""
 
 
-# The structural contract of the keys the framework reads (issue #171). A key that is absent or null is simply
-# "not recorded" and is always accepted; unknown keys are never inspected (a newer framework may add them, and they
-# must survive a write). Only the container types are checked -- the shape of each element of a list is not.
+# The structural contract of the keys the framework reads (issue #171). A key that is absent or null is generally
+# "not recorded" and is accepted; the optional group_basis key, when present, must be a valid metadata object.
+# Unknown keys are never inspected (a newer framework may add them, and they must survive a write). Only the
+# documented structural contracts are checked; list elements are checked only where a key defines their shape.
 #   object:  a JSON object                          periods: an object keyed by period whose values are objects
 #   downside: an object whose optional "financials" and "ratios" are `periods`
 #   list:    a list                                 source: "framework-computed" or "analyst-supplied"

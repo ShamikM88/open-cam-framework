@@ -158,9 +158,13 @@ See [State manager](#state-manager).
   to the nearest earlier state-bearing review for the exact same company and proposal; if none exists, it starts
   unlinked. The link is a date only: no earlier-review inputs or results are inherited. Subsequent pipeline checkpoints
   preserve `prior_review_date`. If a dated folder already exists without a `state.json`, it is refused rather than
-  overwritten. A refusal (including when today's date is not later than the newest existing state-bearing review)
-  exits with one `error:` line and status 1 before a model call or write. A single `[INFO]` line on standard error
-  says whether the new review was linked and to which date, or started unlinked.
+  overwritten (and is refused before any model call, with the folder left untouched). A refusal (including when
+  today's date is not later than the newest existing state-bearing review) exits with one `error:` line and status 1
+  before a model call or write. A single `[INFO]` line on standard error says whether the new review was linked and
+  to which date, or started unlinked. A company that has no deal folder yet is the exception: the headless run
+  keeps its earlier behaviour for it, with no link, no refusal and no `[INFO]` line (a company name typed on a
+  command line is deliberate; the interactive `/start-review` and `state_manager.py --start-review` are the paths
+  that refuse an unknown company), and the near-miss warning described above still applies.
 
 Headless execution needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any, it exits with one
 `error: no Anthropic credentials were found...` line and status `1` before a model call. Ordinary runs do not write

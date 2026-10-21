@@ -110,7 +110,8 @@ incomplete raw figures.
 A step begins by finding the deal's state (the most recent dated folder for that company and proposal; a bare library
 call or a brand-new deal gets today's date) and treats everything recorded there as true. With
 `orchestrator.py --new-review`, today's dated folder is created through the shared fresh-review state manager only
-when that dated folder does not exist. That minimal state links to the nearest earlier state-bearing review for the
+when that dated folder does not exist and the company already has a deal folder (for a company with no folder the
+headless run keeps its earlier behaviour: nothing to link, nothing refused). That minimal state links to the nearest earlier state-bearing review for the
 exact same company and proposal using `prior_review_date`, or starts unlinked when no eligible earlier review exists.
 The link is only a date; prior inputs and results are never inherited. Later pipeline checkpoints merge into the state
 and preserve `prior_review_date`. If today's dated folder already has a `state.json`, `--new-review` resumes it

@@ -1430,6 +1430,8 @@ def test_new_review_without_earlier_review_starts_minimal_unlinked_then_continue
     import orchestrator
     from datetime import datetime
 
+    # The company already has a deal folder (another proposal's review); this proposal has no earlier review.
+    write_state("Acme Corp", "Other Loan", date_str="2025-01-10", inputs={"pd": "0.20%"})
     observed = {}
     original_start_review = orchestrator.start_review
 
@@ -1550,6 +1552,48 @@ def test_new_review_same_day_rerun_resumes_existing_state_without_relinking(
     assert state["prior_review_date"] == "2025-01-10"
     assert state["inputs"] == {"pd": "0.20%", "lgd": "LGD 3 (15%)"}
     assert client.call_count == 2
+
+
+def test_new_review_for_a_company_with_no_folder_keeps_todays_behaviour(project_root, monkeypatch, capsys):
+    import orchestrator
+    from datetime import datetime
+
+    # Maintainer decision on #203 (2026-10-21): the headless path never refuses an unknown company and never
+    # links: a company typed on a command line is deliberate, so --new-review behaves as it did before linking.
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("--new-review for a company with no folder must not call start_review")
+
+    monkeypatch.setattr(orchestrator, "start_review", unexpected_start)
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Brand New Co", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    state = read_state("Brand New Co", "Fleet Loan", date_str=today)
+    assert "prior_review_date" not in state
+    assert "export" in state["steps_completed"]
+    assert client.call_count == 2
+    assert "[INFO]" not in capsys.readouterr().err
+
+
+def test_new_review_with_an_export_only_todays_folder_is_refused_before_any_model_call(project_root):
+    from datetime import datetime
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    write_state("Acme Corp", "Other Loan", date_str="2025-01-10", inputs={"pd": "0.20%"})
+    export_only = Path(state_path("Acme Corp", "Fleet Loan", date_str=today)).parent
+    export_only.mkdir(parents=True)
+    (export_only / "Acme Corp_Fleet Loan_CAM.docx").write_bytes(b"synthetic export")
+    before = sorted(str(p.relative_to(export_only)) for p in export_only.rglob("*"))
+    client = MockClient([])
+
+    with pytest.raises(StateError, match="the dated folder already exists"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=client, new_review=True)
+
+    assert client.call_count == 0
+    assert sorted(str(p.relative_to(export_only)) for p in export_only.rglob("*")) == before
+    assert not (export_only / "state.json").exists()
 
 
 def test_new_review_refusal_happens_before_model_calls_or_any_write(project_root):

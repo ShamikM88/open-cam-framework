@@ -39,6 +39,7 @@ from state_manager import (
     state_path,
     resolve_date_str,
     find_deal,
+    start_review,
 )
 from template_resolver import cam_template_path
 from textio import read_text
@@ -513,6 +514,29 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             file=sys.stderr,
         )
     date_str = resolve_date_str(company, proposal, new_review=new_review)
+    new_state_file = state_path(company, proposal, date_str=date_str)
+    company_dir = os.path.dirname(os.path.dirname(new_state_file))
+    if new_review and os.path.isdir(company_dir) and not os.path.isfile(new_state_file):
+        # Start a new annual review through the shared state-manager primitive.
+        # If today's state already exists, this is a rerun after failure: resume it
+        # without reselecting or changing its existing prior_review_date.
+        # A company with no deal folder keeps today's behaviour (maintainer decision on #203, 2026-10-21):
+        # a headless company name is typed deliberately, so there is nothing to link and nothing is refused;
+        # the near-miss warning above still applies.
+        started = start_review(company, proposal, date_str=date_str)
+        prior_review_date = started["prior_review_date"]
+        if prior_review_date is None:
+            print(
+                f"[INFO] New review for {company!r} / {proposal!r} dated {date_str} "
+                "started unlinked (no eligible earlier review was found).",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[INFO] New review for {company!r} / {proposal!r} dated {date_str} "
+                f"linked to prior review dated {prior_review_date}.",
+                file=sys.stderr,
+            )
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
     steps_completed = list(existing_state.get("steps_completed") or [])
 

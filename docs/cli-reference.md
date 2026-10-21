@@ -152,11 +152,25 @@ See [State manager](#state-manager).
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
   `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none. Each supplied value must be a
   finite JSON number; strings, booleans, nulls, lists and objects are refused with one key-naming `error:` line.
-- `--new-review` starts a fresh dated folder for a new annual review instead of resuming the most recent one, so it
-  never inherits last year's inputs.
+- `--new-review` targets today's dated folder. If it already contains a `state.json`, the pipeline resumes
+  that review as a rerun after a failure and leaves its existing `prior_review_date` unchanged. If the dated folder
+  does not exist, the orchestrator creates a minimal fresh state through `state_manager.start_review()`, linking it
+  to the nearest earlier state-bearing review for the exact same company and proposal; if none exists, it starts
+  unlinked. The link is a date only: no earlier-review inputs or results are inherited. Subsequent pipeline checkpoints
+  preserve `prior_review_date`. If a dated folder already exists without a `state.json`, it is refused rather than
+  overwritten (and is refused before any model call, with the folder left untouched). A refusal (including when
+  today's date is not later than the newest existing state-bearing review) exits with one `error:` line and status 1
+  before a model call or write. A single `[INFO]` line on standard error says whether the new review was linked and
+  to which date, or started unlinked. A company that has no deal folder yet is the exception: the headless run
+  keeps its earlier behaviour for it, with no link, no refusal and no `[INFO]` line (a company name typed on a
+  command line is deliberate; the interactive `/start-review` and `state_manager.py --start-review` are the paths
+  that refuse an unknown company), and the near-miss warning described above still applies.
 
-It needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any it stops first, before it reads or
-writes the deal, with one `error: no Anthropic credentials were found...` line and exit status `1`, and sends nothing. See
+Headless execution needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any, it exits with one
+`error: no Anthropic credentials were found...` line and status `1` before a model call. Ordinary runs do not write
+state before that credential check. A successful `--new-review` start may already have created the minimal state and
+its optional `prior_review_date` link; without credentials, no financial/model checkpoint or generated documents are
+written, and a same-day rerun resumes that minimal state without relinking. See
 [Troubleshooting](troubleshooting.md#orchestratorpy-stops-with-error-no-anthropic-credentials-were-found).
 
 ## Export

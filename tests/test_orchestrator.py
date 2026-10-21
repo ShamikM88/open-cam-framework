@@ -1419,6 +1419,204 @@ def test_run_pipeline_with_new_review_does_not_inherit_a_prior_dated_folders_dat
     assert old_state["collateral"] == [{"asset_class": "HGV", "exposure": 100}]
 
 
+
+# ---------------------------------------------------------------------------
+# #203: --new-review uses the fresh-state primitive to record a date-only link,
+# while never inheriting any prior review payload.
+# ---------------------------------------------------------------------------
+
+def test_new_review_without_earlier_review_starts_minimal_unlinked_then_continues(
+        project_root, monkeypatch, capsys):
+    import orchestrator
+    from datetime import datetime
+
+    # The company already has a deal folder (another proposal's review); this proposal has no earlier review.
+    write_state("Acme Corp", "Other Loan", date_str="2025-01-10", inputs={"pd": "0.20%"})
+    observed = {}
+    original_start_review = orchestrator.start_review
+
+    def capture_start_review(*args, **kwargs):
+        result = original_start_review(*args, **kwargs)
+        observed["initial_state"] = read_state(
+            "Acme Corp", "Fleet Loan", date_str=result["date"],
+        )
+        observed["result"] = result
+        return result
+
+    monkeypatch.setattr(orchestrator, "start_review", capture_start_review)
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert observed["result"]["date"] == today
+    assert observed["initial_state"] == {
+        "company": "Acme Corp",
+        "proposal": "Fleet Loan",
+        "date": today,
+        "schema_version": "1.1.0",
+    }
+    final_state = read_state("Acme Corp", "Fleet Loan", date_str=today)
+    assert "prior_review_date" not in final_state
+    assert "export" in final_state["steps_completed"]
+    assert client.call_count == 2
+    stderr = capsys.readouterr().err
+    assert "[INFO]" in stderr and "unlinked" in stderr and today in stderr
+
+
+def test_new_review_links_nearest_earlier_review_and_preserves_link_without_inheriting_data(
+        project_root, monkeypatch, capsys):
+    import orchestrator
+    from datetime import datetime
+
+    sentinel = "PRIOR_REVIEW_MUST_NOT_REACH_NEW_STATE_OR_PROMPT"
+    for date_str, revenue in (
+        ("2024-01-10", 111.0),
+        ("2025-01-10", 222.0),
+        ("2026-01-10", 987654321.0),
+    ):
+        write_state(
+            "Acme Corp", "Fleet Loan", date_str=date_str,
+            financials={"FY-Current": {"revenue": revenue, "gross_profit": revenue - 10}},
+            ratios={"FY-Current": {"gross_leverage": 99.0}},
+            collateral=[{"asset_id": sentinel, "collateral_value": 123456.0}],
+            inputs={"pd": sentinel, "lgd": "OLD_LGD"},
+            policy_state={"prior_review_sentinel": sentinel},
+            review_trail=[{"verdict": "REJECTED", "notes": sentinel}],
+        )
+
+    observed = {}
+    original_start_review = orchestrator.start_review
+
+    def capture_start_review(*args, **kwargs):
+        result = original_start_review(*args, **kwargs)
+        observed["initial_state"] = read_state(
+            "Acme Corp", "Fleet Loan", date_str=result["date"],
+        )
+        observed["result"] = result
+        return result
+
+    monkeypatch.setattr(orchestrator, "start_review", capture_start_review)
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert observed["result"]["prior_review_date"] == "2026-01-10"
+    assert observed["initial_state"]["prior_review_date"] == "2026-01-10"
+    assert set(observed["initial_state"]) == {
+        "company", "proposal", "date", "schema_version", "prior_review_date",
+    }
+    final_state = read_state("Acme Corp", "Fleet Loan", date_str=today)
+    assert final_state["prior_review_date"] == "2026-01-10"
+    assert final_state["financials"] == {}
+    assert final_state["ratios"] == {}
+    assert final_state["collateral"] == []
+    final_state_text = json.dumps(final_state)
+    assert sentinel not in final_state_text
+    assert "987654321" not in final_state_text
+    assert "123456.0" not in final_state_text
+    assert "OLD_LGD" not in final_state_text
+    prompt_text = "\n".join(
+        str(message.get("content", ""))
+        for call in client.calls
+        for message in call["messages"]
+    )
+    for prior_value in (sentinel, "987654321", "123456.0", "OLD_LGD"):
+        assert prior_value not in prompt_text
+    stderr = capsys.readouterr().err
+    assert "[INFO]" in stderr and "2026-01-10" in stderr and today in stderr
+
+
+def test_new_review_same_day_rerun_resumes_existing_state_without_relinking(
+        project_root, monkeypatch):
+    import orchestrator
+    from datetime import datetime
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    write_state(
+        "Acme Corp", "Fleet Loan", date_str=today,
+        prior_review_date="2025-01-10",
+        inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"},
+    )
+
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("same-day --new-review rerun must not call start_review")
+
+    monkeypatch.setattr(orchestrator, "start_review", unexpected_start)
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    state = read_state("Acme Corp", "Fleet Loan", date_str=today)
+    assert state["prior_review_date"] == "2025-01-10"
+    assert state["inputs"] == {"pd": "0.20%", "lgd": "LGD 3 (15%)"}
+    assert client.call_count == 2
+
+
+def test_new_review_for_a_company_with_no_folder_keeps_todays_behaviour(project_root, monkeypatch, capsys):
+    import orchestrator
+    from datetime import datetime
+
+    # Maintainer decision on #203 (2026-10-21): the headless path never refuses an unknown company and never
+    # links: a company typed on a command line is deliberate, so --new-review behaves as it did before linking.
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("--new-review for a company with no folder must not call start_review")
+
+    monkeypatch.setattr(orchestrator, "start_review", unexpected_start)
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Brand New Co", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=client, new_review=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    state = read_state("Brand New Co", "Fleet Loan", date_str=today)
+    assert "prior_review_date" not in state
+    assert "export" in state["steps_completed"]
+    assert client.call_count == 2
+    assert "[INFO]" not in capsys.readouterr().err
+
+
+def test_new_review_with_an_export_only_todays_folder_is_refused_before_any_model_call(project_root):
+    from datetime import datetime
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    write_state("Acme Corp", "Other Loan", date_str="2025-01-10", inputs={"pd": "0.20%"})
+    export_only = Path(state_path("Acme Corp", "Fleet Loan", date_str=today)).parent
+    export_only.mkdir(parents=True)
+    (export_only / "Acme Corp_Fleet Loan_CAM.docx").write_bytes(b"synthetic export")
+    before = sorted(str(p.relative_to(export_only)) for p in export_only.rglob("*"))
+    client = MockClient([])
+
+    with pytest.raises(StateError, match="the dated folder already exists"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=client, new_review=True)
+
+    assert client.call_count == 0
+    assert sorted(str(p.relative_to(export_only)) for p in export_only.rglob("*")) == before
+    assert not (export_only / "state.json").exists()
+
+
+def test_new_review_refusal_happens_before_model_calls_or_any_write(project_root):
+    from datetime import datetime
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    write_state(
+        "Acme Corp", "Fleet Loan", date_str="2099-01-10",
+        inputs={"pd": "FUTURE_REVIEW_SENTINEL", "lgd": "LGD 1 (5%)"},
+    )
+    future_path = Path(state_path("Acme Corp", "Fleet Loan", date_str="2099-01-10"))
+    before = future_path.read_bytes()
+    client = MockClient([])
+
+    with pytest.raises(StateError, match="strictly later than the newest existing"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=client, new_review=True)
+
+    assert client.call_count == 0
+    assert future_path.read_bytes() == before
+    assert not Path(state_path("Acme Corp", "Fleet Loan", date_str=today)).exists()
+
+
 # ---------------------------------------------------------------------------
 # downside_case recomputation: financials and stress_assumptions don't have
 # to be re-supplied together on every run -- each independently falls back

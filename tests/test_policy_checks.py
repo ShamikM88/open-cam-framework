@@ -887,3 +887,70 @@ def test_parse_underwriter_output_malformed_only_block_returns_defaults_and_warn
         "[parse_underwriter_output] Skipping unparseable fenced JSON block:"
     )
 
+
+
+# Additional compute_collateral_cover_pct mutation-survivor contracts.
+@pytest.mark.parametrize(
+    ("asset", "other_asset", "expected"),
+    [
+        ({"exposure": 0, "collateral_value": 10}, {"exposure": 2, "collateral_value": 30}, 2000.0),
+        ({"exposure": 0.5, "collateral_value": 10}, {"exposure": 2, "collateral_value": 30}, 1600.0),
+        ({"exposure": 1, "collateral_value": 0}, {"exposure": 2, "collateral_value": 30}, 1000.0),
+        ({"exposure": 1, "collateral_value": 0.5}, {"exposure": 2, "collateral_value": 30}, 30.5 / 3 * 100),
+    ],
+    ids=["zero-exposure-asset", "fractional-exposure-asset", "zero-collateral-value", "fractional-collateral-value"],
+)
+def test_collateral_cover_pct_accepts_zero_and_fractional_asset_values(asset, other_asset, expected):
+    actual = compute_collateral_cover_pct([asset, other_asset])
+    assert actual == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("exposure", -0.5),
+        ("exposure", -1),
+        ("collateral_value", -0.5),
+        ("collateral_value", -1),
+    ],
+    ids=["negative-half-exposure", "negative-one-exposure", "negative-half-collateral", "negative-one-collateral"],
+)
+def test_collateral_cover_pct_refuses_each_negative_asset_value(field, value):
+    asset = {"exposure": 100, "collateral_value": 100}
+    asset[field] = value
+    assert compute_collateral_cover_pct([asset]) is None
+
+
+@pytest.mark.parametrize("asset", [
+    {"exposure": 100},
+    {"exposure": 100, "collateral_value": None},
+], ids=["missing-collateral-value", "null-collateral-value"])
+def test_collateral_cover_pct_treats_missing_or_null_collateral_value_as_zero(asset):
+    assert compute_collateral_cover_pct([asset]) == 0.0
+
+
+def test_collateral_cover_pct_sums_at_least_three_assets_for_both_totals():
+    collateral = [
+        {"exposure": 100, "collateral_value": 100},
+        {"exposure": 200, "collateral_value": 100},
+        {"exposure": 300, "collateral_value": 300},
+    ]
+    assert compute_collateral_cover_pct(collateral) == pytest.approx(500 / 600 * 100)
+
+
+def test_collateral_cover_pct_a_positive_total_exposure_below_one_is_valid_but_zero_is_na():
+    assert compute_collateral_cover_pct([{"exposure": 0.5, "collateral_value": 1}]) == 200.0
+    assert compute_collateral_cover_pct([{"exposure": 0, "collateral_value": 100}]) is None
+
+
+def test_collateral_cover_pct_returns_na_when_finite_asset_exposures_overflow_the_total():
+    collateral = [
+        {"exposure": 1e308, "collateral_value": 1},
+        {"exposure": 1e308, "collateral_value": 1},
+    ]
+    assert compute_collateral_cover_pct(collateral) is None
+
+
+def test_collateral_cover_pct_returns_na_when_percentage_overflows_to_infinity():
+    collateral = [{"exposure": 1e-308, "collateral_value": 1e308}]
+    assert compute_collateral_cover_pct(collateral) is None

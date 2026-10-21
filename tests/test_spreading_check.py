@@ -14,7 +14,8 @@ import pytest
 
 import spreading_check
 from spreading_check import compute, main, plan_fields
-from numeric_validation import validate_period_objects
+from numeric_validation import validate_period_keys, validate_period_objects
+from spreading_builder import PERIOD_KEYS
 from state_manager import read_state, write_state
 
 
@@ -914,4 +915,55 @@ def test_main_names_financial_inputs_in_raw_line_item_validation_error(
         "found 'not a number'"
     )
     assert capsys.readouterr().out == ""
+    assert not (tmp_path / "deals").exists()
+
+
+# ---------------------------------------------------------------------------
+# Issue #48: an entity-keyed financials file is refused loudly (the evaluator has no entity dimension).
+# ---------------------------------------------------------------------------
+
+def test_sc_validate_period_keys_names_the_first_unexpected_key_and_lists_the_valid_ones():
+    with pytest.raises(ValueError) as caught:
+        validate_period_keys({"FY-Current": {}, "HoldCo": {}, "OpCo A": {}}, PERIOD_KEYS)
+
+    assert str(caught.value) == (
+        "financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+
+
+def test_sc_validate_period_keys_uses_the_given_path_and_passes_valid_or_missing_input():
+    assert validate_period_keys(None, PERIOD_KEYS) is None
+    assert validate_period_keys({"FY-2": {}, "FY+3": {}}, PERIOD_KEYS) == {"FY-2": {}, "FY+3": {}}
+    with pytest.raises(ValueError, match="^stress input: unexpected period key 'X'"):
+        validate_period_keys({"X": {}}, PERIOD_KEYS, path="stress input")
+    # Not a mapping: left for validate_period_objects to refuse with its own message.
+    assert validate_period_keys(["HoldCo"], PERIOD_KEYS) == ["HoldCo"]
+
+
+def test_sc_plan_fields_refuses_an_entity_keyed_input():
+    with pytest.raises(ValueError) as caught:
+        plan_fields({}, {"HoldCo": {"FY-Current": {"revenue": 1000}}})
+
+    assert str(caught.value) == (
+        "financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+
+
+def test_sc_main_refuses_an_entity_keyed_financials_file_with_one_error_naming_the_key_and_no_write(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.chdir(tmp_path)
+    financials = _json_file(
+        tmp_path, "financials.json",
+        {"HoldCo": {"FY-Current": {"revenue": 1000}}, "OpCo A": {"FY-Current": {"revenue": 600}}},
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Group Ltd", "--proposal", "Group Facility", "--financials", financials])
+
+    assert caught.value.code == (
+        "error: financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+    output = capsys.readouterr()
+    assert output.out == "" and output.err == ""
     assert not (tmp_path / "deals").exists()

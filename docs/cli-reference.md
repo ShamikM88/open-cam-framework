@@ -131,8 +131,11 @@ See [State manager](#state-manager).
   history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
   `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
   matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
-  Each period value must be an object of raw line items; a string, number, null, list or other non-object period is
-  refused with one `error:` line naming the period. For recognised raw line-item fields, each non-null value must be a
+  Each period key must be one of the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`,
+  `FY+3`): any other key, for example an entity name such as `HoldCo`, is refused with one `error:` line naming the
+  key before a model call or write (D19 in [decisions](decisions.md)). Each period value must be an object of raw
+  line items; a string, number, null, list or other non-object period is refused with one `error:` line naming the
+  period. For recognised raw line-item fields, each non-null value must be a
   finite JSON number: numeric strings are not coerced and booleans are not numbers. Invalid values (including JSON
   overflow values such as `1e999`) are refused with one `error:` line naming the period and field, exit status 1,
   before a model call or state write. Null raw line-item values retain the evaluator's existing behavior and are not
@@ -238,7 +241,7 @@ ending in one newline (read it as JSON; the order of its members is not a contra
 the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
 re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
 what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
-always passes it. Each supplied period must be an object of line items; a string, scalar, null or list period is refused with one
+always passes it. The keys must be the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`): any other key, for example an entity name such as `HoldCo`, is refused with one `error:` line naming the key and listing the valid labels, exit status 1, and no state write (the evaluator has no entity dimension; D19 in [decisions](decisions.md)). Each supplied period must be an object of line items; a string, scalar, null or list period is refused with one
 `error:` line naming the period, exit status 1, and no state write. For recognised raw line-item fields, non-null values
 must be finite JSON numbers; numeric strings and booleans are refused rather than coerced. Each stress value must also be
 a finite JSON number (not a string, boolean, null, list or object). Invalid input produces one key/period-naming

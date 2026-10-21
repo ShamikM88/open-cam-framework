@@ -719,15 +719,15 @@ def test_the_derived_downside_carries_only_figures_whose_every_line_was_supplied
 def test_the_dependency_tables_cover_every_output_and_name_every_line_it_reads():
     """Sound: a line missing from an output's entry never changes that output. Complete: every output is listed."""
     base = {name: 7.0 + 3 * i for i, name in enumerate(sf.RAW_FIELDS)}
-    reference = evaluate_financial_model({"p": base})
-    assert set(sf.SUBTOTAL_DEPENDS) == set(reference["financials"]["p"]) - {"raw"}
-    assert set(sf.RATIO_DEPENDS) == set(reference["ratios"]["p"])
+    reference = evaluate_financial_model({"FY-Current": base})
+    assert set(sf.SUBTOTAL_DEPENDS) == set(reference["financials"]["FY-Current"]) - {"raw"}
+    assert set(sf.RATIO_DEPENDS) == set(reference["ratios"]["FY-Current"])
     for name in sf.RAW_FIELDS:
-        bumped = evaluate_financial_model({"p": {**base, name: base[name] + 1000}})
+        bumped = evaluate_financial_model({"FY-Current": {**base, name: base[name] + 1000}})
         for store, depends in (("financials", sf.SUBTOTAL_DEPENDS), ("ratios", sf.RATIO_DEPENDS)):
             for output, lines in depends.items():
                 if name not in lines:
-                    assert bumped[store]["p"][output] == reference[store]["p"][output], (name, output)
+                    assert bumped[store]["FY-Current"][output] == reference[store]["FY-Current"][output], (name, output)
     assert set(sf.REQUIRED_LINES) == {n for ratio in SUPPLIED_RATIOS for n in sf.RATIO_DEPENDS[ratio]}
     assert {n for lines in sf.RATIO_DEPENDS.values() for n in lines} <= set(sf.REQUIRED_LINES),         "a derived year holds every ratio, so no ratio may read a line that is not required"
 

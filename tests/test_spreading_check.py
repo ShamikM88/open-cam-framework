@@ -804,24 +804,33 @@ def test_main_names_the_financial_or_stress_validator_path_and_does_not_write_st
     assert not (tmp_path / "deals").exists()
 
 
-def test_main_prints_exactly_two_space_indented_four_key_json_in_order(monkeypatch, capsys):
-    state = {
-        "financials": {"FY-Current": {"gross_profit": 600}},
-        "ratios": {"FY-Current": {"dscr": 1.25}},
-        "downside_case": None,
-        "financials_source": "framework-computed",
-    }
-    monkeypatch.setattr(spreading_check, "compute", lambda *args, **kwargs: state)
+_PRINTED_STATE = {
+    "financials": {"FY-Current": {"gross_profit": 600}},
+    "ratios": {"FY-Current": {"dscr": 1.25}},
+    "downside_case": None,
+    "financials_source": "framework-computed",
+}
+
+
+def test_main_prints_one_json_object_with_exactly_the_four_state_keys(monkeypatch, capsys):
+    monkeypatch.setattr(spreading_check, "compute", lambda *args, **kwargs: _PRINTED_STATE)
 
     main(["--company", "Synthetic Co", "--proposal", "Credit Facility"])
 
-    expected = {
-        "financials": state.get("financials"),
-        "ratios": state.get("ratios"),
-        "downside_case": state.get("downside_case"),
-        "financials_source": state.get("financials_source"),
-    }
-    assert capsys.readouterr().out == json.dumps(expected, indent=2) + "\n"
+    # Parsed, so this test does not depend on member order or whitespace.
+    assert json.loads(capsys.readouterr().out) == _PRINTED_STATE
+
+
+def test_main_output_format_is_two_space_indented_json_with_one_trailing_newline(monkeypatch, capsys):
+    # The exact text is pinned on purpose: docs/cli-reference.md states that the output is two-space-indented JSON
+    # ending in one newline, and a reviewed change to that format should have to update this test and that sentence.
+    # Consumers parse the JSON and must not rely on member order; this test is what keeps the formatting
+    # mutants (`indent=2` changed or dropped) from surviving in the weekly mutation run.
+    monkeypatch.setattr(spreading_check, "compute", lambda *args, **kwargs: _PRINTED_STATE)
+
+    main(["--company", "Synthetic Co", "--proposal", "Credit Facility"])
+
+    assert capsys.readouterr().out == json.dumps(_PRINTED_STATE, indent=2) + "\n"
 
 
 def test_sc_plan_fields_defaults_to_stamping_framework_computed_basis_when_unset():

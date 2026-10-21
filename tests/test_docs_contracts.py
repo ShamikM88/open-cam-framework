@@ -368,15 +368,26 @@ AUTHORISED_START_REVIEW_PARAGRAPHS = {
         "records an assembled CAM, so this question is expected for those deals.)"
     ),
     "renamed proposal": (
-        "an\n"
-        "earlier review filed under a different proposal name cannot be linked, because a review can only follow one with\n"
-        "exactly the same company and proposal name"
+        "an earlier review filed under a different proposal name cannot be linked, because a review can only\n"
+        "follow one with exactly the same company and proposal name"
+    ),
+    "skipped reviews are listed": (
+        "- if `skipped` is not empty, the earlier reviews that exist but could not be read, each with its date and reason: they\n"
+        "  are not offered as a link."
+    ),
+    "skipped reviews when there are no candidates": (
+        "If\n"
+        "`candidates` is empty but `skipped` is not, say instead that earlier reviews exist but could not be read (give each\n"
+        "date and reason), and ask whether to start without a link or stop."
+    ),
+    "comparison pre-approval": (
+        "allowed-tools: Bash(python scripts/state_manager.py *), Bash(python scripts/review_compare.py *)"
     ),
     "stop on script failure": (
-        "If the script exits non-zero or prints an `error:` line, stop. Tell the analyst plainly what it said (it refuses when a\n"
-        "review already exists for that date, when the date is not later than the newest existing review, or when the chosen\n"
-        "earlier date is not one of the earlier reviews), say that nothing was created or changed, and do not try another date\n"
-        "or another choice yourself: the analyst decides."
+        "If the script exits non-zero or prints an `error:` line, stop. Tell the analyst plainly what it said (it refuses when the\n"
+        "company has no deal folder, when a review already exists for that date, when the date is not later than the newest\n"
+        "existing review, or when the chosen earlier date is not one of the earlier reviews), say that nothing was created or\n"
+        "changed, and do not try another date or another choice yourself: the analyst decides."
     ),
     "state write": (
         "This command writes nothing itself: the script creates the one new empty `state.json`. The command never edits,\n"

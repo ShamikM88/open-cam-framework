@@ -1,7 +1,7 @@
 ---
 description: Start a fresh review of a deal that already has an earlier review: choose which earlier review to link to, create an empty dated folder that inherits nothing from it, and stop (see config/skills_registry.md).
 argument-hint: --company "<Name>" --proposal "<Proposal name>" [--date YYYY-MM-DD]
-allowed-tools: Bash(python scripts/state_manager.py *)
+allowed-tools: Bash(python scripts/state_manager.py *), Bash(python scripts/review_compare.py *)
 disable-model-invocation: true
 ---
 
@@ -54,13 +54,17 @@ records an assembled CAM, so this question is expected for those deals.)
 Tell the analyst, in plain words:
 - the date the new review will have;
 - the earlier reviews of this exact company and proposal, newest first, each with its date, and which one is the
-  default (`default_prior_date`, the nearest earlier one).
+  default (`default_prior_date`, the nearest earlier one);
+- if `skipped` is not empty, the earlier reviews that exist but could not be read, each with its date and reason: they
+  are not offered as a link.
 
 Then offer exactly these choices: (1) link to the default; (2) link to a different listed date; (3) start without a
-link. If `candidates` is empty, say that no earlier review of this exact company and proposal was found (names are
-matched exactly, so a differently spelt earlier deal is not found: check the spelling if one was expected; and an
-earlier review filed under a different proposal name cannot be linked, because a review can only follow one with
-exactly the same company and proposal name) and ask whether to start without a link or stop.
+link. If `candidates` is empty and `skipped` is empty, say that no earlier review of this exact company and proposal
+was found (names are matched exactly, so a differently spelt earlier deal is not found: check the spelling if one was
+expected; and an earlier review filed under a different proposal name cannot be linked, because a review can only
+follow one with exactly the same company and proposal name) and ask whether to start without a link or stop. If
+`candidates` is empty but `skipped` is not, say instead that earlier reviews exist but could not be read (give each
+date and reason), and ask whether to start without a link or stop.
 
 Wait for the answer. Never choose for the analyst. Silence, "go ahead", or an answer that does not name a choice is not
 a choice: ask again.
@@ -75,10 +79,10 @@ python scripts/state_manager.py --start-review --company "<company>" --proposal 
 Use the first for choices (1) and (2), naming the chosen date explicitly even for the default, and the second for choice
 (3).
 
-If the script exits non-zero or prints an `error:` line, stop. Tell the analyst plainly what it said (it refuses when a
-review already exists for that date, when the date is not later than the newest existing review, or when the chosen
-earlier date is not one of the earlier reviews), say that nothing was created or changed, and do not try another date
-or another choice yourself: the analyst decides.
+If the script exits non-zero or prints an `error:` line, stop. Tell the analyst plainly what it said (it refuses when the
+company has no deal folder, when a review already exists for that date, when the date is not later than the newest
+existing review, or when the chosen earlier date is not one of the earlier reviews), say that nothing was created or
+changed, and do not try another date or another choice yourself: the analyst decides.
 
 ## 5. Tell the analyst what happened
 

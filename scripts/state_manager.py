@@ -297,6 +297,8 @@ def sanitize_path_component(value, field_name):
     path segment before it, rather than raising).
     """
     value = str(value)
+    if not value.strip():
+        raise ValueError(f"{field_name} must not be empty.")
     if _UNSAFE_PATH_CHARS_RE.search(value) or value in (".", ".."):
         raise ValueError(
             f"{field_name} {value!r} isn't safe to use as a filesystem path "
@@ -336,6 +338,205 @@ def _existing_date_str(company, proposal, base_dir=None):
             _deals_root(base_dir), company, f"{proposal}_{date}", "state.json"))
     ]
     return dates[-1] if dates else None
+
+
+
+
+def _require_known_company(company, base_dir=None):
+    """The company's deal folder, or a refusal: starting a review is for a deal that already has a folder.
+
+    A mistyped company name would otherwise quietly become a brand-new deal (issue #268); a deal that has never
+    been reviewed starts with /triage or /spread instead.
+    """
+    company_dir = os.path.join(_deals_root(base_dir), company)
+    if not os.path.isdir(company_dir):
+        raise StateError(
+            f"Refusing to start a review: there is no deal folder for company {company!r}; starting a review "
+            "is for a deal that already has one (use /triage or /spread to start a new deal, or check the "
+            "spelling); nothing was changed."
+        )
+    return company_dir
+
+
+def _require_later_than_newest(company, proposal, date_str, base_dir=None):
+    """Refuse a review date that is not strictly later than the newest existing state-bearing review.
+
+    Every other command resumes the newest dated folder, so a review dated earlier would never become active.
+    """
+    newest_date = _existing_date_str(company, proposal, base_dir=base_dir)
+    if newest_date is not None and date_str <= newest_date:
+        raise StateError(
+            f"Refusing to start review dated {date_str}: it must be strictly later than the newest "
+            f"existing state-bearing review ({newest_date}) for this exact company and proposal; "
+            "nothing was changed."
+        )
+
+
+def get_review_candidates(company, proposal, date_str=None, base_dir=None):
+    """List eligible earlier review states for an exact company/proposal.
+
+    The dated folder must contain a readable state.json accepted by read_state().
+    Export-only folders, impossible folder dates and non-exact proposal names are not
+    candidates; an earlier folder whose state.json cannot be read is not offered either, but it is
+    reported under `skipped` (date and reason) so that "no earlier review" is never said about a
+    review that exists. The company must already have a deal folder, and the date must be strictly
+    later than the newest existing review (the same rules as start_review). Read-only.
+    """
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = _validate_explicit_state_date(date_str)
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    _require_known_company(company, base_dir=base_dir)
+    _require_later_than_newest(company, proposal, date_str, base_dir=base_dir)
+
+    candidates = []
+    skipped = []
+    for candidate_date in reversed(_matching_dated_folder_dates(company, proposal, base_dir=base_dir)):
+        if candidate_date >= date_str:
+            continue
+        candidate_path = state_path(company, proposal, date_str=candidate_date, base_dir=base_dir)
+        if not os.path.isfile(candidate_path):
+            continue
+        try:
+            candidate_state = read_state(
+                company, proposal, date_str=candidate_date, base_dir=base_dir,
+            )
+        except (OSError, ValueError) as exc:
+            # A broken or unusable state file is not an eligible comparison baseline, but it is not silent.
+            reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+            skipped.append({"date": candidate_date, "reason": f"state.json cannot be read: {reason}"})
+            continue
+        if candidate_state is None:
+            # It may have disappeared after the file-existence check.
+            continue
+        candidates.append({"date": candidate_date, "state_path": candidate_path})
+
+    default_prior_date = candidates[0]["date"] if candidates else None
+    return {
+        "company": company,
+        "proposal": proposal,
+        "date": date_str,
+        "candidates": candidates,
+        "default_prior_date": default_prior_date,
+        "skipped": skipped,
+    }
+
+
+def _create_review_folder(target_dir, target_state_path, state):
+    """Create the dated folder and its single state.json so that a failure leaves nothing behind.
+
+    The state is written to a temporary file in the new folder and moved into place, and if anything fails
+    (including an interrupt) the temporary file and the folder this call created are removed again.
+    """
+    try:
+        os.mkdir(target_dir)
+    except FileExistsError as exc:
+        raise StateError(
+            f"Refusing to start review: the dated folder already exists ({target_dir}); nothing was changed."
+        ) from exc
+    except OSError as exc:
+        raise StateError(f"Could not start the review: {exc}; nothing was changed.") from exc
+    tmp_path = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as state_file:
+            json.dump(state, state_file, indent=2)
+            state_file.write("\n")
+        os.replace(tmp_path, target_state_path)
+    except BaseException as exc:
+        cleaned_up = True
+        for leftover in (tmp_path, target_state_path):
+            if leftover and os.path.exists(leftover):
+                try:
+                    os.remove(leftover)
+                except OSError:
+                    cleaned_up = False
+        try:
+            os.rmdir(target_dir)
+        except OSError:
+            cleaned_up = False
+        if isinstance(exc, OSError):
+            outcome = (
+                "the folder this call created was removed and nothing was changed" if cleaned_up
+                else f"the new folder {target_dir} could not be removed and should be deleted by hand"
+            )
+            raise StateError(f"Could not start the review: {exc}; {outcome}.") from exc
+        raise
+
+
+def start_review(company, proposal, date_str=None, prior_date=None, no_prior=False, base_dir=None):
+    """Create a fresh dated review state without inheriting any prior review fields.
+
+    The company must already have a deal folder. The new date must be strictly later than every existing
+    state-bearing date for this exact company/proposal. A selected prior is a link only: its data is never
+    copied. The new dated folder and state.json are never overwritten, the whole decision and creation runs
+    under one lock per company/proposal so that two starts cannot both pass the date check, and a failed
+    creation leaves nothing behind.
+    """
+    if no_prior and prior_date is not None:
+        raise StateError("--prior-date and --no-prior cannot be used together")
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = _validate_explicit_state_date(date_str)
+    if prior_date is not None:
+        prior_date = _validate_explicit_state_date(prior_date)
+
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    company_dir = _require_known_company(company, base_dir=base_dir)
+    target_state_path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
+    target_dir = os.path.dirname(target_state_path)
+
+    with _FileLock(os.path.join(company_dir, f"{proposal}.start"), timeout=LOCK_TIMEOUT_SECONDS):
+        if os.path.lexists(target_dir):
+            raise StateError(
+                f"Refusing to start review: the dated folder already exists for {company!r} / "
+                f"{proposal!r} on {date_str}; nothing was changed."
+            )
+        report = get_review_candidates(company, proposal, date_str=date_str, base_dir=base_dir)
+        eligible_dates = {item["date"] for item in report["candidates"]}
+        if prior_date is not None:
+            if prior_date >= date_str:
+                raise StateError(
+                    f"Prior review date {prior_date} is not eligible: it must be earlier than the new review date "
+                    f"{date_str}; nothing was changed."
+                )
+            if prior_date not in eligible_dates:
+                raise StateError(
+                    f"Prior review date {prior_date} is not eligible for exact company {company!r} and proposal "
+                    f"{proposal!r}: no valid state.json exists in that exact dated folder; nothing was changed."
+                )
+            linked_date = prior_date
+            message = f"Started a fresh review linked to the explicitly selected prior review dated {linked_date}."
+        elif no_prior:
+            linked_date = None
+            message = "Started a fresh review without a prior link by request (--no-prior)."
+        else:
+            linked_date = report["default_prior_date"]
+            if linked_date is None:
+                message = "Started a fresh review without a prior link because no eligible earlier review was found."
+            else:
+                message = f"Started a fresh review linked to the nearest earlier review dated {linked_date}."
+
+        state = {
+            "company": company,
+            "proposal": proposal,
+            "date": date_str,
+            "schema_version": SCHEMA_VERSION,
+        }
+        if linked_date is not None:
+            state["prior_review_date"] = linked_date
+        _create_review_folder(target_dir, target_state_path, state)
+
+    return {
+        "started": True,
+        "state_path": target_state_path,
+        "date": date_str,
+        "prior_review_date": linked_date,
+        "linked": linked_date is not None,
+        "message": message,
+    }
 
 
 def _normalize_proposal_for_suggestion(proposal):
@@ -775,23 +976,42 @@ if __name__ == "__main__":
     configure_stdio()
     parser = argparse.ArgumentParser(
         description="Manage a deal's persisted state without an Anthropic dependency. "
-                    "--find is a read-only exact lookup with advisory normalized near matches; "
-                    "--check-steps reports missing required steps; --export-reviewer-view writes "
-                    "derived copies with review history separated from the first-pass record."
+                    "--find is a read-only exact lookup; --review-candidates lists eligible earlier reviews; "
+                    "--start-review creates a fresh state with an optional prior-review link; --check-steps "
+                    "reports missing required steps; --export-reviewer-view separates review history."
     )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--find", action="store_true",
                        help="Read-only exact deal lookup with advisory normalized near matches.")
+    modes.add_argument("--review-candidates", action="store_true",
+                       help="Read-only list of valid earlier reviews for the exact company and proposal.")
+    modes.add_argument("--start-review", action="store_true",
+                       help="Create a new review state without copying any prior-review content.")
     modes.add_argument("--check-steps", action="store_true",
                        help="Report which required steps are missing from steps_completed.")
     modes.add_argument("--export-reviewer-view", action="store_true",
                        help="Write state_for_review.json and review_trail.json under review_view/.")
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
+    parser.add_argument("--date",
+                        help="Review date in YYYY-MM-DD form (defaults to today); used with review-start modes.")
+    prior = parser.add_mutually_exclusive_group()
+    prior.add_argument("--prior-date",
+                       help="Explicit earlier review date to link when starting a review.")
+    prior.add_argument("--no-prior", action="store_true",
+                       help="Start without a prior link, even when earlier reviews exist.")
     parser.add_argument("--required",
                         help="Comma-separated list of steps that must appear in this deal's "
                              "steps_completed, e.g. spread,collateral")
     args = parser.parse_args()
+
+    if args.find or args.check_steps or args.export_reviewer_view:
+        if args.date is not None:
+            parser.error("--date is only valid with --review-candidates or --start-review")
+        if args.prior_date is not None or args.no_prior:
+            parser.error("--prior-date and --no-prior are only valid with --start-review")
+    if args.review_candidates and (args.prior_date is not None or args.no_prior):
+        parser.error("--prior-date and --no-prior are only valid with --start-review")
 
     if args.find:
         try:
@@ -809,9 +1029,24 @@ if __name__ == "__main__":
             sys.exit(f"error: {exc}")    # unreadable state or unsafe names are errors, not a "missing steps" result
         missing = required_steps_completed(state.get("steps_completed") or [], required)
         print(json.dumps({"missing_steps": missing, "ok": len(missing) == 0}, indent=2))
-    else:
+    elif args.export_reviewer_view:
         try:
             paths = export_reviewer_view(args.company, args.proposal)
         except (OSError, ValueError) as exc:
             sys.exit(f"error: {exc}")
         print(json.dumps(paths, indent=2))
+    elif args.review_candidates:
+        try:
+            report = get_review_candidates(args.company, args.proposal, date_str=args.date)
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report, indent=2))
+    else:
+        try:
+            report = start_review(
+                args.company, args.proposal, date_str=args.date,
+                prior_date=args.prior_date, no_prior=args.no_prior,
+            )
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report, indent=2))

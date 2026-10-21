@@ -1727,3 +1727,560 @@ def test_find_deal_excludes_candidate_dates_that_are_not_exact_iso_shape(tmp_pat
     }
     after = _find_deal_snapshot(base)
     assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Issue #203: safe fresh-review candidates and start primitive.
+# ---------------------------------------------------------------------------
+
+def _review_203_write_state(base, date_str, proposal="Credit Facility", **fields):
+    return state_manager.write_state(
+        "Synthetic Co", proposal, date_str=date_str, base_dir=str(base), **fields,
+    )
+
+
+def _review_203_make_folder(base, folder_name, state_text=None):
+    folder = base / "deals" / "Synthetic Co" / folder_name
+    folder.mkdir(parents=True, exist_ok=True)
+    if state_text is not None:
+        (folder / "state.json").write_text(state_text, encoding="utf-8")
+    return folder
+
+
+def test_review_203_candidates_returns_empty_and_writes_nothing(tmp_path):
+    (tmp_path / "deals" / "Synthetic Co").mkdir(parents=True)
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    assert report == {
+        "company": "Synthetic Co",
+        "proposal": "Credit Facility",
+        "date": "2026-04-15",
+        "candidates": [],
+        "default_prior_date": None,
+        "skipped": [],
+    }
+    assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")) == before
+
+
+def test_review_203_candidates_are_descending_exact_and_skip_invalid_folders(tmp_path):
+    _review_203_write_state(tmp_path, "2025-01-02")
+    _review_203_write_state(tmp_path, "2025-05-03")
+    _review_203_make_folder(tmp_path, "Credit Facility_2025-02-04")  # export-only
+    _review_203_make_folder(tmp_path, "Credit Facility_2025-04-01", "not JSON")
+    _review_203_make_folder(tmp_path, "Credit Facility_2025-13-01", "{}")  # impossible calendar date
+    _review_203_make_folder(tmp_path, "Credit Facility_2025-1-02", "{}")  # malformed ISO shape
+    _review_203_make_folder(tmp_path, "Credit-Facility_2025-06-01", "{}")  # normalized near-match only
+    _review_203_make_folder(tmp_path, "Credit Facility Plus_2025-06-02", "{}")  # different proposal
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2025-06-01", base_dir=str(tmp_path),
+    )
+
+    assert [item["date"] for item in report["candidates"]] == ["2025-05-03", "2025-01-02"]
+    assert report["default_prior_date"] == "2025-05-03"
+    assert report["candidates"][0]["state_path"] == str(
+        tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2025-05-03" / "state.json"
+    )
+    assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")) == before
+
+
+def test_review_203_candidates_default_date_uses_the_existing_today_source(tmp_path, monkeypatch):
+    class FixedDateTime:
+        @staticmethod
+        def now():
+            return datetime(2026, 4, 15)
+
+    _review_203_write_state(tmp_path, "2026-04-01")
+    monkeypatch.setattr(state_manager, "datetime", FixedDateTime)
+
+    report = state_manager.get_review_candidates("Synthetic Co", "Credit Facility", base_dir=str(tmp_path))
+
+    assert report["date"] == "2026-04-15"
+    assert [item["date"] for item in report["candidates"]] == ["2026-04-01"]
+
+
+def test_review_203_candidates_refuse_a_date_that_matches_or_precedes_the_newest_review(tmp_path):
+    for value in ("2025-01-01", "2025-03-01", "2025-07-01"):
+        _review_203_write_state(tmp_path, value)
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+
+    for refused in ("2025-07-01", "2025-02-01"):
+        with pytest.raises(ValueError, match="strictly later than the newest existing state-bearing review"):
+            state_manager.get_review_candidates(
+                "Synthetic Co", "Credit Facility", date_str=refused, base_dir=str(tmp_path),
+            )
+    later = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2025-07-02", base_dir=str(tmp_path),
+    )
+
+    assert [item["date"] for item in later["candidates"]] == ["2025-07-01", "2025-03-01", "2025-01-01"]
+    assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")) == before
+
+
+def test_review_203_candidates_skip_state_disappearing_after_existence_check(tmp_path, monkeypatch):
+    _review_203_make_folder(tmp_path, "Credit Facility_2025-01-01", "{}")
+    monkeypatch.setattr(state_manager, "read_state", lambda *args, **kwargs: None)
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+    )
+
+    assert report["candidates"] == []
+    assert report["default_prior_date"] is None
+
+
+def test_review_203_start_without_prior_creates_minimal_active_state(tmp_path):
+    (tmp_path / "deals" / "Synthetic Co").mkdir(parents=True)
+    report = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    expected_path = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15" / "state.json"
+    assert report["started"] is True
+    assert report["date"] == "2026-04-15"
+    assert report["prior_review_date"] is None
+    assert report["linked"] is False
+    assert "no eligible earlier review was found" in report["message"]
+    assert report["state_path"] == str(expected_path)
+    saved = json.loads(expected_path.read_text(encoding="utf-8"))
+    assert saved == {
+        "company": "Synthetic Co",
+        "proposal": "Credit Facility",
+        "date": "2026-04-15",
+        "schema_version": SCHEMA_VERSION,
+    }
+    assert set(saved) == {"company", "proposal", "date", "schema_version"}
+    assert state_manager.read_state(
+        "Synthetic Co", "Credit Facility", base_dir=str(tmp_path),
+    )["date"] == "2026-04-15"
+    assert state_manager.resolve_date_str(
+        "Synthetic Co", "Credit Facility", base_dir=str(tmp_path),
+    ) == "2026-04-15"
+    found = state_manager.find_deal("Synthetic Co", "Credit Facility", base_dir=str(tmp_path))
+    assert found["record_found"] is True
+    assert found["date"] == "2026-04-15"
+    assert found["state_path"] == str(expected_path)
+
+
+def test_review_203_start_default_link_inherits_nothing_and_preserves_prior_and_conventions(tmp_path):
+    _review_203_write_state(tmp_path, "2024-01-01", inputs={"pd": "0.20%"})
+    _review_203_write_state(
+        tmp_path,
+        "2025-06-01",
+        inputs={"pd": "0.08%", "lgd": "0.35%"},
+        financials={"FY-Current": {"ebitda": 210, "total_debt": 800}},
+        ratios={"FY-Current": {"gross_leverage": 3.8}},
+        policy_state={"covenant_results": [{"metric": "gross_leverage", "status": "FAIL"}]},
+        steps_completed=["spread", "policy_check"],
+        review_trail=[{"iteration": 1, "verdict": "REJECTED", "notes": "synthetic"}],
+        covenants=[{"metric": "gross_leverage", "threshold": 3.5}],
+        downside_case={"financials": {"FY-Current": {"ebitda": 100}}, "ratios": {}},
+        collateral=[{"asset_id": "SYN-AST-1", "value": 900}],
+        security_package=[{"asset_id": "SYN-AST-1", "ranking": "first"}],
+        facility_terms={"currency": "GBP", "limit": 500},
+        guarantees=[{"provider": "Synthetic Parent", "type": "Corporate"}],
+        drafts={"cam": "synthetic prior draft"},
+        source_manifest={"entries": ["synthetic prior source"]},
+    )
+    company_dir = tmp_path / "deals" / "Synthetic Co"
+    conventions = company_dir / "_conventions.json"
+    conventions.write_bytes(b'{"confirmed": "synthetic convention"}\n')
+    prior_path = company_dir / "Credit Facility_2025-06-01" / "state.json"
+    prior_bytes = prior_path.read_bytes()
+    manifest = company_dir / "Credit Facility_2025-06-01" / "sources" / "manifest.json"
+    manifest.parent.mkdir()
+    manifest_bytes = b'[{"filename":"synthetic.txt","claim":"synthetic only"}]\n'
+    manifest.write_bytes(manifest_bytes)
+    conventions_bytes = conventions.read_bytes()
+
+    report = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    new_path = company_dir / "Credit Facility_2026-04-15" / "state.json"
+    saved = json.loads(new_path.read_text(encoding="utf-8"))
+    assert report["linked"] is True
+    assert report["prior_review_date"] == "2025-06-01"
+    assert "2025-06-01" in report["message"]
+    assert saved == {
+        "company": "Synthetic Co",
+        "proposal": "Credit Facility",
+        "date": "2026-04-15",
+        "schema_version": SCHEMA_VERSION,
+        "prior_review_date": "2025-06-01",
+    }
+    assert set(saved) == {"company", "proposal", "date", "schema_version", "prior_review_date"}
+    assert prior_path.read_bytes() == prior_bytes
+    assert manifest.read_bytes() == manifest_bytes
+    assert conventions.read_bytes() == conventions_bytes
+    assert sorted(item.name for item in new_path.parent.iterdir()) == ["state.json"]
+    assert state_manager.read_state("Synthetic Co", "Credit Facility", base_dir=str(tmp_path)) == saved
+    assert state_manager.resolve_date_str("Synthetic Co", "Credit Facility", base_dir=str(tmp_path)) == "2026-04-15"
+    assert state_manager.find_deal("Synthetic Co", "Credit Facility", base_dir=str(tmp_path))["date"] == "2026-04-15"
+
+
+def test_review_203_start_explicitly_links_an_older_eligible_prior(tmp_path):
+    _review_203_write_state(tmp_path, "2024-01-01")
+    _review_203_write_state(tmp_path, "2025-06-01")
+    report = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15",
+        prior_date="2024-01-01", base_dir=str(tmp_path),
+    )
+
+    assert report["prior_review_date"] == "2024-01-01"
+    assert report["linked"] is True
+    saved = json.loads(
+        (tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15" / "state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(saved) == {"company", "proposal", "date", "schema_version", "prior_review_date"}
+    assert saved["prior_review_date"] == "2024-01-01"
+
+
+def test_review_203_start_no_prior_overrides_available_candidates(tmp_path):
+    _review_203_write_state(tmp_path, "2025-06-01")
+
+    report = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15",
+        no_prior=True, base_dir=str(tmp_path),
+    )
+
+    assert report["linked"] is False
+    assert report["prior_review_date"] is None
+    assert "by request (--no-prior)" in report["message"]
+    saved = json.loads(
+        (tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15" / "state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(saved) == {"company", "proposal", "date", "schema_version"}
+
+
+@pytest.mark.parametrize("prior_case", ["same_date", "missing", "export_only", "other_proposal"])
+def test_review_203_start_refuses_an_ineligible_explicit_prior(tmp_path, prior_case):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    review_date = "2026-06-01"
+    prior_date = review_date if prior_case == "same_date" else "2025-02-01"
+    if prior_case == "export_only":
+        _review_203_make_folder(tmp_path, "Credit Facility_2025-02-01")
+    elif prior_case == "other_proposal":
+        _review_203_make_folder(tmp_path, "Credit-Facility_2025-02-01", "{}")
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+
+    with pytest.raises(ValueError) as exc_info:
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str=review_date,
+            prior_date=prior_date, base_dir=str(tmp_path),
+        )
+
+    message = str(exc_info.value)
+    assert "not eligible" in message
+    if prior_case == "same_date":
+        assert "earlier than the new review date" in message
+    else:
+        assert prior_date in message
+    assert not (tmp_path / "deals" / "Synthetic Co" / f"Credit Facility_{review_date}").exists()
+    assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")) == before
+
+
+def test_review_203_start_rejects_impossible_review_and_prior_dates_before_writing(tmp_path):
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    with pytest.raises(ValueError, match="valid calendar date"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-02-30", base_dir=str(tmp_path),
+        )
+    with pytest.raises(ValueError, match="valid calendar date"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-15",
+            prior_date="2026-02-30", base_dir=str(tmp_path),
+        )
+    assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")) == before
+
+
+@pytest.mark.parametrize("with_state", [False, True])
+def test_review_203_start_refuses_existing_same_date_folder_without_mutation(tmp_path, with_state):
+    folder = _review_203_make_folder(tmp_path, "Credit Facility_2026-04-15")
+    if with_state:
+        (folder / "state.json").write_text('{"unchanged": true}\n', encoding="utf-8")
+    before = sorted(
+        (str(path.relative_to(tmp_path)), path.read_bytes() if path.is_file() else None)
+        for path in tmp_path.rglob("*")
+    )
+
+    with pytest.raises(ValueError, match="dated folder already exists"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+        )
+
+    after = sorted(
+        (str(path.relative_to(tmp_path)), path.read_bytes() if path.is_file() else None)
+        for path in tmp_path.rglob("*")
+    )
+    assert after == before
+
+
+def test_review_203_start_refuses_backdating_before_the_newest_existing_state_folder(tmp_path):
+    _review_203_write_state(tmp_path, "2026-05-01")
+    target = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-30"
+
+    with pytest.raises(ValueError, match="strictly later than the newest existing state-bearing review"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-30", base_dir=str(tmp_path),
+        )
+
+    assert not target.exists()
+
+
+def test_review_203_start_rejects_conflicting_prior_options_and_unsafe_names_without_writing(tmp_path):
+    before = sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*"))
+    with pytest.raises(ValueError, match="cannot be used together"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-15",
+            prior_date="2025-01-01", no_prior=True, base_dir=str(tmp_path),
+        )
+    with pytest.raises(ValueError, match="company"):
+        state_manager.start_review("..", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="proposal"):
+        state_manager.get_review_candidates(
+            "Synthetic Co", "../escape", date_str="2026-04-15", base_dir=str(tmp_path),
+        )
+    assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.rglob("*")) == before
+
+
+def test_review_203_start_default_date_uses_the_existing_today_source(tmp_path, monkeypatch):
+    class FixedDateTime:
+        @staticmethod
+        def now():
+            return datetime(2026, 4, 15)
+
+    monkeypatch.setattr(state_manager, "datetime", FixedDateTime)
+    (tmp_path / "deals" / "Synthetic Co").mkdir(parents=True)
+
+    report = state_manager.start_review("Synthetic Co", "Credit Facility", base_dir=str(tmp_path))
+
+    assert report["date"] == "2026-04-15"
+    assert report["started"] is True
+    assert report["linked"] is False
+
+
+
+# ---------------------------------------------------------------------------
+# Issue #203 review fixes: unknown company, empty names, unreadable earlier reviews, the start lock and a failed
+# creation leaving nothing behind (CG403-1, CG403-2, CG403-3 and the assistant's own findings).
+# ---------------------------------------------------------------------------
+
+def _review_203_tree(base):
+    return sorted(str(path.relative_to(base)) for path in base.rglob("*"))
+
+
+def test_review_203_start_and_candidates_refuse_an_unknown_company_and_create_nothing(tmp_path):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    before = _review_203_tree(tmp_path)
+
+    with pytest.raises(ValueError, match="no deal folder for company 'Wrem Kitchens'") as start_error:
+        state_manager.start_review("Wrem Kitchens", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="no deal folder for company 'Wrem Kitchens'"):
+        state_manager.get_review_candidates(
+            "Wrem Kitchens", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+        )
+
+    assert "/triage or /spread" in str(start_error.value)
+    assert _review_203_tree(tmp_path) == before
+
+
+def test_review_203_start_is_allowed_for_an_existing_company_with_a_new_proposal_name(tmp_path):
+    _review_203_write_state(tmp_path, "2025-01-01", proposal="Old Facility Name")
+
+    report = state_manager.start_review(
+        "Synthetic Co", "Renamed Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    assert report["linked"] is False
+    assert (tmp_path / "deals" / "Synthetic Co" / "Renamed Facility_2026-04-15" / "state.json").is_file()
+
+
+@pytest.mark.parametrize(("company", "proposal"), [("", "Credit Facility"), ("   ", "Credit Facility"),
+                                                    ("Synthetic Co", ""), ("Synthetic Co", " ")])
+def test_review_203_empty_or_blank_names_are_refused_before_anything_is_written(tmp_path, company, proposal):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    before = _review_203_tree(tmp_path)
+
+    with pytest.raises(ValueError, match="must not be empty"):
+        state_manager.start_review(company, proposal, date_str="2026-04-15", base_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="must not be empty"):
+        state_manager.get_review_candidates(company, proposal, date_str="2026-04-15", base_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="must not be empty"):
+        state_manager.sanitize_path_component(company if not company.strip() else proposal, "name")
+
+    assert _review_203_tree(tmp_path) == before
+
+
+def test_review_203_an_unreadable_earlier_review_is_reported_as_skipped_not_hidden(tmp_path):
+    _review_203_write_state(tmp_path, "2025-06-01")
+    _review_203_make_folder(tmp_path, "Credit Facility_2024-06-01", "{not json")
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    assert [item["date"] for item in report["candidates"]] == ["2025-06-01"]
+    assert [item["date"] for item in report["skipped"]] == ["2024-06-01"]
+    assert report["skipped"][0]["reason"].startswith("state.json cannot be read: ")
+
+
+def test_review_203_when_the_only_earlier_review_is_unreadable_there_are_no_candidates_but_it_is_skipped(tmp_path):
+    _review_203_make_folder(tmp_path, "Credit Facility_2024-06-01", "{not json")
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+    started = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    assert report["candidates"] == [] and report["default_prior_date"] is None
+    assert [item["date"] for item in report["skipped"]] == ["2024-06-01"]
+    assert started["linked"] is False
+
+
+def test_review_203_a_held_start_lock_blocks_a_second_start_until_it_is_released(tmp_path, monkeypatch):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    company_dir = tmp_path / "deals" / "Synthetic Co"
+    monkeypatch.setattr(state_manager, "LOCK_TIMEOUT_SECONDS", 0.2)
+
+    with state_manager._FileLock(str(company_dir / "Credit Facility.start"), timeout=1):
+        with pytest.raises(TimeoutError, match="Could not acquire lock"):
+            state_manager.start_review(
+                "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+            )
+        assert not (company_dir / "Credit Facility_2026-04-15").exists()
+
+    report = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+    assert report["started"] is True
+    assert not list(company_dir.glob("*.lock"))
+
+
+class _InterruptedStart(BaseException):
+    """Stands in for KeyboardInterrupt: not an Exception, so only cleanup in `except BaseException` handles it."""
+
+
+@pytest.mark.parametrize("failure", ["write_error", "replace_error", "interrupt"])
+def test_review_203_a_failed_creation_leaves_no_folder_file_or_lock_and_a_retry_succeeds(tmp_path, monkeypatch, failure):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    company_dir = tmp_path / "deals" / "Synthetic Co"
+    before = _review_203_tree(tmp_path)
+
+    with monkeypatch.context() as patched:
+        if failure == "write_error":
+            def failing_dump(*args, **kwargs):
+                raise OSError("disk full")
+            patched.setattr(state_manager.json, "dump", failing_dump)
+        elif failure == "replace_error":
+            def failing_replace(*args, **kwargs):
+                raise OSError("rename refused")
+            patched.setattr(state_manager.os, "replace", failing_replace)
+        else:
+            def interrupting_dump(*args, **kwargs):
+                raise _InterruptedStart()
+            patched.setattr(state_manager.json, "dump", interrupting_dump)
+
+        expected_error = _InterruptedStart if failure == "interrupt" else ValueError
+        with pytest.raises(expected_error) as caught:
+            state_manager.start_review(
+                "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+            )
+
+    if failure != "interrupt":
+        assert "removed and nothing was changed" in str(caught.value)
+    assert _review_203_tree(tmp_path) == before
+    assert not list(company_dir.glob("*.lock"))
+
+    retry = state_manager.start_review(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+    assert retry["started"] is True
+
+
+def test_review_203_a_folder_created_by_someone_else_after_the_check_is_a_clean_refusal(tmp_path, monkeypatch):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    target = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15"
+    real_mkdir = os.mkdir
+
+    def racing_mkdir(path, *args, **kwargs):
+        real_mkdir(path, *args, **kwargs)
+        raise FileExistsError(17, "File exists", path)
+
+    monkeypatch.setattr(state_manager.os, "mkdir", racing_mkdir)
+    with pytest.raises(ValueError, match="the dated folder already exists"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+        )
+    # The folder belongs to whoever created it (the fake race created it here), so it is left alone.
+    assert target.is_dir()
+
+
+def test_review_203_candidates_skip_a_later_dated_export_only_folder(tmp_path):
+    _review_203_write_state(tmp_path, "2025-06-01")
+    # Not state-bearing, so the newest-review rule ignores it, but its date is later than the new review's date.
+    _review_203_make_folder(tmp_path, "Credit Facility_2027-01-01")
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    assert [item["date"] for item in report["candidates"]] == ["2025-06-01"]
+    assert report["skipped"] == []
+
+
+def test_review_203_a_folder_that_cannot_be_created_is_a_clean_refusal_with_nothing_left(tmp_path, monkeypatch):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    before = _review_203_tree(tmp_path)
+
+    def refusing_mkdir(path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", path)
+
+    monkeypatch.setattr(state_manager.os, "mkdir", refusing_mkdir)
+    with pytest.raises(ValueError, match="Could not start the review: .*nothing was changed"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+        )
+
+    assert _review_203_tree(tmp_path) == before
+
+
+def test_review_203_cleanup_that_itself_fails_never_hides_the_original_error(tmp_path, monkeypatch):
+    _review_203_write_state(tmp_path, "2025-01-01")
+
+    def failing_dump(*args, **kwargs):
+        raise OSError("disk full")
+
+    real_remove = os.remove
+
+    def failing_remove(path, *args, **kwargs):
+        if str(path).endswith(".lock"):
+            return real_remove(path, *args, **kwargs)   # the start lock still has to be released
+        raise OSError("remove refused")
+
+    def failing_rmdir(*args, **kwargs):
+        raise OSError("rmdir refused")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(state_manager.json, "dump", failing_dump)
+        patched.setattr(state_manager.os, "remove", failing_remove)
+        patched.setattr(state_manager.os, "rmdir", failing_rmdir)
+        with pytest.raises(ValueError, match="Could not start the review: disk full") as caught:
+            state_manager.start_review(
+                "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+            )
+
+    # The error says so plainly instead of claiming a cleanup that did not happen.
+    assert "could not be removed and should be deleted by hand" in str(caught.value)
+    assert "was removed and nothing was changed" not in str(caught.value)

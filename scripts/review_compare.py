@@ -24,6 +24,9 @@ COMPARE_FIELDS = (
     "policy_state.required_conditions_precedent", "policy_state.required_conditions_subsequent",
     "collateral", "security_package", "guarantees", "ownership", "facility_terms",
 )
+# A state is a few levels deep; the comparison walks it recursively, so a hostile or corrupt file nested past the
+# interpreter's recursion limit would end in a traceback. Refuse anything deeper than this, before any walk.
+MAX_STATE_DEPTH = 100
 HISTORICAL_PERIOD_RE = re.compile(r"^FY-(Current|[0-9]+)$")
 FORWARD_PERIOD_RE = re.compile(r"^FY\+")
 
@@ -49,6 +52,23 @@ def _parse_constant(value):
         return Decimal(value)
     except InvalidOperation:
         return value
+
+
+def _exceeds_depth(value):
+    """True when `value` is nested (objects and lists) more than MAX_STATE_DEPTH levels deep. Iterative on purpose."""
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if isinstance(item, dict):
+            children = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > MAX_STATE_DEPTH:
+            return True
+        pending.extend((child, depth + 1) for child in children)
+    return False
 
 
 def _first_nonfinite(value, path="$"):
@@ -85,6 +105,8 @@ def _read_state(company, proposal, date_value, label):
         raise ComparisonError(f"{label} state is corrupt JSON: {path}") from exc
     if not isinstance(state, dict):
         raise ComparisonError(f"{label} state must be a JSON object: {path}")
+    if _exceeds_depth(state):
+        raise ComparisonError(f"{label} state is nested more than {MAX_STATE_DEPTH} levels deep: {path}")
     nonfinite_path = _first_nonfinite(state)
     if nonfinite_path is not None:
         raise ComparisonError(f"{label} state contains a non-finite number at {nonfinite_path}: {path}")
@@ -415,6 +437,8 @@ def compare_states(company, proposal, prior_date, current_date, prior_state, cur
     if prior_date >= current_date:
         raise ComparisonError("prior date must be strictly earlier than current date")
     for label, saved in (("prior", prior_state), ("current", current_state)):
+        if _exceeds_depth(saved):
+            raise ComparisonError(f"{label} state is nested more than {MAX_STATE_DEPTH} levels deep")
         bad_number = _first_nonfinite(saved)
         if bad_number is not None:
             raise ComparisonError(f"{label} state contains a non-finite number at {bad_number}")
@@ -580,7 +604,8 @@ def main(argv=None):
         report = compare_deal(args.company, args.proposal, args.current_date, prior_date=args.prior_date,
                               periods_rolled_one_year=args.periods_rolled_one_year)
         output = _json_dump(report) if args.format == "json" else render_markdown(report)
-    except (OSError, ValueError, TypeError) as exc:
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
+        # RecursionError is a safety net: states deeper than MAX_STATE_DEPTH are refused before any recursive walk.
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(output)

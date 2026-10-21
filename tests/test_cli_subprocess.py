@@ -1818,11 +1818,13 @@ def test_state_manager_review_candidates_cli_returns_one_read_only_json_object(c
             ),
         }],
         "default_prior_date": "2025-06-01",
+        "skipped": [],
     }
     assert sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*")) == before
 
 
 def test_state_manager_start_review_cli_creates_a_fresh_unlinked_state(cli):
+    (cli.workdir / "deals" / "Synthetic Co").mkdir(parents=True)
     result = cli(
         "state_manager", "--start-review", "--company", "Synthetic Co",
         "--proposal", "Credit Facility", "--date", "2026-04-15",
@@ -1906,6 +1908,30 @@ def test_state_manager_review_only_options_refuse_wrong_mode_as_usage_error(cli,
     assert "usage:" in result.stderr
     assert "Traceback" not in result.stderr
 
+
+
+@pytest.mark.parametrize("mode", ["--start-review", "--review-candidates"])
+def test_state_manager_review_modes_refuse_an_unknown_company_with_one_error_line_and_no_writes(cli, mode):
+    (cli.workdir / "deals" / "Wren Kitchens Limited").mkdir(parents=True)
+    before = sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*"))
+
+    result = cli("state_manager", mode, "--company", "Wrem Kitchens Limited", "--proposal", "Finance")
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: Refusing to start a review: there is no deal folder for company ")
+    assert "/triage or /spread" in result.stderr
+    assert len(result.stderr.strip().splitlines()) == 1 and "Traceback" not in result.stderr
+    assert sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*")) == before
+
+
+def test_state_manager_find_refuses_an_empty_company_with_one_error_line(cli):
+    result = cli("state_manager", "--find", "--company", "", "--proposal", "Finance")
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: company must not be empty")
+    assert len(result.stderr.strip().splitlines()) == 1 and "Traceback" not in result.stderr
 
 
 def test_review_compare_compares_exact_dated_states_read_only(cli):

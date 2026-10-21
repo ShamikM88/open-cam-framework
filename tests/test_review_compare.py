@@ -656,6 +656,53 @@ def test_corrupt_utf8_state_refuses_without_traceback(tmp_path, monkeypatch, cap
     assert "Traceback" not in captured.err
 
 
+def _nested(levels, leaf):
+    value = leaf
+    for _ in range(levels - 1):
+        value = {"a": value}
+    return value
+
+
+@pytest.mark.parametrize("levels", [rc.MAX_STATE_DEPTH + 1, 450, 900])
+def test_state_nested_deeper_than_the_limit_refuses_with_one_error_line(tmp_path, monkeypatch, capsys, levels):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, PRIOR_DATE, state())
+    deep = state(ownership=_nested(levels, 1))
+    write_state(tmp_path, CURRENT_DATE, deep)
+    code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
+    relative_path = state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)
+    assert code == 1 and captured.out == ""
+    assert captured.err == f"error: current state is nested more than {rc.MAX_STATE_DEPTH} levels deep: {relative_path}\n"
+    assert "Traceback" not in captured.err
+
+
+def test_state_nested_exactly_at_the_limit_is_compared(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    # The state object itself is level one, so a chain of MAX_STATE_DEPTH - 1 more levels sits exactly at the limit.
+    write_state(tmp_path, PRIOR_DATE, state(ownership=_nested(rc.MAX_STATE_DEPTH - 1, 1)))
+    write_state(tmp_path, CURRENT_DATE, state(ownership=_nested(rc.MAX_STATE_DEPTH - 1, 2)))
+    code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
+    assert code == 0 and captured.err == ""
+    assert json.loads(captured.out)["summary"]["changed_paths"] == 1
+
+
+def test_compare_states_refuses_a_too_deep_state_passed_directly():
+    with pytest.raises(rc.ComparisonError, match="prior state is nested more than"):
+        report(prior={"ownership": _nested(rc.MAX_STATE_DEPTH + 1, 1)})
+
+
+def test_a_recursion_error_anywhere_in_the_comparison_is_one_error_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+
+    def too_deep(*args, **kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(rc, "compare_deal", too_deep)
+    code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
+    assert code == 1 and captured.out == ""
+    assert captured.err == "error: maximum recursion depth exceeded\n"
+
+
 def test_markdown_restatement_section_follows_unchanged_by_label_categories():
     result = report(
         {"financials": {"FY-Current": {"raw": {"revenue": 100}, "ebitda": 20}}},

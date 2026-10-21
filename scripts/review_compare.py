@@ -120,7 +120,7 @@ def _deep_equal(left, right):
     if isinstance(left, dict) and isinstance(right, dict):
         return left.keys() == right.keys() and all(_deep_equal(left[key], right[key]) for key in left)
     if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(_deep_equal(a, b) for a, b in zip(left, right))
+        return len(left) == len(right) and all(_deep_equal(a, b) for a, b in zip(left, right, strict=True))
     return type(left) is type(right) and left == right
 
 

@@ -1231,9 +1231,10 @@ def test_408_exact_delta_keeps_significant_digits_when_either_operand_has_a_larg
     with localcontext() as context:
         context.prec = 100
         exact_positive = large - small
+        exact_negative = small - large
 
     assert rc._exact_delta(large, small) == exact_positive
-    assert rc._exact_delta(small, large) == -exact_positive
+    assert rc._exact_delta(small, large) == exact_negative
 
 
 def test_408_read_state_uses_utf8_even_when_the_platform_default_is_cp1252(

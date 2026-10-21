@@ -464,9 +464,9 @@ def test_nonfinite_json_numbers_refuse_with_one_error_line(tmp_path, monkeypatch
     write_state(tmp_path, CURRENT_DATE, state(), raw_text=text)
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
     assert code == 1
-    assert captured.stdout == ""
-    assert captured.stderr == f"error: {expected}: {state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)}\n"
-    assert "Traceback" not in captured.stderr
+    assert captured.out == ""
+    assert captured.err == f"error: {expected}: {state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)}\n"
+    assert "Traceback" not in captured.err
 
 
 @pytest.mark.parametrize(("text", "expected_fragment"), [
@@ -478,9 +478,9 @@ def test_corrupt_or_nonobject_states_refuse_cleanly(tmp_path, monkeypatch, capsy
     write_state(tmp_path, PRIOR_DATE, state())
     write_state(tmp_path, CURRENT_DATE, state(), raw_text=text)
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr.startswith(f"error: {expected_fragment}: ")
-    assert len(captured.stderr.strip().splitlines()) == 1 and "Traceback" not in captured.stderr
+    assert code == 1 and captured.out == ""
+    assert captured.err.startswith(f"error: {expected_fragment}: ")
+    assert len(captured.err.strip().splitlines()) == 1 and "Traceback" not in captured.err
 
 
 def test_missing_prior_state_refuses_with_one_exact_error_line(tmp_path, monkeypatch, capsys):
@@ -489,8 +489,8 @@ def test_missing_prior_state_refuses_with_one_exact_error_line(tmp_path, monkeyp
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
     expected = f"error: prior state not found: {state_path(COMPANY, PROPOSAL, date_str=PRIOR_DATE)}\n"
     assert code == 1
-    assert captured.stdout == ""
-    assert captured.stderr == expected
+    assert captured.out == ""
+    assert captured.err == expected
 
 
 def test_missing_current_state_refuses_with_one_exact_error_line(tmp_path, monkeypatch, capsys):
@@ -499,8 +499,8 @@ def test_missing_current_state_refuses_with_one_exact_error_line(tmp_path, monke
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
     expected = f"error: current state not found: {state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)}\n"
     assert code == 1
-    assert captured.stdout == ""
-    assert captured.stderr == expected
+    assert captured.out == ""
+    assert captured.err == expected
 
 def test_read_permission_failure_is_reported_as_one_error_line(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
@@ -515,9 +515,9 @@ def test_read_permission_failure_is_reported_as_one_error_line(tmp_path, monkeyp
 
     monkeypatch.setattr(builtins, "open", denied)
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
-    assert code == 1 and captured.stdout == ""
+    assert code == 1 and captured.out == ""
     relative_path = state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)
-    assert captured.stderr == f"error: current state is unreadable: {relative_path}: permission denied\n"
+    assert captured.err == f"error: current state is unreadable: {relative_path}: permission denied\n"
 
 
 @pytest.mark.parametrize(("flag", "value", "expected"), [
@@ -529,8 +529,8 @@ def test_impossible_or_malformed_calendar_dates_are_one_error_line(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     code = rc.main(["--company", COMPANY, "--proposal", PROPOSAL, "--current-date", CURRENT_DATE, flag, value])
     captured = capsys.readouterr()
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr == expected
+    assert code == 1 and captured.out == ""
+    assert captured.err == expected
 
 
 def test_prior_date_must_be_strictly_earlier_before_any_file_is_read(tmp_path, monkeypatch, capsys):
@@ -538,8 +538,8 @@ def test_prior_date_must_be_strictly_earlier_before_any_file_is_read(tmp_path, m
     code = rc.main(["--company", COMPANY, "--proposal", PROPOSAL, "--current-date", CURRENT_DATE,
                     "--prior-date", CURRENT_DATE])
     captured = capsys.readouterr()
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr == "error: --prior-date must be strictly earlier than --current-date\n"
+    assert code == 1 and captured.out == ""
+    assert captured.err == "error: --prior-date must be strictly earlier than --current-date\n"
 
 
 def test_missing_prior_pointer_fails_instead_of_guessing_earlier_folder(tmp_path, monkeypatch, capsys):
@@ -547,8 +547,8 @@ def test_missing_prior_pointer_fails_instead_of_guessing_earlier_folder(tmp_path
     write_state(tmp_path, PRIOR_DATE, state())
     write_state(tmp_path, CURRENT_DATE, state())
     code, captured = invoke(tmp_path, capsys)
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr == "error: current state has no prior_review_date; pass --prior-date explicitly\n"
+    assert code == 1 and captured.out == ""
+    assert captured.err == "error: current state has no prior_review_date; pass --prior-date explicitly\n"
 
 
 @pytest.mark.parametrize(("field", "wrong", "expected"), [
@@ -561,8 +561,8 @@ def test_identity_mismatch_refuses_with_one_error_line(tmp_path, monkeypatch, ca
     write_state(tmp_path, CURRENT_DATE, state(**{field: wrong}))
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
     path = state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr == f"error: {expected}: {path}\n"
+    assert code == 1 and captured.out == ""
+    assert captured.err == f"error: {expected}: {path}\n"
 
 
 def test_newer_schema_is_read_without_modification_and_legacy_state_is_supported(tmp_path, monkeypatch):
@@ -584,10 +584,10 @@ def test_main_json_mode_prints_exactly_one_json_object_and_no_extra_stdout(tmp_p
     write_state(tmp_path, PRIOR_DATE, state(financials={"FY-Current": {"ebitda": 10}}))
     write_state(tmp_path, CURRENT_DATE, state(financials={"FY-Current": {"ebitda": 11}}))
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
-    assert code == 0 and captured.stderr == ""
-    assert captured.stdout.count("{") > 1
-    assert len(captured.stdout.strip().splitlines()) > 1
-    decoded = json.loads(captured.stdout, parse_int=Decimal, parse_float=Decimal)
+    assert code == 0 and captured.err == ""
+    assert captured.out.count("{") > 1
+    assert len(captured.out.strip().splitlines()) > 1
+    decoded = json.loads(captured.out, parse_int=Decimal, parse_float=Decimal)
     assert decoded["summary"]["changed_paths"] == len(decoded["changes"])
 
 
@@ -596,10 +596,10 @@ def test_main_markdown_mode_renders_the_comparison(tmp_path, monkeypatch, capsys
     write_state(tmp_path, PRIOR_DATE, state(financials={"FY-Current": {"ebitda": 10}}))
     write_state(tmp_path, CURRENT_DATE, state(financials={"FY-Current": {"ebitda": 11}}))
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE, "--format", "markdown")
-    assert code == 0 and captured.stderr == ""
-    assert captured.stdout.startswith("# Review comparison — Synthetic Co / Asset Facility")
-    assert "| Item | Prior | Current | Change |" in captured.stdout
-    assert "delta 1" in captured.stdout
+    assert code == 0 and captured.err == ""
+    assert captured.out.startswith("# Review comparison — Synthetic Co / Asset Facility")
+    assert "| Item | Prior | Current | Change |" in captured.out
+    assert "delta 1" in captured.out
 
 
 def test_basis_change_note_is_reported_even_when_no_financial_paths_changed():
@@ -620,8 +620,8 @@ def test_state_loader_reports_a_wrong_prior_identity_before_comparing(tmp_path, 
     write_state(tmp_path, CURRENT_DATE, state())
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
     path = state_path(COMPANY, PROPOSAL, date_str=PRIOR_DATE)
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr == f"error: prior state company does not match --company 'Synthetic Co': {path}\n"
+    assert code == 1 and captured.out == ""
+    assert captured.err == f"error: prior state company does not match --company 'Synthetic Co': {path}\n"
 
 
 def test_no_version_key_and_unknown_newer_keys_do_not_get_written_or_dropped(tmp_path, monkeypatch):
@@ -640,11 +640,11 @@ def test_corrupt_utf8_state_refuses_without_traceback(tmp_path, monkeypatch, cap
     path = write_state(tmp_path, CURRENT_DATE, state())
     path.write_bytes(b"\xff\xfe not UTF-8")
     code, captured = invoke(tmp_path, capsys, "--prior-date", PRIOR_DATE)
-    assert code == 1 and captured.stdout == ""
+    assert code == 1 and captured.out == ""
     relative_path = state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)
-    assert captured.stderr.startswith(f"error: current state is unreadable: {relative_path}: ")
-    assert len(captured.stderr.strip().splitlines()) == 1
-    assert "Traceback" not in captured.stderr
+    assert captured.err.startswith(f"error: current state is unreadable: {relative_path}: ")
+    assert len(captured.err.strip().splitlines()) == 1
+    assert "Traceback" not in captured.err
 
 
 def test_markdown_restatement_section_follows_unchanged_by_label_categories():
@@ -662,8 +662,8 @@ def test_recorded_prior_pointer_must_be_a_valid_earlier_calendar_date(tmp_path, 
     monkeypatch.chdir(tmp_path)
     write_state(tmp_path, CURRENT_DATE, state(prior_review_date="2026-02-30"))
     code, captured = invoke(tmp_path, capsys)
-    assert code == 1 and captured.stdout == ""
-    assert captured.stderr == "error: prior_review_date '2026-02-30' is not a valid calendar date\n"
+    assert code == 1 and captured.out == ""
+    assert captured.err == "error: prior_review_date '2026-02-30' is not a valid calendar date\n"
 
 
 def test_json_boolean_is_not_equal_to_numeric_one():
@@ -731,4 +731,104 @@ def test_numeric_delta_remains_exact_beyond_default_decimal_context_precision():
                     {"financials": {"FY-Current": {"revenue": current}}})
     row = next(item for item in result["changes"] if item["path"] == "financials.FY-Current.revenue")
     assert row["delta"] == Decimal("0.0001")
+
+
+def test_comparator_helper_edges_and_serializer_refusals(monkeypatch, tmp_path):
+    assert rc._parse_constant("not-a-number-token") == "not-a-number-token"
+    assert rc._first_nonfinite(float("inf"), "root") == "root"
+    assert rc._first_nonfinite([Decimal("Infinity")], "root") == "root[0]"
+    assert rc._deep_equal(Decimal("sNaN"), Decimal("1")) is False
+    assert rc._record_maps("not a list", "asset_id") is None
+    assert rc._record_maps([None], "asset_id") is None
+    assert rc._record_maps([{"asset_id": "A"}, {"asset_id": "A"}], "asset_id") is None
+    assert rc._transition_kind(rc._MISSING, None) is None
+    assert rc._json_dump({}) == "{}"
+    assert rc._json_dump({"identity": {"asset_id": "A"}}, indent=None) == '{"identity":{"asset_id":"A"}}'
+    assert rc._json_dump(rc._MISSING) == "null"
+    with pytest.raises(ValueError, match="non-finite decimal"):
+        rc._json_dump(Decimal("NaN"))
+    with pytest.raises(ValueError, match="non-finite float"):
+        rc._json_dump(float("inf"))
+
+    raw, raw_store = rc._raw_period({
+        "financials_source": "framework-computed",
+        "financials": {"FY-Current": {}},
+        "multi_period_financials": {"FY-Current": {"revenue": 10}},
+    }, "FY-Current")
+    assert raw == {"revenue": 10}
+    assert raw_store == "multi_period_financials.FY-Current"
+    supplied, supplied_store = rc._raw_period({
+        "financials_source": "framework-computed",
+        "analyst_supplied_financials": {"FY-Current": {"revenue": 11}},
+    }, "FY-Current")
+    assert supplied == {"revenue": 11}
+    assert supplied_store == "analyst_supplied_financials.FY-Current"
+    assert rc._raw_period({}, "FY-Current") == (rc._MISSING, None)
+
+    with pytest.raises(rc.ComparisonError, match="cannot resolve current state path"):
+        monkeypatch.setattr(rc, "state_path", lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("unsafe")))
+        rc._read_state("Synthetic Co", "Asset Facility", CURRENT_DATE, "current")
+
+
+def test_diff_empty_objects_and_unrecorded_identified_list_paths():
+    changes = []
+    rc._diff_value("ownership", {}, rc._MISSING, changes)
+    rc._diff_value("facility_terms", rc._MISSING, {}, changes)
+    rc._diff_value("collateral", rc._MISSING, [], changes)
+    assert [(row["path"], row["change"]) for row in changes] == [
+        ("ownership", "value_to_not_recorded"),
+        ("facility_terms", "not_recorded_to_value"),
+        ("collateral", "not_recorded_to_value"),
+    ]
+
+
+def test_direct_compare_states_rejects_identity_date_and_nonfinite_inputs():
+    with pytest.raises(rc.ComparisonError, match="--company"):
+        rc.compare_states(COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE,
+                          state(company="Synthetic Co "), state())
+    with pytest.raises(rc.ComparisonError, match="--proposal"):
+        rc.compare_states(COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE,
+                          state(proposal="Other Facility"), state())
+    with pytest.raises(rc.ComparisonError, match="strictly earlier"):
+        rc.compare_states(COMPANY, PROPOSAL, CURRENT_DATE, CURRENT_DATE, state(), state())
+    with pytest.raises(rc.ComparisonError, match="non-finite number"):
+        rc.compare_states(COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE,
+                          state(financials={"FY-1": {"ebitda": Decimal("Infinity")}}), state())
+
+
+def test_unrecognised_historical_label_and_restatement_without_numeric_delta():
+    result = report(
+        {"financials": {"LTM": {"ebitda": "old"}}},
+        {"financials": {"LTM": {"ebitda": "new"}}},
+        rolled=True,
+    )
+    assert rc._period_order("LTM")[0] == 1
+    assert rc._next_older_period("LTM") is None
+    assert result["restatement_check"]["periods"][0]["status"] == "not_comparable"
+
+    no_delta = report(
+        {"financials": {"FY-Current": {"ebitda": "not available"}}},
+        {"financials": {"FY-1": {"ebitda": "restated"}}},
+        rolled=True,
+    )
+    pair = no_delta["restatement_check"]["periods"][0]
+    assert pair["status"] == "restated"
+    assert pair["differences"][0]["change"] == "value_changed"
+    assert "difference" not in pair["differences"][0]
+
+
+def test_markdown_documents_present_downside_and_empty_restatement_periods():
+    result = report({}, {"downside_case": {"financials": {"FY+1": {"ebitda": 5}}}}, rolled=True)
+    markdown = rc.render_markdown(result)
+    assert "Downside case: recorded in at least one state; this comparison does not assess its adequacy." in markdown
+    assert "| None | None | not_comparable | No historical periods were recorded |" in markdown
+
+
+def test_recorded_prior_pointer_must_be_strictly_earlier(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, CURRENT_DATE, state(prior_review_date=CURRENT_DATE))
+    code, captured = invoke(tmp_path, capsys)
+    assert code == 1
+    assert captured.out == ""
+    assert captured.err == "error: recorded prior_review_date must be strictly earlier than --current-date\n"
 

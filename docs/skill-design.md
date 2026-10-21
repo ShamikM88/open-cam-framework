@@ -2,9 +2,9 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on. The six analyst aids are implemented and described in [Skills](skills.md): the Phase 2 skills
-`information-gaps`, `evidence-discipline` and `financial-analysis`, plus the Phase 4 skills `policy-fit`,
-`credit-challenge` and `credit-risk`. The four maintainer procedures are `cam-change-verification`,
+build on. The seven analyst aids are implemented and described in [Skills](skills.md): the Phase 2 skills
+`information-gaps`, `evidence-discipline` and `financial-analysis`, the Phase 4 skills `policy-fit`,
+`credit-challenge` and `credit-risk`, and the Phase 5 skill `annual-review`. The four maintainer procedures are `cam-change-verification`,
 `docs-maintenance`, `mutation-triage` and `prompt-change-gate`. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.

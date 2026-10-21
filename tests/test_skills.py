@@ -185,6 +185,8 @@ def test_annual_review_narrates_one_comparison_script_and_stays_a_bounded_aid():
         "Run exactly one of these",
         "Use the second only when the analyst gave `--prior-date`",
         "Never choose or guess a prior date yourself",
+        "The words `PASS`, `FAIL`, `UNRESOLVABLE`, `consistent` and `restated` are allowed only when reporting the output's individual entries",
+        "They never constitute this skill's overall verdict",
         "`/start-review` links a new review to an earlier one or `--prior-date` names one explicitly",
         "never add it yourself and never infer it",
         "pass it on only if the analyst gave it",

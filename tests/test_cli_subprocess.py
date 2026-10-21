@@ -1797,8 +1797,8 @@ def test_review_compare_compares_exact_dated_states_read_only(cli):
         for date in (prior_date, current_date)
     }
     assert sorted(p.relative_to(cli.workdir).as_posix() for p in cli.workdir.rglob("state.json")) == [
-        f"deals/{company}/{proposal}_{current_date}/state.json",
         f"deals/{company}/{proposal}_{prior_date}/state.json",
+        f"deals/{company}/{proposal}_{current_date}/state.json",
     ]
 
 
@@ -1825,6 +1825,12 @@ def test_review_compare_markdown_format_is_a_real_cli_output(cli):
 
 
 def test_review_compare_missing_current_state_is_one_cli_error_line(cli):
+    company, proposal, prior_date = "Synthetic Co", "Asset Facility", "2025-10-20"
+    prior_folder = cli.workdir / "deals" / company / f"{proposal}_{prior_date}"
+    prior_folder.mkdir(parents=True)
+    (prior_folder / "state.json").write_text(json.dumps({
+        "company": company, "proposal": proposal, "date": prior_date,
+    }), encoding="utf-8")
     result = cli(
         "review_compare", "--company", "Synthetic Co", "--proposal", "Asset Facility",
         "--current-date", "2026-10-20", "--prior-date", "2025-10-20",

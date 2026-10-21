@@ -1631,3 +1631,42 @@ def test_dx_main_converts_export_errors_to_exact_error_exit_messages(
     assert captured.err == ""
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
+
+
+
+def test_dx_main_sanitizes_proposal_before_date_discovery_with_an_exact_error(tmp_path, monkeypatch, capsys):
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "synthetic-draft.md"
+    draft.write_text("# Synthetic draft\n", encoding="utf-8")
+    sanitizer_calls = []
+
+    def sanitize(value, field_name):
+        sanitizer_calls.append((value, field_name))
+        if field_name == "proposal":
+            raise ValueError("proposal 'Synthetic Proposal' isn't safe")
+        return value
+
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("date discovery ran before proposal sanitization succeeded")
+
+    monkeypatch.setattr(deal_export, "sanitize_path_component", sanitize)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", unexpected_resolution)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Synthetic Proposal",
+            "--draft", str(draft),
+        ])
+
+    assert sanitizer_calls == [
+        ("Synthetic Co", "company"),
+        ("Synthetic Proposal", "proposal"),
+    ]
+    assert caught.value.code == "error: proposal 'Synthetic Proposal' isn't safe"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()

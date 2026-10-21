@@ -205,6 +205,34 @@ def test_policy_result_lists_use_their_real_stable_ids(field, identity, key):
     ]
 
 
+def test_guarantees_with_explicit_guarantee_id_match_by_id_when_reordered():
+    result = report(
+        {"guarantees": [
+            {"guarantee_id": "G-1", "provider": "Parent", "amount": 10},
+            {"guarantee_id": "G-2", "provider": "Sponsor", "amount": 20},
+        ]},
+        {"guarantees": [
+            {"guarantee_id": "G-2", "provider": "Sponsor", "amount": 20},
+            {"guarantee_id": "G-1", "provider": "Parent", "amount": 15},
+        ]},
+    )
+    assert [row["path"] for row in result["changes"]] == [
+        'guarantees[guarantee_id="G-1"].amount'
+    ]
+    assert result["changes"][0]["delta"] == Decimal("5")
+
+
+def test_guarantees_without_ids_keep_exact_ordered_list_semantics():
+    result = report(
+        {"guarantees": [{"provider": "Parent", "amount": 10},
+                        {"provider": "Sponsor", "amount": 20}]},
+        {"guarantees": [{"provider": "Sponsor", "amount": 20},
+                        {"provider": "Parent", "amount": 10}]},
+    )
+    assert [row["path"] for row in result["changes"]] == ["guarantees"]
+    assert result["changes"][0]["change"] == "value_changed"
+
+
 def test_collateral_uses_asset_id_while_security_and_guarantees_keep_exact_order():
     result = report(
         {"collateral": [{"asset_id": "A-1", "value": 10}, {"asset_id": "A-2", "value": 20}],

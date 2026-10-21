@@ -164,6 +164,7 @@ def _stable_list_kind(path):
         "policy_state.required_conditions_precedent": "cp_id",
         "policy_state.required_conditions_subsequent": "cs_id",
         "collateral": "asset_id",
+        "guarantees": "guarantee_id",
     }.get(path)
 
 

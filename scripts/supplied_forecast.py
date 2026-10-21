@@ -293,15 +293,15 @@ def reconciliation_problems(lines, subtotals, ratios, stress):
     if missing:
         problems.append(f"the covenant ratios also read {missing}, which were not supplied: an omitted line is not a "
                         "known zero, so give each as an explicit 0 where it is nil")
-    derived = evaluate_financial_model({"p": lines})
+    derived = evaluate_financial_model({"FY+1": lines})
     for name, value in subtotals.items():
-        recomputed = derived["financials"]["p"].get(name)
+        recomputed = derived["financials"]["FY+1"].get(name)
         if not _is_number(value):
             problems.append(f"{name}: supplied {value!r} is not a number")
         elif not isinstance(recomputed, (int, float)) or abs(value - recomputed) > RECONCILE_TOLERANCE:
             problems.append(f"{name}: supplied {value}, the framework's formulas give {recomputed}")
     for name, value in ratios.items():
-        recomputed = derived["ratios"]["p"].get(name)
+        recomputed = derived["ratios"]["FY+1"].get(name)
         if value is not None and not _is_number(value):
             problems.append(f"{name}: supplied {value!r} is not a number")
         elif value is None or recomputed is None:

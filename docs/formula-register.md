@@ -59,14 +59,17 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Formula:** Not computed — inputs. A missing key defaults to 0 (`g()` / `.get(field, 0)`); a `null` is the established spelling of an unavailable input. Periods: `FY-2`, `FY-1`, `FY-Current` (historical) and `FY+1`…`FY+3` (forward, [F-032](#f-032--forward-base-case))
 - **Unit and storage:** currency amounts (or counts, for unit lines); full precision, no rounding in storage
 - **Edge rules:** a recognised raw field that is not a finite JSON number or `null` is refused with one error
-  line and nothing written; a period that is not an object of line items is refused; non-finite numbers
-  anywhere in the policy state are refused
+  line and nothing written; a period that is not an object of line items is refused; a key that is not one of
+  the period labels above (for example an entity name such as `HoldCo`) is refused with one error line naming the
+  key (the evaluator has no entity dimension, issue #48); non-finite numbers anywhere in the policy state are
+  refused
 - **State keys:** `revenue`, `cost_of_sales`, `admin_expenses`, `depreciation`, `amortisation`, `other_income`, `interest_paid`, `interest_received`, `scheduled_principal`, `capex`, `exceptional_costs`, `tax_paid`, `tangible_assets`, `intangible_assets`, `other_fixed_assets`, `cash`, `trade_debtors`, `stock`, `other_current_assets`, `trade_creditors`, `current_debt`, `overdraft`, `other_current_liabilities`, `long_term_debt`, `loan_notes`, `other_long_term_liabilities`, `provisions`, `share_capital`, `retained_profit`
 - **Workbook rows:** Revenue · Cost of Goods Sold · Admin Expenses · Depreciation · Amortisation · Other Income · Interest Paid · Interest Received · Scheduled Principal Repayment · Capital Expenditure · Exceptional Costs / (Income) · Tax · Tangible Fixed Assets · Intangible Fixed Assets · Investments · Cash · Accounts Receivable · Stock · Other Current Assets · Accounts Payable · Current Portion - Debt · Overdraft / Revolving Debt · Other Current Liabilities · Long Term Debt · Loan Notes / Preference Shares · Other Long Term Liabilities · Provisions · Share Capital · Retained Profit
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (the `g()` default-0
   convention and `FIELD_LABELS` mapping); input validation in `scripts/numeric_validation.py` —
-  `validate_raw_line_items()` and `validate_period_objects()`; `validate_finite_numbers()` for the policy state
+  `validate_raw_line_items()`, `validate_period_objects()` and `validate_period_keys()`;
+  `validate_finite_numbers()` for the policy state
 - **Basis:** house convention (default-0 inputs, null = unavailable)
 - **Status:** Implemented, not yet reviewed by an analyst
 

@@ -1393,3 +1393,37 @@ def test_na_ratio_cells_stay_inside_the_chart_range(tmp_path):
         f"'Financial Spreading'!$B${label_to_row['Gross Leverage']}:$G${label_to_row['Gross Leverage']}",
         f"'Financial Spreading'!$B${label_to_row['Net Debt / EBITDA']}:$G${label_to_row['Net Debt / EBITDA']}",
     ]
+
+
+# ---------------------------------------------------------------------------
+# Issue #48 (maintainer decisions of 2026-10-20): the evaluator has no entity dimension, so an entity-keyed input
+# must be refused loudly instead of treating the entity names as periods.
+# ---------------------------------------------------------------------------
+
+def test_evaluate_financial_model_refuses_an_entity_keyed_input_naming_the_first_unexpected_key():
+    entity_keyed = {"HoldCo": {"FY-Current": {"revenue": 1000}}, "OpCo A": {"FY-Current": {"revenue": 600}}}
+
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model(entity_keyed)
+
+    assert str(caught.value) == (
+        "financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+
+
+def test_evaluate_financial_model_names_the_unexpected_key_even_beside_valid_periods():
+    with pytest.raises(ValueError, match="unexpected period key 'FY-3'"):
+        evaluate_financial_model({"FY-Current": {"revenue": 100}, "FY-3": {"revenue": 90}})
+
+
+@pytest.mark.parametrize("period", ["FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3"])
+def test_evaluate_financial_model_still_accepts_every_period_label_the_framework_defines(period):
+    result = evaluate_financial_model({period: {"revenue": 100, "cost_of_sales": 40}})
+
+    assert list(result["financials"]) == [period]
+    assert list(result["ratios"]) == [period]
+
+
+@pytest.mark.parametrize("empty", [None, {}])
+def test_evaluate_financial_model_still_accepts_no_periods_at_all(empty):
+    assert evaluate_financial_model(empty) == {"financials": {}, "ratios": {}}

@@ -127,7 +127,6 @@ def _json_type(value):
 
 
 
-
 # Case A metadata labels mirror spreading_builder.PERIOD_KEYS without importing its
 # workbook dependencies into this deliberately lightweight state-management module.
 _GROUP_BASIS_PERIOD_KEYS = ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3")
@@ -331,8 +330,6 @@ def validate_state(state, keys=None, path="state.json"):
     for key, kind in shapes.items():
         value = state.get(key)
         if value is None:
-            if kind == "group_basis" and key in state:
-                problems.append('"group_basis" must be an object, found null')
             continue
         if kind == "group_basis":
             problems.extend(_group_basis_problems(value, state.get("financials_source")))

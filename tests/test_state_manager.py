@@ -2309,8 +2309,13 @@ def _valid_group_basis_for_tests():
     }
 
 
+def test_validate_state_treats_a_null_group_basis_as_not_recorded():
+    state = {"group_basis": None}
+    assert state_manager.validate_state(state, keys=("group_basis",)) == state
+
+
 @pytest.mark.parametrize("mutation", [
-    "not_object", "null", "basis_missing", "basis_wrong",
+    "not_object", "basis_missing", "basis_wrong",
     "reporting_missing", "reporting_wrong_type", "reporting_empty",
     "entities_missing", "entities_wrong_type", "entities_empty", "entity_wrong_type", "entity_empty",
     "entities_duplicate", "reporting_not_covered",
@@ -2325,8 +2330,6 @@ def test_validate_state_refuses_malformed_group_basis_with_the_key_named(mutatio
     group_basis = _valid_group_basis_for_tests()
     if mutation == "not_object":
         group_basis = ["not", "an", "object"]
-    elif mutation == "null":
-        group_basis = None
     elif mutation == "basis_missing":
         del group_basis["basis"]
     elif mutation == "basis_wrong":

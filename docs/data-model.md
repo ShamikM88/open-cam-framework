@@ -107,8 +107,9 @@ metadata-only field preserves compatibility for states without the key. The comm
 `SCHEMA_VERSION` in `scripts/state_manager.py` says to bump for a top-level shape a reader must
 know how to interpret, “not on every new optional field”; as this optional metadata has a
 consumer-specific validation contract and does not alter the legacy structure, `SCHEMA_VERSION`
-remains unchanged. Unknown future fields within `group_basis` are ignored; a malformed present
-value is refused by consumers that read it, with an error naming `group_basis`.
+remains unchanged. Unknown future fields within `group_basis` are ignored; a `null` value means not
+recorded, as for every other key; a malformed value that is present is refused by consumers that read it, with
+an error naming `group_basis`.
 
 ### Reviewer view files
 

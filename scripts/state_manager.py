@@ -132,11 +132,18 @@ def _json_type(value):
 _GROUP_BASIS_PERIOD_KEYS = ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3")
 
 
-def _group_basis_problems(value, financials_source=None):
+_SOURCE_NOT_CHECKED = object()
+
+
+def _group_basis_problems(value, financials_source=_SOURCE_NOT_CHECKED):
     """Return validation problems for the optional group-basis metadata object.
 
     Unknown future fields are intentionally ignored. This object records source,
     period and analyst-confirmed perimeter metadata only; it never stores figures.
+    `financials_source` is the deal's recorded value, with None meaning not recorded:
+    an unrecorded source is read as framework-computed (the default, and what the
+    exporter assumes), so "supplied" figures need an explicit "analyst-supplied".
+    Left at its default the agreement rule is not applied.
     """
     if not isinstance(value, dict):
         return [f'"group_basis" must be an object, found {_json_type(value)}']
@@ -228,12 +235,16 @@ def _group_basis_problems(value, financials_source=None):
         {"supplied": "analyst-supplied", "recomputed": "framework-computed"}.get(figures_basis)
         if isinstance(figures_basis, str) else None
     )
-    if (isinstance(financials_source, str) and financials_source in FINANCIALS_SOURCES
-            and expected_source is not None and financials_source != expected_source):
-        problems.append(
-            f'"group_basis.figures_basis" is {figures_basis!r}, but state financials_source is '
-            f'{financials_source!r}; these must agree'
+    if financials_source is _SOURCE_NOT_CHECKED:
+        return problems
+    effective_source = "framework-computed" if financials_source is None else financials_source
+    if (isinstance(effective_source, str) and effective_source in FINANCIALS_SOURCES
+            and expected_source is not None and effective_source != expected_source):
+        recorded = (
+            f'state financials_source is {financials_source!r}' if financials_source is not None
+            else 'state financials_source is not recorded (read as "framework-computed")'
         )
+        problems.append(f'"group_basis.figures_basis" is {figures_basis!r}, but {recorded}; these must agree')
     return problems
 
 
@@ -1178,7 +1189,7 @@ if __name__ == "__main__":
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--date",
-                        help="YYYY-MM-DD confirmation date (defaults to today); used with review-start or group-basis modes.")
+                        help="YYYY-MM-DD, defaults to today: the review date with --start-review and --review-candidates; the perimeter-confirmation date with --record-group-basis.")
     parser.add_argument("--group-basis-file",
                         help="UTF-8 JSON object with group-basis metadata, used only with --record-group-basis.")
     parser.add_argument("--perimeter-confirmed", action="store_true",

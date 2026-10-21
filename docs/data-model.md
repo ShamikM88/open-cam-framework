@@ -96,7 +96,9 @@ non-empty list of distinct framework labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1
 as given and require `financials_source: "analyst-supplied"`; recomputed figures use the framework's
 existing calculations over supplied consolidated raw lines and require `financials_source:
 "framework-computed"`. If that deal-wide source label already exists and contradicts the metadata,
-recording is refused; if it is absent, either basis may be registered. The command sets
+recording is refused. An absent `financials_source` is read as `framework-computed`, the default the exporter
+assumes, so `recomputed` figures may be registered but `supplied` figures need an explicit `analyst-supplied`
+(run `/spread` in its analyst-supplied mode first). The command sets
 `perimeter_confirmed: true` and the real ISO `perimeter_confirmed_on` date only after the analyst
 passes the explicit `--perimeter-confirmed` flag.
 

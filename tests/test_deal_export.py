@@ -1049,3 +1049,21 @@ def test_export_deal_refuses_malformed_group_basis_before_creating_exports(tmp_p
     assert not os.path.exists(os.path.join(base, "deals", "Synthetic Group Ltd",
                                            "Synthetic Group Facility_2026-01-01",
                                            "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))
+
+
+def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_not_recorded(tmp_path):
+    """Absent financials_source is read as framework-computed by the exporter, so 'supplied' would mislabel the
+    Financial Spreading figures (review CH4)."""
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "corporate_credit_cam.md"))
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=base,
+        financials={"FY-Current": {"raw": {"revenue": 100}}}, group_basis=_group_basis_for_export_tests(),
+    )
+    with pytest.raises(ValueError, match="not recorded"):
+        export_deal(
+            "Synthetic Group Ltd", "Synthetic Group Facility", "corporate_credit", "# Synthetic CAM",
+            date_str="2026-01-01", base_dir=base,
+        )
+    assert not os.path.exists(os.path.join(base, "deals", "Synthetic Group Ltd", "Synthetic Group Facility_2026-01-01",
+                                           "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))

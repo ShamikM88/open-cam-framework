@@ -2410,7 +2410,8 @@ def test_group_basis_validation_accepts_unknown_future_fields_and_all_documented
     group_basis["periods"] = ["FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3"]
     group_basis["future_metadata"] = {"opaque": ["not", "inspected"]}
     group_basis["source"]["future_source_detail"] = {"opaque": None}
-    assert state_manager.validate_state({"group_basis": group_basis}, keys=("group_basis",))["group_basis"] == group_basis
+    state = {"group_basis": group_basis, "financials_source": "analyst-supplied"}
+    assert state_manager.validate_state(state, keys=("group_basis",))["group_basis"] == group_basis
 
 
 @pytest.mark.parametrize(("figures_basis", "financials_source"), [
@@ -2430,7 +2431,7 @@ def test_group_basis_refuses_a_contradictory_recorded_financials_source(figures_
 @pytest.mark.parametrize(("figures_basis", "financials_source"), [
     ("supplied", "analyst-supplied"),
     ("recomputed", "framework-computed"),
-    ("supplied", None),
+    ("recomputed", None),
 ])
 def test_group_basis_accepts_consistent_or_not_yet_recorded_financials_source(figures_basis, financials_source):
     group_basis = _valid_group_basis_for_tests()
@@ -2443,11 +2444,22 @@ def test_group_basis_accepts_consistent_or_not_yet_recorded_financials_source(fi
     assert state_manager.validate_state(state, keys=keys)["group_basis"] == group_basis
 
 
+def test_group_basis_refuses_supplied_figures_when_the_financials_source_is_not_recorded():
+    """An absent financials_source is read as framework-computed (what the exporter assumes), so 'supplied' needs
+    an explicit analyst-supplied source (review CH4)."""
+    group_basis = _valid_group_basis_for_tests()
+    group_basis["figures_basis"] = "supplied"
+    for state in ({"group_basis": group_basis}, {"group_basis": group_basis, "financials_source": None}):
+        with pytest.raises(state_manager.StateShapeError) as caught:
+            state_manager.validate_state(state, keys=("group_basis",))
+        assert 'state financials_source is not recorded (read as "framework-computed")' in str(caught.value)
+
+
 def test_group_basis_round_trips_through_write_state_and_read_state(tmp_path):
     group_basis = _valid_group_basis_for_tests()
     written = write_state(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
-        base_dir=str(tmp_path), group_basis=group_basis,
+        base_dir=str(tmp_path), group_basis=group_basis, financials_source="analyst-supplied",
     )
     loaded = read_state(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
@@ -2651,3 +2663,44 @@ def test_group_basis_period_labels_stay_aligned_with_spreading_builder():
     from spreading_builder import PERIOD_KEYS
 
     assert state_manager._GROUP_BASIS_PERIOD_KEYS == tuple(PERIOD_KEYS)
+
+
+def test_record_group_basis_refuses_supplied_figures_on_a_deal_with_no_financials_source_without_writing(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    supplied = _valid_group_basis_for_tests()
+    supplied.pop("perimeter_confirmed")
+    supplied.pop("perimeter_confirmed_on")
+    supplied["figures_basis"] = "supplied"
+    group_basis_file.write_text(json.dumps(supplied), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+        financials={"FY-Current": {"raw": {"revenue": 100}}},
+    )
+    path = state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
+    )
+    before = Path(path).read_bytes()
+    with pytest.raises(ValueError, match="not recorded"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+    assert Path(path).read_bytes() == before
+
+
+def test_record_group_basis_accepts_recomputed_figures_on_a_deal_with_no_financials_source(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    supplied = _valid_group_basis_for_tests()
+    supplied.pop("perimeter_confirmed")
+    supplied.pop("perimeter_confirmed_on")
+    supplied["figures_basis"] = "recomputed"
+    group_basis_file.write_text(json.dumps(supplied), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+        financials={"FY-Current": {"raw": {"revenue": 100}}},
+    )
+    report = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    assert report["recorded"] is True and report["figures_basis"] == "recomputed"

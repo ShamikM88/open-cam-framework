@@ -414,8 +414,9 @@ python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Faci
   `period_end`, `periods` and `figures_basis`; it does not hold financial figures. The command refuses unless
   the explicit `--perimeter-confirmed` flag is present, then records `perimeter_confirmed: true` and
   `perimeter_confirmed_on` from `--date` or today. Here `--date` is the confirmation date; the source document
-  has its own `source.date`. Supplied figures must agree with `financials_source: "analyst-supplied"`;
-  recomputed figures must agree with `"framework-computed"`, and a recorded contradiction is refused. No deal is
+  has its own `source.date`. Supplied figures need `financials_source: "analyst-supplied"` recorded;
+  recomputed figures must agree with `"framework-computed"`, and an unrecorded source is read as
+  `"framework-computed"`, the default the exporter assumes. A contradiction is refused, at recording and at export. No deal is
   created and no existing financial/raw-figure key other than `group_basis` is changed; the ordinary
   `write_state` schema-version policy still applies. Success prints one JSON line with
   `recorded`, `state_path` and `figures_basis`; a file, field, date or existing-state refusal prints one

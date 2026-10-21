@@ -57,6 +57,15 @@ def build_deal(**state_fields):
     write_state(COMPANY, PROPOSAL, date_str=DATE, approved_draft_path=DRAFT.as_posix())
 
 
+@pytest.fixture(autouse=True)
+def private_scratch_root(tmp_path_factory, monkeypatch):
+    """Point the temporary directory at one this test owns, so a parallel worker's scratch files cannot be mistaken
+    for a leftover of ours."""
+    root = tmp_path_factory.mktemp("scratch_root")
+    monkeypatch.setattr(tempfile, "tempdir", str(root))
+    return root
+
+
 @pytest.fixture
 def deal(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -98,7 +107,7 @@ def folder_bytes():
 
 
 def leftover_scratch_dirs():
-    return sorted(p.name for p in Path(tempfile.gettempdir()).glob("export_readback_*"))
+    return sorted(p.name for p in Path(tempfile.gettempdir()).iterdir())
 
 
 # ---------------------------------------------------------------------------

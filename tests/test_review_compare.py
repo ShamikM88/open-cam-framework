@@ -1200,6 +1200,73 @@ def test_408_compare_states_refusal_message_names_the_state_with_nonfinite_data(
     )
 
 
+
+
+def test_408_diff_value_sorts_duplicate_covenant_occurrence_ids_stably():
+    records = [
+        {"metric": "liquidity", "type": "min", "threshold": 1}
+        for _ in range(11)
+    ]
+    changes = []
+    rc._diff_value("covenants", rc._MISSING, records, changes)
+
+    assert [row["path"] for row in changes] == [
+        'covenants[metric="liquidity",type="min",occurrence=1]',
+        'covenants[metric="liquidity",type="min",occurrence=10]',
+        'covenants[metric="liquidity",type="min",occurrence=11]',
+        *[
+            f'covenants[metric="liquidity",type="min",occurrence={occurrence}]'
+            for occurrence in range(2, 10)
+        ],
+    ]
+
+
+def test_408_compare_deal_propagates_explicit_restatement_confirmation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    prior_state = state(financials={"FY-Current": {"ebitda": 10}})
+    current_state = state(financials={"FY-1": {"ebitda": 10}})
+    write_state(tmp_path, PRIOR_DATE, prior_state)
+    write_state(tmp_path, CURRENT_DATE, current_state)
+
+    ordinary = rc.compare_deal(
+        COMPANY, PROPOSAL, CURRENT_DATE, prior_date=PRIOR_DATE,
+        periods_rolled_one_year=False,
+    )
+    confirmed = rc.compare_deal(
+        COMPANY, PROPOSAL, CURRENT_DATE, prior_date=PRIOR_DATE,
+        periods_rolled_one_year=True,
+    )
+
+    assert "restatement_check" not in ordinary
+    assert confirmed["restatement_check"]["periods_rolled_one_year_confirmed"] is True
+    assert confirmed["restatement_check"]["periods"][0]["status"] == "consistent"
+
+
+def test_408_compare_states_uses_the_exact_refusal_message_for_equal_dates():
+    with pytest.raises(rc.ComparisonError) as caught:
+        rc.compare_states(
+            COMPANY, PROPOSAL, CURRENT_DATE, CURRENT_DATE, state(), state(),
+        )
+    assert str(caught.value) == "prior date must be strictly earlier than current date"
+
+
+def test_408_compare_states_does_not_relabel_recorded_to_missing_as_missing_in_both():
+    prior_state = state(
+        financials={"FY-Current": {"ebitda": 10}},
+        inputs={"pd": "0.20%"},
+    )
+    current_state = state(inputs={"pd": "0.20%"})
+
+    result = rc.compare_states(
+        COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE, prior_state, current_state,
+    )
+
+    assert "inputs" in result["summary"]["unchanged_categories"]
+    assert "financials" not in result["summary"]["unchanged_categories"]
+    assert "financials" not in result["summary"]["not_recorded_in_both"]
+    assert "facility_terms" in result["summary"]["not_recorded_in_both"]
+
+
 def test_408_display_value_and_basis_change_keep_exact_user_visible_values():
     assert rc._display_value(rc._MISSING) == "not recorded"
     assert rc._display_value(None) == "not recorded"
@@ -1227,7 +1294,7 @@ def test_408_exact_delta_keeps_significant_digits_when_either_operand_has_a_larg
     from decimal import localcontext
 
     large = Decimal("1E+50")
-    small = Decimal("1E+2")
+    small = Decimal("1E-20")
     with localcontext() as context:
         context.prec = 100
         exact_positive = large - small

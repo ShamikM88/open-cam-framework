@@ -984,3 +984,68 @@ def test_dx_cli_rejects_non_utf8_draft_as_one_error_without_creating_outputs(tmp
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
 
+
+
+def _group_basis_for_export_tests():
+    return {
+        "basis": "supplied_consolidated",
+        "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {
+            "document": "Borrower-supplied consolidated accounts",
+            "accounting_basis": "UK GAAP, consolidated",
+            "date": "2026-08-31",
+        },
+        "period_end": "2026-03-31",
+        "periods": ["FY-Current", "FY-1"],
+        "figures_basis": "supplied",
+        "perimeter_confirmed": True,
+        "perimeter_confirmed_on": "2026-10-21",
+    }
+
+
+def test_export_deal_adds_group_basis_disclosure_only_when_metadata_is_present(tmp_path):
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "corporate_credit_cam.md"))
+    date_str = "2026-01-01"
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str=date_str, base_dir=base,
+        financials_source="analyst-supplied",
+        analyst_supplied_financials={"FY-Current": {"revenue": 500}},
+        group_basis=_group_basis_for_export_tests(),
+    )
+    output = export_deal(
+        "Synthetic Group Ltd", "Synthetic Group Facility", "corporate_credit", "# Synthetic CAM",
+        date_str=date_str, base_dir=base,
+    )
+    workbook = openpyxl.load_workbook(os.path.join(output, "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))
+    assert workbook.sheetnames == ["Financial Spreading", "Collateral & Exposure", "Group basis"]
+    sheet = workbook["Group basis"]
+    assert sheet["A1"].value == (
+        "Credit aggregation of consolidated accounts supplied by the borrower; "
+        "not a statutory consolidation prepared by this framework."
+    )
+    rows = {sheet.cell(row=i, column=1).value: sheet.cell(row=i, column=2).value
+            for i in range(2, sheet.max_row + 1)}
+    assert rows["Reporting entity"] == "Synthetic Group Ltd"
+    assert rows["Entities covered"] == "Synthetic Group Ltd; Synthetic Group OpCo"
+    assert rows["Source document"] == "Borrower-supplied consolidated accounts"
+    assert rows["Accounting basis"] == "UK GAAP, consolidated"
+    assert rows["Figures basis"] == "supplied"
+    assert rows["Perimeter confirmed"] == "Yes"
+    assert rows["Perimeter confirmed on"] == "2026-10-21"
+
+
+def test_export_deal_refuses_malformed_group_basis_before_creating_exports(tmp_path):
+    base = str(tmp_path)
+    state_file = os.path.join(base, "deals", "Synthetic Group Ltd", "Synthetic Group Facility_2026-01-01", "state.json")
+    _write(state_file, json.dumps({"group_basis": {"basis": "not-supported"}}))
+    _write(os.path.join(base, "templates", "cam", "corporate_credit_cam.md"))
+    with pytest.raises(ValueError, match="group_basis"):
+        export_deal(
+            "Synthetic Group Ltd", "Synthetic Group Facility", "corporate_credit", "# Synthetic CAM",
+            date_str="2026-01-01", base_dir=base,
+        )
+    assert not os.path.exists(os.path.join(base, "deals", "Synthetic Group Ltd",
+                                           "Synthetic Group Facility_2026-01-01",
+                                           "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))

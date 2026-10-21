@@ -2284,3 +2284,294 @@ def test_review_203_cleanup_that_itself_fails_never_hides_the_original_error(tmp
     # The error says so plainly instead of claiming a cleanup that did not happen.
     assert "could not be removed and should be deleted by hand" in str(caught.value)
     assert "was removed and nothing was changed" not in str(caught.value)
+
+
+# ---------------------------------------------------------------------------
+# Optional borrower-supplied consolidated group-basis metadata (issue #48, case A)
+# ---------------------------------------------------------------------------
+
+def _valid_group_basis_for_tests():
+    return {
+        "basis": "supplied_consolidated",
+        "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {
+            "document": "Borrower-supplied consolidated accounts",
+            "accounting_basis": "UK GAAP, consolidated",
+            "date": "2026-08-31",
+        },
+        "period_end": "2026-03-31",
+        "periods": ["FY-Current", "FY-1"],
+        "figures_basis": "supplied",
+        "perimeter_confirmed": True,
+        "perimeter_confirmed_on": "2026-10-21",
+    }
+
+
+@pytest.mark.parametrize("mutation", [
+    "not_object", "null", "basis_missing", "basis_wrong",
+    "reporting_missing", "reporting_wrong_type", "reporting_empty",
+    "entities_missing", "entities_wrong_type", "entities_empty", "entity_wrong_type", "entity_empty",
+    "entities_duplicate", "reporting_not_covered",
+    "source_missing", "source_wrong_type", "document_missing", "document_empty",
+    "accounting_basis_missing", "accounting_basis_empty", "source_date_missing", "source_date_impossible",
+    "period_end_missing", "period_end_wrong_shape", "period_end_impossible",
+    "periods_missing", "periods_empty", "period_wrong_type", "period_unknown", "period_duplicate",
+    "figures_basis_missing", "figures_basis_wrong", "figures_basis_wrong_type",
+    "perimeter_missing", "perimeter_false", "perimeter_date_missing", "perimeter_date_impossible",
+])
+def test_validate_state_refuses_malformed_group_basis_with_the_key_named(mutation):
+    group_basis = _valid_group_basis_for_tests()
+    if mutation == "not_object":
+        group_basis = ["not", "an", "object"]
+    elif mutation == "null":
+        group_basis = None
+    elif mutation == "basis_missing":
+        del group_basis["basis"]
+    elif mutation == "basis_wrong":
+        group_basis["basis"] = "ownership_percentage"
+    elif mutation == "reporting_missing":
+        del group_basis["reporting_entity"]
+    elif mutation == "reporting_wrong_type":
+        group_basis["reporting_entity"] = 7
+    elif mutation == "reporting_empty":
+        group_basis["reporting_entity"] = "  "
+    elif mutation == "entities_missing":
+        del group_basis["entities_covered"]
+    elif mutation == "entities_wrong_type":
+        group_basis["entities_covered"] = "Synthetic Group Ltd"
+    elif mutation == "entities_empty":
+        group_basis["entities_covered"] = []
+    elif mutation == "entity_wrong_type":
+        group_basis["entities_covered"] = ["Synthetic Group Ltd", {}]
+    elif mutation == "entity_empty":
+        group_basis["entities_covered"] = ["Synthetic Group Ltd", ""]
+    elif mutation == "entities_duplicate":
+        group_basis["entities_covered"] = ["Synthetic Group Ltd", "Synthetic Group Ltd"]
+    elif mutation == "reporting_not_covered":
+        group_basis["entities_covered"] = ["Synthetic Group OpCo"]
+    elif mutation == "source_missing":
+        del group_basis["source"]
+    elif mutation == "source_wrong_type":
+        group_basis["source"] = "borrower document"
+    elif mutation == "document_missing":
+        del group_basis["source"]["document"]
+    elif mutation == "document_empty":
+        group_basis["source"]["document"] = ""
+    elif mutation == "accounting_basis_missing":
+        del group_basis["source"]["accounting_basis"]
+    elif mutation == "accounting_basis_empty":
+        group_basis["source"]["accounting_basis"] = " "
+    elif mutation == "source_date_missing":
+        del group_basis["source"]["date"]
+    elif mutation == "source_date_impossible":
+        group_basis["source"]["date"] = "2026-02-30"
+    elif mutation == "period_end_missing":
+        del group_basis["period_end"]
+    elif mutation == "period_end_wrong_shape":
+        group_basis["period_end"] = "31/03/2026"
+    elif mutation == "period_end_impossible":
+        group_basis["period_end"] = "2025-02-29"
+    elif mutation == "periods_missing":
+        del group_basis["periods"]
+    elif mutation == "periods_empty":
+        group_basis["periods"] = []
+    elif mutation == "period_wrong_type":
+        group_basis["periods"] = ["FY-Current", 7]
+    elif mutation == "period_unknown":
+        group_basis["periods"] = ["2026"]
+    elif mutation == "period_duplicate":
+        group_basis["periods"] = ["FY-Current", "FY-Current"]
+    elif mutation == "figures_basis_missing":
+        del group_basis["figures_basis"]
+    elif mutation == "figures_basis_wrong":
+        group_basis["figures_basis"] = "inferred"
+    elif mutation == "figures_basis_wrong_type":
+        group_basis["figures_basis"] = []
+    elif mutation == "perimeter_missing":
+        del group_basis["perimeter_confirmed"]
+    elif mutation == "perimeter_false":
+        group_basis["perimeter_confirmed"] = False
+    elif mutation == "perimeter_date_missing":
+        del group_basis["perimeter_confirmed_on"]
+    elif mutation == "perimeter_date_impossible":
+        group_basis["perimeter_confirmed_on"] = "2026-02-30"
+
+    with pytest.raises(StateShapeError, match="group_basis"):
+        state_manager.validate_state({"group_basis": group_basis}, keys=("group_basis",))
+
+
+def test_group_basis_validation_accepts_unknown_future_fields_and_all_documented_periods():
+    group_basis = _valid_group_basis_for_tests()
+    group_basis["periods"] = ["FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3"]
+    group_basis["future_metadata"] = {"opaque": ["not", "inspected"]}
+    group_basis["source"]["future_source_detail"] = object()
+    assert state_manager.validate_state({"group_basis": group_basis}, keys=("group_basis",))["group_basis"] == group_basis
+
+
+@pytest.mark.parametrize(("figures_basis", "financials_source"), [
+    ("supplied", "framework-computed"),
+    ("recomputed", "analyst-supplied"),
+])
+def test_group_basis_refuses_a_contradictory_recorded_financials_source(figures_basis, financials_source):
+    group_basis = _valid_group_basis_for_tests()
+    group_basis["figures_basis"] = figures_basis
+    with pytest.raises(StateShapeError, match="group_basis.*financials_source"):
+        state_manager.validate_state(
+            {"group_basis": group_basis, "financials_source": financials_source},
+            keys=("group_basis", "financials_source"),
+        )
+
+
+@pytest.mark.parametrize(("figures_basis", "financials_source"), [
+    ("supplied", "analyst-supplied"),
+    ("recomputed", "framework-computed"),
+    ("supplied", None),
+])
+def test_group_basis_accepts_consistent_or_not_yet_recorded_financials_source(figures_basis, financials_source):
+    group_basis = _valid_group_basis_for_tests()
+    group_basis["figures_basis"] = figures_basis
+    state = {"group_basis": group_basis}
+    keys = ["group_basis"]
+    if financials_source is not None:
+        state["financials_source"] = financials_source
+        keys.append("financials_source")
+    assert state_manager.validate_state(state, keys=keys)["group_basis"] == group_basis
+
+
+def test_group_basis_round_trips_through_write_state_and_read_state(tmp_path):
+    group_basis = _valid_group_basis_for_tests()
+    written = write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), group_basis=group_basis,
+    )
+    loaded = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("group_basis",),
+    )
+    assert loaded["group_basis"] == group_basis
+    assert written["group_basis"] == group_basis
+
+
+def test_record_group_basis_requires_explicit_perimeter_confirmation_without_writing(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    group_basis_file.write_text(json.dumps(_valid_group_basis_for_tests()), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied", marker="keep",
+    )
+    path = state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
+    )
+    before = open(path, "rb").read()
+    with pytest.raises(ValueError, match="--perimeter-confirmed"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=False, base_dir=str(tmp_path),
+        )
+    assert path.read_bytes() == before
+
+
+def test_record_group_basis_merges_only_metadata_and_sets_analyst_confirmation_date(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    supplied = _valid_group_basis_for_tests()
+    supplied.pop("perimeter_confirmed")
+    supplied.pop("perimeter_confirmed_on")
+    supplied["future_metadata"] = {"retain": True}
+    group_basis_file.write_text(json.dumps(supplied), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied",
+        financials={"FY-Current": {"ebitda": 12}}, ratios={"FY-Current": {"dscr": 2.0}},
+        multi_period_financials={"FY-Current": {"revenue": 100}},
+        analyst_supplied_financials={"FY-Current": {"revenue": 101}}, marker="preserve",
+    )
+    result = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    loaded = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("group_basis", "financials_source"),
+    )
+    assert result == {
+        "recorded": True,
+        "state_path": state_path("Synthetic Group Ltd", "Synthetic Group Facility",
+                                 date_str="2026-01-01", base_dir=str(tmp_path)),
+        "figures_basis": "supplied",
+    }
+    assert loaded["group_basis"]["perimeter_confirmed"] is True
+    assert loaded["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"
+    assert loaded["group_basis"]["future_metadata"] == {"retain": True}
+    assert loaded["financials"] == {"FY-Current": {"ebitda": 12}}
+    assert loaded["ratios"] == {"FY-Current": {"dscr": 2.0}}
+    assert loaded["multi_period_financials"] == {"FY-Current": {"revenue": 100}}
+    assert loaded["analyst_supplied_financials"] == {"FY-Current": {"revenue": 101}}
+    assert loaded["financials_source"] == "analyst-supplied" and loaded["marker"] == "preserve"
+
+
+def test_record_group_basis_refuses_an_absent_deal_without_creating_one(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    group_basis_file.write_text(json.dumps(_valid_group_basis_for_tests()), encoding="utf-8")
+    with pytest.raises(ValueError, match="no exact existing state.json"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+    assert not (tmp_path / "deals").exists()
+
+
+def test_record_group_basis_refuses_a_non_object_file_without_writing(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    group_basis_file.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied",
+    )
+    path = state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
+    )
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="JSON object"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+    assert path.read_bytes() == before
+
+
+def test_record_group_basis_refuses_a_recorded_source_conflict_without_writing(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    supplied = _valid_group_basis_for_tests()
+    supplied.pop("perimeter_confirmed")
+    supplied.pop("perimeter_confirmed_on")
+    supplied["figures_basis"] = "recomputed"
+    group_basis_file.write_text(json.dumps(supplied), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied",
+    )
+    path = state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
+    )
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="financials_source"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+    assert path.read_bytes() == before
+
+
+def test_read_state_rejects_a_malformed_present_group_basis_with_its_key_named(tmp_path):
+    path = state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
+    )
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"group_basis": {"basis": "wrong"}}, handle)
+    with pytest.raises(StateShapeError, match="group_basis"):
+        read_state(
+            "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+            base_dir=str(tmp_path), keys=("group_basis",),
+        )

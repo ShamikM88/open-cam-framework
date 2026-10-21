@@ -1067,3 +1067,450 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         )
     assert not os.path.exists(os.path.join(base, "deals", "Synthetic Group Ltd", "Synthetic Group Facility_2026-01-01",
                                            "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))
+
+
+# ---------------------------------------------------------------------------
+# Issue #182 mutation survivors (2026-10-21): deal_export boundaries and main()
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("bad_path", "expected"),
+    [
+        (
+            "financials",
+            (
+                {"FY+1": {"Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                set(),
+                {"FY+2": {"revenue", "cash"}},
+            ),
+        ),
+        (
+            "ratios",
+            (
+                {"FY+1": {"EBITDA": 20}},
+                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                set(),
+                {"FY+2": {"revenue", "cash"}},
+            ),
+        ),
+        (
+            "downside_case",
+            (
+                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                None,
+                set(),
+                {},
+            ),
+        ),
+        (
+            "downside_case.basis",
+            (
+                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                None,
+                set(),
+                {},
+            ),
+        ),
+        (
+            "downside_case.financials",
+            (
+                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"DSCR": 2.0}},
+                set(),
+                {"FY+2": {"revenue", "cash"}},
+            ),
+        ),
+        (
+            "downside_case.ratios",
+            (
+                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA": 18}},
+                set(),
+                {"FY+2": {"revenue", "cash"}},
+            ),
+        ),
+        (
+            "downside_case.unavailable",
+            (
+                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                set(),
+                {"FY+2": {"revenue", "cash"}},
+            ),
+        ),
+        (
+            "analyst_supplied_financials",
+            (
+                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                set(),
+                {"FY+2": set()},
+            ),
+        ),
+    ],
+)
+def test_dx_analyst_forecast_columns_normalizes_each_non_dict_store_to_its_exact_result(bad_path, expected):
+    """Every dict guard is observable: malformed stores are empty, not a traceback or unintended data."""
+    from deal_export import _analyst_forecast_columns
+
+    state = {
+        "financials_source": "analyst-supplied",
+        "forecast_source": "analyst-supplied",
+        "financials": {"FY+1": {"ebitda": 20}},
+        "ratios": {"FY+1": {"current_ratio": 1.5}},
+        "downside_case": {
+            "basis": {"FY+1": "analyst-supplied", "FY+2": "framework-computed"},
+            "financials": {"FY+1": {"ebitda": 18}},
+            "ratios": {"FY+1": {"dscr": 2.0}},
+            "unavailable": {},
+        },
+        "analyst_supplied_financials": {
+            "FY+2": {"revenue": 222, "cash": 0, "flag": True, "note": "not numeric"},
+        },
+    }
+    if "." in bad_path:
+        parent, key = bad_path.split(".", 1)
+        state[parent][key] = 17
+    else:
+        state[bad_path] = 17
+
+    assert _analyst_forecast_columns(state) == expected
+
+
+def test_dx_export_deal_passes_each_component_to_the_sanitizer_with_its_exact_label(tmp_path, monkeypatch):
+    import deal_export
+
+    original_sanitizer = deal_export.sanitize_path_component
+    sanitizer_calls = []
+
+    def recording_sanitizer(value, field_name):
+        sanitizer_calls.append((value, field_name))
+        return original_sanitizer(value, field_name)
+
+    monkeypatch.setattr(deal_export, "sanitize_path_component", recording_sanitizer)
+    monkeypatch.setattr(deal_export, "read_state", lambda *args, **kwargs: {})
+    monkeypatch.setattr(deal_export, "existing_state_date_str", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deal_export, "cam_template_path", lambda *args, **kwargs: "synthetic-template.md")
+    monkeypatch.setattr(deal_export, "export_to_docx", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deal_export, "export_to_xlsx", lambda *args, **kwargs: None)
+
+    returned = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic draft",
+        date_str="2026-03-12", base_dir=str(tmp_path),
+    )
+
+    assert sanitizer_calls == [
+        ("Synthetic Co", "company"),
+        ("Credit Facility", "proposal"),
+        ("asset_finance", "deal_type"),
+        ("2026-03-12", "date_str"),
+    ]
+    expected_folder = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-03-12"
+    assert Path(returned) == expected_folder
+    assert expected_folder.is_dir()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_dx_export_deal_validates_state_before_creating_any_folder(tmp_path, monkeypatch):
+    import deal_export
+
+    monkeypatch.setattr(deal_export, "read_state", lambda *args, **kwargs: {"financials": {}})
+
+    def reject_state(state, *, keys, path):
+        assert state == {"financials": {}}
+        assert keys == ("group_basis",)
+        raise ValueError("Synthetic Co state validation failed")
+
+    monkeypatch.setattr(deal_export, "validate_state", reject_state)
+
+    with pytest.raises(ValueError) as caught:
+        export_deal(
+            "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic draft",
+            base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == "Synthetic Co state validation failed"
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact_folder(tmp_path, monkeypatch):
+    import deal_export
+
+    group_basis = {"basis": "supplied_consolidated", "reporting_entity": "Synthetic Co"}
+    state = {"group_basis": group_basis}
+    financial_data = {"FY-Current": {"raw": {"revenue": 1100}}}
+    downside_financial_data = {"FY+1": {"raw": {"revenue": 900}}}
+    collateral_data = {"security": "synthetic security"}
+    supplied_values = {"FY-Current": {"EBITDA": 120}}
+    supplied_downside_values = {"FY+1": {"EBITDA": 90}}
+    blank_downside_periods = {"FY+2"}
+    derived_downside_fields = {"FY+3": {"revenue"}}
+    events = []
+    reads = []
+    validations = []
+    docx_calls = []
+    xlsx_calls = []
+    expected_folder = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-03-12"
+
+    def fake_read_state(*args, **kwargs):
+        events.append("read_state")
+        reads.append((args, kwargs))
+        return state
+
+    def fake_validate_state(*args, **kwargs):
+        events.append("validate_state")
+        validations.append((args, kwargs))
+
+    monkeypatch.setattr(deal_export, "read_state", fake_read_state)
+    monkeypatch.setattr(deal_export, "validate_state", fake_validate_state)
+    monkeypatch.setattr(deal_export, "existing_state_date_str", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deal_export, "cam_template_path", lambda *args, **kwargs: "synthetic-template.md")
+
+    def get_financials(received_state):
+        events.append("financial_data")
+        assert received_state is state
+        return financial_data
+
+    def get_downside(received_state):
+        events.append("downside_financial_data")
+        assert received_state is state
+        return downside_financial_data
+
+    def get_collateral(received_state):
+        events.append("collateral_data")
+        assert received_state is state
+        return collateral_data
+
+    def get_forecast_columns(received_state):
+        events.append("forecast_columns")
+        assert received_state is state
+        return supplied_values, supplied_downside_values, blank_downside_periods, derived_downside_fields
+
+    def fake_docx_writer(draft, path):
+        events.append("docx_writer")
+        docx_calls.append((draft, path, Path(path).parent.is_dir()))
+
+    def fake_xlsx_writer(company, path, **kwargs):
+        events.append("xlsx_writer")
+        xlsx_calls.append((company, path, kwargs))
+
+    monkeypatch.setattr(deal_export, "_financial_data_from_state", get_financials)
+    monkeypatch.setattr(deal_export, "_downside_financial_data_from_state", get_downside)
+    monkeypatch.setattr(deal_export, "_collateral_data_from_state", get_collateral)
+    monkeypatch.setattr(deal_export, "_analyst_forecast_columns", get_forecast_columns)
+    monkeypatch.setattr(deal_export, "export_to_docx", fake_docx_writer)
+    monkeypatch.setattr(deal_export, "export_to_xlsx", fake_xlsx_writer)
+
+    returned = export_deal(
+        "Synthetic Co", "Credit Facility", "asset_finance", "# Synthetic draft",
+        date_str="2026-03-12", base_dir=str(tmp_path),
+    )
+
+    expected_state_path = deal_export.state_path(
+        "Synthetic Co", "Credit Facility", date_str="2026-03-12", base_dir=str(tmp_path)
+    )
+    assert reads == [
+        (
+            ("Synthetic Co", "Credit Facility"),
+            {"date_str": "2026-03-12", "base_dir": str(tmp_path), "keys": deal_export.STATE_KEYS_READ},
+        )
+    ]
+    assert validations == [
+        ((state,), {"keys": ("group_basis",), "path": expected_state_path})
+    ]
+    assert events == [
+        "read_state", "validate_state", "financial_data", "downside_financial_data",
+        "collateral_data", "forecast_columns", "docx_writer", "xlsx_writer",
+    ]
+    expected_docx = expected_folder / "Synthetic Co_Credit Facility_CAM.docx"
+    expected_xlsx = expected_folder / "Synthetic Co_Credit Facility_Spreading.xlsx"
+    assert len(docx_calls) == 1
+    assert docx_calls[0][0] == "# Synthetic draft"
+    assert Path(docx_calls[0][1]) == expected_docx
+    assert docx_calls[0][2] is True
+    assert len(xlsx_calls) == 1
+    xlsx_company, xlsx_path, xlsx_kwargs = xlsx_calls[0]
+    assert xlsx_company == "Synthetic Co"
+    assert Path(xlsx_path) == expected_xlsx
+    assert xlsx_kwargs == {
+        "financial_data": financial_data,
+        "collateral_data": collateral_data,
+        "downside_financial_data": downside_financial_data,
+        "supplied_values": supplied_values,
+        "supplied_downside_values": supplied_downside_values,
+        "blank_downside_periods": blank_downside_periods,
+        "derived_downside_fields": derived_downside_fields,
+        "group_basis": group_basis,
+    }
+    assert Path(returned) == expected_folder
+    assert expected_folder.is_dir()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_dx_main_reads_the_draft_as_utf8_and_passes_exact_resolved_arguments(tmp_path, monkeypatch, capsys):
+    import builtins
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "synthetic-draft.md"
+    draft_text = "# Synthetic Co\n\nFacility fee: £1m — café terms.\n"
+    draft.write_text(draft_text, encoding="utf-8")
+    real_open = builtins.open
+    draft_opens = []
+    validations = []
+    resolutions = []
+    exports = []
+    resolved_date = "2026-04-03"
+    output_folder = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-03"
+
+    def recording_open(file, *args, **kwargs):
+        if os.fspath(file) == str(draft):
+            draft_opens.append((os.fspath(file), args, dict(kwargs)))
+        return real_open(file, *args, **kwargs)
+
+    def record_date_validation(*args, **kwargs):
+        validations.append((args, kwargs))
+
+    def record_date_resolution(company, proposal, date_str=None):
+        resolutions.append((company, proposal, date_str))
+        return resolved_date
+
+    def record_export(*args, **kwargs):
+        exports.append((args, kwargs))
+        return str(output_folder)
+
+    monkeypatch.setattr(builtins, "open", recording_open)
+    monkeypatch.setattr(deal_export, "validate_iso_date_str", record_date_validation)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", record_date_resolution)
+    monkeypatch.setattr(deal_export, "export_deal", record_export)
+
+    main([
+        "--company", "Synthetic Co", "--proposal", "Credit Facility",
+        "--draft", str(draft),
+    ])
+
+    assert draft_opens == [(str(draft), (), {"encoding": "utf-8"})]
+    assert validations == []
+    assert resolutions == [("Synthetic Co", "Credit Facility", None)]
+    assert exports == [
+        (
+            ("Synthetic Co", "Credit Facility", "corporate_credit", draft_text),
+            {"date_str": resolved_date},
+        )
+    ]
+    captured = capsys.readouterr()
+    assert captured.out == f"Done! Files generated in {output_folder}\n"
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_dx_main_converts_a_draft_read_oserror_to_the_exact_exit_message(tmp_path, monkeypatch, capsys):
+    import builtins
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "unreadable-synthetic-draft.md"
+    real_open = builtins.open
+
+    def fail_draft_read(file, *args, **kwargs):
+        if os.fspath(file) == str(draft):
+            raise OSError("synthetic draft read failure")
+        return real_open(file, *args, **kwargs)
+
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("date discovery ran after the draft read failed")
+
+    def unexpected_export(*args, **kwargs):
+        pytest.fail("export ran after the draft read failed")
+
+    monkeypatch.setattr(builtins, "open", fail_draft_read)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", unexpected_resolution)
+    monkeypatch.setattr(deal_export, "export_deal", unexpected_export)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--draft", str(draft),
+        ])
+
+    assert caught.value.code == "error: synthetic draft read failure"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_dx_main_converts_date_validation_failure_to_the_exact_exit_message(tmp_path, monkeypatch, capsys):
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "synthetic-draft.md"
+    draft.write_text("# Synthetic draft\n", encoding="utf-8")
+    validations = []
+
+    def reject_date(value, *, field_name):
+        validations.append((value, field_name))
+        raise ValueError("synthetic invalid calendar date")
+
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("date discovery ran after date validation failed")
+
+    def unexpected_export(*args, **kwargs):
+        pytest.fail("export ran after date validation failed")
+
+    monkeypatch.setattr(deal_export, "validate_iso_date_str", reject_date)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", unexpected_resolution)
+    monkeypatch.setattr(deal_export, "export_deal", unexpected_export)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--draft", str(draft), "--date-str", "2026-02-30",
+        ])
+
+    assert validations == [("2026-02-30", "--date-str")]
+    assert caught.value.code == "error: synthetic invalid calendar date"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()
+
+
+def test_dx_main_sanitizes_company_before_date_discovery_with_an_exact_error(tmp_path, monkeypatch, capsys):
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "synthetic-draft.md"
+    draft.write_text("# Synthetic draft\n", encoding="utf-8")
+    sanitizer_calls = []
+
+    def reject_unsafe_company(value, field_name):
+        sanitizer_calls.append((value, field_name))
+        if field_name == "company":
+            raise ValueError("synthetic company rejected")
+        return value
+
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("date discovery ran before company sanitization succeeded")
+
+    monkeypatch.setattr(deal_export, "sanitize_path_component", reject_unsafe_company)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", unexpected_resolution)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "../synthetic-unsafe", "--proposal", "Credit Facility",
+            "--draft", str(draft),
+        ])
+
+    assert sanitizer_calls == [("../synthetic-unsafe", "company")]
+    assert caught.value.code == "error: synthetic company rejected"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()

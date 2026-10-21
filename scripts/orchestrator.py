@@ -23,11 +23,14 @@ from numeric_validation import (
     FinancialInputError,
     StressAssumptionsError,
     validate_finite_numbers,
+    validate_period_keys,
     validate_period_objects,
     validate_raw_line_items,
     validate_stress_assumptions,
 )
-from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
+from spreading_builder import (
+    FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
+)
 from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
@@ -487,6 +490,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
     validate_period_objects(multi_period_financials, path="financial inputs")
+    validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
     validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_financials, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")

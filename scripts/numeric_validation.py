@@ -115,6 +115,25 @@ def validate_period_objects(value, path="financial inputs"):
     return value
 
 
+def validate_period_keys(value, allowed_periods, path="financial inputs"):
+    """Refuse a key that is not one of the framework's period labels.
+
+    The evaluator has no entity dimension: an input keyed by entity name
+    (`{"HoldCo": {"FY-Current": {...}}}`) used to be accepted, with the entity
+    names silently treated as periods and the results keyed by entity. Name the
+    first unexpected key and the valid labels in one line instead (issue #48).
+    A value that is not a mapping is left for validate_period_objects.
+    """
+    if not isinstance(value, dict):
+        return value
+    for period in value:
+        if period not in allowed_periods:
+            raise InvalidFinancialInputError(
+                f"{path}: unexpected period key {period!r}; expected one of {', '.join(allowed_periods)}"
+            )
+    return value
+
+
 def validate_finite_numbers(value, path="input"):
     if isinstance(value, float):
         if not math.isfinite(value):

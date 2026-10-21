@@ -67,7 +67,7 @@ images in `cam_images.docx.txt`), so an unintended change shows up as a readable
 
 ## The spreading workbook (`.xlsx`)
 
-`scripts/spreading_builder.py` writes two sheets.
+`scripts/spreading_builder.py` always writes two base sheets; a valid `group_basis` adds a third sheet described below.
 
 **Financial Spreading** has one row per line item and one column per period: `Metric`, `FY-2`, `FY-1`, `FY-Current`,
 `FY+1`, `FY+2`, `FY+3`, then `FY+1 (Downside)`, `FY+2 (Downside)`, `FY+3 (Downside)`. It runs from Profit & Loss
@@ -104,6 +104,19 @@ other computed rows) is left blank, never calculated from an empty cell, matchin
 (no profit before tax without exceptional costs, no total assets without the fixed-asset lines). `total_debt` has no
 workbook row. Every other deal's workbook is unchanged; the CAM carries the caveat that the figures were not independently
 recomputed. `templates/spreading/default_spreading_template.xlsx` is a blank, formula-only reference copy of the layout.
+
+### Group basis sheet (case A)
+
+When the deal's state contains a valid `group_basis` object, the spreading workbook adds one
+`Group basis` sheet. Its first row is exactly:
+
+> Credit aggregation of consolidated accounts supplied by the borrower; not a statutory consolidation prepared by this framework.
+
+The rows below it pair labels with the reporting entity, entities covered, source document and
+accounting basis, source document date, common period end, covered period labels, supplied/recomputed
+figures basis, and analyst perimeter-confirmation state/date. It discloses metadata only: there are
+no consolidated amounts or new calculations on this sheet. A deal without `group_basis` receives
+no extra sheet, and the existing Financial Spreading and Collateral & Exposure sheets are unchanged.
 
 ## The research brief
 

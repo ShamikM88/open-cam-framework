@@ -2051,6 +2051,213 @@ def test_review_compare_writes_utf8_when_stdout_was_redirected_as_cp1252(tmp_pat
 
 
 
+# ---------------------------------------------------------------------------
+# state_manager --record-group-basis: real-process contract (issue #48, case A)
+# ---------------------------------------------------------------------------
+
+def _cli_group_basis_input():
+    return {
+        "basis": "supplied_consolidated",
+        "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {
+            "document": "Borrower-supplied consolidated accounts",
+            "accounting_basis": "UK GAAP, consolidated",
+            "date": "2026-08-31",
+        },
+        "period_end": "2026-03-31",
+        "periods": ["FY-Current", "FY-1"],
+        "figures_basis": "supplied",
+    }
+
+
+def _install_group_basis_state(cli, financials_source="analyst-supplied", group_basis=None):
+    folder = cli.workdir / "deals" / "Synthetic Group Ltd" / "Synthetic Group Facility_2026-01-01"
+    folder.mkdir(parents=True, exist_ok=True)
+    state = {
+        "company": "Synthetic Group Ltd",
+        "proposal": "Synthetic Group Facility",
+        "date": "2026-01-01",
+        "schema_version": "1.1.0",
+        "financials_source": financials_source,
+        "financials": {"FY-Current": {"ebitda": 12}},
+        "ratios": {"FY-Current": {"dscr": 2.0}},
+        "multi_period_financials": {"FY-Current": {"revenue": 100}},
+        "analyst_supplied_financials": {"FY-Current": {"revenue": 101}},
+        "marker": "preserve",
+    }
+    if group_basis is not None:
+        state["group_basis"] = group_basis
+    path = folder / "state.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    return path, state
+
+
+def _run_record_group_basis(cli, group_basis_path, *extra):
+    return cli(
+        "state_manager", "--record-group-basis", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--group-basis-file", group_basis_path,
+        "--perimeter-confirmed", *extra,
+    )
+
+
+def test_state_manager_record_group_basis_subprocess_round_trips_and_preserves_other_keys(cli):
+    state_path, original = _install_group_basis_state(cli)
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    result = _run_record_group_basis(cli, group_file, "--date", "2026-10-21")
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == "" and result.stdout.count("\n") == 1
+    report = json.loads(result.stdout)
+    assert report == {
+        "recorded": True,
+        "state_path": report["state_path"],
+        "figures_basis": "supplied",
+    }
+    assert report["state_path"].replace("\\", "/") == (
+        "deals/Synthetic Group Ltd/Synthetic Group Facility_2026-01-01/state.json"
+    )
+    written = json.loads(state_path.read_text(encoding="utf-8"))
+    assert written["group_basis"]["perimeter_confirmed"] is True
+    assert written["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"
+    assert written["financials"] == original["financials"]
+    assert written["ratios"] == original["ratios"]
+    assert written["multi_period_financials"] == original["multi_period_financials"]
+    assert written["analyst_supplied_financials"] == original["analyst_supplied_financials"]
+    assert written["financials_source"] == "analyst-supplied" and written["marker"] == "preserve"
+
+
+def test_state_manager_record_group_basis_refuses_without_confirmation_and_does_not_write(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = cli(
+        "state_manager", "--record-group-basis", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--group-basis-file", group_file,
+    )
+    _assert_a_clean_state_error(result, "--perimeter-confirmed")
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_record_group_basis_refuses_a_missing_deal_without_creating_it(cli):
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result, "no exact existing state.json")
+    assert not (cli.workdir / "deals").exists()
+
+
+@pytest.mark.parametrize("file_case", ["missing", "directory", "invalid_json", "non_object"])
+def test_state_manager_record_group_basis_refuses_unreadable_or_invalid_json_file(cli, file_case):
+    state_path, _ = _install_group_basis_state(cli)
+    file_path = cli.workdir / "group-basis.json"
+    if file_case == "directory":
+        file_path.mkdir()
+    elif file_case == "invalid_json":
+        file_path.write_text("{bad", encoding="utf-8")
+    elif file_case == "non_object":
+        file_path.write_text(json.dumps(["not", "an", "object"]), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, file_path)
+    _assert_a_clean_state_error(result)
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_record_group_basis_refuses_mismatched_financials_source_without_write(cli):
+    state_path, _ = _install_group_basis_state(cli, financials_source="framework-computed")
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result, "figures_basis", "financials_source")
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_record_group_basis_refuses_malformed_existing_metadata(cli):
+    state_path, _ = _install_group_basis_state(cli, group_basis={"basis": "not-supported"})
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result, "group_basis")
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_record_group_basis_help_lists_all_flags(cli):
+    result = cli("state_manager", "--help")
+    assert result.returncode == 0 and result.stderr == ""
+    for flag in ("--record-group-basis", "--company", "--proposal", "--group-basis-file",
+                 "--perimeter-confirmed", "--date"):
+        assert flag in result.stdout
+
+
+def test_state_manager_record_group_basis_reports_missing_json_argument_as_one_error(cli):
+    _install_group_basis_state(cli)
+    result = cli(
+        "state_manager", "--record-group-basis", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--perimeter-confirmed",
+    )
+    _assert_a_clean_state_error(result, "--group-basis-file is required")
+
+
+def test_state_manager_record_group_basis_refuses_invalid_utf8_without_writing(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_bytes(b"\xff")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result)
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_record_group_basis_refuses_impossible_confirmation_date_without_writing(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file, "--date", "2026-02-30")
+    _assert_a_clean_state_error(result, "group_basis.perimeter_confirmed_on")
+    assert state_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("extra_flags", [
+    ("--prior-date", "2025-10-21"),
+    ("--required", "spread"),
+])
+def test_state_manager_record_group_basis_rejects_flags_for_other_modes(cli, extra_flags):
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    result = cli(
+        "state_manager", "--record-group-basis", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--group-basis-file", group_file,
+        "--perimeter-confirmed", *extra_flags,
+    )
+    assert result.returncode == 2
+    assert result.stdout == "" and result.stderr.startswith("usage:") and "error:" in result.stderr
+
+
+def test_state_manager_rejects_group_basis_flags_without_record_mode(cli):
+    result = cli(
+        "state_manager", "--find", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--group-basis-file", "group-basis.json",
+    )
+    assert result.returncode == 2
+    assert result.stdout == "" and result.stderr.startswith("usage:") and "only valid with --record-group-basis" in result.stderr
+
+
+def test_state_manager_record_group_basis_rejects_invalid_metadata_before_writing(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_input = _cli_group_basis_input()
+    group_input["source"]["date"] = "2026-02-30"
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(group_input), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result, "group_basis.source.date")
+    assert state_path.read_bytes() == before
+
+
 ENTITY_KEYED_FINANCIALS = '{"HoldCo": {"FY-Current": {"revenue": 1000}}, "OpCo A": {"FY-Current": {"revenue": 600}}}'
 
 

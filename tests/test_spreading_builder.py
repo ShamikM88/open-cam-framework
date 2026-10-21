@@ -1395,6 +1395,34 @@ def test_na_ratio_cells_stay_inside_the_chart_range(tmp_path):
     ]
 
 
+def test_group_basis_sheet_is_opt_in_and_lists_metadata_without_financial_figures(tmp_path):
+    group_basis = {
+        "basis": "supplied_consolidated",
+        "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {"document": "Consolidated accounts", "accounting_basis": "UK GAAP, consolidated",
+                   "date": "2026-08-31"},
+        "period_end": "2026-03-31",
+        "periods": ["FY-Current", "FY-1"],
+        "figures_basis": "recomputed",
+        "perimeter_confirmed": True,
+        "perimeter_confirmed_on": "2026-10-21",
+    }
+    out_path = tmp_path / "group_basis.xlsx"
+    export_to_xlsx("Synthetic Group Ltd", str(out_path), group_basis=group_basis)
+    workbook = openpyxl.load_workbook(out_path)
+    assert workbook.sheetnames == ["Financial Spreading", "Collateral & Exposure", "Group basis"]
+    sheet = workbook["Group basis"]
+    assert sheet["A1"].value == (
+        "Credit aggregation of consolidated accounts supplied by the borrower; "
+        "not a statutory consolidation prepared by this framework."
+    )
+    assert tuple(sheet.cell(row=2, column=i).value for i in (1, 2)) == ("Basis", "supplied_consolidated")
+    assert tuple(sheet.cell(row=3, column=i).value for i in (1, 2)) == ("Reporting entity", "Synthetic Group Ltd")
+    assert sheet["B10"].value == "recomputed"
+    assert sheet.max_column == 2
+
+
 # ---------------------------------------------------------------------------
 # Issue #48 (maintainer decisions of 2026-10-20): the evaluator has no entity dimension, so an entity-keyed input
 # must be refused loudly instead of treating the entity names as periods.

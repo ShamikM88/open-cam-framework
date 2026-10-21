@@ -634,3 +634,25 @@ def test_the_error_hierarchy():
     assert issubclass(state_manager.SchemaVersionError, state_manager.StateError)
     assert issubclass(state_manager.StateShapeError, state_manager.StateError)
     assert issubclass(state_manager.StateError, ValueError)
+
+
+# Case A stays additive for every fixture that predates group_basis.
+@pytest.mark.parametrize("name", FIXTURES)
+def test_group_basis_is_absent_for_legacy_fixtures_and_survives_supported_writes(tmp_path, monkeypatch, name):
+    original = load_fixture(name)
+    folder = install(tmp_path, monkeypatch, original)
+    loaded = state_manager.read_state(COMPANY, PROPOSAL, date_str=DATE, keys=("group_basis",))
+    assert "group_basis" not in loaded
+
+    before = (folder / "state.json").read_bytes()
+    if name == "05_future_unknown_fields":
+        with pytest.raises(state_manager.SchemaVersionError):
+            state_manager.write_state(COMPANY, PROPOSAL, date_str=DATE, marker="not-written")
+        assert (folder / "state.json").read_bytes() == before
+        return
+
+    written = state_manager.write_state(COMPANY, PROPOSAL, date_str=DATE, marker="preserved-write")
+    assert "group_basis" not in written
+    assert written["marker"] == "preserved-write"
+    for key, value in original.items():
+        assert written[key] == value, key

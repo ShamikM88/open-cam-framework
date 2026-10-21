@@ -48,6 +48,7 @@ shortened):
 | `triage`, `commercial` | `/triage`, `/commercial`, `/research` | The Go/No-Go verdict and rationale; the company and sector sections. Each section's `sources` field is a list of citation strings, including `[]` when no citations were used |
 | `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` for computed periods; `supplied_forecast.py` for analyst-supplied forward values | Computed per-period subtotals/ratios with raw inputs under `financials[period]["raw"]`; `multi_period_financials` records computed raw input lines, while `financials_source` remains the deal-wide historical-basis label |
 | `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode; `supplied_forecast.py` for forward raw breakdowns when provided | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
+| `group_basis` | `state_manager.py --record-group-basis`, after explicit analyst confirmation | Optional metadata describing borrower-supplied consolidated accounts: basis, reporting entity, covered entities, source/date/accounting basis, common period end, period labels, supplied/recomputed basis and confirmed perimeter. It contains no figures and never changes either raw store. |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
@@ -76,6 +77,41 @@ covenant thresholds follow the [percent-type ratio fraction convention](financia
 floor.
 
 `analyst_terms` is an additive step-specific key, not a closed schema field. Its entries use the analyst's wording and a date; `state_manager.py` leaves unknown keys alone, so this addition does not require a `schema_version` bump. The commands still own the prompt-level rule to merge entries without dropping existing ones. The fresh Reviewer is not given `analyst_terms`; if a definition matters to the audit, write it plainly in the brief.
+
+### Consolidated group-basis metadata (case A)
+
+`group_basis` is optional and remains absent from legacy deals unless an analyst records it with
+`python scripts/state_manager.py --record-group-basis`. It is metadata only: no amounts, ratios or
+entity-level financial lines are stored there, and it does not replace, edit or blend `financials`,
+`ratios`, `multi_period_financials` or `analyst_supplied_financials`. Those two raw-figure stores
+remain separate; `financials_source` remains a plain deal-wide value.
+
+When present, all fields are required: `basis` must be `supplied_consolidated`;
+`reporting_entity` is the borrower or parent presenting the accounts; `entities_covered` is a
+non-empty list of distinct entity names including the reporting entity; `source` contains non-empty
+`document` and `accounting_basis` strings plus the document's real ISO `date`; `period_end` is
+one real ISO calendar date common to the perimeter, without per-entity overrides; `periods` is a
+non-empty list of distinct framework labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`,
+`FY+3`); and `figures_basis` is `supplied` or `recomputed`. Supplied subtotals/ratios are kept
+as given and require `financials_source: "analyst-supplied"`; recomputed figures use the framework's
+existing calculations over supplied consolidated raw lines and require `financials_source:
+"framework-computed"`. If that deal-wide source label already exists and contradicts the metadata,
+recording is refused. An absent `financials_source` is read as `framework-computed`, the default the exporter
+assumes, so `recomputed` figures may be registered but `supplied` figures need an explicit `analyst-supplied`
+(run `/spread` in its analyst-supplied mode first). The command sets
+`perimeter_confirmed: true` and the real ISO `perimeter_confirmed_on` date only after the analyst
+passes the explicit `--perimeter-confirmed` flag.
+
+This describes a credit aggregation of consolidated accounts supplied by the borrower, not a
+statutory consolidation prepared by the framework. Case A introduces no eliminations, new formulas
+or entity-level arithmetic, and does not infer control from ownership percentages. The optional,
+metadata-only field preserves compatibility for states without the key. The comment above
+`SCHEMA_VERSION` in `scripts/state_manager.py` says to bump for a top-level shape a reader must
+know how to interpret, “not on every new optional field”; as this optional metadata has a
+consumer-specific validation contract and does not alter the legacy structure, `SCHEMA_VERSION`
+remains unchanged. Unknown future fields within `group_basis` are ignored; a `null` value means not
+recorded, as for every other key; a malformed value that is present is refused by consumers that read it, with
+an error naming `group_basis`.
 
 ### Reviewer view files
 

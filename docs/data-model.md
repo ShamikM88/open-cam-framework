@@ -109,16 +109,17 @@ incomplete raw figures.
 
 A step begins by finding the deal's state (the most recent dated folder for that company and proposal; a bare library
 call or a brand-new deal gets today's date) and treats everything recorded there as true. With
-`orchestrator.py --new-review`, today's dated folder is created through the shared fresh-review state manager when it
-does not already contain a `state.json`. That minimal state links to the nearest earlier state-bearing review for the
+`orchestrator.py --new-review`, today's dated folder is created through the shared fresh-review state manager only
+when that dated folder does not exist. That minimal state links to the nearest earlier state-bearing review for the
 exact same company and proposal using `prior_review_date`, or starts unlinked when no eligible earlier review exists.
 The link is only a date; prior inputs and results are never inherited. Later pipeline checkpoints merge into the state
 and preserve `prior_review_date`. If today's dated folder already has a `state.json`, `--new-review` resumes it
-unchanged as a rerun after failure: it does not create another state or change the existing link. A refusal (for
-example, when today's date is not later than the newest state-bearing review) exits with one `error:` line before a
-model call or write. The orchestrator checkpoints its current grounded figures and `policy_state` before it calls
-either agent, so a failure at the first model call can still leave the current review's figures on disk. A run with no
-credentials at all fails before any model call; if a fresh-review refusal applies, it is reported first.
+unchanged as a rerun after failure: it does not create another state or change the existing link. A pre-existing dated
+folder without `state.json` is refused rather than overwritten. A refusal (for example, when today's date is not later
+than the newest state-bearing review) exits with one `error:` line before a model call or write. The orchestrator
+checkpoints its current grounded figures and `policy_state` before it calls either agent, so a failure at the first
+model call can still leave the current review's figures on disk. A run with no credentials at all fails before any
+model call; if a fresh-review refusal applies, it is reported first.
 
 ### Starting a new review
 

@@ -132,47 +132,6 @@ only `company`, `proposal`, `date`, and the current `schema_version`, plus the o
 proposal. With no eligible prior, the new review is explicitly unlinked; `--no-prior` can request this even when
 candidates exist, and `--prior-date` can select any eligible earlier candidate. The start refuses an existing dated
 folder and, to keep the newest-folder resume rule reliable, refuses dates not strictly later than the newest existing
-state-bearing folder.
-
-A started review inherits **nothing** from its prior: no inputs, financials, ratios, policy state, completed steps,
-review trail, covenants, downside, collateral, security package, facility terms, guarantees, drafts, or source manifest.
-The prior review is linked by date only. Company-level conventions and learnings stay in their existing stores and are
-neither copied into the new review nor modified by starting it. No schema-version bump is required for this optional key.
-
-### Comparing two reviews
-
-`scripts/review_compare.py` compares two exact dated `state.json` snapshots read-only. Both must identify the exact
-same `company` and `proposal`; the explicit `--prior-date` must be earlier than `--current-date`, or the current
-state must record that prior date in its optional `prior_review_date` field. The comparator does not search other
-dated folders to guess a predecessor. It accepts legacy unversioned states and reads newer schema versions without
-writing either file or normalizing persisted data.
-
-The by-label comparison covers recorded financials, ratios, multi-period and analyst-supplied figures, forecast and
-stress inputs, downside, the financial-source label and note, covenants and the recorded policy results, collateral,
-security package, guarantees, and optional structured `ownership` / `facility_terms`. Missing optional keys mean
-"not recorded", not zero. Changes are ordered deterministically. Decimal values are compared exactly; a `delta` is
-reported only where both sides are numeric. Covenants and covenant results are keyed by metric, type, and
-occurrence; forward covenant results use `forward_id`, downside breaches `breach_id`, conditions precedent/subsequent
-`cp_id`/`cs_id`, collateral `asset_id`, and guarantees `guarantee_id` when every record has a non-blank explicit ID.
-Lists without a reliable identifier (including security packages, security gaps, and guarantees without `guarantee_id`)
-are compared as exact ordered values.
-Changes in `financials_source` carry a
-clear comparability warning. This output reports stored facts and transitions, not an explanation or credit verdict.
-
-The opt-in `--periods-rolled-one-year` check is a separate section after the by-label result. It compares historical
-periods in the prior review with their next-older labels in the current review, reports exact recorded values and
-differences, marks pairs `consistent`, `restated`, or `not_comparable`, and never includes forward periods. The
-flag records the analyst's confirmation; period roll-forward is never inferred.
-
-### Starting a new review
-
-Use `python scripts/state_manager.py --review-candidates` to inspect valid earlier state-bearing folders for the exact
-company and proposal; the nearest earlier review is the default. `--start-review` creates a new date folder containing
-only `company`, `proposal`, `date`, and the current `schema_version`, plus the optional scalar
-`prior_review_date` when linked. This value is the exact `YYYY-MM-DD` of a previous review for the same company and
-proposal. With no eligible prior, the new review is explicitly unlinked; `--no-prior` can request this even when
-candidates exist, and `--prior-date` can select any eligible earlier candidate. The start refuses an existing dated
-folder and, to keep the newest-folder resume rule reliable, refuses dates not strictly later than the newest existing
 state-bearing folder. It also refuses a company that has no deal folder yet (a mistyped company name must not
 quietly become a new deal; use `/triage` or `/spread` for a deal that has never been reviewed), while an existing
 company with a new proposal name may start unlinked. Earlier folders whose `state.json` cannot be read are reported

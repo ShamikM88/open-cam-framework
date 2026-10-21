@@ -445,21 +445,23 @@ def _create_review_folder(target_dir, target_state_path, state):
             state_file.write("\n")
         os.replace(tmp_path, target_state_path)
     except BaseException as exc:
+        cleaned_up = True
         for leftover in (tmp_path, target_state_path):
             if leftover and os.path.exists(leftover):
                 try:
                     os.remove(leftover)
                 except OSError:
-                    pass
+                    cleaned_up = False
         try:
             os.rmdir(target_dir)
         except OSError:
-            pass
+            cleaned_up = False
         if isinstance(exc, OSError):
-            raise StateError(
-                f"Could not start the review: {exc}; the folder this call created was removed and "
-                "nothing was changed."
-            ) from exc
+            outcome = (
+                "the folder this call created was removed and nothing was changed" if cleaned_up
+                else f"the new folder {target_dir} could not be removed and should be deleted by hand"
+            )
+            raise StateError(f"Could not start the review: {exc}; {outcome}.") from exc
         raise
 
 

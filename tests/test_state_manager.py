@@ -2225,3 +2225,62 @@ def test_review_203_a_folder_created_by_someone_else_after_the_check_is_a_clean_
         )
     # The folder belongs to whoever created it (the fake race created it here), so it is left alone.
     assert target.is_dir()
+
+
+def test_review_203_candidates_skip_a_later_dated_export_only_folder(tmp_path):
+    _review_203_write_state(tmp_path, "2025-06-01")
+    # Not state-bearing, so the newest-review rule ignores it, but its date is later than the new review's date.
+    _review_203_make_folder(tmp_path, "Credit Facility_2027-01-01")
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+    )
+
+    assert [item["date"] for item in report["candidates"]] == ["2025-06-01"]
+    assert report["skipped"] == []
+
+
+def test_review_203_a_folder_that_cannot_be_created_is_a_clean_refusal_with_nothing_left(tmp_path, monkeypatch):
+    _review_203_write_state(tmp_path, "2025-01-01")
+    before = _review_203_tree(tmp_path)
+
+    def refusing_mkdir(path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", path)
+
+    monkeypatch.setattr(state_manager.os, "mkdir", refusing_mkdir)
+    with pytest.raises(ValueError, match="Could not start the review: .*nothing was changed"):
+        state_manager.start_review(
+            "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+        )
+
+    assert _review_203_tree(tmp_path) == before
+
+
+def test_review_203_cleanup_that_itself_fails_never_hides_the_original_error(tmp_path, monkeypatch):
+    _review_203_write_state(tmp_path, "2025-01-01")
+
+    def failing_dump(*args, **kwargs):
+        raise OSError("disk full")
+
+    real_remove = os.remove
+
+    def failing_remove(path, *args, **kwargs):
+        if str(path).endswith(".lock"):
+            return real_remove(path, *args, **kwargs)   # the start lock still has to be released
+        raise OSError("remove refused")
+
+    def failing_rmdir(*args, **kwargs):
+        raise OSError("rmdir refused")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(state_manager.json, "dump", failing_dump)
+        patched.setattr(state_manager.os, "remove", failing_remove)
+        patched.setattr(state_manager.os, "rmdir", failing_rmdir)
+        with pytest.raises(ValueError, match="Could not start the review: disk full") as caught:
+            state_manager.start_review(
+                "Synthetic Co", "Credit Facility", date_str="2026-04-15", base_dir=str(tmp_path),
+            )
+
+    # The error says so plainly instead of claiming a cleanup that did not happen.
+    assert "could not be removed and should be deleted by hand" in str(caught.value)
+    assert "was removed and nothing was changed" not in str(caught.value)

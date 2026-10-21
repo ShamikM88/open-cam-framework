@@ -219,7 +219,8 @@ An analyst may explicitly authorise an export without sources. Only then pass `-
 `scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
 [--no-update-financials-source]` recomputes `financials` and `ratios` from raw line items, derives the downside case
 when stress assumptions and at least one forward year exist, checkpoints everything to `state.json` and prints the
-updated state (`financials`, `ratios`, `downside_case`, `financials_source`). It merges what it is given into what
+updated state (`financials`, `ratios`, `downside_case`, `financials_source`) as one JSON object, indented two spaces and
+ending in one newline (read it as JSON; the order of its members is not a contract). It merges what it is given into what
 the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
 re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
 what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`

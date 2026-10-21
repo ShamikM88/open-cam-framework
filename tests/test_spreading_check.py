@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+import spreading_check
 from spreading_check import compute, main, plan_fields
 from numeric_validation import validate_period_objects
 from state_manager import read_state, write_state
@@ -699,3 +700,218 @@ def test_sc_main_reports_a_missing_stress_file_as_one_error_without_writing(tmp_
     assert output.err == ""
     assert not (tmp_path / "deals").exists()
 
+
+
+# Additional main()/plan_fields() mutation-survivor contracts.
+def test_main_requires_company_when_proposal_is_present(capsys, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as caught:
+        main(["--proposal", "Synthetic Facility"])
+    assert caught.value.code == 2
+    assert "usage:" in capsys.readouterr().err
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("flag", ["--financials", "--stress-assumptions"])
+def test_main_reads_financials_and_stress_files_as_utf8_with_cp1252_default_open(
+    tmp_path, monkeypatch, capsys, cp1252_default_open, flag,
+):
+    monkeypatch.chdir(tmp_path)
+    financials = tmp_path / "financials.json"
+    financials.write_text(
+        json.dumps({"FY+1": dict(RAW_YEAR, note="£")}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    stress = tmp_path / "stress.json"
+    stress.write_text(
+        json.dumps({"revenue_haircut_pct": 10, "note": "£"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    args = ["--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--financials", str(financials), "--stress-assumptions", str(stress)]
+    printed = _run_main(capsys, *args)
+    state = read_state("Synthetic Co", "Credit Facility")
+    if flag == "--financials":
+        assert printed["financials"]["FY+1"]["raw"]["note"] == "£"
+    else:
+        assert state["stress_assumptions"]["note"] == "£"
+
+
+@pytest.mark.parametrize("flag", ["--financials", "--stress-assumptions"])
+def test_main_reports_non_utf8_input_path_and_error_prefix(
+    tmp_path, monkeypatch, capsys, cp1252_default_open, flag,
+):
+    monkeypatch.chdir(tmp_path)
+    bad_file = tmp_path / ("financials.bin" if flag == "--financials" else "stress.bin")
+    bad_file.write_bytes(b"\xff")
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Co", "--proposal", "Credit Facility", flag, str(bad_file)])
+    assert caught.value.code.startswith(f"error: {bad_file} is not UTF-8 text: ")
+    assert str(bad_file) in caught.value.code
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("flag", ["--financials", "--stress-assumptions"])
+def test_main_reports_invalid_json_input_path_and_error_prefix(
+    tmp_path, monkeypatch, capsys, flag,
+):
+    monkeypatch.chdir(tmp_path)
+    bad_file = tmp_path / ("financials.json" if flag == "--financials" else "stress.json")
+    bad_file.write_text("{ not valid JSON", encoding="utf-8")
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Co", "--proposal", "Credit Facility", flag, str(bad_file)])
+    assert caught.value.code.startswith(f"error: invalid JSON in {bad_file}: ")
+    assert str(bad_file) in caught.value.code
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize(
+    ("flag", "payload", "expected"),
+    [
+        (
+            "--financials",
+            '{"FY+1":{"unknown_line_item":NaN}}',
+            "error: non-finite numeric value at financial inputs['FY+1']['unknown_line_item']: nan",
+        ),
+        (
+            "--stress-assumptions",
+            '{"revenue_haircut_pct":NaN}',
+            "error: non-finite numeric value at stress assumptions['revenue_haircut_pct']: nan",
+        ),
+    ],
+    ids=["unknown-financial-line-item-nonfinite", "nonfinite-stress-assumption"],
+)
+def test_main_names_the_financial_or_stress_validator_path_and_does_not_write_state(
+    tmp_path, monkeypatch, capsys, flag, payload, expected,
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        spreading_check,
+        "compute",
+        lambda *args, **kwargs: {
+            "financials": None, "ratios": None, "downside_case": None, "financials_source": None,
+        },
+    )
+    path = tmp_path / "input.json"
+    path.write_text(payload, encoding="utf-8")
+    with pytest.raises(SystemExit) as caught:
+        main(["--company", "Synthetic Co", "--proposal", "Credit Facility", flag, str(path)])
+    assert caught.value.code == expected
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "deals").exists()
+
+
+_PRINTED_STATE = {
+    "financials": {"FY-Current": {"gross_profit": 600}},
+    "ratios": {"FY-Current": {"dscr": 1.25}},
+    "downside_case": None,
+    "financials_source": "framework-computed",
+}
+
+
+def test_main_prints_one_json_object_with_exactly_the_four_state_keys(monkeypatch, capsys):
+    monkeypatch.setattr(spreading_check, "compute", lambda *args, **kwargs: _PRINTED_STATE)
+
+    main(["--company", "Synthetic Co", "--proposal", "Credit Facility"])
+
+    # Parsed, so this test does not depend on member order or whitespace.
+    assert json.loads(capsys.readouterr().out) == _PRINTED_STATE
+
+
+def test_main_output_format_is_two_space_indented_json_with_one_trailing_newline(monkeypatch, capsys):
+    # The exact text is pinned on purpose: docs/cli-reference.md states that the output is two-space-indented JSON
+    # ending in one newline, and a reviewed change to that format should have to update this test and that sentence.
+    # Consumers parse the JSON and must not rely on member order; this test is what keeps the formatting
+    # mutants (`indent=2` changed or dropped) from surviving in the weekly mutation run.
+    monkeypatch.setattr(spreading_check, "compute", lambda *args, **kwargs: _PRINTED_STATE)
+
+    main(["--company", "Synthetic Co", "--proposal", "Credit Facility"])
+
+    assert capsys.readouterr().out == json.dumps(_PRINTED_STATE, indent=2) + "\n"
+
+
+def test_sc_plan_fields_defaults_to_stamping_framework_computed_basis_when_unset():
+    fields = plan_fields(
+        {},
+        {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}},
+    )
+    assert fields["financials_source"] == "framework-computed"
+
+
+def test_sc_plan_fields_period_object_error_names_financial_inputs():
+    with pytest.raises(ValueError) as caught:
+        plan_fields({}, {"FY-Current": "not a period object"})
+    assert str(caught.value) == (
+        "financial inputs: period 'FY-Current' must be an object of line items; found str"
+    )
+
+
+def test_sc_plan_fields_historical_period_phrase_is_absent_without_historical_periods():
+    with pytest.raises(ValueError) as caught:
+        plan_fields(
+            {"financials_source": "analyst-supplied"},
+            {"FY+1": {"revenue": 1200, "cost_of_sales": 500}},
+        )
+    assert str(caught.value) == (
+        "This deal is analyst-supplied; one deal never mixes the two modes. "
+        "Use /spread's analyst-supplied mode to record financial figures."
+    )
+
+
+def test_sc_plan_fields_nothing_to_compute_message_is_exact():
+    with pytest.raises(ValueError) as caught:
+        plan_fields({})
+    assert str(caught.value) == (
+        "Nothing to compute: no --financials given, and this deal has no "
+        "multi_period_financials already on file."
+    )
+
+
+@pytest.mark.parametrize(
+    ("downside_case", "expected_stored"),
+    [
+        ({"financials": {"FY+1": {"ebitda": 10}}, "ratios": {}}, True),
+        ({"financials": {}, "ratios": {"FY+1": {"dscr": 1.2}}}, True),
+        (
+            {"financials": {"FY+1": {"ebitda": 10}}, "ratios": {"FY+1": {"dscr": 1.2}}},
+            True,
+        ),
+        ({"financials": {}, "ratios": {}}, False),
+    ],
+    ids=["financials-only", "ratios-only", "both", "neither"],
+)
+def test_sc_plan_fields_stores_downside_when_either_financials_or_ratios_exist(
+    monkeypatch, downside_case, expected_stored,
+):
+    monkeypatch.setattr("spreading_check.evaluate_downside_case", lambda *args, **kwargs: downside_case)
+    fields = plan_fields(
+        {},
+        {"FY+1": {"revenue": 1000, "cost_of_sales": 400}},
+        {"revenue_haircut_pct": 10},
+    )
+    assert ("downside_case" in fields) is expected_stored
+    assert ("stress_assumptions" in fields) is expected_stored
+    if expected_stored:
+        assert fields["downside_case"] == downside_case
+
+
+def test_main_names_financial_inputs_in_raw_line_item_validation_error(
+    tmp_path, monkeypatch, capsys,
+):
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "financials.json"
+    path.write_text('{"FY+1":{"revenue":"not a number"}}', encoding="utf-8")
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--financials", str(path),
+        ])
+    assert caught.value.code == (
+        "error: financial inputs: period 'FY+1', field 'revenue' must be a finite JSON number or null; "
+        "found 'not a number'"
+    )
+    assert capsys.readouterr().out == ""
+    assert not (tmp_path / "deals").exists()

@@ -128,7 +128,7 @@ Use `python scripts/state_manager.py --review-candidates` to inspect valid earli
 company and proposal; the nearest earlier review is the default. `--start-review` creates a new date folder containing
 only `company`, `proposal`, `date`, and the current `schema_version`, plus the optional scalar
 `prior_review_date` when linked. This value is the exact `YYYY-MM-DD` of a previous review for the same company and
-proposal. With no eligible prior, the new review is explicitly unlinked; `--no-prior` can request this even when
+proposal. Keep the proposal name exactly the same across years: a renamed proposal cannot be linked or compared. With no eligible prior, the new review is explicitly unlinked; `--no-prior` can request this even when
 candidates exist, and `--prior-date` can select any eligible earlier candidate. The start refuses an existing dated
 folder and, to keep the newest-folder resume rule reliable, refuses dates not strictly later than the newest existing
 state-bearing folder.

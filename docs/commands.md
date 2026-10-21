@@ -69,6 +69,16 @@ worked examples are in [Workflows](workflows.md).
   violation is a mandatory rejection finding.
 - **State:** none. **Headless equivalent:** none (the headless pipeline reads an existing file but cannot create one).
 
+### /start-review
+
+- **What:** prepares a new, empty dated review and records an optional date-only link to a previous review. It never copies data from the older review.
+- **Use when:** the same company and proposal are being reviewed again, for example in a new annual cycle. For a genuinely new deal, use `/triage`, `/spread` or `/research`.
+- **Inputs:** one non-empty `--company "<Name>"` and `--proposal "<Proposal name>"`; optionally `--date YYYY-MM-DD`. Names must be safe path components. Company and proposal names match exactly; keep the proposal name unchanged across years if the earlier review should be linkable or comparable.
+- **Steps:** Runs `python scripts/state_manager.py --review-candidates --company "<company>" --proposal "<proposal>"` read-only (adding `--date <date>` only when you supplied one). It uses the returned `date` field rather than calculating a date itself. When candidates exist, it checks whether the newest review has an assembled CAM. If it is not recorded as assembled, it explains that the review may still be in progress and asks whether to continue or stop; only an explicit yes continues. It lists valid earlier reviews newest first, identifies the default, and offers three choices: link the default, link another listed date, or start unlinked. With no candidates, it says so and asks whether to start unlinked or stop. It waits for your explicit choice and runs exactly one `--start-review` call with either `--prior-date <chosen date>` or `--no-prior`. If linked, it offers `review_compare.py` but runs comparison only if you ask.
+- **State:** the script creates a new dated folder with a minimal `state.json` containing `company`, `proposal`, `date`, `schema_version`, and `prior_review_date` only if linked. Nothing is copied from the earlier review, and starting a review does not add a `steps_completed` entry. Existing reviews are never edited or overwritten.
+- **Can go wrong:** missing or unsafe names, a malformed date, a failed/non-JSON result from either read-only script, an existing dated folder, a date not later than the newest state-bearing review, or a chosen date that is not a valid earlier candidate. On any script failure or refusal, it reports the script's error and stops; it does not retry with another date or choose a different link.
+- **Headless equivalent:** `python scripts/orchestrator.py --company "<company>" --proposal "<proposal>" --new-review` creates today's review and links the nearest earlier review with the exact same company/proposal, or starts unlinked if none exists. Unlike this interactive command, the headless path does not prompt for the prior choice. A rerun resumes today's existing `state.json` without changing its link.
+
 ## Deal steps
 
 ### /triage

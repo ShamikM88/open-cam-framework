@@ -16,7 +16,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
-| `state_manager.py` | Finds deals read-only, lists prior-review candidates, starts a clean review state, checks completed steps, and exports derived Reviewer-view files | No | [State manager](#state-manager) |
+| `state_manager.py` | Finds deals read-only, lists prior-review candidates, starts a clean review state, checks completed steps, exports Reviewer-view files, and records borrower-supplied consolidated group-basis metadata | No | [State manager](#state-manager) |
 | `review_compare.py` | Compares two exact dated states of the same deal; optionally checks historical-period restatements | No | [Review comparison](#review-comparison) |
 | `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
@@ -363,7 +363,7 @@ python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Faci
 
 ## State manager
 
-`scripts/state_manager.py` has five mutually exclusive modes:
+`scripts/state_manager.py` has six mutually exclusive modes:
 
 - `--find --company ... --proposal ...` is a **read-only** lookup. It prints one JSON object. An exact existing
   record yields `{"record_found": true, "state_path": "...", "date": "YYYY-MM-DD"}`, using the newest valid dated
@@ -408,6 +408,18 @@ python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Faci
   `review_view/review_trail.json` (the history list, or `[]` when absent) into the deal's dated folder. A successful
   run overwrites both derived files and prints one JSON object with their paths. Invalid state, or a newer or malformed
   schema version, produces one `error:` line, exit `1`, and writes nothing.
+- `--record-group-basis --company ... --proposal ... --group-basis-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]`
+  records optional case-A metadata on an **exact existing deal only**. The UTF-8 JSON file supplies `basis`,
+  `reporting_entity`, `entities_covered`, `source` (`document`, `accounting_basis`, document `date`),
+  `period_end`, `periods` and `figures_basis`; it does not hold financial figures. The command refuses unless
+  the explicit `--perimeter-confirmed` flag is present, then records `perimeter_confirmed: true` and
+  `perimeter_confirmed_on` from `--date` or today. Here `--date` is the confirmation date; the source document
+  has its own `source.date`. Supplied figures must agree with `financials_source: "analyst-supplied"`;
+  recomputed figures must agree with `"framework-computed"`, and a recorded contradiction is refused. No deal is
+  created and no existing key other than `group_basis` is changed. Success prints one JSON line with
+  `recorded`, `state_path` and `figures_basis`; a file, field, date or existing-state refusal prints one
+  `error:` line, exits `1`, and writes nothing. The workbook describes this as a **credit aggregation**, never
+  a statutory consolidation.
 
 The two review-view files are derived copies for the interactive Reviewer, not records of the deal; no other script may
 read them as a record. The source of truth remains the real `state.json`, which `/review` updates in its `State: write`
@@ -422,6 +434,7 @@ python scripts/state_manager.py --start-review --company "Synthetic Co" --propos
 python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21 --no-prior
 python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
 python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+python scripts/state_manager.py --record-group-basis --company "Synthetic Group Ltd" --proposal "Synthetic Group Facility" --group-basis-file group-basis.json --perimeter-confirmed --date 2026-10-21
 ```
 
 ## Source manifest

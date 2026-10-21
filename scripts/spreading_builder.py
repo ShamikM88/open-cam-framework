@@ -934,9 +934,35 @@ def _write_collateral_sheet(wb, collateral_data=None):
         ws.column_dimensions[col].width = 16
 
 
+def _write_group_basis_sheet(wb, group_basis):
+    """Disclose case-A source and perimeter metadata without displaying financial figures."""
+    ws = wb.create_sheet("Group basis")
+    ws.append([
+        "Credit aggregation of consolidated accounts supplied by the borrower; not a statutory consolidation prepared by this framework."
+    ])
+    source = group_basis["source"]
+    rows = (
+        ("Basis", group_basis["basis"]),
+        ("Reporting entity", group_basis["reporting_entity"]),
+        ("Entities covered", "; ".join(group_basis["entities_covered"])),
+        ("Source document", source["document"]),
+        ("Accounting basis", source["accounting_basis"]),
+        ("Source document date", source["date"]),
+        ("Common period end", group_basis["period_end"]),
+        ("Periods covered", ", ".join(group_basis["periods"])),
+        ("Figures basis", group_basis["figures_basis"]),
+        ("Perimeter confirmed", "Yes" if group_basis["perimeter_confirmed"] else "No"),
+        ("Perimeter confirmed on", group_basis["perimeter_confirmed_on"]),
+    )
+    for label, value in rows:
+        ws.append([label, value])
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 72
+
+
 def export_to_xlsx(company, output_path, financial_data=None, collateral_data=None,
                     downside_financial_data=None, supplied_values=None, supplied_downside_values=None,
-                    blank_downside_periods=None, derived_downside_fields=None):
+                    blank_downside_periods=None, derived_downside_fields=None, group_basis=None):
     """Build the financial spreading + collateral workbook.
 
     `financial_data` is the same multi-period raw-figure shape consumed by
@@ -972,4 +998,6 @@ def export_to_xlsx(company, output_path, financial_data=None, collateral_data=No
                                 blank_downside_periods=blank_downside_periods,
                                 derived_downside_fields=derived_downside_fields)
     _write_collateral_sheet(wb, collateral_data=collateral_data)
+    if group_basis is not None:
+        _write_group_basis_sheet(wb, group_basis)
     wb.save(output_path)

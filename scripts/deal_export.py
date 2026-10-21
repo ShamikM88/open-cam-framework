@@ -29,7 +29,7 @@ from template_resolver import cam_template_path, local_cam_template_path
 # `financials_source` decides which raw store is read, so an unknown value is an error rather than silently
 # "framework-computed".
 STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "downside_case": "downside_lenient",
-                   "financials_source": "source"}
+                   "financials_source": "source", "group_basis": "group_basis"}
 
 
 def _raw_financials(financials):
@@ -217,6 +217,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     financial_data = _financial_data_from_state(state)
     downside_financial_data = _downside_financial_data_from_state(state)
     collateral_data = _collateral_data_from_state(state)
+    group_basis = state.get("group_basis")
     supplied_values, supplied_downside_values, blank_downside_periods, derived_downside_fields = \
         _analyst_forecast_columns(state)
 
@@ -243,7 +244,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
                     downside_financial_data=downside_financial_data or None,
                     supplied_values=supplied_values, supplied_downside_values=supplied_downside_values,
                     blank_downside_periods=blank_downside_periods or None,
-                    derived_downside_fields=derived_downside_fields or None)
+                    derived_downside_fields=derived_downside_fields or None, group_basis=group_basis)
 
     return output_dir
 

@@ -68,10 +68,10 @@ class StateShapeError(StateError):
     """state.json is not valid JSON, or a key this code relies on has the wrong type (see validate_state())."""
 
 
-# The structural contract of the keys the framework reads (issue #171). A key that is absent or null is generally
-# "not recorded" and is accepted; the optional group_basis key, when present, must be a valid metadata object.
-# Unknown keys are never inspected (a newer framework may add them, and they must survive a write). Only the
-# documented structural contracts are checked; list elements are checked only where a key defines their shape.
+# The structural contract of the keys the framework reads (issue #171). For the general, unrelated consumers,
+# an absent or null key is "not recorded" and is accepted. group_basis is deliberately consumer-scoped below:
+# only steps that actually consume that metadata opt into its stricter, required-field validation.
+# Unknown keys are never inspected (a newer framework may add them, and they must survive a write).
 #   object:  a JSON object                          periods: an object keyed by period whose values are objects
 #   downside: an object whose optional "financials" and "ratios" are `periods`
 #   list:    a list                                 source: "framework-computed" or "analyst-supplied"
@@ -81,7 +81,7 @@ STATE_SHAPES = {
     "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
     "collateral": "list", "covenants": "list", "security_package": "list", "guarantees": "list",
     "steps_completed": "list", "review_trail": "list",
-    "financials_source": "source", "group_basis": "group_basis",
+    "financials_source": "source",
 }
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
@@ -323,7 +323,10 @@ def validate_state(state, keys=None, path="state.json"):
     if isinstance(keys, str):
         raise TypeError("keys must be an iterable of key names or a {name: kind} mapping, not a single string")
     shapes = dict(STATE_SHAPES) if keys is None else (
-        dict(keys) if isinstance(keys, dict) else {key: STATE_SHAPES[key] for key in keys})
+        dict(keys) if isinstance(keys, dict) else {
+            key: ("group_basis" if key == "group_basis" else STATE_SHAPES[key])
+            for key in keys
+        })
     problems = []
     for key, kind in shapes.items():
         value = state.get(key)

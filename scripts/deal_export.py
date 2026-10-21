@@ -16,7 +16,7 @@ from docx_builder import export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import (
     StateError, existing_state_date_str, read_state, resolve_export_date_str, sanitize_path_component,
-    state_path, validate_iso_date_str,
+    state_path, validate_iso_date_str, validate_state,
 )
 from template_resolver import cam_template_path, local_cam_template_path
 
@@ -29,7 +29,7 @@ from template_resolver import cam_template_path, local_cam_template_path
 # `financials_source` decides which raw store is read, so an unknown value is an error rather than silently
 # "framework-computed".
 STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "downside_case": "downside_lenient",
-                   "financials_source": "source", "group_basis": "group_basis"}
+                   "financials_source": "source"}
 
 
 def _raw_financials(financials):
@@ -214,6 +214,10 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     state = read_state(
         company, proposal, date_str=state_date_str, base_dir=base_dir, keys=STATE_KEYS_READ,
     ) or {}
+    validate_state(
+        state, keys=("group_basis",),
+        path=state_path(company, proposal, date_str=state_date_str, base_dir=base_dir),
+    )
     financial_data = _financial_data_from_state(state)
     downside_financial_data = _downside_financial_data_from_state(state)
     collateral_data = _collateral_data_from_state(state)

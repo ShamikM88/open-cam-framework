@@ -2111,9 +2111,12 @@ def test_state_manager_record_group_basis_subprocess_round_trips_and_preserves_o
     report = json.loads(result.stdout)
     assert report == {
         "recorded": True,
-        "state_path": "deals/Synthetic Group Ltd/Synthetic Group Facility_2026-01-01/state.json",
+        "state_path": report["state_path"],
         "figures_basis": "supplied",
     }
+    assert report["state_path"].replace("\\", "/") == (
+        "deals/Synthetic Group Ltd/Synthetic Group Facility_2026-01-01/state.json"
+    )
     written = json.loads(state_path.read_text(encoding="utf-8"))
     assert written["group_basis"]["perimeter_confirmed"] is True
     assert written["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"

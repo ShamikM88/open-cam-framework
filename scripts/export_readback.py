@@ -19,6 +19,7 @@ import math
 import os
 import sys
 import tempfile
+from pathlib import PurePosixPath, PureWindowsPath
 
 import docx
 import openpyxl
@@ -165,7 +166,9 @@ def _approved_draft(state, deal_folder, base_dir):
         raise StateError(
             "state.json records no approved_draft_path, so the document cannot be checked; "
             "/assemble records it when it exports")
-    if os.path.isabs(recorded) or ".." in recorded.replace("\\", "/").split("/"):
+    # Absolute on either platform's rules: a state.json written on Windows can be read on Linux and the reverse.
+    if (PureWindowsPath(recorded).is_absolute() or PurePosixPath(recorded).is_absolute()
+            or ".." in recorded.replace("\\", "/").split("/")):
         raise StateError(f"approved_draft_path {recorded!r} must be a relative path inside the deal's dated folder")
     path = os.path.join(base_dir, recorded) if base_dir else recorded
     folder_real = os.path.realpath(deal_folder)

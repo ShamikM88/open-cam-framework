@@ -98,6 +98,38 @@ When an interactive command reports `No deal record exists for company "<company
 
 A genuinely new deal should begin with `/triage`, `/spread` or `/research`: these starters announce that they will create a new deal under the supplied name and identify returned near matches, if any. If `company_folder_exists: false`, the company folder is absent and near matches are not offered. `/commercial`, `/collateral`, `/project` and `/assemble` stop when no record exists; `/review` also stops and offers only normalization-only near matches returned by `state_manager.py --find`. The headless orchestrator instead warns and carries on; this interactive behaviour is intentionally stricter.
 
+### `/start-review` asks about an unfinished review or refuses to start
+
+`/start-review` deliberately makes you choose which earlier review to link to. If the newest existing review has no
+assembled CAM recorded, it may still be in progress: once a new dated review exists, ordinary commands select that
+newest review and will not pick up the unfinished one automatically. The command asks whether to continue or stop.
+Continue only after an explicit yes; a vague “go ahead” is not enough when it does not answer the choice question.
+A `/research` brief by itself never records an assembled CAM, so this question is expected for research-only deals.
+
+If the candidate list is empty, the command says no earlier review for the exact company and proposal was found, then
+asks whether to start without a link or stop. Check the spelling first. Names are matched exactly, not approximately:
+keep the proposal name unchanged across years. An earlier review saved under a renamed proposal cannot be linked or
+compared, even when the company is the same.
+
+The command stops if either read-only script fails, prints `error:`, a traceback, or anything other than its expected
+single JSON object. It reports the first line and creates nothing; do not guess from partial output.
+
+| Refusal | Meaning and next step |
+| :--- | :--- |
+| The dated folder already exists | A folder for the selected new-review date is already there. It is never overwritten; inspect it and choose how to proceed yourself. |
+| The date is not later than the newest state-bearing review | The new date is the same as or earlier than the latest review. Choose a later date only if that is the date you intend to use. |
+| The company has no deal folder | The company name matches no folder under `deals/`, so starting a review for it would quietly create a new deal (usually a mistyped name). Check the spelling; use `/triage` or `/spread` for a deal that has never been reviewed. |
+| The chosen earlier date is not one of the eligible earlier reviews | The chosen date was not returned as a valid state-bearing candidate for this exact company/proposal, or is not earlier than the new date. Choose a date from the listed candidates, start unlinked, or stop. |
+
+Every refusal is surfaced as one `error:` line; nothing is created or changed. The command never tries another date or link
+choice on your behalf. See [Starting a new review](data-model.md#starting-a-new-review) for the date-only link and empty-state
+rules.
+
+The listing script also reports earlier reviews whose `state.json` could not be read, under `skipped` (date and reason),
+instead of leaving them out silently. The command text does not display that list: if "no earlier review was found" does
+not match what you expect, run `python scripts/state_manager.py --review-candidates --company "<company>" --proposal "<proposal>"`
+yourself and look at `skipped`.
+
 ## Figures
 
 ### A ratio shows `null` in `state.json`, or `N/A` in the workbook

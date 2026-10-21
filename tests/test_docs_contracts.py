@@ -353,6 +353,39 @@ AUTHORISED_STATE_LOOKUP = (
 )
 
 
+# These rule-bearing paragraphs are verbatim excerpts from the complete command wording authorised
+# by the maintainer on issue #203, comment 6312974581. Keep their wording and line breaks pinned.
+AUTHORISED_START_REVIEW_PARAGRAPHS = {
+    "never choose for the analyst": (
+        "Wait for the answer. Never choose for the analyst. Silence, \"go ahead\", or an answer that does not name a choice is not\n"
+        "a choice: ask again."
+    ),
+    "unfinished earlier review": (
+        "If\n"
+        "`ok` is `false`, tell the analyst that the newest existing review has no assembled CAM recorded, so it may still be in\n"
+        "progress; that once a new review exists the other commands continue the new one and will no longer pick that one up\n"
+        "by themselves; and ask whether to go on or stop. Go on only on an explicit yes. (A `/research` brief on its own never\n"
+        "records an assembled CAM, so this question is expected for those deals.)"
+    ),
+    "renamed proposal": (
+        "an\n"
+        "earlier review filed under a different proposal name cannot be linked, because a review can only follow one with\n"
+        "exactly the same company and proposal name"
+    ),
+    "stop on script failure": (
+        "If the script exits non-zero or prints an `error:` line, stop. Tell the analyst plainly what it said (it refuses when a\n"
+        "review already exists for that date, when the date is not later than the newest existing review, or when the chosen\n"
+        "earlier date is not one of the earlier reviews), say that nothing was created or changed, and do not try another date\n"
+        "or another choice yourself: the analyst decides."
+    ),
+    "state write": (
+        "This command writes nothing itself: the script creates the one new empty `state.json`. The command never edits,\n"
+        "copies or deletes an existing review, and it does not add `start-review` to `steps_completed`, because starting a review\n"
+        "is not a step of the pipeline."
+    ),
+}
+
+
 # The exact no-record wording is authorised by the maintainer on issue #268, comment 6286590473.
 # Pin command text separately from the existing dated-state-lookup paragraph.
 AUTHORISED_NO_RECORD_WORDING = {
@@ -369,6 +402,12 @@ AUTHORISED_NO_RECORD_WORDING = {
 @pytest.mark.parametrize("path, wording", AUTHORISED_NO_RECORD_WORDING.items())
 def test_no_record_command_wording_matches_the_maintainer_authorisation(path, wording):
     assert " ".join(wording.split()) in " ".join(read(path).split())
+
+def test_start_review_command_keeps_the_authorised_rule_paragraphs_verbatim():
+    command = read(".claude/commands/start-review.md")
+    for label, paragraph in AUTHORISED_START_REVIEW_PARAGRAPHS.items():
+        assert paragraph in command, f"authorised /start-review paragraph changed: {label}"
+
 
 def dated_state_lookup_problems(text):
     """Report when a command does not use /review's exact dated-folder lookup and write-back rule."""

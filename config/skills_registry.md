@@ -19,6 +19,7 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `/project` | command | analyst | implemented | user | Maker | yes |
 | `/assemble` | command | analyst | implemented | user | Maker | yes |
 | `/review` | command | analyst | implemented | user+model | Checker | yes |
+| `/start-review` | command | analyst | implemented | user | Setup | yes |
 | `information-gaps` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `evidence-discipline` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `financial-analysis` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
@@ -90,6 +91,10 @@ Execute the following actions when triggered by their respective slash commands:
 10. `/calibrate-policy`
     - Primary Inputs: This institution's own credit policy document(s) in `inputs/credit_policy/`.
     - Core Action: Reads the documents directly (no API key needed) and extracts lending criteria, required mitigants, structuring norms, and risk appetite boundaries into `config/credit_policy.md`. Org-wide, one-time setup (unlike `/calibrate`, not per-deal-type) — once present, every future `/assemble`/`/review` run (and `orchestrator.py`'s headless pipeline) automatically picks it up: the Underwriter drafts with awareness of it, and the Risk Reviewer audits the draft against it.
+
+11. `/start-review`
+   - Primary Inputs: Exact company and proposal names, and optionally the date of the new review.
+   - Core Action: Lists eligible earlier reviews without writing, asks for an explicit link/unlinked choice (and confirmation before proceeding if the newest review has no assembled CAM), then starts an empty state with an optional `prior_review_date`. It never inherits prior review content.
 
 See [`.claude/commands/`](../.claude/commands/) for the runnable slash-command implementation of
 each step above. Every step (`/calibrate` and `/calibrate-policy` excepted) also takes `--company

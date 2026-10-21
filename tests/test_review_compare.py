@@ -1253,9 +1253,9 @@ def test_408_compare_states_uses_the_exact_refusal_message_for_equal_dates():
 def test_408_compare_states_does_not_relabel_recorded_to_missing_as_missing_in_both():
     prior_state = state(
         financials={"FY-Current": {"ebitda": 10}},
-        inputs={"pd": "0.20%"},
+        ownership={"owner": "Synthetic Co"},
     )
-    current_state = state(inputs={"pd": "0.20%"})
+    current_state = state(ownership={"owner": "Synthetic Co"})
 
     result = rc.compare_states(
         COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE, prior_state, current_state,

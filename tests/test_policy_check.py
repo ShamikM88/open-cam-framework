@@ -457,3 +457,19 @@ def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_complian
     assert calls["ground_truth_figures"] == []
     assert calls["check_draft_compliance"] == []
 
+
+
+def test_compute_from_state_gives_the_same_answer_as_compute_for_the_same_state(tmp_path, monkeypatch):
+    from policy_check import STATE_KEYS_READ, compute, compute_from_state
+    from state_manager import read_state, write_state
+
+    monkeypatch.chdir(tmp_path)
+    write_state("Synthetic Co", "Synthetic Facility", date_str="2026-01-05",
+                financials_source="analyst-supplied", ratios={"FY-Current": {"dscr": 1.1}},
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}])
+    state = read_state("Synthetic Co", "Synthetic Facility", keys=STATE_KEYS_READ)
+
+    assert compute_from_state(state) == compute("Synthetic Co", "Synthetic Facility")
+    assert compute_from_state({}) == {
+        "policy_state": compute_from_state({})["policy_state"], "reasons": [], "compliant": True,
+        "cam_data_present": False}

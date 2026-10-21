@@ -118,6 +118,13 @@ figures basis, and analyst perimeter-confirmation state/date. It discloses metad
 no consolidated amounts or new calculations on this sheet. A deal without `group_basis` receives
 no extra sheet, and the existing Financial Spreading and Collateral & Exposure sheets are unchanged.
 
+## The committee summary
+
+`python scripts/committee_summary.py` writes a short `<Company>_<Proposal>_Committee_Summary.md` and `.docx` beside the
+CAM from the deal's recorded state: key recorded terms, financial snapshot, covenant results, conditions, security and
+open gaps. It quotes recorded values and the deterministic policy check only, and it is a meeting aid, not a credit
+decision or a replacement for the CAM. See [Committee summary](cli-reference.md#committee-summary).
+
 ## The research brief
 
 `/research` exports a standalone `.docx` from a Markdown brief (a short header as a bullet list, the Go/No-Go verdict

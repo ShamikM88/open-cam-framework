@@ -218,7 +218,7 @@ def _coefficients():
     sum of them, so the weight of a field is the subtotal's value when that field alone is 1."""
     weights = {name: {} for name in SUBTOTAL_FIELDS}
     for field in RAW_FIELDS:
-        derived = evaluate_financial_model({"probe": {field: 1}})["financials"]["probe"]
+        derived = evaluate_financial_model({"FY-Current": {field: 1}})["financials"]["FY-Current"]
         for name in SUBTOTAL_FIELDS:
             weight = derived.get(name) or 0
             if weight:

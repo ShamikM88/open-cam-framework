@@ -2634,3 +2634,23 @@ def test_run_pipeline_fails_open_when_the_near_miss_lookup_cannot_list_the_compa
     assert "Traceback" not in err
     assert client.call_count == 2
     assert os.path.isfile(state_path("Synthetic Co", "credit   facility"))
+
+
+# ---------------------------------------------------------------------------
+# Issue #48: an entity-keyed multi_period_financials is refused before any model call (no entity dimension).
+# ---------------------------------------------------------------------------
+
+def test_run_pipeline_refuses_an_entity_keyed_input_before_any_model_call_or_write(project_root):
+    client = MockClient([])
+
+    with pytest.raises(ValueError) as caught:
+        run_pipeline(
+            "Synthetic Group Ltd", "Group Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            multi_period_financials={"HoldCo": {"FY-Current": {"revenue": 1000}}}, client=client,
+        )
+
+    assert str(caught.value) == (
+        "financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+    assert client.call_count == 0
+    assert not (project_root / "deals").exists()

@@ -2049,3 +2049,46 @@ def test_review_compare_writes_utf8_when_stdout_was_redirected_as_cp1252(tmp_pat
     assert b"\xe6\x9d\xb1\xe4\xba\xac" in result.stdout
     assert result.stderr == b""
 
+
+
+ENTITY_KEYED_FINANCIALS = '{"HoldCo": {"FY-Current": {"revenue": 1000}}, "OpCo A": {"FY-Current": {"revenue": 600}}}'
+
+
+def test_spreading_check_refuses_an_entity_keyed_financials_file_before_writing(cli):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text(ENTITY_KEYED_FINANCIALS, encoding="utf-8")
+
+    result = cli(
+        "spreading_check", "--company", company, "--proposal", proposal,
+        "--financials", financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "error: financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3\n"
+    )
+    assert saved_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("flag", ["--financials", "--spread"])
+def test_orchestrator_refuses_an_entity_keyed_financials_file_before_credentials_or_writing(cli, flag):
+    company, proposal, saved_path = _seed_stress_deal(cli)
+    before = saved_path.read_bytes()
+    financials = cli.workdir / "financials.json"
+    financials.write_text(ENTITY_KEYED_FINANCIALS, encoding="utf-8")
+
+    result = cli(
+        "orchestrator", "--company", company, "--proposal", proposal,
+        flag, financials,
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == (
+        "error: financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3\n"
+    )
+    assert "no Anthropic credentials" not in result.stderr
+    assert saved_path.read_bytes() == before

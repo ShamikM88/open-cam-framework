@@ -160,7 +160,7 @@ def test_the_weights_are_discovered_from_the_framework_formulas_not_written_down
 def test_every_subtotal_is_a_sum_of_raw_lines_so_the_weights_reproduce_the_framework_exactly():
     for seed in range(25):          # deterministic, varied (including negative) values for every raw field
         raw = {field: (index * 37 + seed * 101 + 11) % 997 - 200 for index, field in enumerate(FIELD_LABELS)}
-        derived = evaluate_financial_model({"p": raw})["financials"]["p"]
+        derived = evaluate_financial_model({"FY-Current": raw})["financials"]["FY-Current"]
         for name in tc.SUBTOTAL_FIELDS:
             weighted = sum(Decimal(raw[f]) * w for f, w in tc.COEFFICIENTS[name].items())
             assert weighted == Decimal(str(derived[name])), name
@@ -169,9 +169,9 @@ def test_every_subtotal_is_a_sum_of_raw_lines_so_the_weights_reproduce_the_frame
 def test_the_name_lists_cover_the_framework_so_a_new_field_cannot_be_forgotten():
     grouped = [field for _, fields in tc.LINE_GROUPS for field in fields]
     assert sorted(grouped) == sorted(FIELD_LABELS)
-    derived = evaluate_financial_model({"p": {"revenue": 1}})
-    assert set(tc.SUBTOTAL_FIELDS) <= set(derived["financials"]["p"])
-    assert set(tc.RATIO_FIELDS) <= set(derived["ratios"]["p"])
+    derived = evaluate_financial_model({"FY-Current": {"revenue": 1}})
+    assert set(tc.SUBTOTAL_FIELDS) <= set(derived["financials"]["FY-Current"])
+    assert set(tc.RATIO_FIELDS) <= set(derived["ratios"]["FY-Current"])
 
 
 # ---------------------------------------------------------------------------

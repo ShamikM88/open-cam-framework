@@ -21,10 +21,13 @@ import argparse
 import json
 import sys
 
-from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model
+from spreading_builder import (
+    FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
+)
 from numeric_validation import (
     NonFiniteNumberError,
     validate_finite_numbers,
+    validate_period_keys,
     validate_period_objects,
     validate_raw_line_items,
     validate_stress_assumptions,
@@ -49,6 +52,7 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
     ValueError when there is nothing to compute, and whatever the formulas raise for a malformed value.
     Does not modify `existing_state`."""
     validate_period_objects(multi_period_financials, path="financial inputs")
+    validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
     existing_multi_period = existing_state.get("multi_period_financials") or {}
     if existing_state.get("forecast_source") == "analyst-supplied":
         # The forecast on file was supplied by the analyst (issue #124, scripts/supplied_forecast.py) and is not built

@@ -11,6 +11,7 @@ from deal_export import (
     _supplied_row_values,
     export_deal,
     main,
+    workbook_inputs_from_state,
 )
 from state_manager import read_state, resolve_date_str, write_state
 
@@ -1067,3 +1068,48 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         )
     assert not os.path.exists(os.path.join(base, "deals", "Synthetic Group Ltd", "Synthetic Group Facility_2026-01-01",
                                            "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))
+
+
+def test_workbook_inputs_from_state_selects_one_raw_store_per_period_and_passes_the_rest_through():
+    group_basis = {"basis": "supplied_consolidated"}
+    state = {
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {"FY-Current": {"revenue": 500}, "FY+1": {"revenue": 999}},
+        "financials": {"FY+1": {"raw": {"revenue": 600}}, "FY-Current": {"revenue": 500, "ebitda": 90}},
+        "ratios": {"FY-Current": {"dscr": 1.4}},
+        "collateral": [{"asset": "Synthetic asset"}],
+        "group_basis": group_basis,
+    }
+
+    inputs = workbook_inputs_from_state(state)
+
+    assert set(inputs) == {
+        "financial_data", "collateral_data", "downside_financial_data", "supplied_values",
+        "supplied_downside_values", "blank_downside_periods", "derived_downside_fields", "group_basis"}
+    assert inputs["financial_data"] == {"FY-Current": {"revenue": 500}, "FY+1": {"revenue": 600}}
+    assert inputs["collateral_data"] == [{"asset": "Synthetic asset"}]
+    assert inputs["group_basis"] is group_basis
+    assert inputs["supplied_values"]["FY-Current"] and inputs["downside_financial_data"] is None
+
+
+def test_workbook_inputs_from_state_for_an_empty_state_is_all_none():
+    assert workbook_inputs_from_state({}) == {
+        "financial_data": None, "collateral_data": None, "downside_financial_data": None, "supplied_values": None,
+        "supplied_downside_values": None, "blank_downside_periods": None, "derived_downside_fields": None,
+        "group_basis": None}
+
+
+def test_the_workbook_export_receives_exactly_the_shared_inputs(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr("deal_export.export_to_xlsx", lambda company, path, **kwargs: seen.update(kwargs))
+    monkeypatch.setattr("deal_export.export_to_docx", lambda text, path: None)
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "corporate_credit_cam.md"))
+    write_state("Synthetic Co", "Synthetic Facility", date_str="2026-01-01", base_dir=base,
+                financials_source="framework-computed", financials={"FY-Current": {"raw": {"revenue": 10}}})
+
+    export_deal("Synthetic Co", "Synthetic Facility", "corporate_credit", "# memo", date_str="2026-01-01",
+                base_dir=base)
+
+    state = read_state("Synthetic Co", "Synthetic Facility", date_str="2026-01-01", base_dir=base)
+    assert seen == workbook_inputs_from_state(state)

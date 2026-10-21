@@ -11,6 +11,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `calibrate.py` | Derives a style guide and a template from your sample PDFs | Yes, unless `--mock` (automatic without a key) | [Calibrate](#calibrate) |
 | `orchestrator.py` | The whole deal pipeline in one process: draft, audit, checks, export | Yes | [Orchestrator](#orchestrator) |
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
+| `export_readback.py` | Compares a deal's exported `.xlsx` and `.docx` with what its record regenerates; read-only | No | [Export read-back](#export-read-back) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
@@ -204,6 +205,37 @@ Without this a deal
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
 patch to re-home `state.json`.
+
+## Export read-back
+
+`scripts/export_readback.py --company ... --proposal ... [--date-str YYYY-MM-DD]` checks that a deal's exported files
+still match its record. Without `--date-str` it uses the deal's newest dated folder that has a `state.json`; with it,
+that exact folder. It regenerates the expected workbook from the folder's `state.json` (through the same input
+selection `deal_export.py` uses) and the expected document from the approved Markdown draft that `state.json` names in
+`approved_draft_path` (which `/assemble` records), writes both to a temporary directory, and compares them with
+`<Company>_<Proposal>_Spreading.xlsx` and `<Company>_<Proposal>_CAM.docx` in the dated folder.
+
+- **Workbook:** sheet names and order; every cell's value (formulas as text, numbers within 1e-9, so an overwritten
+  formula or an edited input is found), number format, bold and italic; column widths, merged cells and freeze panes.
+  Cached formula results are not evaluated, and charts are not compared.
+- **Document:** the body blocks in order: each paragraph's style, text, run formatting, hyperlink targets and embedded
+  image hashes and alt text, and each table's cell text.
+- **Output:** one JSON object on stdout: `status` (`match` or `mismatch`), `selected_folder`, the two artifacts' paths
+  and counts, `mismatch_count`, up to 200 `findings` (each `artifact`, `location`, `kind`, `expected`, `actual`;
+  `truncated` is `true` when there were more) and `limits`. Exit `0` on a match and `1` on a mismatch.
+- **Refusals:** a missing state, workbook, document or draft, an `approved_draft_path` that is not a relative path to a
+  file inside the dated folder, a damaged file, or a state `group_basis` or `financials_source` that is malformed gives
+  one `error:` line on stderr and exit `1`, with nothing compared. A usage error exits `2`.
+- **Read-only:** the only files it writes are temporary comparison files, removed on exit. It never edits the deal.
+
+It detects edits made after export and exports that are stale against a changed record. It does not prove the
+exporter itself is right (the expected files come from the same builders), does not read CAM prose, and does not
+replace `policy_check.py` or `/review`. Run it from the directory the export was run from, because a draft's image
+paths resolve against the working directory.
+
+```bash
+python scripts/export_readback.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
 
 ## Research export
 

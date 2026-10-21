@@ -1321,3 +1321,27 @@ def test_408_period_value_and_present_distinguish_missing_or_null_from_an_empty_
     assert rc._period_present(
         {"financials": {"FY-Current": {}}}, "FY-Current",
     ) is True
+def test_408_diff_value_does_not_treat_a_dict_and_a_list_as_the_same_container_kind():
+    changes = []
+    rc._diff_value("payload", {"value": 1}, ["value"], changes)
+    assert changes == [{
+        "path": "payload",
+        "change": "value_changed",
+        "prior": {"value": 1},
+        "current": ["value"],
+    }]
+
+
+def test_408_restatement_rows_are_sorted_by_historical_period_order_not_lexically():
+    result = report(
+        {"financials": {"FY-1": {"ebitda": 11}, "FY-Current": {"ebitda": 12}}},
+        {"financials": {"FY-2": {"ebitda": 11}, "FY-1": {"ebitda": 12}}},
+        rolled=True,
+    )
+    assert [
+        (row["prior_period"], row["current_period"], row["status"])
+        for row in result["restatement_check"]["periods"]
+    ] == [
+        ("FY-Current", "FY-1", "consistent"),
+        ("FY-1", "FY-2", "consistent"),
+    ]

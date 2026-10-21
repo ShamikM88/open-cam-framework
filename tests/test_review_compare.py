@@ -695,3 +695,12 @@ def test_restating_check_with_no_historical_periods_still_records_the_confirmati
     assert result["restatement_check"]["periods_rolled_one_year_confirmed"] is True
     assert result["restatement_check"]["periods"] == []
 
+
+def test_numeric_delta_remains_exact_beyond_default_decimal_context_precision():
+    prior = Decimal("123456789012345678901234567890.0000")
+    current = Decimal("123456789012345678901234567890.0001")
+    result = report({"financials": {"FY-Current": {"revenue": prior}}},
+                    {"financials": {"FY-Current": {"revenue": current}}})
+    row = next(item for item in result["changes"] if item["path"] == "financials.FY-Current.revenue")
+    assert row["delta"] == Decimal("0.0001")
+

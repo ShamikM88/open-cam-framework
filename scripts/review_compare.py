@@ -1,7 +1,7 @@
 """Read-only deterministic comparison of two dated states for the same deal."""
 import argparse
 from datetime import date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import json
 import math
 import os
@@ -107,6 +107,20 @@ def _as_decimal(value):
     return Decimal(str(value))
 
 
+def _exact_delta(current, prior):
+    current_decimal, prior_decimal = _as_decimal(current), _as_decimal(prior)
+    low_exponent = min(current_decimal.as_tuple().exponent, prior_decimal.as_tuple().exponent)
+    highest = max(
+        current_decimal.adjusted() if not current_decimal.is_zero() else 0,
+        prior_decimal.adjusted() if not prior_decimal.is_zero() else 0,
+    )
+    precision = max(28, highest - low_exponent + 3,
+                    len(current_decimal.as_tuple().digits), len(prior_decimal.as_tuple().digits))
+    with localcontext() as context:
+        context.prec = precision
+        return current_decimal - prior_decimal
+
+
 def _deep_equal(left, right):
     if left is right:
         return True
@@ -210,7 +224,7 @@ def _change(path, kind, prior, current):
         "current": None if current is _MISSING else current,
     }
     if _is_number(prior) and _is_number(current):
-        row["delta"] = _as_decimal(current) - _as_decimal(prior)
+        row["delta"] = _exact_delta(current, prior)
     return row
 
 

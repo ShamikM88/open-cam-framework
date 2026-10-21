@@ -361,13 +361,15 @@ AUTHORISED_START_REVIEW_PARAGRAPHS = {
         "a choice: ask again."
     ),
     "unfinished earlier review": (
-        "If `ok` is `false`, tell the analyst that the newest existing review has no assembled CAM recorded, so it may still be in\n"
+        "If\n"
+        "`ok` is `false`, tell the analyst that the newest existing review has no assembled CAM recorded, so it may still be in\n"
         "progress; that once a new review exists the other commands continue the new one and will no longer pick that one up\n"
         "by themselves; and ask whether to go on or stop. Go on only on an explicit yes. (A `/research` brief on its own never\n"
         "records an assembled CAM, so this question is expected for those deals.)"
     ),
     "renamed proposal": (
-        "an earlier review filed under a different proposal name cannot be linked, because a review can only follow one with\n"
+        "an\n"
+        "earlier review filed under a different proposal name cannot be linked, because a review can only follow one with\n"
         "exactly the same company and proposal name"
     ),
     "stop on script failure": (

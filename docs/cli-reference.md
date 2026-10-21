@@ -17,6 +17,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
 | `state_manager.py` | Finds deals read-only, lists prior-review candidates, starts a clean review state, checks completed steps, and exports derived Reviewer-view files | No | [State manager](#state-manager) |
+| `review_compare.py` | Compares two exact dated states of the same deal; optionally checks historical-period restatements | No | [Review comparison](#review-comparison) |
 | `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
@@ -218,7 +219,8 @@ An analyst may explicitly authorise an export without sources. Only then pass `-
 `scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
 [--no-update-financials-source]` recomputes `financials` and `ratios` from raw line items, derives the downside case
 when stress assumptions and at least one forward year exist, checkpoints everything to `state.json` and prints the
-updated state (`financials`, `ratios`, `downside_case`, `financials_source`). It merges what it is given into what
+updated state (`financials`, `ratios`, `downside_case`, `financials_source`) as one JSON object, indented two spaces and
+ending in one newline (read it as JSON; the order of its members is not a contract). It merges what it is given into what
 the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
 re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
 what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
@@ -312,6 +314,37 @@ file's trailing structured JSON block. It exits `0` whether or not `reasons` is 
 ```bash
 python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --draft "deals/Synthetic Co/Synthetic Fleet Loan_draft.md"
+```
+
+## Review comparison
+
+`scripts/review_compare.py --company ... --proposal ... --current-date YYYY-MM-DD [--prior-date YYYY-MM-DD]
+[--format json|markdown] [--periods-rolled-one-year]` is a read-only, deterministic comparison of two
+`state.json` snapshots belonging to the exact same company and proposal. It uses `state_manager.state_path()`
+for the normal `deals/<Company>/<Proposal>_<Date>/state.json` layout, reads both files as UTF-8 JSON, and
+never creates a folder, changes state, or calls a model.
+
+- `--company` and `--proposal` are exact identity matches; fuzzy or normalized matching is never used.
+- `--current-date` is the current review's real calendar date and dated folder.
+- `--prior-date` explicitly names an earlier review. When omitted, the current state must record
+  `prior_review_date`; otherwise the command refuses rather than guessing from the other folders.
+- `--format json|markdown` selects the output shape (JSON is the default). JSON mode prints exactly one JSON
+  object. Both renderers order changes deterministically and include the number of changed paths, unchanged
+  categories, and categories not recorded in either state.
+- `--periods-rolled-one-year` is explicit analyst confirmation that historical period labels moved forward by
+  exactly one year. It adds a separate restatement check after the standard by-label comparison; forward periods
+  are excluded. Without the flag the output has no `restatement_check` key.
+
+A missing, unreadable, corrupt, non-object, wrong-identity, impossible-date, non-finite, or too deeply nested (more than 100
+levels of objects and lists; real states are a few levels deep) state is one
+`error: ...` line on standard error and exit status `1`, with no traceback. A prior date must be strictly earlier
+than the current date. Legacy states without `schema_version` and newer-schema states are read without rewriting
+them. Numeric equality uses exact decimal values; delta is present only when both sides record a number. If
+`financials_source` changes, the report warns that movement may not be like-for-like.
+
+```bash
+python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Facility" --current-date 2026-10-20 --prior-date 2025-10-20 --format markdown
+python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Facility" --current-date 2026-10-20 --periods-rolled-one-year
 ```
 
 ## State manager

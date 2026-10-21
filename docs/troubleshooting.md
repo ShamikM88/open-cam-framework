@@ -126,9 +126,9 @@ choice on your behalf. See [Starting a new review](data-model.md#starting-a-new-
 rules.
 
 The listing script also reports earlier reviews whose `state.json` could not be read, under `skipped` (date and reason),
-instead of leaving them out silently. The command text does not display that list: if "no earlier review was found" does
-not match what you expect, run `python scripts/state_manager.py --review-candidates --company "<company>" --proposal "<proposal>"`
-yourself and look at `skipped`.
+instead of leaving them out silently. The command names those dates and reasons and does not offer them as a link; when
+only unreadable reviews exist it says that earlier reviews exist but could not be read, rather than that none was found.
+Repair or restore the unreadable `state.json` if you want to link to it.
 
 ## Figures
 

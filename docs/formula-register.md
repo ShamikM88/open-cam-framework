@@ -603,7 +603,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
   stressed in historical periods
 - **Unit and storage:** a full parallel set of `financials` and `ratios` per stressed forward period; stored
   under `downside_case`, never over the base case
-- **Edge rules:** two paths. Framework-computed forward years: the requested shocks are applied to the raw
+- **Edge rules:** an input key that is not one of the six framework period labels is refused with one error, not
+  dropped (issue #48); then two paths. Framework-computed forward years: the requested shocks are applied to the raw
   lines as given and the model is re-run — this path does not perform the supplied-forecast reconciliation
   check. Analyst-supplied forecasts: the analyst's own stressed scenario is used where given; otherwise the
   framework's shocks apply only where they genuinely meet their assumptions — the analyst gave that year's

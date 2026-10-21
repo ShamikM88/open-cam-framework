@@ -1427,3 +1427,28 @@ def test_evaluate_financial_model_still_accepts_every_period_label_the_framework
 @pytest.mark.parametrize("empty", [None, {}])
 def test_evaluate_financial_model_still_accepts_no_periods_at_all(empty):
     assert evaluate_financial_model(empty) == {"financials": {}, "ratios": {}}
+
+
+LABELS_LINE = "FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+
+
+def test_evaluate_downside_case_refuses_an_entity_keyed_input_instead_of_dropping_it():
+    with pytest.raises(ValueError) as caught:
+        evaluate_downside_case({"HoldCo": {"FY+1": {"revenue": 1000}}}, {"revenue_haircut_pct": 10})
+
+    assert str(caught.value) == f"financial inputs: unexpected period key 'HoldCo'; expected one of {LABELS_LINE}"
+
+
+def test_evaluate_downside_case_refuses_an_unexpected_key_beside_a_valid_forward_period():
+    with pytest.raises(ValueError, match="unexpected period key 'HoldCo'"):
+        evaluate_downside_case(
+            {"HoldCo": {"revenue": 1}, "FY+1": {"revenue": 1000}}, {"revenue_haircut_pct": 10},
+        )
+
+
+def test_evaluate_downside_case_still_ignores_historical_periods_and_accepts_no_input():
+    result = evaluate_downside_case(
+        {"FY-Current": {"revenue": 900}, "FY+1": {"revenue": 1000}}, {"revenue_haircut_pct": 10},
+    )
+    assert list(result["financials"]) == ["FY+1"]
+    assert evaluate_downside_case(None, {}) == {"financials": {}, "ratios": {}}

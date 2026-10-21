@@ -358,7 +358,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "spreading_builder:describe_undefined_ratio": "da7d4003d773d17e",
     "spreading_builder:evaluate_financial_model": "8b3fdc737c8e2cd6",
     "spreading_builder:apply_stress_shocks": "56e8cb78e68e91e9",
-    "spreading_builder:evaluate_downside_case": "50118518f3fbb65e",
+    "spreading_builder:evaluate_downside_case": "67dd6d08a10de4f2",
     "spreading_builder:_column_headers": "8e930360083183fd",
     "spreading_builder:_write_financial_spreading": "a77699dd39ee0ed9",
     "spreading_builder:_write_collateral_sheet": "a51d516d16824b09",

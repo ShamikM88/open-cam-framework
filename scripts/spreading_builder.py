@@ -696,6 +696,7 @@ def evaluate_downside_case(multi_period_data, stress_assumptions, forward_period
     Returns the same shape as evaluate_financial_model():
     {"financials": {period: {...}}, "ratios": {period: {...}}}.
     """
+    validate_period_keys(multi_period_data, PERIOD_KEYS, path="financial inputs")
     validate_finite_numbers(multi_period_data, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     multi_period_data = multi_period_data or {}

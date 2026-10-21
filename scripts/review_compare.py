@@ -245,9 +245,7 @@ def _diff_value(path, prior, current, output):
             _diff_value(_join_path(path, str(key)), p_obj.get(key, _MISSING),
                         c_obj.get(key, _MISSING), output)
         if len(output) == start and path:
-            transition = _transition_kind(prior, current)
-            if transition:
-                output.append(_change(path, transition, prior, current))
+            output.append(_change(path, _transition_kind(prior, current), prior, current))
         return
 
     if isinstance(prior, dict) and isinstance(current, dict):
@@ -272,17 +270,13 @@ def _diff_value(path, prior, current, output):
                 else:
                     _diff_value(record_path, p_map[identity], c_map[identity], output)
             if len(output) == start and p_missing != c_missing:
-                transition = _transition_kind(prior, current)
-                if transition:
-                    output.append(_change(path, transition, prior, current))
+                output.append(_change(path, _transition_kind(prior, current), prior, current))
             return
 
     if isinstance(prior, list) and isinstance(current, list):
         output.append(_change(path, "value_changed", prior, current))
         return
-    transition = _transition_kind(prior, current)
-    if transition:
-        output.append(_change(path, transition, prior, current))
+    output.append(_change(path, _transition_kind(prior, current), prior, current))
 
 
 def _basis_change(prior_state, current_state):
@@ -454,10 +448,6 @@ def compare_deal(company, proposal, current_date, prior_date=None, periods_rolle
         if prior_date >= current_date:
             raise ComparisonError("recorded prior_review_date must be strictly earlier than --current-date")
         prior_state = _read_state(company, proposal, prior_date, "prior")
-    if prior_state.get("company") != company or current_state.get("company") != company:
-        raise ComparisonError(f"states must both match --company {company!r}")
-    if prior_state.get("proposal") != proposal or current_state.get("proposal") != proposal:
-        raise ComparisonError(f"states must both match --proposal {proposal!r}")
     return compare_states(company, proposal, prior_date, current_date, prior_state, current_state,
                           periods_rolled_one_year=periods_rolled_one_year)
 

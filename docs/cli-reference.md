@@ -334,7 +334,8 @@ never creates a folder, changes state, or calls a model.
   exactly one year. It adds a separate restatement check after the standard by-label comparison; forward periods
   are excluded. Without the flag the output has no `restatement_check` key.
 
-A missing, unreadable, corrupt, non-object, wrong-identity, impossible-date, or non-finite state is one
+A missing, unreadable, corrupt, non-object, wrong-identity, impossible-date, non-finite, or too deeply nested (more than 100
+levels of objects and lists; real states are a few levels deep) state is one
 `error: ...` line on standard error and exit status `1`, with no traceback. A prior date must be strictly earlier
 than the current date. Legacy states without `schema_version` and newer-schema states are read without rewriting
 them. Numeric equality uses exact decimal values; delta is present only when both sides record a number. If

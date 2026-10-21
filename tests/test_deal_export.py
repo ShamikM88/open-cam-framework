@@ -1515,3 +1515,45 @@ def test_dx_main_sanitizes_company_before_date_discovery_with_an_exact_error(tmp
     assert captured.err == ""
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
+
+
+
+def test_dx_main_validates_an_explicit_date_before_opening_the_draft(tmp_path, monkeypatch, capsys):
+    import builtins
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "missing-synthetic-draft.md"
+    real_open = builtins.open
+    open_attempts = []
+
+    def reject_impossible_date(value, *, field_name):
+        assert value == "2026-02-30"
+        assert field_name == "--date-str"
+        raise ValueError("--date-str '2026-02-30' is not a valid calendar date")
+
+    def recording_open(file, *args, **kwargs):
+        if os.fspath(file) == str(draft):
+            open_attempts.append(os.fspath(file))
+        return real_open(file, *args, **kwargs)
+
+    def unexpected_resolution(*args, **kwargs):
+        pytest.fail("date discovery ran after the explicit date had been rejected")
+
+    monkeypatch.setattr(deal_export, "validate_iso_date_str", reject_impossible_date)
+    monkeypatch.setattr(builtins, "open", recording_open)
+    monkeypatch.setattr(deal_export, "resolve_export_date_str", unexpected_resolution)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--draft", str(draft), "--date-str", "2026-02-30",
+        ])
+
+    assert caught.value.code == "error: --date-str '2026-02-30' is not a valid calendar date"
+    assert open_attempts == []
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()

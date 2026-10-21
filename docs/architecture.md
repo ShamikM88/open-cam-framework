@@ -97,7 +97,7 @@ flowchart LR
 
 | Layer | Decides | Examples |
 | :--- | :--- | :--- |
-| Deterministic code | What can be computed or checked exactly | Subtotals and ratios (`spreading_builder.py`, run through `spreading_check.py`); covenant PASS / FAIL / UNRESOLVABLE, required conditions precedent and subsequent, security gaps (`policy_engine.py`); whether a draft declares every required item and states figures that match the computed ones (`policy_checks.py`); state validation and schema versioning (`state_manager.py`); document export |
+| Deterministic code | What can be computed or checked exactly | Subtotals and ratios (`spreading_builder.py`, run through `spreading_check.py`); covenant PASS / FAIL / UNRESOLVABLE, required conditions precedent and subsequent, security gaps (`policy_engine.py`); whether a draft declares every required item and states figures that match the computed ones (`policy_checks.py`); state validation and schema versioning (`state_manager.py`); read-only dated-review movement and opt-in historical restatement comparison (`review_compare.py`); document export |
 | Model, constrained by the prompts | Narrative, grounding in sources, judgement about ambiguity | The Underwriter's drafting; the Risk Reviewer's challenge of unsourced claims and weak mitigants |
 | Human | Credit judgement and confirmation | Risk inputs (PD, LGD, bureau score); whether a spreading convention or a policy interpretation is confirmed for reuse; the final decision on a CAM |
 
@@ -203,6 +203,7 @@ open-cam-framework/
 │   ├── deal_export.py           Folder creation + template auto-save + .docx/.xlsx export (no anthropic dependency; shared by orchestrator.py and /assemble)
 │   ├── research_export.py       Standalone research-brief -> .docx export (no anthropic dependency; used by /research only -- kept separate from deal_export.py so a research-only deal never triggers CAM-specific side effects)
 │   ├── state_manager.py         Reads/writes deals/<Company>/<Proposal>_<Date>/state.json (no anthropic dependency; see "Context Window & State Management Protocol")
+│   ├── review_compare.py        Read-only comparison of two exact dated states; optional historical-period restatement check (no anthropic dependency)
 │   ├── source_manifest.py       Saves fetched/given source material (PDFs, saved pages) into that deal's sources/ subfolder plus a manifest -- see "Source material persistence" in `CLAUDE.md` (no anthropic dependency)
 │   ├── conventions.py           Reads/writes persisted analyst-confirmed spreading conventions -- borrower-specific (deals/<Company>/_conventions.json) and enterprise-wide (config/spreading_conventions.json); checked (never silently applied) by /spread before asking which mode applies -- see "Persisted conventions" in `CLAUDE.md` (no anthropic dependency)
 │   ├── policy_engine.py         Deterministic covenant/security/CP/CS evaluation -- evaluate_deal_policy() (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)

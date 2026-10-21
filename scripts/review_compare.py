@@ -182,9 +182,12 @@ def _record_maps(records, kind):
             counts[canonical] = counts.get(canonical, 0) + 1
             identity = ("metric_type", canonical[0], canonical[1], counts[canonical])
         else:
-            if record.get(kind) is None:
+            value = record.get(kind)
+            if value is None or (
+                kind == "guarantee_id" and isinstance(value, str) and not value.strip()
+            ):
                 return None
-            identity = (kind, _json_compact(record[kind]))
+            identity = (kind, _json_compact(value))
         if identity in result:
             return None
         result[identity] = record

@@ -741,8 +741,10 @@ def test_comparator_helper_edges_and_serializer_refusals(monkeypatch, tmp_path):
     assert rc._record_maps("not a list", "asset_id") is None
     assert rc._record_maps([None], "asset_id") is None
     assert rc._record_maps([{"asset_id": "A"}, {"asset_id": "A"}], "asset_id") is None
+    assert rc._record_maps([{"guarantee_id": " "}], "guarantee_id") is None
     assert rc._transition_kind(rc._MISSING, None) is None
     assert rc._json_dump({}) == "{}"
+    assert rc._json_dump(1.25) == "1.25"
     assert rc._json_dump({"identity": {"asset_id": "A"}}, indent=None) == '{"identity":{"asset_id":"A"}}'
     assert rc._json_dump(rc._MISSING) == "null"
     assert rc._json_dump(1.25) == "1.25"

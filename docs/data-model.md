@@ -128,8 +128,9 @@ security package, guarantees, and optional structured `ownership` / `facility_te
 "not recorded", not zero. Changes are ordered deterministically. Decimal values are compared exactly; a `delta` is
 reported only where both sides are numeric. Covenants and covenant results are keyed by metric, type, and
 occurrence; forward covenant results use `forward_id`, downside breaches `breach_id`, conditions precedent/subsequent
-`cp_id`/`cs_id`, collateral `asset_id`, and guarantees `guarantee_id` when supplied. Lists without a reliable identifier
-(including security packages, security gaps, and guarantees without `guarantee_id`) are compared as exact ordered values.
+`cp_id`/`cs_id`, collateral `asset_id`, and guarantees `guarantee_id` when every record has a non-blank explicit ID.
+Lists without a reliable identifier (including security packages, security gaps, and guarantees without `guarantee_id`)
+are compared as exact ordered values.
 Changes in `financials_source` carry a
 clear comparability warning. This output reports stored facts and transitions, not an explanation or credit verdict.
 

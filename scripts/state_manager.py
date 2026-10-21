@@ -80,7 +80,7 @@ STATE_SHAPES = {
     "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
     "collateral": "list", "covenants": "list", "security_package": "list", "guarantees": "list",
     "steps_completed": "list", "review_trail": "list",
-    "financials_source": "source",
+    "financials_source": "source", "group_basis": "group_basis",
 }
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
@@ -125,6 +125,179 @@ def _json_type(value):
     return "number"
 
 
+
+
+# Case A metadata labels mirror spreading_builder.PERIOD_KEYS without importing its
+# workbook dependencies into this deliberately lightweight state-management module.
+_GROUP_BASIS_PERIOD_KEYS = ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3")
+
+
+def _group_basis_problems(value, financials_source=None):
+    """Return validation problems for the optional group-basis metadata object.
+
+    Unknown future fields are intentionally ignored. This object records source,
+    period and analyst-confirmed perimeter metadata only; it never stores figures.
+    """
+    if not isinstance(value, dict):
+        return [f'"group_basis" must be an object, found {_json_type(value)}']
+
+    problems = []
+
+    def required_string(container, key, path):
+        if key not in container:
+            problems.append(f'"{path}" is required')
+            return None
+        item = container[key]
+        if not isinstance(item, str):
+            problems.append(f'"{path}" must be a non-empty string, found {_json_type(item)}')
+            return None
+        if not item.strip():
+            problems.append(f'"{path}" must be a non-empty string')
+            return None
+        return item
+
+    def calendar_date(container, key, path):
+        if key not in container:
+            problems.append(f'"{path}" is required')
+            return
+        item = container[key]
+        if not isinstance(item, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", item):
+            problems.append(f'"{path}" must be a real YYYY-MM-DD calendar date')
+            return
+        try:
+            date.fromisoformat(item)
+        except ValueError:
+            problems.append(f'"{path}" must be a real YYYY-MM-DD calendar date')
+
+    if value.get("basis") != "supplied_consolidated":
+        problems.append('"group_basis.basis" must be "supplied_consolidated"')
+
+    reporting_entity = required_string(value, "reporting_entity", "group_basis.reporting_entity")
+
+    entities = value.get("entities_covered")
+    if not isinstance(entities, list) or not entities:
+        problems.append('"group_basis.entities_covered" must be a non-empty list of distinct non-empty strings')
+        entities = []
+    seen_entities = set()
+    for index, entity in enumerate(entities):
+        if not isinstance(entity, str):
+            problems.append(f'"group_basis.entities_covered[{index}]" must be a non-empty string')
+            continue
+        if not entity.strip():
+            problems.append(f'"group_basis.entities_covered[{index}]" must be a non-empty string')
+        if entity in seen_entities:
+            problems.append(f'"group_basis.entities_covered" contains duplicate entity {entity!r}')
+        seen_entities.add(entity)
+    if isinstance(reporting_entity, str) and reporting_entity not in seen_entities:
+        problems.append('"group_basis.entities_covered" must include group_basis.reporting_entity')
+
+    source = value.get("source")
+    if not isinstance(source, dict):
+        problems.append('"group_basis.source" must be an object')
+        source = {}
+    required_string(source, "document", "group_basis.source.document")
+    required_string(source, "accounting_basis", "group_basis.source.accounting_basis")
+    calendar_date(source, "date", "group_basis.source.date")
+
+    calendar_date(value, "period_end", "group_basis.period_end")
+
+    periods = value.get("periods")
+    if not isinstance(periods, list) or not periods:
+        problems.append('"group_basis.periods" must be a non-empty list of distinct framework period labels')
+        periods = []
+    seen_periods = set()
+    for index, period in enumerate(periods):
+        if not isinstance(period, str) or not period:
+            problems.append(f'"group_basis.periods[{index}]" must be a framework period label')
+            continue
+        if period not in _GROUP_BASIS_PERIOD_KEYS:
+            problems.append(f'"group_basis.periods[{index}]" has unknown period label {period!r}')
+        if period in seen_periods:
+            problems.append(f'"group_basis.periods" contains duplicate period {period!r}')
+        seen_periods.add(period)
+
+    figures_basis = value.get("figures_basis")
+    if figures_basis not in ("supplied", "recomputed"):
+        problems.append('"group_basis.figures_basis" must be "supplied" or "recomputed"')
+
+    if value.get("perimeter_confirmed") is not True:
+        problems.append('"group_basis.perimeter_confirmed" must be true after explicit analyst confirmation')
+    calendar_date(value, "perimeter_confirmed_on", "group_basis.perimeter_confirmed_on")
+
+    expected_source = {"supplied": "analyst-supplied", "recomputed": "framework-computed"}.get(figures_basis)
+    if (financials_source in FINANCIALS_SOURCES and expected_source is not None
+            and financials_source != expected_source):
+        problems.append(
+            f'"group_basis.figures_basis" is {figures_basis!r}, but state financials_source is '
+            f'{financials_source!r}; these must agree'
+        )
+    return problems
+
+
+def record_group_basis(company, proposal, group_basis_file, perimeter_confirmed=False, date_str=None, base_dir=None):
+    """Record case-A metadata on an existing deal only, without storing or changing figures.
+
+    The read/check/write uses the same per-deal lock and shared atomic _merge_and_write
+    path as write_state(). A missing or corrupt deal is never treated as a new deal.
+    """
+    if not perimeter_confirmed:
+        raise StateError(
+            "Refusing to record group_basis without explicit --perimeter-confirmed analyst confirmation; "
+            "nothing was changed."
+        )
+
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    found = find_deal(company, proposal, base_dir=base_dir)
+    if not found["record_found"]:
+        raise StateError(
+            f"Refusing to record group_basis: no exact existing state.json for company {company!r} and "
+            f"proposal {proposal!r}; no deal was created."
+        )
+
+    try:
+        with open(group_basis_file, encoding="utf-8") as handle:
+            try:
+                supplied = json.load(handle)
+            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+                raise StateError(
+                    f"Cannot read group-basis file {group_basis_file!r} as UTF-8 JSON: {exc}"
+                ) from exc
+    except OSError as exc:
+        raise StateError(f"Cannot read group-basis file {group_basis_file!r}: {exc}") from exc
+
+    if not isinstance(supplied, dict):
+        raise StateError(f"Group-basis file {group_basis_file!r} must contain a JSON object; nothing was changed.")
+
+    confirmation_date = date_str if date_str is not None else datetime.now().strftime("%Y-%m-%d")
+    group_basis = dict(supplied)
+    group_basis["perimeter_confirmed"] = True
+    group_basis["perimeter_confirmed_on"] = confirmation_date
+    problems = _group_basis_problems(group_basis)
+    if problems:
+        raise StateError("Invalid group_basis: " + "; ".join(problems) + ". Nothing was changed.")
+
+    record_date = found["date"]
+    path = found["state_path"]
+    with _FileLock(path):
+        state = read_state(
+            company, proposal, date_str=record_date, base_dir=base_dir,
+            keys=("financials_source", "group_basis"),
+        )
+        if state is None:
+            raise StateError(
+                f"Refusing to record group_basis: state.json at {path!r} no longer exists; nothing was created."
+            )
+        problems = _group_basis_problems(group_basis, state.get("financials_source"))
+        if problems:
+            raise StateError("Refusing to record group_basis: " + "; ".join(problems) + ". Nothing was changed.")
+        # This is the shared write_state path: schema-version check, finite-number guard,
+        # same-directory temporary file and atomic replace, all under the same RMW lock.
+        _merge_and_write(path, company, proposal, record_date, base_dir, {"group_basis": group_basis})
+
+    return {"recorded": True, "state_path": path, "figures_basis": group_basis["figures_basis"]}
+
+
 def _problems_with_periods(label, value):
     """Problems for a `periods` value. A null period is "not recorded" (evaluate_financial_model treats it as empty)."""
     if not isinstance(value, dict):
@@ -151,8 +324,12 @@ def validate_state(state, keys=None, path="state.json"):
     for key, kind in shapes.items():
         value = state.get(key)
         if value is None:
+            if kind == "group_basis" and key in state:
+                problems.append('"group_basis" must be an object, found null')
             continue
-        if kind == "periods":
+        if kind == "group_basis":
+            problems.extend(_group_basis_problems(value, state.get("financials_source")))
+        elif kind == "periods":
             problems.extend(_problems_with_periods(key, value))
         elif kind == "object":
             if not isinstance(value, dict):
@@ -978,7 +1155,8 @@ if __name__ == "__main__":
         description="Manage a deal's persisted state without an Anthropic dependency. "
                     "--find is a read-only exact lookup; --review-candidates lists eligible earlier reviews; "
                     "--start-review creates a fresh state with an optional prior-review link; --check-steps "
-                    "reports missing required steps; --export-reviewer-view separates review history."
+                    "reports missing required steps; --export-reviewer-view separates review history; "
+                    "--record-group-basis records source and perimeter metadata."
     )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--find", action="store_true",
@@ -991,10 +1169,16 @@ if __name__ == "__main__":
                        help="Report which required steps are missing from steps_completed.")
     modes.add_argument("--export-reviewer-view", action="store_true",
                        help="Write state_for_review.json and review_trail.json under review_view/.")
+    modes.add_argument("--record-group-basis", action="store_true",
+                       help="Record metadata for borrower-supplied consolidated group accounts on an existing deal.")
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--date",
-                        help="Review date in YYYY-MM-DD form (defaults to today); used with review-start modes.")
+                        help="YYYY-MM-DD confirmation date (defaults to today); used with review-start or group-basis modes.")
+    parser.add_argument("--group-basis-file",
+                        help="UTF-8 JSON object with group-basis metadata, used only with --record-group-basis.")
+    parser.add_argument("--perimeter-confirmed", action="store_true",
+                        help="Explicitly confirm the group perimeter as an analyst; required with --record-group-basis.")
     prior = parser.add_mutually_exclusive_group()
     prior.add_argument("--prior-date",
                        help="Explicit earlier review date to link when starting a review.")
@@ -1007,11 +1191,18 @@ if __name__ == "__main__":
 
     if args.find or args.check_steps or args.export_reviewer_view:
         if args.date is not None:
-            parser.error("--date is only valid with --review-candidates or --start-review")
+            parser.error("--date is only valid with --review-candidates, --start-review, or --record-group-basis")
         if args.prior_date is not None or args.no_prior:
             parser.error("--prior-date and --no-prior are only valid with --start-review")
     if args.review_candidates and (args.prior_date is not None or args.no_prior):
         parser.error("--prior-date and --no-prior are only valid with --start-review")
+    if args.record_group_basis:
+        if args.prior_date is not None or args.no_prior:
+            parser.error("--prior-date and --no-prior are only valid with --start-review")
+        if args.required is not None:
+            parser.error("--required is only valid with --check-steps")
+    elif args.group_basis_file is not None or args.perimeter_confirmed:
+        parser.error("--group-basis-file and --perimeter-confirmed are only valid with --record-group-basis")
 
     if args.find:
         try:
@@ -1035,6 +1226,17 @@ if __name__ == "__main__":
         except (OSError, ValueError) as exc:
             sys.exit(f"error: {exc}")
         print(json.dumps(paths, indent=2))
+    elif args.record_group_basis:
+        if not args.group_basis_file:
+            sys.exit("error: --group-basis-file is required with --record-group-basis")
+        try:
+            report = record_group_basis(
+                args.company, args.proposal, args.group_basis_file,
+                perimeter_confirmed=args.perimeter_confirmed, date_str=args.date,
+            )
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report))
     elif args.review_candidates:
         try:
             report = get_review_candidates(args.company, args.proposal, date_str=args.date)

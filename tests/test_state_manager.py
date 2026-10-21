@@ -2463,13 +2463,13 @@ def test_record_group_basis_requires_explicit_perimeter_confirmation_without_wri
     path = state_path(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
     )
-    before = path.read_bytes()
+    before = open(path, "rb").read()
     with pytest.raises(ValueError, match="--perimeter-confirmed"):
         state_manager.record_group_basis(
             "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
             perimeter_confirmed=False, base_dir=str(tmp_path),
         )
-    assert path.read_bytes() == before
+    assert open(path, "rb").read() == before
 
 
 def test_record_group_basis_merges_only_metadata_and_sets_analyst_confirmation_date(tmp_path):
@@ -2531,13 +2531,13 @@ def test_record_group_basis_refuses_a_non_object_file_without_writing(tmp_path):
     path = state_path(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
     )
-    before = path.read_bytes()
+    before = open(path, "rb").read()
     with pytest.raises(ValueError, match="JSON object"):
         state_manager.record_group_basis(
             "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
             perimeter_confirmed=True, base_dir=str(tmp_path),
         )
-    assert path.read_bytes() == before
+    assert open(path, "rb").read() == before
 
 
 def test_record_group_basis_refuses_a_recorded_source_conflict_without_writing(tmp_path):
@@ -2554,13 +2554,13 @@ def test_record_group_basis_refuses_a_recorded_source_conflict_without_writing(t
     path = state_path(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
     )
-    before = path.read_bytes()
+    before = open(path, "rb").read()
     with pytest.raises(ValueError, match="financials_source"):
         state_manager.record_group_basis(
             "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
             perimeter_confirmed=True, base_dir=str(tmp_path),
         )
-    assert path.read_bytes() == before
+    assert open(path, "rb").read() == before
 
 
 def test_read_state_rejects_a_malformed_present_group_basis_with_its_key_named(tmp_path):
@@ -2619,13 +2619,13 @@ def test_record_group_basis_refuses_bad_input_date_before_writing(tmp_path):
     path = state_path(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
     )
-    before = path.read_bytes()
+    before = open(path, "rb").read()
     with pytest.raises(ValueError, match="group_basis.source.date"):
         state_manager.record_group_basis(
             "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
             perimeter_confirmed=True, base_dir=str(tmp_path),
         )
-    assert path.read_bytes() == before
+    assert open(path, "rb").read() == before
 
 
 def test_record_group_basis_refuses_a_state_that_disappears_before_locked_read(tmp_path, monkeypatch):

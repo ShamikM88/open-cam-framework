@@ -325,13 +325,16 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
   `record_found: false`, `company_folder_exists`, and `near_misses`. Suggestions normalize case and runs of
   whitespace/hyphens only; they never select a different proposal. The mode creates no files or directories.
 - `--review-candidates --company ... --proposal ... [--date YYYY-MM-DD]` is **read-only** and prints one JSON object:
-  `{"company": "...", "proposal": "...", "date": "...", "candidates": [...], "default_prior_date": "..."|null}`.
-  `--date` defaults to today, using the same clock source as state-date resolution. Candidates are folders for the
-  exact same company and proposal that have a readable, structurally valid `state.json` and a valid calendar date
-  strictly earlier than the requested date. The array is sorted newest first; each entry contains `date` and
-  `state_path`; `default_prior_date` is the nearest eligible date or `null`. Export-only folders, invalid dates,
-  corrupt/unusable state files, other proposals, and case/spacing/hyphen near-matches are excluded. No selection or
-  filesystem write occurs.
+  `{"company": "...", "proposal": "...", "date": "...", "candidates": [...], "default_prior_date": "..."|null,
+  "skipped": [...]}`. `--date` defaults to today, using the same clock source as state-date resolution. Candidates
+  are folders for the exact same company and proposal that have a readable, structurally valid `state.json` and a
+  valid calendar date strictly earlier than the requested date. The array is sorted newest first; each entry
+  contains `date` and `state_path`; `default_prior_date` is the nearest eligible date or `null`. Export-only
+  folders, invalid dates, other proposals, and case/spacing/hyphen near-matches are excluded. An earlier dated
+  folder whose `state.json` cannot be read is not offered as a link, but it is listed in `skipped` (`date` and a
+  one-line `reason`) so that "no earlier review" is never reported when one exists. The mode applies the same
+  refusals as `--start-review` (below): an unknown company, or a date that is not strictly later than the newest
+  existing review, is one `error:` line and exit status `1`. No selection or filesystem write occurs.
 - `--start-review --company ... --proposal ... [--date YYYY-MM-DD] [--prior-date YYYY-MM-DD | --no-prior]` creates
   a genuinely fresh review. `--date` defaults to today. With neither prior option it links to the nearest earlier
   candidate, or starts unlinked and says plainly that no eligible earlier review was found. `--prior-date` selects
@@ -342,7 +345,14 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
   `company`, `proposal`, `date`, `schema_version`, and optional `prior_review_date`. No prior review fields,
   source files, drafts, inputs, or calculations are copied. The target dated folder is never reused or overwritten.
   The start date must be strictly later than the newest existing state-bearing folder for this company/proposal so
-  existing automatic resume commands find the new review as active; backdating is refused.
+  existing automatic resume commands find the new review as active; backdating is refused. The company must
+  already have a deal folder: a company with no folder is refused (one `error:` line, exit status `1`, nothing
+  created) so that a mistyped company name cannot quietly become a new deal; a deal that has never been reviewed
+  starts with `/triage` or `/spread`. An existing company with a proposal that has no earlier review may start an
+  unlinked review (the renamed-proposal case). The decision and the creation run under one lock per company and
+  proposal, so two concurrent starts cannot both pass the date check, and the creation is all-or-nothing: if
+  writing fails, the temporary file and the folder that this call created are removed and the error is one
+  `error:` line. An empty or blank `--company` or `--proposal` is refused by every `state_manager.py` mode.
 - `--check-steps --company ... --proposal ... --required <step,step>` checks every named step against
   `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. A valid result always exits `0`;
   an unreadable or malformed state is one `error:` line and exit `1`. Its JSON output is unchanged.

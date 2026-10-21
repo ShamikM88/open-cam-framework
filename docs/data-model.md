@@ -123,7 +123,10 @@ only `company`, `proposal`, `date`, and the current `schema_version`, plus the o
 proposal. With no eligible prior, the new review is explicitly unlinked; `--no-prior` can request this even when
 candidates exist, and `--prior-date` can select any eligible earlier candidate. The start refuses an existing dated
 folder and, to keep the newest-folder resume rule reliable, refuses dates not strictly later than the newest existing
-state-bearing folder.
+state-bearing folder. It also refuses a company that has no deal folder yet (a mistyped company name must not
+quietly become a new deal; use `/triage` or `/spread` for a deal that has never been reviewed), while an existing
+company with a new proposal name may start unlinked. Earlier folders whose `state.json` cannot be read are reported
+as skipped, never silently ignored, and a start that fails part-way leaves no folder or file behind.
 
 A started review inherits **nothing** from its prior: no inputs, financials, ratios, policy state, completed steps,
 review trail, covenants, downside, collateral, security package, facility terms, guarantees, drafts, or source manifest.

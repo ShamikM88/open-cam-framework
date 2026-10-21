@@ -2405,7 +2405,7 @@ def test_group_basis_validation_accepts_unknown_future_fields_and_all_documented
     group_basis = _valid_group_basis_for_tests()
     group_basis["periods"] = ["FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3"]
     group_basis["future_metadata"] = {"opaque": ["not", "inspected"]}
-    group_basis["source"]["future_source_detail"] = object()
+    group_basis["source"]["future_source_detail"] = {"opaque": None}
     assert state_manager.validate_state({"group_basis": group_basis}, keys=("group_basis",))["group_basis"] == group_basis
 
 
@@ -2463,7 +2463,7 @@ def test_record_group_basis_requires_explicit_perimeter_confirmation_without_wri
     path = state_path(
         "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
     )
-    before = open(path, "rb").read()
+    before = path.read_bytes()
     with pytest.raises(ValueError, match="--perimeter-confirmed"):
         state_manager.record_group_basis(
             "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
@@ -2575,3 +2575,75 @@ def test_read_state_rejects_a_malformed_present_group_basis_with_its_key_named(t
             "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
             base_dir=str(tmp_path), keys=("group_basis",),
         )
+
+
+def test_record_group_basis_defaults_confirmation_date_to_today(tmp_path, monkeypatch):
+    class FixedDateTime:
+        @staticmethod
+        def now():
+            return datetime(2026, 10, 21, 12, 0)
+
+    monkeypatch.setattr(state_manager, "datetime", FixedDateTime)
+    group_basis_file = tmp_path / "group-basis.json"
+    supplied = _valid_group_basis_for_tests()
+    supplied.pop("perimeter_confirmed")
+    supplied.pop("perimeter_confirmed_on")
+    group_basis_file.write_text(json.dumps(supplied), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied",
+    )
+    result = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+        perimeter_confirmed=True, base_dir=str(tmp_path),
+    )
+    assert result["recorded"] is True
+    saved = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("group_basis",),
+    )
+    assert saved["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"
+
+
+def test_record_group_basis_refuses_bad_input_date_before_writing(tmp_path):
+    group_basis_file = tmp_path / "group-basis.json"
+    supplied = _valid_group_basis_for_tests()
+    supplied.pop("perimeter_confirmed")
+    supplied.pop("perimeter_confirmed_on")
+    supplied["source"]["date"] = "2026-02-30"
+    group_basis_file.write_text(json.dumps(supplied), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied",
+    )
+    path = state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path)
+    )
+    before = path.read_bytes()
+    with pytest.raises(ValueError, match="group_basis.source.date"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+    assert path.read_bytes() == before
+
+
+def test_record_group_basis_refuses_a_state_that_disappears_before_locked_read(tmp_path, monkeypatch):
+    group_basis_file = tmp_path / "group-basis.json"
+    group_basis_file.write_text(json.dumps(_valid_group_basis_for_tests()), encoding="utf-8")
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="analyst-supplied",
+    )
+    monkeypatch.setattr(state_manager, "read_state", lambda *args, **kwargs: None)
+    with pytest.raises(ValueError, match="no longer exists"):
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(group_basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+
+def test_group_basis_period_labels_stay_aligned_with_spreading_builder():
+    from spreading_builder import PERIOD_KEYS
+
+    assert state_manager._GROUP_BASIS_PERIOD_KEYS == tuple(PERIOD_KEYS)

@@ -2187,3 +2187,69 @@ def test_state_manager_record_group_basis_help_lists_all_flags(cli):
     for flag in ("--record-group-basis", "--company", "--proposal", "--group-basis-file",
                  "--perimeter-confirmed", "--date"):
         assert flag in result.stdout
+
+
+def test_state_manager_record_group_basis_reports_missing_json_argument_as_one_error(cli):
+    _install_group_basis_state(cli)
+    result = cli(
+        "state_manager", "--record-group-basis", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--perimeter-confirmed",
+    )
+    _assert_a_clean_state_error(result, "--group-basis-file is required")
+
+
+def test_state_manager_record_group_basis_refuses_invalid_utf8_without_writing(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_bytes(b"\xff")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result)
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_record_group_basis_refuses_impossible_confirmation_date_without_writing(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file, "--date", "2026-02-30")
+    _assert_a_clean_state_error(result, "group_basis.perimeter_confirmed_on")
+    assert state_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("extra_flags", [
+    ("--prior-date", "2025-10-21"),
+    ("--required", "spread"),
+])
+def test_state_manager_record_group_basis_rejects_flags_for_other_modes(cli, extra_flags):
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(_cli_group_basis_input()), encoding="utf-8")
+    result = cli(
+        "state_manager", "--record-group-basis", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--group-basis-file", group_file,
+        "--perimeter-confirmed", *extra_flags,
+    )
+    assert result.returncode == 2
+    assert result.stdout == "" and result.stderr.startswith("usage:") and "error:" in result.stderr
+
+
+def test_state_manager_rejects_group_basis_flags_without_record_mode(cli):
+    result = cli(
+        "state_manager", "--find", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--group-basis-file", "group-basis.json",
+    )
+    assert result.returncode == 2
+    assert result.stdout == "" and result.stderr.startswith("usage:") and "only valid with --record-group-basis" in result.stderr
+
+
+def test_state_manager_record_group_basis_rejects_invalid_metadata_before_writing(cli):
+    state_path, _ = _install_group_basis_state(cli)
+    group_input = _cli_group_basis_input()
+    group_input["source"]["date"] = "2026-02-30"
+    group_file = cli.workdir / "group-basis.json"
+    group_file.write_text(json.dumps(group_input), encoding="utf-8")
+    before = state_path.read_bytes()
+    result = _run_record_group_basis(cli, group_file)
+    _assert_a_clean_state_error(result, "group_basis.source.date")
+    assert state_path.read_bytes() == before

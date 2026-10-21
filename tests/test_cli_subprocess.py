@@ -1754,3 +1754,130 @@ def test_state_manager_find_reports_only_normalized_near_miss_and_no_write(cli):
     assert report["company_folder_exists"] is True
     assert [item["proposal"] for item in report["near_misses"]] == ["Credit Facility"]
     assert sorted(str(p.relative_to(cli.workdir)) for p in cli.workdir.rglob("*")) == before
+
+
+# ---------------------------------------------------------------------------
+# Issue #203: real subprocess contracts for review candidate/start modes.
+# ---------------------------------------------------------------------------
+
+def test_state_manager_help_lists_both_review_modes_and_all_new_options(cli):
+    result = cli("state_manager", "--help")
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    for flag in ("--review-candidates", "--start-review", "--date", "--prior-date", "--no-prior"):
+        assert flag in result.stdout
+
+
+def test_state_manager_review_candidates_cli_returns_one_read_only_json_object(cli):
+    folder = cli.workdir / "deals" / "Synthetic Co" / "Credit Facility_2025-06-01"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_text('{"company":"Synthetic Co"}\n', encoding="utf-8")
+    before = sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*"))
+
+    result = cli(
+        "state_manager", "--review-candidates", "--company", "Synthetic Co",
+        "--proposal", "Credit Facility", "--date", "2026-04-15",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert result.stdout.endswith("\n")
+    assert json.loads(result.stdout) == {
+        "company": "Synthetic Co",
+        "proposal": "Credit Facility",
+        "date": "2026-04-15",
+        "candidates": [{
+            "date": "2025-06-01",
+            "state_path": os.path.join(
+                "deals", "Synthetic Co", "Credit Facility_2025-06-01", "state.json",
+            ),
+        }],
+        "default_prior_date": "2025-06-01",
+    }
+    assert sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*")) == before
+
+
+def test_state_manager_start_review_cli_creates_a_fresh_unlinked_state(cli):
+    result = cli(
+        "state_manager", "--start-review", "--company", "Synthetic Co",
+        "--proposal", "Credit Facility", "--date", "2026-04-15",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    report = json.loads(result.stdout)
+    assert report["started"] is True
+    assert report["date"] == "2026-04-15"
+    assert report["prior_review_date"] is None
+    assert report["linked"] is False
+    assert "no prior link because no eligible earlier review was found" in report["message"]
+    state = json.loads((cli.workdir / report["state_path"]).read_text(encoding="utf-8"))
+    assert set(state) == {"company", "proposal", "date", "schema_version"}
+
+
+def test_state_manager_start_review_refusal_is_one_error_line_with_no_writes(cli):
+    prior = cli.workdir / "deals" / "Synthetic Co" / "Credit Facility_2026-06-01"
+    prior.mkdir(parents=True)
+    (prior / "state.json").write_text('{"company":"Synthetic Co"}\n', encoding="utf-8")
+    before = sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*"))
+
+    result = cli(
+        "state_manager", "--start-review", "--company", "Synthetic Co",
+        "--proposal", "Credit Facility", "--date", "2026-05-01",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert result.stderr.count("\n") == 1
+    assert "strictly later than the newest existing state-bearing review" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert sorted(str(path.relative_to(cli.workdir)) for path in cli.workdir.rglob("*")) == before
+
+
+def test_state_manager_review_candidates_impossible_date_is_one_error_line(cli):
+    result = cli(
+        "state_manager", "--review-candidates", "--company", "Synthetic Co",
+        "--proposal", "Credit Facility", "--date", "2026-02-30",
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error:")
+    assert result.stderr.count("\n") == 1
+    assert "valid calendar date" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_state_manager_prior_options_are_an_argparse_usage_error(cli):
+    result = cli(
+        "state_manager", "--start-review", "--company", "Synthetic Co",
+        "--proposal", "Credit Facility", "--date", "2026-04-15",
+        "--prior-date", "2025-06-01", "--no-prior",
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "usage:" in result.stderr
+    assert "not allowed with argument" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("mode", "extra_option"),
+    [("--find", "--date"), ("--find", "--no-prior"), ("--review-candidates", "--no-prior")],
+)
+def test_state_manager_review_only_options_refuse_wrong_mode_as_usage_error(cli, mode, extra_option):
+    args = [
+        "state_manager", mode, "--company", "Synthetic Co", "--proposal", "Credit Facility",
+        extra_option,
+    ]
+    if extra_option == "--date":
+        args.append("2026-04-15")
+    result = cli(*args)
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "usage:" in result.stderr
+    assert "Traceback" not in result.stderr
+

@@ -16,7 +16,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
-| `state_manager.py` | Finds an existing deal read-only, checks completed steps, and exports derived Reviewer-view files | No | [State manager](#state-manager) |
+| `state_manager.py` | Finds deals read-only, lists prior-review candidates, starts a clean review state, checks completed steps, and exports derived Reviewer-view files | No | [State manager](#state-manager) |
 | `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
 | `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
 | `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
@@ -316,18 +316,33 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 ## State manager
 
-`scripts/state_manager.py` has three mutually exclusive modes:
+`scripts/state_manager.py` has five mutually exclusive modes:
 
 - `--find --company ... --proposal ...` is a **read-only** lookup. It prints one JSON object. An exact existing
   record yields `{"record_found": true, "state_path": "...", "date": "YYYY-MM-DD"}`, using the newest valid dated
   folder with a `state.json`. A present but corrupt `state.json` still counts as a record; reading it through the
-  normal mode continues to raise the established corruption error.
-  If no exact record exists, the object has `record_found: false`, `company_folder_exists`, and `near_misses`.
-  Candidates are valid dated folders that contain `state.json`; each lists the proposal, date and path. Suggestions
-  match only after case-folding and collapsing runs of whitespace/hyphens. This is exact equality after normalization:
-  no fuzzy/prefix match is used, and no candidate is selected. A missing company folder is reported distinctly with
-  an empty candidate list. The mode creates no files or directories. If the company folder cannot be listed, the
-  mode prints one `error:` line and exits `1`.
+  normal mode continues to raise the established corruption error. If no exact record exists, the object has
+  `record_found: false`, `company_folder_exists`, and `near_misses`. Suggestions normalize case and runs of
+  whitespace/hyphens only; they never select a different proposal. The mode creates no files or directories.
+- `--review-candidates --company ... --proposal ... [--date YYYY-MM-DD]` is **read-only** and prints one JSON object:
+  `{"company": "...", "proposal": "...", "date": "...", "candidates": [...], "default_prior_date": "..."|null}`.
+  `--date` defaults to today, using the same clock source as state-date resolution. Candidates are folders for the
+  exact same company and proposal that have a readable, structurally valid `state.json` and a valid calendar date
+  strictly earlier than the requested date. The array is sorted newest first; each entry contains `date` and
+  `state_path`; `default_prior_date` is the nearest eligible date or `null`. Export-only folders, invalid dates,
+  corrupt/unusable state files, other proposals, and case/spacing/hyphen near-matches are excluded. No selection or
+  filesystem write occurs.
+- `--start-review --company ... --proposal ... [--date YYYY-MM-DD] [--prior-date YYYY-MM-DD | --no-prior]` creates
+  a genuinely fresh review. `--date` defaults to today. With neither prior option it links to the nearest earlier
+  candidate, or starts unlinked and says plainly that no eligible earlier review was found. `--prior-date` selects
+  an explicit eligible earlier candidate; if it is not eligible, the command refuses. `--no-prior` deliberately
+  starts unlinked even when candidates exist; `--prior-date` and `--no-prior` together are an argparse usage error
+  (exit `2`). A successful run prints one JSON object with `started`, `state_path`, `date`,
+  `prior_review_date` (or `null`), `linked`, and a human-readable `message`. The new `state.json` contains only
+  `company`, `proposal`, `date`, `schema_version`, and optional `prior_review_date`. No prior review fields,
+  source files, drafts, inputs, or calculations are copied. The target dated folder is never reused or overwritten.
+  The start date must be strictly later than the newest existing state-bearing folder for this company/proposal so
+  existing automatic resume commands find the new review as active; backdating is refused.
 - `--check-steps --company ... --proposal ... --required <step,step>` checks every named step against
   `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. A valid result always exits `0`;
   an unreadable or malformed state is one `error:` line and exit `1`. Its JSON output is unchanged.
@@ -339,10 +354,15 @@ python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fl
 
 The two review-view files are derived copies for the interactive Reviewer, not records of the deal; no other script may
 read them as a record. The source of truth remains the real `state.json`, which `/review` updates in its `State: write`
-stage. See the [data model](data-model.md).
+stage. See the [data model](data-model.md). Script-reported refusals use exit status `1`, exactly one
+`error: ...` line on standard error, no stdout and no traceback; malformed CLI usage exits `2`.
 
 ```bash
 python scripts/state_manager.py --find --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+python scripts/state_manager.py --review-candidates --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21
+python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21
+python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21 --prior-date 2025-10-21
+python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21 --no-prior
 python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
 python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
 ```

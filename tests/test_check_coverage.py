@@ -17,7 +17,7 @@ import check_coverage
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CRITICAL = ["policy_engine", "policy_checks", "policy_check", "spreading_builder", "spreading_check",
-            "state_manager", "deal_export", "docx_builder"]
+            "state_manager", "deal_export", "docx_builder", "review_compare"]
 THRESHOLDS = {"overall": 85.0, "critical": 90.0, "critical_modules": ["alpha", "beta"]}
 
 

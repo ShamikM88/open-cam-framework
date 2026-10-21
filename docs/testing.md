@@ -93,7 +93,7 @@ bandit -r scripts/ -ll
 run is configured to fail on any warning, to forbid network access (`pytest-socket`) and to time out a
 hung test (`pytest-timeout`), so install the dev requirements (`pip install -r requirements-dev.txt`)
 before running `pytest`. Coverage is measured with `pytest --cov` (line + branch over `scripts/`). CI
-enforces a 95% overall floor, a 97% floor on each of eight governance modules, and 95% on the lines a
+enforces a 95% overall floor, a 97% floor on each of nine governance modules, and 95% on the lines a
 pull request changes (98% where it changes a governance module); the numbers and the module list live in
 `pyproject.toml` and `diff_cover_critical.toml`. To check locally:
 ```bash
@@ -108,7 +108,7 @@ A reviewed advisory with no fix available is ignored only through
 a reviewed PR that adds `--ignore-vuln <ID>` and a reason comment to the `pip-audit` command (see CLAUDE.md,
 "Testing and static analysis"); the audit itself is never switched off. Separately, a **weekly mutation-testing run**
 (`.github/workflows/mutation.yml`, Linux only, also startable by hand from the Actions tab) mutates the
-eight governance modules (and the `calibrate.py` helpers) and reports a score per module plus the mutants
+nine governance modules (and the `calibrate.py` helpers) and reports a score per module plus the mutants
 no test caught; it is a diagnostic report, not a merge gate.
 
 Beyond example-based unit tests the suite includes property-based tests (`hypothesis`), historical and
@@ -164,13 +164,14 @@ running `pytest`, or pytest rejects the options.
 **Coverage**: `pytest --cov` measures line + branch coverage of `scripts/`. `# pragma: no cover` is allowed
 only with a reason on the same line (`# pragma: no cover - why`; `tests/test_repo_conventions.py`).
 CI enforces the floors in `pyproject.toml`: `[tool.opencam.coverage]` (read by `scripts/check_coverage.py`)
-sets an **overall floor of 95%** and a **97% floor for each of eight governance modules** on its own --
+sets an **overall floor of 95%** and a **97% floor for each of nine governance modules** on its own --
 `policy_engine`, `policy_checks`, `policy_check` (covenant/security/CP evaluation and the draft audit),
 `spreading_builder`, `spreading_check` (every ratio the CAM reports), `state_manager`, `deal_export`,
-`docx_builder` (persisted state and the exported documents) -- because one overall number would let a
+`docx_builder` (persisted state and the exported documents), `review_compare` (the read-only comparison of two
+dated reviews, the audit trail of an annual review) -- because one overall number would let a
 well-covered helper hide an untested governance module. `[tool.diff_cover]` sets a **95% floor for the lines
 a pull request changes** (`diff-cover coverage.xml --config-file pyproject.toml`, pull requests only; a
-change that touches no measured line passes), and `diff_cover_critical.toml` holds the lines changed in one of the eight
+change that touches no measured line passes), and `diff_cover_critical.toml` holds the lines changed in one of the nine
 governance modules to **98%** (a second run, because diff-cover takes one threshold per configuration; a test keeps its
 `include` list equal to `critical_modules`). diff-cover reads `pyproject.toml` **only** with
 `--config-file`; without it the floor is silently 0 -- `tests/test_ci_workflow.py` runs CI's exact command
@@ -250,7 +251,7 @@ on every checkout; no `pull_request_target`; CI never passes `--write` or `--upd
 issue #146): mutmut changes one line of a governance module at a time and checks that a test then fails;
 a surviving mutant is a line that coverage counts as executed but nothing really asserts on. It runs
 **weekly (Mondays) and on demand only -- never on a pull request or push**, on Ubuntu (mutmut forks, so
-not Windows). **Scope:** the eight `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
+not Windows). **Scope:** the nine `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
 chunker/merge helpers, as a *supporting* module -- scored and reported, but not governance-critical and so not in
 the coverage floors); a test pins `only_mutate` to exactly those and the supporting list. The result is a
 downloadable `mutation-report` artifact (survivors, **every mutant with its status** in `mutation-all.txt`, the
@@ -259,7 +260,7 @@ overall score **and `scripts/mutation_report.py`'s per-module table**: a score p
 (`(killed + timed out) / (mutants - skipped)`, so a mutant no test reaches counts against its module), completeness
 warnings (a configured module with no mutants, a module whose mutants mostly have no test, mutants never checked,
 a survivors-only listing) and the largest groups of survivors, the starting point for triage.
-**It is diagnostic: no score is enforced and the job is not a required check.** The eight governance modules have
+**It is diagnostic: no score is enforced and the job is not a required check.** The nine governance modules have
 a **diagnostic target of 75%** (`[tool.opencam.mutation] target_critical` in `pyproject.toml`, chosen after the
 first full run, below); the report marks each of them met or below and keeps reporting a module that is below,
 and it never fails a build over a score. Changing the target is a reviewed change. The job fails only if mutmut

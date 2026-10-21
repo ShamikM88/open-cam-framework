@@ -1223,3 +1223,101 @@ def test_408_display_value_and_basis_change_keep_exact_user_visible_values():
         "comparable_like_for_like": False,
         "warning": rc.BASIS_WARNING,
     }
+def test_408_exact_delta_keeps_significant_digits_when_either_operand_has_a_large_exponent():
+    from decimal import localcontext
+
+    large = Decimal("1E+50")
+    small = Decimal("1E+2")
+    with localcontext() as context:
+        context.prec = 100
+        exact_positive = large - small
+
+    assert rc._exact_delta(large, small) == exact_positive
+    assert rc._exact_delta(small, large) == -exact_positive
+
+
+def test_408_read_state_uses_utf8_even_when_the_platform_default_is_cp1252(
+    tmp_path, monkeypatch, cp1252_default_open,
+):
+    monkeypatch.chdir(tmp_path)
+    write_state(
+        tmp_path,
+        CURRENT_DATE,
+        state(),
+        raw_text=(
+            '{"company":"Synthetic Co","proposal":"Asset Facility",'
+            '"note":"Grüße — café"}'
+        ),
+    )
+
+    loaded = rc._read_state(COMPANY, PROPOSAL, CURRENT_DATE, "current")
+    assert loaded["note"] == "Grüße — café"
+
+
+def test_408_compare_states_default_does_not_enable_restatement_without_explicit_confirmation():
+    result = rc.compare_states(
+        COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE,
+        state(financials={"FY-Current": {"ebitda": 10}}),
+        state(financials={"FY-1": {"ebitda": 10}}),
+    )
+    assert "restatement_check" not in result
+
+
+def test_408_diff_value_emits_only_identified_record_rows_when_a_list_is_added_or_removed():
+    added = []
+    rc._diff_value(
+        "collateral", rc._MISSING, [{"asset_id": "SYN-1", "value": 100}], added,
+    )
+    assert added == [{
+        "path": 'collateral[asset_id="SYN-1"]',
+        "change": "added",
+        "prior": None,
+        "current": {"asset_id": "SYN-1", "value": 100},
+    }]
+
+    removed = []
+    rc._diff_value(
+        "collateral", [{"asset_id": "SYN-2", "value": 200}], rc._MISSING, removed,
+    )
+    assert removed == [{
+        "path": 'collateral[asset_id="SYN-2"]',
+        "change": "removed",
+        "prior": {"asset_id": "SYN-2", "value": 200},
+        "current": None,
+    }]
+
+
+def test_408_restatement_custom_historical_labels_are_not_comparable_with_an_exact_reason():
+    result = report(
+        {"financials": {"LTM": {"ebitda": 10}}},
+        {"financials": {"FY-1": {"ebitda": 10}}},
+        rolled=True,
+    )
+    assert result["restatement_check"]["periods"] == [{
+        "prior_period": "LTM",
+        "current_period": None,
+        "status": "not_comparable",
+        "prior_values": {
+            "raw_line_items": None,
+            "raw_store": None,
+            "financials": {"ebitda": 10},
+            "ratios": None,
+        },
+        "current_values": None,
+        "differences": [],
+        "warning": None,
+        "reason": "period label has no defined one-year roll-forward mapping",
+    }]
+
+
+def test_408_period_value_and_present_distinguish_missing_or_null_from_an_empty_recorded_object():
+    assert rc._period_value({}, "financials", "FY-Current") is rc._MISSING
+    assert rc._period_value(
+        {"financials": {"FY-Current": None}}, "financials", "FY-Current",
+    ) is None
+    assert rc._period_present(
+        {"financials": {"FY-Current": None}}, "FY-Current",
+    ) is False
+    assert rc._period_present(
+        {"financials": {"FY-Current": {}}}, "FY-Current",
+    ) is True

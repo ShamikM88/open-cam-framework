@@ -153,13 +153,14 @@ See [State manager](#state-manager).
   `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none. Each supplied value must be a
   finite JSON number; strings, booleans, nulls, lists and objects are refused with one key-naming `error:` line.
 - `--new-review` targets today's dated folder. If it already contains a `state.json`, the pipeline resumes
-  that review as a rerun after a failure and leaves its existing `prior_review_date` unchanged. If the folder has no
-  `state.json`, the orchestrator creates a minimal fresh state through `state_manager.start_review()`, linking it
+  that review as a rerun after a failure and leaves its existing `prior_review_date` unchanged. If the dated folder
+  does not exist, the orchestrator creates a minimal fresh state through `state_manager.start_review()`, linking it
   to the nearest earlier state-bearing review for the exact same company and proposal; if none exists, it starts
   unlinked. The link is a date only: no earlier-review inputs or results are inherited. Subsequent pipeline checkpoints
-  preserve `prior_review_date`. A refusal (including when today's date is not later than the newest existing
-  state-bearing review) exits with one `error:` line and status 1 before a model call or write. A single `[INFO]`
-  line on standard error says whether the new review was linked and to which date, or started unlinked.
+  preserve `prior_review_date`. If a dated folder already exists without a `state.json`, it is refused rather than
+  overwritten. A refusal (including when today's date is not later than the newest existing state-bearing review)
+  exits with one `error:` line and status 1 before a model call or write. A single `[INFO]` line on standard error
+  says whether the new review was linked and to which date, or started unlinked.
 
 It needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any it stops first, before it reads or
 writes the deal, with one `error: no Anthropic credentials were found...` line and exit status `1`, and sends nothing. See

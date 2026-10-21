@@ -1591,3 +1591,43 @@ def test_dx_export_deal_rejects_each_unsafe_path_component_before_writing(tmp_pa
     assert str(caught.value) == expected
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
+
+
+
+@pytest.mark.parametrize(
+    ("failure_type", "failure_message"),
+    [
+        (OSError, "synthetic export write failure"),
+        (ValueError, "synthetic export validation failure"),
+    ],
+)
+def test_dx_main_converts_export_errors_to_exact_error_exit_messages(
+    tmp_path, monkeypatch, capsys, failure_type, failure_message
+):
+    import deal_export
+
+    monkeypatch.chdir(tmp_path)
+    draft = tmp_path / "synthetic-draft.md"
+    draft.write_text("# Synthetic draft\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deal_export, "resolve_export_date_str",
+        lambda company, proposal, date_str=None: "2026-04-03",
+    )
+
+    def fail_export(*args, **kwargs):
+        raise failure_type(failure_message)
+
+    monkeypatch.setattr(deal_export, "export_deal", fail_export)
+
+    with pytest.raises(SystemExit) as caught:
+        main([
+            "--company", "Synthetic Co", "--proposal", "Credit Facility",
+            "--draft", str(draft),
+        ])
+
+    assert caught.value.code == f"error: {failure_message}"
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()

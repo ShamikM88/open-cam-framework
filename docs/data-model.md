@@ -110,7 +110,8 @@ incomplete raw figures.
 A step begins by finding the deal's state (the most recent dated folder for that company and proposal; a bare library
 call or a brand-new deal gets today's date) and treats everything recorded there as true. With
 `orchestrator.py --new-review`, today's dated folder is created through the shared fresh-review state manager only
-when that dated folder does not exist. That minimal state links to the nearest earlier state-bearing review for the
+when that dated folder does not exist and the company already has a deal folder (for a company with no folder the
+headless run keeps its earlier behaviour: nothing to link, nothing refused). That minimal state links to the nearest earlier state-bearing review for the
 exact same company and proposal using `prior_review_date`, or starts unlinked when no eligible earlier review exists.
 The link is only a date; prior inputs and results are never inherited. Later pipeline checkpoints merge into the state
 and preserve `prior_review_date`. If today's dated folder already has a `state.json`, `--new-review` resumes it
@@ -131,7 +132,10 @@ only `company`, `proposal`, `date`, and the current `schema_version`, plus the o
 proposal. Keep the proposal name exactly the same across years: a renamed proposal cannot be linked or compared. With no eligible prior, the new review is explicitly unlinked; `--no-prior` can request this even when
 candidates exist, and `--prior-date` can select any eligible earlier candidate. The start refuses an existing dated
 folder and, to keep the newest-folder resume rule reliable, refuses dates not strictly later than the newest existing
-state-bearing folder.
+state-bearing folder. It also refuses a company that has no deal folder yet (a mistyped company name must not
+quietly become a new deal; use `/triage` or `/spread` for a deal that has never been reviewed), while an existing
+company with a new proposal name may start unlinked. Earlier folders whose `state.json` cannot be read are reported
+as skipped, never silently ignored, and a start that fails part-way leaves no folder or file behind.
 
 A started review inherits **nothing** from its prior: no inputs, financials, ratios, policy state, completed steps,
 review trail, covenants, downside, collateral, security package, facility terms, guarantees, drafts, or source manifest.

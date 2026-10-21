@@ -297,6 +297,8 @@ def sanitize_path_component(value, field_name):
     path segment before it, rather than raising).
     """
     value = str(value)
+    if not value.strip():
+        raise ValueError(f"{field_name} must not be empty.")
     if _UNSAFE_PATH_CHARS_RE.search(value) or value in (".", ".."):
         raise ValueError(
             f"{field_name} {value!r} isn't safe to use as a filesystem path "
@@ -340,20 +342,56 @@ def _existing_date_str(company, proposal, base_dir=None):
 
 
 
+def _require_known_company(company, base_dir=None):
+    """The company's deal folder, or a refusal: starting a review is for a deal that already has a folder.
+
+    A mistyped company name would otherwise quietly become a brand-new deal (issue #268); a deal that has never
+    been reviewed starts with /triage or /spread instead.
+    """
+    company_dir = os.path.join(_deals_root(base_dir), company)
+    if not os.path.isdir(company_dir):
+        raise StateError(
+            f"Refusing to start a review: there is no deal folder for company {company!r}; starting a review "
+            "is for a deal that already has one (use /triage or /spread to start a new deal, or check the "
+            "spelling); nothing was changed."
+        )
+    return company_dir
+
+
+def _require_later_than_newest(company, proposal, date_str, base_dir=None):
+    """Refuse a review date that is not strictly later than the newest existing state-bearing review.
+
+    Every other command resumes the newest dated folder, so a review dated earlier would never become active.
+    """
+    newest_date = _existing_date_str(company, proposal, base_dir=base_dir)
+    if newest_date is not None and date_str <= newest_date:
+        raise StateError(
+            f"Refusing to start review dated {date_str}: it must be strictly later than the newest "
+            f"existing state-bearing review ({newest_date}) for this exact company and proposal; "
+            "nothing was changed."
+        )
+
+
 def get_review_candidates(company, proposal, date_str=None, base_dir=None):
     """List eligible earlier review states for an exact company/proposal.
 
     The dated folder must contain a readable state.json accepted by read_state().
-    Invalid/corrupt states, export-only folders, impossible folder dates, and
-    non-exact proposal names are not candidates. This function is read-only.
+    Export-only folders, impossible folder dates and non-exact proposal names are not
+    candidates; an earlier folder whose state.json cannot be read is not offered either, but it is
+    reported under `skipped` (date and reason) so that "no earlier review" is never said about a
+    review that exists. The company must already have a deal folder, and the date must be strictly
+    later than the newest existing review (the same rules as start_review). Read-only.
     """
     if date_str is None:
         date_str = datetime.now().strftime("%Y-%m-%d")
     date_str = _validate_explicit_state_date(date_str)
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
+    _require_known_company(company, base_dir=base_dir)
+    _require_later_than_newest(company, proposal, date_str, base_dir=base_dir)
 
     candidates = []
+    skipped = []
     for candidate_date in reversed(_matching_dated_folder_dates(company, proposal, base_dir=base_dir)):
         if candidate_date >= date_str:
             continue
@@ -364,8 +402,10 @@ def get_review_candidates(company, proposal, date_str=None, base_dir=None):
             candidate_state = read_state(
                 company, proposal, date_str=candidate_date, base_dir=base_dir,
             )
-        except (OSError, ValueError):
-            # A broken or unusable state file is not an eligible comparison baseline.
+        except (OSError, ValueError) as exc:
+            # A broken or unusable state file is not an eligible comparison baseline, but it is not silent.
+            reason = str(exc).splitlines()[0] if str(exc) else type(exc).__name__
+            skipped.append({"date": candidate_date, "reason": f"state.json cannot be read: {reason}"})
             continue
         if candidate_state is None:
             # It may have disappeared after the file-existence check.
@@ -379,15 +419,60 @@ def get_review_candidates(company, proposal, date_str=None, base_dir=None):
         "date": date_str,
         "candidates": candidates,
         "default_prior_date": default_prior_date,
+        "skipped": skipped,
     }
+
+
+def _create_review_folder(target_dir, target_state_path, state):
+    """Create the dated folder and its single state.json so that a failure leaves nothing behind.
+
+    The state is written to a temporary file in the new folder and moved into place, and if anything fails
+    (including an interrupt) the temporary file and the folder this call created are removed again.
+    """
+    try:
+        os.mkdir(target_dir)
+    except FileExistsError as exc:
+        raise StateError(
+            f"Refusing to start review: the dated folder already exists ({target_dir}); nothing was changed."
+        ) from exc
+    except OSError as exc:
+        raise StateError(f"Could not start the review: {exc}; nothing was changed.") from exc
+    tmp_path = None
+    try:
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=target_dir, suffix=".tmp")
+        with os.fdopen(tmp_fd, "w", encoding="utf-8") as state_file:
+            json.dump(state, state_file, indent=2)
+            state_file.write("\n")
+        os.replace(tmp_path, target_state_path)
+    except BaseException as exc:
+        cleaned_up = True
+        for leftover in (tmp_path, target_state_path):
+            if leftover and os.path.exists(leftover):
+                try:
+                    os.remove(leftover)
+                except OSError:
+                    cleaned_up = False
+        try:
+            os.rmdir(target_dir)
+        except OSError:
+            cleaned_up = False
+        if isinstance(exc, OSError):
+            outcome = (
+                "the folder this call created was removed and nothing was changed" if cleaned_up
+                else f"the new folder {target_dir} could not be removed and should be deleted by hand"
+            )
+            raise StateError(f"Could not start the review: {exc}; {outcome}.") from exc
+        raise
 
 
 def start_review(company, proposal, date_str=None, prior_date=None, no_prior=False, base_dir=None):
     """Create a fresh dated review state without inheriting any prior review fields.
 
-    The new date must be strictly later than every existing state-bearing date
-    for this exact company/proposal. A selected prior is a link only: its data
-    is never copied. The new dated folder and state.json are never overwritten.
+    The company must already have a deal folder. The new date must be strictly later than every existing
+    state-bearing date for this exact company/proposal. A selected prior is a link only: its data is never
+    copied. The new dated folder and state.json are never overwritten, the whole decision and creation runs
+    under one lock per company/proposal so that two starts cannot both pass the date check, and a failed
+    creation leaves nothing behind.
     """
     if no_prior and prior_date is not None:
         raise StateError("--prior-date and --no-prior cannot be used together")
@@ -399,64 +484,50 @@ def start_review(company, proposal, date_str=None, prior_date=None, no_prior=Fal
 
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
+    company_dir = _require_known_company(company, base_dir=base_dir)
     target_state_path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     target_dir = os.path.dirname(target_state_path)
 
-    if os.path.lexists(target_dir):
-        raise StateError(
-            f"Refusing to start review: the dated folder already exists for {company!r} / "
-            f"{proposal!r} on {date_str}; nothing was changed."
-        )
-
-    newest_date = _existing_date_str(company, proposal, base_dir=base_dir)
-    if newest_date is not None and date_str <= newest_date:
-        raise StateError(
-            f"Refusing to start review dated {date_str}: it must be strictly later than the newest "
-            f"existing state-bearing review ({newest_date}) for this exact company and proposal; "
-            "nothing was changed."
-        )
-
-    report = get_review_candidates(company, proposal, date_str=date_str, base_dir=base_dir)
-    eligible_dates = {item["date"] for item in report["candidates"]}
-    if prior_date is not None:
-        if prior_date >= date_str:
+    with _FileLock(os.path.join(company_dir, f"{proposal}.start"), timeout=LOCK_TIMEOUT_SECONDS):
+        if os.path.lexists(target_dir):
             raise StateError(
-                f"Prior review date {prior_date} is not eligible: it must be earlier than the new review date "
-                f"{date_str}; nothing was changed."
+                f"Refusing to start review: the dated folder already exists for {company!r} / "
+                f"{proposal!r} on {date_str}; nothing was changed."
             )
-        if prior_date not in eligible_dates:
-            raise StateError(
-                f"Prior review date {prior_date} is not eligible for exact company {company!r} and proposal "
-                f"{proposal!r}: no valid state.json exists in that exact dated folder; nothing was changed."
-            )
-        linked_date = prior_date
-        message = f"Started a fresh review linked to the explicitly selected prior review dated {linked_date}."
-    elif no_prior:
-        linked_date = None
-        message = "Started a fresh review without a prior link by request (--no-prior)."
-    else:
-        linked_date = report["default_prior_date"]
-        if linked_date is None:
-            message = "Started a fresh review without a prior link because no eligible earlier review was found."
+        report = get_review_candidates(company, proposal, date_str=date_str, base_dir=base_dir)
+        eligible_dates = {item["date"] for item in report["candidates"]}
+        if prior_date is not None:
+            if prior_date >= date_str:
+                raise StateError(
+                    f"Prior review date {prior_date} is not eligible: it must be earlier than the new review date "
+                    f"{date_str}; nothing was changed."
+                )
+            if prior_date not in eligible_dates:
+                raise StateError(
+                    f"Prior review date {prior_date} is not eligible for exact company {company!r} and proposal "
+                    f"{proposal!r}: no valid state.json exists in that exact dated folder; nothing was changed."
+                )
+            linked_date = prior_date
+            message = f"Started a fresh review linked to the explicitly selected prior review dated {linked_date}."
+        elif no_prior:
+            linked_date = None
+            message = "Started a fresh review without a prior link by request (--no-prior)."
         else:
-            message = f"Started a fresh review linked to the nearest earlier review dated {linked_date}."
+            linked_date = report["default_prior_date"]
+            if linked_date is None:
+                message = "Started a fresh review without a prior link because no eligible earlier review was found."
+            else:
+                message = f"Started a fresh review linked to the nearest earlier review dated {linked_date}."
 
-    state = {
-        "company": company,
-        "proposal": proposal,
-        "date": date_str,
-        "schema_version": SCHEMA_VERSION,
-    }
-    if linked_date is not None:
-        state["prior_review_date"] = linked_date
-
-    # Do not create even the company directory until all refusal checks passed.
-    company_dir = os.path.dirname(target_dir)
-    os.makedirs(company_dir, exist_ok=True)
-    os.mkdir(target_dir)
-    with open(target_state_path, "x", encoding="utf-8") as state_file:
-        json.dump(state, state_file, indent=2)
-        state_file.write("\n")
+        state = {
+            "company": company,
+            "proposal": proposal,
+            "date": date_str,
+            "schema_version": SCHEMA_VERSION,
+        }
+        if linked_date is not None:
+            state["prior_review_date"] = linked_date
+        _create_review_folder(target_dir, target_state_path, state)
 
     return {
         "started": True,
@@ -466,7 +537,6 @@ def start_review(company, proposal, date_str=None, prior_date=None, no_prior=Fal
         "linked": linked_date is not None,
         "message": message,
     }
-
 
 
 def _normalize_proposal_for_suggestion(proposal):

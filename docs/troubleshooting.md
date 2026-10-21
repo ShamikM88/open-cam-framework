@@ -118,11 +118,17 @@ single JSON object. It reports the first line and creates nothing; do not guess 
 | :--- | :--- |
 | The dated folder already exists | A folder for the selected new-review date is already there. It is never overwritten; inspect it and choose how to proceed yourself. |
 | The date is not later than the newest state-bearing review | The new date is the same as or earlier than the latest review. Choose a later date only if that is the date you intend to use. |
+| The company has no deal folder | The company name matches no folder under `deals/`, so starting a review for it would quietly create a new deal (usually a mistyped name). Check the spelling; use `/triage` or `/spread` for a deal that has never been reviewed. |
 | The chosen earlier date is not one of the eligible earlier reviews | The chosen date was not returned as a valid state-bearing candidate for this exact company/proposal, or is not earlier than the new date. Choose a date from the listed candidates, start unlinked, or stop. |
 
 Every refusal is surfaced as one `error:` line; nothing is created or changed. The command never tries another date or link
 choice on your behalf. See [Starting a new review](data-model.md#starting-a-new-review) for the date-only link and empty-state
 rules.
+
+The listing script also reports earlier reviews whose `state.json` could not be read, under `skipped` (date and reason),
+instead of leaving them out silently. The command text does not display that list: if "no earlier review was found" does
+not match what you expect, run `python scripts/state_manager.py --review-candidates --company "<company>" --proposal "<proposal>"`
+yourself and look at `skipped`.
 
 ## Figures
 

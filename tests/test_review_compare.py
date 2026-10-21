@@ -1261,7 +1261,8 @@ def test_408_compare_states_does_not_relabel_recorded_to_missing_as_missing_in_b
         COMPANY, PROPOSAL, PRIOR_DATE, CURRENT_DATE, prior_state, current_state,
     )
 
-    assert "inputs" in result["summary"]["unchanged_categories"]
+    assert result["comparison_version"] == rc.COMPARISON_VERSION
+    assert "ownership" in result["summary"]["unchanged_categories"]
     assert "financials" not in result["summary"]["unchanged_categories"]
     assert "financials" not in result["summary"]["not_recorded_in_both"]
     assert "facility_terms" in result["summary"]["not_recorded_in_both"]

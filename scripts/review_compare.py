@@ -220,12 +220,21 @@ def _transition_kind(prior, current):
     return "value_changed"
 
 
+def _canonical_value(value):
+    """Sort object keys recursively while preserving list order and exact scalar values."""
+    if isinstance(value, dict):
+        return {key: _canonical_value(value[key]) for key in sorted(value, key=str)}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_value(item) for item in value]
+    return value
+
+
 def _change(path, kind, prior, current):
     row = {
         "path": path,
         "change": kind,
-        "prior": None if prior is _MISSING else prior,
-        "current": None if current is _MISSING else current,
+        "prior": None if prior is _MISSING else _canonical_value(prior),
+        "current": None if current is _MISSING else _canonical_value(current),
     }
     if _is_number(prior) and _is_number(current):
         row["delta"] = _exact_delta(current, prior)
@@ -352,10 +361,10 @@ def _period_snapshot(state, period):
     ratios = _period_value(state, "ratios", period)
     subtotals = {key: val for key, val in financial.items() if key != "raw"} if isinstance(financial, dict) else financial
     return {
-        "raw_line_items": None if raw is _MISSING else raw,
+        "raw_line_items": None if raw is _MISSING else _canonical_value(raw),
         "raw_store": raw_store,
-        "financials": None if subtotals is _MISSING else subtotals,
-        "ratios": None if ratios is _MISSING else ratios,
+        "financials": None if subtotals is _MISSING else _canonical_value(subtotals),
+        "ratios": None if ratios is _MISSING else _canonical_value(ratios),
     }
 
 

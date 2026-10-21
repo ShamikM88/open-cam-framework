@@ -317,6 +317,15 @@ def test_serialization_is_deterministic_and_preserves_decimal_json_numbers():
     decoded = json.loads(first, parse_float=Decimal, parse_int=Decimal)
     assert decoded["changes"][0]["prior"] == Decimal("1.000000000000000001")
     assert decoded["changes"][0]["delta"] == Decimal("1E-18")
+    nested_first = report(
+        {"guarantees": [{"provider": "Parent", "amount": 10, "type": "Corporate"}]},
+        {"guarantees": [{"provider": "Parent", "amount": 11, "type": "Corporate"}]},
+    )
+    nested_reordered = report(
+        {"guarantees": [{"type": "Corporate", "amount": 10, "provider": "Parent"}]},
+        {"guarantees": [{"amount": 11, "type": "Corporate", "provider": "Parent"}]},
+    )
+    assert rc._json_dump(nested_first) == rc._json_dump(nested_reordered)
 
 
 def test_markdown_has_stable_title_table_summary_and_missing_downside_warning():

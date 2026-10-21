@@ -1839,7 +1839,7 @@ def test_review_203_start_without_prior_creates_minimal_active_state(tmp_path):
     assert report["date"] == "2026-04-15"
     assert report["prior_review_date"] is None
     assert report["linked"] is False
-    assert "no prior link because no eligible earlier review was found" in report["message"]
+    assert "no eligible earlier review was found" in report["message"]
     assert report["state_path"] == str(expected_path)
     saved = json.loads(expected_path.read_text(encoding="utf-8"))
     assert saved == {

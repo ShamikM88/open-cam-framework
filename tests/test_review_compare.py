@@ -1345,3 +1345,10 @@ def test_408_restatement_rows_are_sorted_by_historical_period_order_not_lexicall
         ("FY-Current", "FY-1", "consistent"),
         ("FY-1", "FY-2", "consistent"),
     ]
+def test_408_period_snapshot_represents_every_absent_period_store_as_none():
+    assert rc._period_snapshot({}, "FY-Current") == {
+        "raw_line_items": None,
+        "raw_store": None,
+        "financials": None,
+        "ratios": None,
+    }

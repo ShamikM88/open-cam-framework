@@ -1557,3 +1557,37 @@ def test_dx_main_validates_an_explicit_date_before_opening_the_draft(tmp_path, m
     assert captured.err == ""
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
+
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("company", os.path.join("..", "synthetic-unsafe")),
+        ("proposal", os.path.join("..", "synthetic-unsafe")),
+        ("deal_type", os.path.join("..", "synthetic-unsafe")),
+        ("date_str", os.path.join("..", "synthetic-unsafe")),
+    ],
+)
+def test_dx_export_deal_rejects_each_unsafe_path_component_before_writing(tmp_path, field, value):
+    arguments = {
+        "company": "Synthetic Co",
+        "proposal": "Credit Facility",
+        "deal_type": "asset_finance",
+        "date_str": "2026-03-12",
+    }
+    arguments[field] = value
+    expected = (
+        f"{field} {value!r} isn't safe to use as a filesystem path "
+        f"component (no {chr(92)} / : * ? \" < > | characters, and not \".\" or \"..\")."
+    )
+
+    with pytest.raises(ValueError) as caught:
+        export_deal(
+            arguments["company"], arguments["proposal"], arguments["deal_type"],
+            "# Synthetic draft", date_str=arguments["date_str"], base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == expected
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()

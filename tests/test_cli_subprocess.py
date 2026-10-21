@@ -37,7 +37,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
     "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "conventions", "deal_export",
-    "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "run_evals", "source_manifest",
+    "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
 )
@@ -1880,4 +1880,121 @@ def test_state_manager_review_only_options_refuse_wrong_mode_as_usage_error(cli,
     assert result.stdout == ""
     assert "usage:" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+
+def test_review_compare_compares_exact_dated_states_read_only(cli):
+    company, proposal = "Synthetic Co", "Asset Facility"
+    prior_date, current_date = "2025-10-20", "2026-10-20"
+    for date, ebitda in ((prior_date, 100), (current_date, 110)):
+        state_dir = cli.workdir / "deals" / company / f"{proposal}_{date}"
+        state_dir.mkdir(parents=True)
+        state = {
+            "company": company,
+            "proposal": proposal,
+            "date": date,
+            "financials_source": "framework-computed",
+            "financials": {"FY-Current": {"ebitda": ebitda}},
+        }
+        (state_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    before = {
+        date: (cli.workdir / "deals" / company / f"{proposal}_{date}" / "state.json").read_bytes()
+        for date in (prior_date, current_date)
+    }
+
+    result = cli(
+        "review_compare", "--company", company, "--proposal", proposal,
+        "--current-date", current_date, "--prior-date", prior_date,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    report = json.loads(result.stdout)
+    assert report["company"] == company
+    assert report["proposal"] == proposal
+    assert report["prior_date"] == prior_date
+    assert report["current_date"] == current_date
+    assert report["summary"]["changed_paths"] == len(report["changes"])
+    row = next(change for change in report["changes"]
+               if change["path"] == "financials.FY-Current.ebitda")
+    assert row["change"] == "value_changed"
+    assert row["delta"] == 10
+    assert before == {
+        date: (cli.workdir / "deals" / company / f"{proposal}_{date}" / "state.json").read_bytes()
+        for date in (prior_date, current_date)
+    }
+    assert sorted(p.relative_to(cli.workdir).as_posix() for p in cli.workdir.rglob("state.json")) == [
+        f"deals/{company}/{proposal}_{prior_date}/state.json",
+        f"deals/{company}/{proposal}_{current_date}/state.json",
+    ]
+
+
+def test_review_compare_markdown_format_is_a_real_cli_output(cli):
+    company, proposal = "Synthetic Co", "Asset Facility"
+    prior_date, current_date = "2025-10-20", "2026-10-20"
+    for date, ebitda in ((prior_date, 100), (current_date, 110)):
+        folder = cli.workdir / "deals" / company / f"{proposal}_{date}"
+        folder.mkdir(parents=True)
+        (folder / "state.json").write_text(json.dumps({
+            "company": company, "proposal": proposal, "date": date,
+            "financials": {"FY-Current": {"ebitda": ebitda}},
+        }), encoding="utf-8")
+    result = cli(
+        "review_compare", "--company", company, "--proposal", proposal,
+        "--current-date", current_date, "--prior-date", prior_date, "--format", "markdown",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert result.stdout.startswith("# Review comparison — Synthetic Co / Asset Facility")
+    assert "| Item | Prior | Current | Change |" in result.stdout
+    assert "financials.FY-Current.ebitda" in result.stdout
+    assert "delta 10" in result.stdout
+
+
+def test_review_compare_missing_current_state_is_one_cli_error_line(cli):
+    company, proposal, prior_date = "Synthetic Co", "Asset Facility", "2025-10-20"
+    prior_folder = cli.workdir / "deals" / company / f"{proposal}_{prior_date}"
+    prior_folder.mkdir(parents=True)
+    (prior_folder / "state.json").write_text(json.dumps({
+        "company": company, "proposal": proposal, "date": prior_date,
+    }), encoding="utf-8")
+    result = cli(
+        "review_compare", "--company", "Synthetic Co", "--proposal", "Asset Facility",
+        "--current-date", "2026-10-20", "--prior-date", "2025-10-20",
+    )
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: current state not found: ")
+    assert len(result.stderr.strip().splitlines()) == 1
+    assert "Traceback" not in result.stderr
+
+
+def test_review_compare_writes_utf8_when_stdout_was_redirected_as_cp1252(tmp_path):
+    """Mirror tests/test_stdio_encoding.py with a synthetic non-cp1252 proposal."""
+    work = tmp_path / "review-compare-utf8"
+    work.mkdir()
+    company, proposal = "Synthetic Co", "Asset 東京 Facility"
+    prior_date, current_date = "2025-10-20", "2026-10-20"
+    for date, ebitda in ((prior_date, 100), (current_date, 110)):
+        folder = work / "deals" / company / f"{proposal}_{date}"
+        folder.mkdir(parents=True)
+        (folder / "state.json").write_text(json.dumps({
+            "company": company, "proposal": proposal, "date": date,
+            "financials": {"FY-Current": {"ebitda": ebitda}},
+        }, ensure_ascii=False), encoding="utf-8")
+    env = child_env()
+    env.pop("PYTHONUTF8", None)
+    env["PYTHONIOENCODING"] = "cp1252"
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS_DIR / "review_compare.py"),
+         "--company", company, "--proposal", proposal, "--current-date", current_date,
+         "--prior-date", prior_date],
+        cwd=work, env=env, capture_output=True, timeout=120, stdin=subprocess.DEVNULL,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    report = json.loads(result.stdout.decode("utf-8"))
+    assert report["proposal"] == proposal
+    assert report["summary"]["changed_paths"] == len(report["changes"])
+    assert b"\xe6\x9d\xb1\xe4\xba\xac" in result.stdout
+    assert result.stderr == b""
 

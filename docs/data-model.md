@@ -130,6 +130,31 @@ review trail, covenants, downside, collateral, security package, facility terms,
 The prior review is linked by date only. Company-level conventions and learnings stay in their existing stores and are
 neither copied into the new review nor modified by starting it. No schema-version bump is required for this optional key.
 
+### Comparing two reviews
+
+`scripts/review_compare.py` compares two exact dated `state.json` snapshots read-only. Both must identify the exact
+same `company` and `proposal`; the explicit `--prior-date` must be earlier than `--current-date`, or the current
+state must record that prior date in its optional `prior_review_date` field. The comparator does not search other
+dated folders to guess a predecessor. It accepts legacy unversioned states and reads newer schema versions without
+writing either file or normalizing persisted data.
+
+The by-label comparison covers recorded financials, ratios, multi-period and analyst-supplied figures, forecast and
+stress inputs, downside, the financial-source label and note, covenants and the recorded policy results, collateral,
+security package, guarantees, and optional structured `ownership` / `facility_terms`. Missing optional keys mean
+"not recorded", not zero. Changes are ordered deterministically. Decimal values are compared exactly; a `delta` is
+reported only where both sides are numeric. Covenants and covenant results are keyed by metric, type, and
+occurrence; forward covenant results use `forward_id`, downside breaches `breach_id`, conditions precedent/subsequent
+`cp_id`/`cs_id`, collateral `asset_id`, and guarantees `guarantee_id` when every record has a non-blank explicit ID.
+Lists without a reliable identifier (including security packages, security gaps, and guarantees without `guarantee_id`)
+are compared as exact ordered values.
+Changes in `financials_source` carry a
+clear comparability warning. This output reports stored facts and transitions, not an explanation or credit verdict.
+
+The opt-in `--periods-rolled-one-year` check is a separate section after the by-label result. It compares historical
+periods in the prior review with their next-older labels in the current review, reports exact recorded values and
+differences, marks pairs `consistent`, `restated`, or `not_comparable`, and never includes forward periods. The
+flag records the analyst's confirmation; period roll-forward is never inferred.
+
 ### Schema versions and validation
 
 `schema_version` is `MAJOR.MINOR.PATCH`. A state written by an older or unversioned framework is read and upgraded on

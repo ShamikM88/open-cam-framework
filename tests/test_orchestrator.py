@@ -1507,8 +1507,8 @@ def test_new_review_links_nearest_earlier_review_and_preserves_link_without_inhe
     }
     final_state = read_state("Acme Corp", "Fleet Loan", date_str=today)
     assert final_state["prior_review_date"] == "2026-01-10"
-    assert final_state["financials"]["FY-Current"] == {}
-    assert final_state["ratios"]["FY-Current"] == {}
+    assert final_state["financials"] == {}
+    assert final_state["ratios"] == {}
     assert final_state["collateral"] == []
     assert sentinel not in json.dumps(final_state)
     assert all(

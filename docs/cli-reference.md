@@ -416,7 +416,8 @@ python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Faci
   `perimeter_confirmed_on` from `--date` or today. Here `--date` is the confirmation date; the source document
   has its own `source.date`. Supplied figures must agree with `financials_source: "analyst-supplied"`;
   recomputed figures must agree with `"framework-computed"`, and a recorded contradiction is refused. No deal is
-  created and no existing key other than `group_basis` is changed. Success prints one JSON line with
+  created and no existing financial/raw-figure key other than `group_basis` is changed; the ordinary
+  `write_state` schema-version policy still applies. Success prints one JSON line with
   `recorded`, `state_path` and `figures_basis`; a file, field, date or existing-state refusal prints one
   `error:` line, exits `1`, and writes nothing. The workbook describes this as a **credit aggregation**, never
   a statutory consolidation.

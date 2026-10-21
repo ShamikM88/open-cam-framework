@@ -224,9 +224,12 @@ def _group_basis_problems(value, financials_source=None):
         problems.append('"group_basis.perimeter_confirmed" must be true after explicit analyst confirmation')
     calendar_date(value, "perimeter_confirmed_on", "group_basis.perimeter_confirmed_on")
 
-    expected_source = {"supplied": "analyst-supplied", "recomputed": "framework-computed"}.get(figures_basis)
-    if (financials_source in FINANCIALS_SOURCES and expected_source is not None
-            and financials_source != expected_source):
+    expected_source = (
+        {"supplied": "analyst-supplied", "recomputed": "framework-computed"}.get(figures_basis)
+        if isinstance(figures_basis, str) else None
+    )
+    if (isinstance(financials_source, str) and financials_source in FINANCIALS_SOURCES
+            and expected_source is not None and financials_source != expected_source):
         problems.append(
             f'"group_basis.figures_basis" is {figures_basis!r}, but state financials_source is '
             f'{financials_source!r}; these must agree'
@@ -1191,7 +1194,7 @@ if __name__ == "__main__":
 
     if args.find or args.check_steps or args.export_reviewer_view:
         if args.date is not None:
-            parser.error("--date is only valid with --review-candidates, --start-review, or --record-group-basis")
+            parser.error("--date is only valid with --review-candidates or --start-review")
         if args.prior_date is not None or args.no_prior:
             parser.error("--prior-date and --no-prior are only valid with --start-review")
     if args.review_candidates and (args.prior_date is not None or args.no_prior):

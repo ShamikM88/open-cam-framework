@@ -107,15 +107,15 @@ recomputed. `templates/spreading/default_spreading_template.xlsx` is a blank, fo
 
 ### Group basis sheet (case A)
 
-When the deal's state contains a valid \`group_basis\` object, the spreading workbook adds one
-\`Group basis\` sheet. Its first row is exactly:
+When the deal's state contains a valid `group_basis` object, the spreading workbook adds one
+`Group basis` sheet. Its first row is exactly:
 
 > Credit aggregation of consolidated accounts supplied by the borrower; not a statutory consolidation prepared by this framework.
 
 The rows below it pair labels with the reporting entity, entities covered, source document and
 accounting basis, source document date, common period end, covered period labels, supplied/recomputed
 figures basis, and analyst perimeter-confirmation state/date. It discloses metadata only: there are
-no consolidated amounts or new calculations on this sheet. A deal without \`group_basis\` receives
+no consolidated amounts or new calculations on this sheet. A deal without `group_basis` receives
 no extra sheet, and the existing Financial Spreading and Collateral & Exposure sheets are unchanged.
 
 ## The research brief

@@ -2713,6 +2713,7 @@ def test_408_create_review_folder_uses_same_directory_tmp_suffix_utf8_and_indent
 ):
     target_dir = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15"
     target_state_path = target_dir / "state.json"
+    target_dir.parent.mkdir(parents=True)
     temp_calls = []
     real_mkstemp = state_manager.tempfile.mkstemp
     real_fdopen = state_manager.os.fdopen
@@ -2763,6 +2764,7 @@ def test_408_create_review_folder_reports_exact_manual_cleanup_message_when_clea
 ):
     target_dir = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15"
     target_state_path = target_dir / "state.json"
+    target_dir.parent.mkdir(parents=True)
 
     def failing_dump(*args, **kwargs):
         raise OSError("disk full")

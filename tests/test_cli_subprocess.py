@@ -685,6 +685,31 @@ def test_orchestrator_without_credentials_is_one_clear_error_before_anything_hap
     assert not (work / "deals").exists(), "no deal folder or checkpoint was created"
 
 
+def test_orchestrator_new_review_refusal_is_one_error_before_model_or_write(cli):
+    """A refused fresh review must win over missing model credentials and leave every dated state untouched."""
+    future = cli.workdir / "deals" / "Acme" / "Loan_2099-01-10"
+    future.mkdir(parents=True)
+    future_state = future / "state.json"
+    future_state.write_text(json.dumps({
+        "company": "Acme", "proposal": "Loan", "date": "2099-01-10",
+        "steps_completed": [], "inputs": {"pd": "SENTINEL"},
+    }), encoding="utf-8")
+    before = future_state.read_bytes()
+
+    result = cli("orchestrator", "--company", "Acme", "--proposal", "Loan", "--new-review")
+
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert len(result.stderr.strip().splitlines()) == 1, result.stderr
+    assert "strictly later than the newest existing state-bearing review" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert future_state.read_bytes() == before
+    assert not (cli.workdir / "deals" / "Acme" / f"Loan_{today}").exists()
+
+
 def test_orchestrator_on_a_missing_input_file_fails_before_starting(tmp_path):
     work = tmp_path / "orchestrator-cwd"
     work.mkdir()

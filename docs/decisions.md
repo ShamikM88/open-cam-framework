@@ -28,6 +28,8 @@ so in its Related line) when a later decision supersedes it.
 - [D15. Skills are interactive aids and never input to the Maker or the Checker](#d15-skills-are-interactive-aids-and-never-input-to-the-maker-or-the-checker)
 - [D16. The headless Maker and Checker use provider-default sampling parameters](#d16-the-headless-maker-and-checker-use-provider-default-sampling-parameters)
 - [D17. Headless runs cannot reset an analyst-supplied historical basis](#d17-headless-runs-cannot-reset-an-analyst-supplied-historical-basis)
+- [D18. Code defines, the register describes](#d18-code-defines-the-register-describes)
+- [D19. Group accounts: case A first, and a credit aggregation is never called a consolidation](#d19-group-accounts-case-a-first-and-a-credit-aggregation-is-never-called-a-consolidation)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -284,3 +286,35 @@ so in its Related line) when a later decision supersedes it.
   differences" rather than fixed silently. See [the formula register](formula-register.md).
 - **Related.** #366 (and #266 for the proposed collateral entries), D14's one-PR badge discipline for its test
   count.
+
+## D19. Group accounts: case A first, and a credit aggregation is never called a consolidation
+
+- **Context.** The framework models one entity per deal: `evaluate_financial_model()` takes raw figures keyed by period
+  only, `state.json` holds one set of figures, and a covenant is tested against one period's ratios. Deals with a
+  group structure (a HoldCo with operating subsidiaries) need a numeric group view, but eliminations of intragroup
+  balances are judgement-heavy: leaving a 200 intercompany loan in a synthetic example overstated group debt by 40%
+  (700 against 500) with no error. Issue #48 settled the design with the maintainer's decisions of 2026-10-20.
+- **Choice.** Three cases, built in this order. **Case A:** the borrower supplies group accounts that are already
+  consolidated; the framework records and discloses the basis (reporting entity, entities covered, source, a single
+  period end, whether the figures were supplied or recomputed) and does no new arithmetic: no eliminations, no new
+  formula. **Case B:** the framework combines entity statements using analyst-supplied eliminations (a later, separately
+  reviewed, domain-risk step). **Case C:** a guarantor or parent is spread on its own, with no combination.
+  Vocabulary: a group figure the framework derives is a **credit aggregation**, never a statutory or IFRS
+  consolidation, until investment and equity, goodwill, non-controlling interests and the other material adjustments
+  are covered. The perimeter is confirmed by the analyst and never inferred from an ownership percentage. Period ends
+  must match (a mismatch is refused, never aligned by guesswork). A covenant will carry an explicit basis (borrower,
+  consolidated, guarantor group), defaulting to borrower. An input keyed by entity is refused: the evaluator and its
+  callers accept only the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`) and name
+  the first unexpected key in one error line.
+- **Why.** Audited group accounts are the common case and need no new arithmetic, so recording them is the smallest
+  useful release; eliminations are where a wrong figure looks plausible, so they come later and under review
+  (D2: compute by code; D4: supplied figures are recorded as given and disclosed). The entity-keyed input was accepted
+  silently, treating entity names as periods; a loud refusal is the first control, before any group code exists.
+- **Consequences.** New state keys are optional and additive and never replace or blend `financials`, `ratios` or the
+  two raw-figure stores; a deal without them behaves exactly as before. Any new formula enters
+  `docs/formula-register.md` as Proposed while the analyst review is parked. Changes to the agent prompts and to the
+  command files are gated on exact wording recorded on an issue. The headless pipeline never invents a confirmation:
+  it accepts only already confirmed structured input and otherwise fails closed. The work is delivered in small
+  pull requests: the guard and this record, then case A, then entity records, then the elimination engine.
+- **Related.** #48 (the decisions comment of 2026-10-20), #49 (no FX), #96 (narrative parent research), #124, #266,
+  D2, D4, D18.

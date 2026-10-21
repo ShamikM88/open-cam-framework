@@ -745,6 +745,7 @@ def test_comparator_helper_edges_and_serializer_refusals(monkeypatch, tmp_path):
     assert rc._json_dump({}) == "{}"
     assert rc._json_dump({"identity": {"asset_id": "A"}}, indent=None) == '{"identity":{"asset_id":"A"}}'
     assert rc._json_dump(rc._MISSING) == "null"
+    assert rc._json_dump(1.25) == "1.25"
     with pytest.raises(ValueError, match="non-finite decimal"):
         rc._json_dump(Decimal("NaN"))
     with pytest.raises(ValueError, match="non-finite float"):

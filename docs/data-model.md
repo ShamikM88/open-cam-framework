@@ -126,8 +126,11 @@ The by-label comparison covers recorded financials, ratios, multi-period and ana
 stress inputs, downside, the financial-source label and note, covenants and the recorded policy results, collateral,
 security package, guarantees, and optional structured `ownership` / `facility_terms`. Missing optional keys mean
 "not recorded", not zero. Changes are ordered deterministically. Decimal values are compared exactly; a `delta` is
-reported only where both sides are numeric. Identified covenant/policy/collateral records are matched by their stable
-keys; lists without a reliable identifier are compared as exact ordered values. Changes in `financials_source` carry a
+reported only where both sides are numeric. Covenants and covenant results are keyed by metric, type, and
+occurrence; forward covenant results use `forward_id`, downside breaches `breach_id`, conditions precedent/subsequent
+`cp_id`/`cs_id`, collateral `asset_id`, and guarantees `guarantee_id` when supplied. Lists without a reliable identifier
+(including security packages, security gaps, and guarantees without `guarantee_id`) are compared as exact ordered values.
+Changes in `financials_source` carry a
 clear comparability warning. This output reports stored facts and transitions, not an explanation or credit verdict.
 
 The opt-in `--periods-rolled-one-year` check is a separate section after the by-label result. It compares historical

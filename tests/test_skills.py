@@ -47,6 +47,7 @@ READ_ONLY_CALLS = {
     "python scripts/state_manager.py --check-steps *": ("state_manager", {"--check-steps", "--company", "--proposal", "--required"}),
     "python scripts/source_manifest.py --check-sources *": ("source_manifest", {"--check-sources", "--company", "--proposal"}),
     "python scripts/policy_check.py *": ("policy_check", {"--company", "--proposal"}),
+    "python scripts/review_compare.py *": ("review_compare", {"--company", "--proposal", "--current-date", "--prior-date", "--periods-rolled-one-year"}),
 }
 READ_ONLY_TOOLS = {"Read", "Glob", "Grep"}
 WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
@@ -76,7 +77,7 @@ def tools(fields, key):
 
 
 def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_credit_risk_are_bounded():
-    assert report_skills() == ["credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
+    assert report_skills() == ["annual-review", "credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
 
     policy_fit = skill_text("policy-fit")
     body = body_of(policy_fit)
@@ -158,6 +159,52 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
                          "**Residual risk / uncertainty:**", "**Information gap / next question:**"]
     positions = [risk_contract.index(label) for label in risk_fields_order]
     assert positions == sorted(positions), "the six required risk fields must stay in order"
+
+
+def test_annual_review_narrates_one_comparison_script_and_stays_a_bounded_aid():
+    text = skill_text("annual-review")
+    fields = frontmatter(text)
+    body = body_of(text)
+    assert tools(fields, "allowed-tools") == ["Read", "Glob", "Grep", "Bash(python scripts/review_compare.py *)"]
+    assert set(tools(fields, "disallowed-tools")) >= WRITE_TOOLS | NETWORK_TOOLS
+    assert fields.get("background") == "false"
+    assert command_problems(text) == []
+
+    # the flag extractor stops at the "<current date>" placeholder, so the second command is also pinned by its text
+    calls = [call for call in body_commands(text) if call[1]]
+    assert [script for script, _flags in calls] == ["review_compare", "review_compare"]
+    command_lines = [line.strip() for line in body.splitlines() if line.strip().startswith("python scripts/")]
+    assert command_lines == [
+        'python scripts/review_compare.py --company "<company>" --proposal "<proposal>" --current-date <current date>',
+        'python scripts/review_compare.py --company "<company>" --proposal "<proposal>" --current-date <current date>'
+        ' --prior-date <prior date>',
+    ]
+    assert not any("--periods-rolled-one-year" in line for line in command_lines), "the flag is added only on the analyst's say"
+
+    for phrase in (
+        "Run exactly one of these",
+        "Use the second only when the analyst gave `--prior-date`",
+        "Never choose or guess a prior date yourself",
+        "`/start-review` links a new review to an earlier one or `--prior-date` names one explicitly",
+        "never add it yourself and never infer it",
+        "pass it on only if the analyst gave it",
+        "A non-zero exit, an `error:` line, a traceback, or output that is not one JSON object means the comparison could not be made",
+        "Do not derive any finding about the deal from a failed run",
+        "If `basis_change.comparable_like_for_like` is `false`, quote `basis_change.warning`",
+        "Do not compute a delta, a percentage or a trend yourself",
+        "do not describe a movement as better or worse",
+        "A category listed as not recorded is not evidence that nothing changed",
+        "Only if the output has a `restatement_check` section",
+        "Never offer a cause for a difference",
+        "It does not compare narrative material",
+        "this is an instruction, not an enforced boundary",
+        "It never starts a review (`/start-review` does), and never edits or deletes an earlier one",
+        "Do not recommend lending or declining",
+    ):
+        assert phrase in body, phrase
+    assert body.rstrip().endswith(
+        "> Analyst aid. Nothing was written to either review. This is a comparison of recorded values, not a credit verdict "
+        "or a CAM approval; deterministic checks and /review retain their authoritative roles.")
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +359,15 @@ def deal_files(root):
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
+PRIOR_REVIEW_DATE = "2020-01-01"
+
+
+def current_review_date(cwd):
+    """The date of the latest dated review folder under `cwd`, or a fixed date when there is no deal."""
+    dates = sorted(p.name.rsplit("_", 1)[1] for p in (cwd / "deals").glob("*/*_????-??-??"))
+    return dates[-1] if dates else "2026-10-20"
+
+
 def run_commands(name, cwd):
     """Run every command the skill's body shows, with the placeholders filled, as a real subprocess."""
     results = []
@@ -320,6 +376,7 @@ def run_commands(name, cwd):
         if not line.startswith("python scripts/"):
             continue
         line = line.replace('"<company>"', '"Synthetic Co"').replace('"<proposal>"', '"Synthetic Fleet Loan"')
+        line = line.replace("<current date>", current_review_date(cwd)).replace("<prior date>", PRIOR_REVIEW_DATE)
         words = shlex.split(line, posix=True)
         argv = [sys.executable, str(SCRIPTS / words[1].removeprefix("scripts/")), *words[2:]]
         results.append(subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=60))
@@ -333,7 +390,10 @@ def rich_deal(tmp_path, monkeypatch):
                 triage={"verdict": "Go", "sources": ["https://example.invalid/registry"]},
                 financials_source="analyst-supplied", financials_source_note="Synthetic convention note",
                 financials={"FY-Current": {"ebitda": 250}}, ratios={"FY-Current": {"dscr": 1.4}},
-                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}])
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+                prior_review_date=PRIOR_REVIEW_DATE)
+    write_state("Synthetic Co", "Synthetic Fleet Loan", date_str=PRIOR_REVIEW_DATE, steps_completed=["triage"],
+                financials={"FY-Current": {"ebitda": 200}}, ratios={"FY-Current": {"dscr": 1.2}})
     return tmp_path
 
 

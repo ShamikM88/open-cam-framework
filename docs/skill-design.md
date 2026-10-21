@@ -20,8 +20,8 @@ build on. The six analyst aids are implemented and described in [Skills](skills.
 - All skills in this initiative are **typed by a person** (`disable-model-invocation: true`). The model never
   loads one on its own, and no command or prompt names one.
 - The registry file is **evolved in place** into the one inventory, not renamed and not duplicated.
-- `annual-review` cannot be built over today's primitives ([#203](https://github.com/ShamikM88/open-cam-framework/issues/203)),
-  and the independence of `/review` on the slash-command path was settled by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204): the interactive Checker
+- `annual-review` was blocked on the primitives that [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) has since
+  delivered, and is built over them in Phase 5 (a script comparison, never prose), and the independence of `/review` on the slash-command path was settled by [#204](https://github.com/ShamikM88/open-cam-framework/issues/204): the interactive Checker
   is a fresh, read-only sub-agent, so `credit-challenge` can remain an analyst aid as long as it does not issue a verdict or enter the Checker's inputs.
 
 ## What Claude Code does that this design depends on
@@ -146,10 +146,12 @@ Phase 2 adds a test that scans each skill file the way `pii_scan.py` scans a tem
 
 ### 7. Scope guard
 
-**Decision.** `annual-review` is **not** a skill over existing primitives, so it is split out as
-[#203](https://github.com/ShamikM88/open-cam-framework/issues/203) and is in no phase here.
+**Decision.** `annual-review` was **not** a skill over the primitives that existed then, so it was split out as
+[#203](https://github.com/ShamikM88/open-cam-framework/issues/203) and was in no phase here. #203 is delivered
+(`--review-candidates` and `--start-review`, `review_compare.py`, the orchestrator link and `/start-review`) and the
+skill is Phase 5; see its contract below.
 
-**Evidence.** `--new-review` exists only on `orchestrator.py`; no slash command takes it. In a slash-command session a
+**Evidence at the time of the split.** `--new-review` exists only on `orchestrator.py`; no slash command takes it. In a slash-command session a
 step resumes the *most recent* dated folder, so a second annual review under the same company and proposal would merge
 into last year's state. Nothing reads two dated folders, there is no link from a review to its predecessor, and no
 script compares two states, so any comparison would be arithmetic done in prose, which D2 forbids
@@ -201,6 +203,7 @@ scripts that exist today; the procedures wrap documented sequences for change ve
 | `policy-fit` | 4 | analyst | user | Report | Yes, no record |
 | `credit-challenge` | 4 | analyst | user | Report | Yes, no record |
 | `credit-risk` | 4 | analyst | user | Report | Yes, no record |
+| `annual-review` | 5 | analyst | user | Report | Yes, no record |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -335,6 +338,13 @@ contextual, and a model-invocable description would sit in every session's conte
 - **Gate logic.** It distinguishes an observed issue/PR/authorisation reference from an assertion supplied in arguments. Where issue or review discussion is not in the local evidence, it marks that gate unknown. It checks whether a relevant, complete baseline exists and distinguishes assembled-prompt hashes from source-file hashes. Issue #150 remains blocked until the applicable pre-change baseline required by #151 exists; a green structural test is not generative-quality evidence.
 - **Limits.** It cannot grant authorisation or verify remote GitHub discussion without the evidence being supplied. It reports present/missing/unknown, never “approved”, “safe” or “ready to merge”. The maintainer decides whether the evaluation rationale is sufficient and whether any change may proceed.
 
+### `annual-review` (Phase 5)
+
+- **Purpose.** Narrate the deterministic comparison of a named deal's current review with the earlier review it follows: recorded figures and ratios, covenant and policy results, conditions, collateral, security, guarantees, ownership and facility terms, the financial-basis change, and the opt-in restatement check.
+- **Reads / delegates to.** `scripts/review_compare.py` (one call, read-only) and, to find the current review's date, the dated-folder lookup the other report skills use; [CLI reference](cli-reference.md#review-comparison) and [Data model](data-model.md#comparing-two-reviews) define the output. The skill quotes the JSON and computes nothing.
+- **Side effects.** None. It runs a read-only CLI and returns a chat report; it never starts a review (`/start-review` does) and never edits or deletes an earlier one.
+- **Limits.** It compares stored facts, not whether either review was right; it never guesses the earlier review (the recorded link or an explicit `--prior-date`); it does not compare narrative material (management, new or repeated risks), which stays with `credit-risk` and `credit-challenge`; the restatement section appears only when the analyst passes `--periods-rolled-one-year`, and the skill never explains a cause. It is interactive-only; the headless equivalent is running the script.
+
 ## Later, and why
 
 | Skill | Status | Reason and gate |
@@ -344,7 +354,7 @@ contextual, and a model-invocable description would sit in every session's conte
 | `policy-fit` | Implemented, Phase 4 | A read-only report of policy_check.py's recorded structural results, required CP/CS IDs, and current/downside/forward covenant outputs. It quotes engine results and explicitly avoids an overall verdict; its value is a structured, deal-specific reading of the output, not a restatement of the policy logic. |
 | `credit-challenge` | Implemented, Phase 4 | Analyst-invoked, adversarial question set over recorded evidence. Read-only and forked; no verdict, score, recommendation, persistence or Checker wiring. The detailed contract and limits are below. |
 | `credit-risk` | Implemented, Phase 4 | A structured, evidence-grounded analyst risk picture across applicable categories. It remains separate from `credit-challenge`, `policy-fit`, financial interpretation and formal `/review`; see the design contract and implementation in the stacked #196 PRs. |
-| `annual-review` | Blocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) | Needs primitives that do not exist (constraint 7). |
+| `annual-review` | Implemented, Phase 5 | Unblocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) (constraint 7): a read-only narration of `review_compare.py`'s comparison of two dated reviews, with no recalculation, no guessed earlier review and no narrative comparison. |
 | `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
 | The issue's "nice to have" skills | Out of scope | Unchanged from the issue. |
@@ -498,6 +508,8 @@ Lead with a **Material reviewed:** line (the `state.json` read, whether the mani
    `credit-challenge` (tests assumptions against recorded evidence without duplicating the policy report or formal Checker),
    and `credit-risk` (organises the evidenced risk picture by category, with mitigants and residual uncertainty, without
    duplicating `financial-analysis`, `policy-fit`, `credit-challenge` or the formal Checker).
+5. **Annual review (done):** `annual-review`, once [#203](https://github.com/ShamikM88/open-cam-framework/issues/203)
+   delivered the review-start and comparison primitives: it narrates `review_compare.py` and adds no logic of its own.
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its

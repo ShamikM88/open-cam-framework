@@ -33,6 +33,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
 | `policy-fit` | `/policy-fit --company "<Name>" --proposal "<Proposal name>"` | Explain recorded current covenant status, mandatory conditions, security gaps, downside items and forward-year disclosure-only outcomes using deterministic policy output | `policy_check.py` (no `--draft`) |
 | `credit-challenge` | `/credit-challenge --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Pressure-test assumptions against recorded evidence and counter-evidence; return challenge/question, evidence, potential impact, mitigant, residual uncertainty and a specific next question without a verdict | `Read`, `Glob`, `Grep` only; no shell or script |
 | `credit-risk` | `/credit-risk --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Organise the evidenced risk picture across applicable categories, with recorded evidence, impact, mitigant, residual uncertainty and next question; no score, verdict or recommendation | `Read`, `Glob`, `Grep` only; no shell or script |
+| `annual-review` | `/annual-review --company "<Name>" --proposal "<Proposal name>" [--current-date YYYY-MM-DD] [--prior-date YYYY-MM-DD] [--periods-rolled-one-year]` | Narrate what `review_compare.py` found between the current review and the earlier one it follows: recorded figures, ratios, covenant and policy results, security, guarantees and facility terms, and the opt-in restatement check, quoted without recalculation | `review_compare.py` (read-only) |
 
 Each is described in the registry; the files are `.claude/skills/<name>/SKILL.md`, and the files are authoritative for
 exactly what the model is told.
@@ -162,6 +163,26 @@ The risk categories are a navigation aid, not a checklist. The report includes o
 - **No decision, score or recalculation.** No overall `APPROVED`, `REJECTED`, `PASS` or `FAIL`; no rating, risk grade, score, probability or lend/decline recommendation. Recorded financial and policy outputs are quoted, not recalculated or reinterpreted.
 - **Distinct from adjacent aids.** `financial-analysis` interprets recorded figures, `policy-fit` explains deterministic policy output, and `credit-challenge` adversarially tests assumptions. `credit-risk` organises the broader evidenced risk picture and residual uncertainty.
 - **Read-only, no external actions.** Only `Read`, `Glob` and `Grep` are pre-approved; `Write`, `Edit`, `NotebookEdit`, `Bash`, `WebFetch` and `WebSearch` are removed while it runs, which is enforced for those tools; that it invokes no other skill or tool is an instruction. It makes no web/API calls, writes nothing to the deal, and is not passed to the separate `/review` Checker. The tool settings and procedure are not an operating-system sandbox.
+
+### `annual-review`
+
+Use `/annual-review --company "<Name>" --proposal "<Proposal name>"` after a new review has been started with
+`/start-review` (or `orchestrator.py --new-review`) and its figures recorded, to see what changed since the earlier review.
+The skill runs `scripts/review_compare.py` once and narrates its JSON result: the dates and how the earlier review was
+chosen, a warning first when the financial basis changed between the two reviews, each recorded change with its prior and
+current value (and the script's own delta where both are numbers), the categories not recorded in either review, and the
+unchanged ones. It never guesses the earlier review: it uses the one the current review records, or the `--prior-date` you
+give, and otherwise stops and points you to `/start-review`.
+
+Add `--periods-rolled-one-year` only if you confirm the period labels rolled forward by exactly one year (last year's
+`FY-Current` is this year's `FY-1`): the output then gains a restatement section that says, period by period, whether the
+earlier figures are `consistent` with the later review's or `restated`. The skill never adds the flag itself and never says
+why a figure differs.
+
+It quotes and does not calculate: no delta, percentage or trend of its own, and no "better" or "worse" (a covenant moving
+from `PASS` to `FAIL` is quoted as exactly that). It does not compare narrative material (management, new or repeated risks,
+new information gaps); `credit-risk` and `credit-challenge` read one review for those. It writes nothing, and it is an
+interactive aid: the headless equivalent is running `review_compare.py` yourself.
 
 ## The maintainer procedures
 

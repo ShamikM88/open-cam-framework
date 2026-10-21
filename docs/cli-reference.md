@@ -162,8 +162,11 @@ See [State manager](#state-manager).
   exits with one `error:` line and status 1 before a model call or write. A single `[INFO]` line on standard error
   says whether the new review was linked and to which date, or started unlinked.
 
-It needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any it stops first, before it reads or
-writes the deal, with one `error: no Anthropic credentials were found...` line and exit status `1`, and sends nothing. See
+Headless execution needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any, it exits with one
+`error: no Anthropic credentials were found...` line and status `1` before a model call. Ordinary runs do not write
+state before that credential check. A successful `--new-review` start may already have created the minimal state and
+its optional `prior_review_date` link; without credentials, no financial/model checkpoint or generated documents are
+written, and a same-day rerun resumes that minimal state without relinking. See
 [Troubleshooting](troubleshooting.md#orchestratorpy-stops-with-error-no-anthropic-credentials-were-found).
 
 ## Export

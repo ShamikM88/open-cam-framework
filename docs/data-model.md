@@ -116,10 +116,11 @@ The link is only a date; prior inputs and results are never inherited. Later pip
 and preserve `prior_review_date`. If today's dated folder already has a `state.json`, `--new-review` resumes it
 unchanged as a rerun after failure: it does not create another state or change the existing link. A pre-existing dated
 folder without `state.json` is refused rather than overwritten. A refusal (for example, when today's date is not later
-than the newest state-bearing review) exits with one `error:` line before a model call or write. The orchestrator
-checkpoints its current grounded figures and `policy_state` before it calls either agent, so a failure at the first
-model call can still leave the current review's figures on disk. A run with no credentials at all fails before any
-model call; if a fresh-review refusal applies, it is reported first.
+than the newest state-bearing review) exits with one `error:` line before a model call or write. The orchestrator checkpoints its current grounded figures and `policy_state` before it calls either agent, so a
+failure at the first model call can still leave the current review's figures on disk. If credentials are missing, the
+run stops before any model call. If fresh-review creation succeeds but credential resolution then fails, the minimal
+new state and its optional prior-review link remain on disk, but no financial checkpoint, model output, or generated
+document has been written. A fresh-review refusal is reported before credential resolution and causes no write.
 
 ### Starting a new review
 

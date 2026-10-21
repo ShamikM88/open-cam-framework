@@ -1510,12 +1510,18 @@ def test_new_review_links_nearest_earlier_review_and_preserves_link_without_inhe
     assert final_state["financials"] == {}
     assert final_state["ratios"] == {}
     assert final_state["collateral"] == []
-    assert sentinel not in json.dumps(final_state)
-    assert all(
-        sentinel not in str(message.get("content", ""))
+    final_state_text = json.dumps(final_state)
+    assert sentinel not in final_state_text
+    assert "987654321" not in final_state_text
+    assert "123456.0" not in final_state_text
+    assert "OLD_LGD" not in final_state_text
+    prompt_text = "\n".join(
+        str(message.get("content", ""))
         for call in client.calls
         for message in call["messages"]
     )
+    for prior_value in (sentinel, "987654321", "123456.0", "OLD_LGD"):
+        assert prior_value not in prompt_text
     stderr = capsys.readouterr().err
     assert "[INFO]" in stderr and "2026-01-10" in stderr and today in stderr
 

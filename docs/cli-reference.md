@@ -221,9 +221,11 @@ same state (`policy_check.compute_from_state()`), never on a different one.
   subsequent; recorded collateral, the security package and the policy check's security gaps; open gaps (a missing
   `spread` step, steps not recorded, `UNRESOLVABLE` counts, saved-source status); the recorded review verdict and
   iteration count, labelled historical; and a fixed limits section.
-- **Covenant basis:** a current, forward or downside-breach table adds a `basis` column only when at least one row in
-  that table carries the key. Rows without the key show `borrower` when the column is present; tables with no such
-  row retain their existing layout exactly.
+- **Covenant basis:** a current or forward table adds a `basis` column only when at least one result row carries the
+  key. Rows without the key show `borrower` when the column is present; tables with no such row retain their existing
+  layout exactly. The renderer applies the same conditional rule to downside-breach rows if they carry `basis`, but
+  current `policy_engine.py` breach records do not include that field, so the ordinary engine-generated downside table
+  retains its legacy layout. Exposing basis on those breach records is deferred to a separate policy-engine change.
 - **Recorded text is shown literally:** a value, a key or a table header that holds a pipe, a line break or text that
   the Word builder reads as markup (`*`, a backtick, `[`, `]`) cannot reshape the document or pass itself off as a
   heading or emphasis: `|` becomes `/`, line breaks and runs of spaces become one space, and a value with markup

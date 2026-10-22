@@ -121,6 +121,13 @@ def test_a_covenant_that_passes_now_and_fails_stressed_shows_both_results_with_t
     assert "| year | metric | base_actual | downside_actual | threshold | downside_status | reason |" in covenant_section
     assert all(" | basis | " not in line for line in covenant_section.splitlines() if line.startswith("|"))
 
+    # Real policy-engine breach records currently omit basis; downside disclosure stays deferred
+    # rather than synthesizing basis data in the summary (policy_engine.py is out of scope).
+    _, collected = cs.collect(COMPANY, PROPOSAL)
+    breaches = collected["policy"]["downside_covenant_breaches"]
+    assert breaches
+    assert all("basis" not in row for row in breaches)
+
     current = next(line for line in covenant_section.splitlines() if line.startswith("| dscr | minimum |"))
     assert "| PASS |" in current
     breach = next(line for line in covenant_section.splitlines() if line.startswith("| FY+1 | dscr |"))

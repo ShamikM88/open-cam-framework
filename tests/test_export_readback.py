@@ -213,7 +213,9 @@ def test_a_changed_number_format_bold_or_italic_is_reported_by_kind(deal):
     def restyle(workbook):
         cell = cell_holding(workbook, 5000)
         cell.number_format = "0.000"
-        cell.font = openpyxl.styles.Font(bold=not cell.font.bold, italic=not cell.font.italic)
+        cell.font = openpyxl.styles.Font(
+            name=cell.font.name, sz=cell.font.sz, color=cell.font.color,
+            bold=not cell.font.bold, italic=not cell.font.italic)
 
     edit_workbook(restyle)
 
@@ -268,6 +270,11 @@ def test_value_equality_rules(expected, actual, equal):
 # Document differences
 # ---------------------------------------------------------------------------
 
+def cell_texts(row):
+    """The plain text of each cell of a table row as the verifier records it (a list of paragraph blocks per cell)."""
+    return ["".join(part[1] for block in cell["paragraphs"] for part in block["parts"]) for cell in row]
+
+
 def paragraph_with(document, text):
     return next(p for p in document.paragraphs if text in p.text)
 
@@ -294,8 +301,8 @@ def test_an_edited_table_cell_is_reported(deal):
     finding, = verify()["findings"]
 
     assert finding["kind"] == "table"
-    assert finding["expected"]["rows"][1] == ["Revenue", "5,000"]
-    assert finding["actual"]["rows"][1] == ["Revenue", "9,999"]
+    assert cell_texts(finding["expected"]["rows"][1]) == ["Revenue", "5,000"]
+    assert cell_texts(finding["actual"]["rows"][1]) == ["Revenue", "9,999"]
 
 
 def test_an_added_or_removed_block_is_reported_as_a_count_change(deal):
@@ -549,3 +556,374 @@ def test_main_refuses_missing_required_flags_with_a_usage_error(capsys):
         export_readback.main(["--company", COMPANY])
 
     assert caught.value.code == 2 and "--proposal" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CL2, CL3, CH1, CH2): hidden or recoloured data, the far-corner cell, run formatting
+# ---------------------------------------------------------------------------
+
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_COLOR_INDEX
+from docx.shared import Inches, Pt, RGBColor
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.workbook.defined_name import DefinedName
+from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.formatting.rule import CellIsRule
+
+
+def font_like(cell, **changes):
+    font = cell.font
+    values = {"name": font.name, "sz": font.sz, "bold": font.bold, "italic": font.italic, "color": font.color,
+              "underline": font.underline, "strike": font.strike}
+    values.update(changes)
+    return Font(**values)
+
+
+CELL_EDITS = {
+    "fill": lambda c: setattr(c, "fill", PatternFill("solid", fgColor="FFFF00")),
+    "font_color": lambda c: setattr(c, "font", font_like(c, color="FFFFFFFF")),
+    "font_size": lambda c: setattr(c, "font", font_like(c, sz=(c.font.sz or 11) + 5)),
+    "font_name": lambda c: setattr(c, "font", font_like(c, name="Courier New")),
+    "underline": lambda c: setattr(c, "font", font_like(c, underline="single")),
+    "strike": lambda c: setattr(c, "font", font_like(c, strike=True)),
+    "border": lambda c: setattr(c, "border", Border(left=Side(style="thick"))),
+    "alignment": lambda c: setattr(c, "alignment", Alignment(horizontal="right", wrap_text=True)),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(CELL_EDITS))
+def test_a_change_to_a_cells_look_is_reported_by_its_own_kind_and_location(deal, kind):
+    holder = {}
+
+    def change(workbook):
+        cell = cell_holding(workbook, 5000)
+        holder["coordinate"] = cell.coordinate
+        CELL_EDITS[kind](cell)
+
+    edit_workbook(change)
+
+    report = verify()
+
+    assert report["status"] == "mismatch"
+    assert {f["location"] for f in report["findings"]} == {f"Financial Spreading!{holder['coordinate']}"}
+    assert kind in {f["kind"] for f in report["findings"]}
+
+
+def test_a_hidden_sheet_row_or_column_is_reported(deal):
+    def hide(workbook):
+        workbook["Collateral & Exposure"].sheet_state = "hidden"
+        sheet = workbook["Financial Spreading"]
+        sheet.row_dimensions[5].hidden = True
+        sheet.column_dimensions["C"].hidden = True
+
+    edit_workbook(hide)
+
+    findings = {(f["location"], f["kind"], f["expected"], f["actual"]) for f in verify()["findings"]}
+
+    assert ("Collateral & Exposure!sheet", "sheet_state", "visible", "hidden") in findings
+    assert ("Financial Spreading!row 5", "row_hidden", False, True) in findings
+    assert ("Financial Spreading!column C", "column_hidden", False, True) in findings
+
+
+def test_a_changed_row_height_protection_defined_name_validation_or_conditional_format_is_reported(deal):
+    def tweak(workbook):
+        sheet = workbook["Financial Spreading"]
+        sheet.row_dimensions[3].height = 60
+        sheet.protection.sheet = True
+        workbook.defined_names["Hidden_Total"] = DefinedName("Hidden_Total", attr_text="'Financial Spreading'!$B$3")
+        validation = DataValidation(type="whole", operator="between", formula1="0", formula2="9")
+        sheet.add_data_validation(validation)
+        validation.add("B3")
+        sheet.conditional_formatting.add("B3:B4", CellIsRule(operator="greaterThan", formula=["1"],
+                                                             fill=PatternFill("solid", bgColor="FF0000")))
+
+    edit_workbook(tweak)
+
+    kinds = {f["kind"] for f in verify()["findings"]}
+
+    assert {"row_height", "protection", "defined_names", "data_validations", "conditional_formatting"} <= kinds
+
+
+def test_a_cell_in_the_far_corner_is_refused_at_once_instead_of_comparing_billions_of_positions(deal):
+    edit_workbook(lambda workbook: setattr(workbook["Financial Spreading"]["XFD1048576"], "value", "x"))
+
+    with pytest.raises(ValueError, match=r"worksheet 'Financial Spreading' uses 1048576 rows by 16384 columns"):
+        verify()
+
+
+def test_the_far_corner_refusal_is_one_error_line_on_the_command_line(deal):
+    edit_workbook(lambda workbook: setattr(workbook["Financial Spreading"]["XFD1048576"], "value", "x"))
+
+    with pytest.raises(SystemExit) as caught:
+        export_readback.main(["--company", COMPANY, "--proposal", PROPOSAL])
+
+    assert str(caught.value.code).startswith("error: worksheet 'Financial Spreading' uses 1048576 rows")
+
+
+def first_bullet_run(document):
+    return paragraph_with(document, "First bullet").runs[0]
+
+
+RUN_EDITS = {
+    "size": lambda run: setattr(run.font, "size", Pt(1)),
+    "colour": lambda run: setattr(run.font.color, "rgb", RGBColor(255, 255, 255)),
+    "underline": lambda run: setattr(run.font, "underline", True),
+    "strike": lambda run: setattr(run.font, "strike", True),
+    "highlight": lambda run: setattr(run.font, "highlight_color", WD_COLOR_INDEX.YELLOW),
+}
+
+
+@pytest.mark.parametrize("name", sorted(RUN_EDITS))
+def test_a_change_to_a_runs_size_colour_underline_strike_or_highlight_is_reported(deal, name):
+    edit_document(lambda document: RUN_EDITS[name](first_bullet_run(document)))
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph" and finding["expected"]["parts"] != finding["actual"]["parts"]
+    assert "First bullet" in json.dumps(finding["actual"]["parts"])
+
+
+def test_a_change_to_paragraph_alignment_or_spacing_is_reported(deal):
+    edit_document(lambda document: setattr(paragraph_with(document, "First bullet"), "alignment",
+                                           WD_ALIGN_PARAGRAPH.CENTER))
+    finding, = verify()["findings"]
+    assert finding["expected"]["layout"] != finding["actual"]["layout"]
+
+    reexport()
+    edit_document(lambda document: setattr(paragraph_with(document, "First bullet").paragraph_format,
+                                           "space_after", Pt(40)))
+    finding, = verify()["findings"]
+    assert finding["expected"]["layout"] != finding["actual"]["layout"]
+
+
+def test_a_change_to_the_formatting_inside_a_table_cell_is_reported(deal):
+    edit_document(lambda document: setattr(document.tables[0].cell(1, 1).paragraphs[0].runs[0], "bold", True))
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "table" and finding["expected"]["rows"] != finding["actual"]["rows"]
+
+
+def test_a_changed_page_margin_header_or_footer_is_reported_as_a_section_difference(deal):
+    edit_document(lambda document: setattr(document.sections[0], "left_margin", Inches(3)))
+    finding, = verify()["findings"]
+    assert (finding["location"], finding["kind"]) == ("section 1", "section")
+    assert finding["expected"]["margins"] != finding["actual"]["margins"]
+
+    reexport()
+
+    def edit_footer(document):
+        document.sections[0].footer.paragraphs[0].text = "Edited footer"
+
+    edit_document(edit_footer)
+    finding, = verify()["findings"]
+    assert finding["location"] == "section 1" and finding["expected"]["footer"] == {"linked": True}
+    footer_blocks = finding["actual"]["footer"]["blocks"]
+    assert finding["actual"]["footer"]["linked"] is False
+    assert "Edited footer" in json.dumps(footer_blocks)
+
+
+def test_the_limits_name_what_is_still_not_compared(deal):
+    limits = " ".join(verify()["limits"])
+
+    for phrase in ("cached formula results", "not by colour or font", "images in a workbook",
+                   "rules inside data validations", "comments, footnotes", "text boxes", "file properties"):
+        assert phrase in limits, phrase
+
+
+def test_an_added_section_is_reported_as_a_section_count_difference(deal):
+    edit_document(lambda document: document.add_section())
+
+    findings = verify()["findings"]
+
+    assert {"artifact": "document", "location": "section count", "kind": "sections", "expected": 1, "actual": 2} \
+        in findings
+
+
+def test_a_deleted_moved_or_repointed_chart_is_reported(deal):
+    def delete_one(workbook):
+        sheet = workbook["Financial Spreading"]
+        sheet._charts.remove(sorted(sheet._charts, key=lambda chart: chart.anchor._from.row)[0])
+
+    edit_workbook(delete_one)
+    finding, = verify()["findings"]
+    assert finding["kind"] == "charts" and len(finding["expected"]) == len(finding["actual"]) + 1
+
+    reexport()
+
+    def repoint(workbook):
+        chart = workbook["Financial Spreading"]._charts[0]
+        chart.series[0].val.numRef.f = "'Financial Spreading'!$B$9:$G$9"
+
+    edit_workbook(repoint)
+    finding, = verify()["findings"]
+    assert finding["kind"] == "charts" and "$B$9:$G$9" in json.dumps(finding["actual"])
+
+    reexport()
+
+    def move(workbook):
+        workbook["Financial Spreading"]._charts[0].anchor._from.row += 3
+
+    edit_workbook(move)
+    assert [f["kind"] for f in verify()["findings"]] == ["charts"]
+
+
+def test_a_chart_part_without_a_range_reads_as_none():
+    from types import SimpleNamespace
+
+    assert export_readback._reference(None) is None
+    assert export_readback._reference(SimpleNamespace(numRef=None, strRef=None)) is None
+    assert export_readback._reference(SimpleNamespace(numRef=None, strRef=SimpleNamespace(f="A1:B1"))) == "A1:B1"
+    assert export_readback._reference(SimpleNamespace(v="a literal name")) is None
+
+
+# ---------------------------------------------------------------------------
+# Second-pass review fixes (CH5, CH6, CH7): header and footer content, superscript and hyperlink formatting, and
+# direct table layout
+# ---------------------------------------------------------------------------
+
+from docx.enum.table import WD_ALIGN_VERTICAL  # noqa: E402
+from docx.oxml import parse_xml  # noqa: E402
+from docx.oxml.ns import nsdecls  # noqa: E402
+
+
+def document_with_header_image(png_bytes, tmp_path, name):
+    picture = tmp_path / f"{name}.png"
+    picture.write_bytes(png_bytes)
+    document = docx.Document()
+    header = document.sections[0].header
+    header.is_linked_to_previous = False
+    header.paragraphs[0].add_run().add_picture(str(picture))
+    return document
+
+
+def test_a_swapped_header_image_is_a_section_difference(tmp_path):
+    """CH5: header and footer content used to be read as text only, so a different logo read as a match."""
+    original = document_with_header_image(PNG_1X1, tmp_path, "one")
+    swapped = document_with_header_image(OTHER_PNG, tmp_path, "two")
+
+    assert export_readback._document_sections(original) != export_readback._document_sections(swapped)
+    header = export_readback._document_sections(original)[0]["header"]
+    assert header["linked"] is False and header["blocks"][0]["image_hashes"][0] is not None
+
+
+def test_a_header_table_or_linked_status_is_part_of_the_section_signature(tmp_path):
+    plain, with_table = docx.Document(), docx.Document()
+    story = with_table.sections[0].footer
+    story.is_linked_to_previous = False
+    story.add_table(1, 1, 5000).cell(0, 0).text = "Total"
+
+    assert export_readback._document_sections(plain)[0]["footer"] == {"linked": True}
+    assert "Total" in json.dumps(export_readback._document_sections(with_table)[0]["footer"])
+
+
+def test_a_run_changed_to_superscript_is_reported(deal):
+    """CH6: superscript and subscript were not part of the run signature."""
+    edit_document(lambda document: setattr(first_bullet_run(document).font, "superscript", True))
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph" and finding["expected"]["parts"] != finding["actual"]["parts"]
+
+
+def test_a_hyperlink_whose_visible_formatting_changed_is_reported(deal):
+    """CH6: a hyperlink kept only its target and text, so white one-point link text read as a match."""
+    def hide(document):
+        paragraph = paragraph_with(document, "synthetic link")
+        link = next(item for item in paragraph.iter_inner_content() if hasattr(item, "url"))
+        link.runs[0].font.size = Pt(1)
+        link.runs[0].font.color.rgb = RGBColor(255, 255, 255)
+
+    edit_document(hide)
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph"
+    assert "https://example.invalid/page" in json.dumps(finding["actual"]["parts"])
+    assert finding["expected"]["parts"] != finding["actual"]["parts"]
+
+
+def shade_cell(document):
+    cell = document.tables[0].cell(1, 1)
+    cell._tc.get_or_add_tcPr().append(parse_xml(f'<w:shd {nsdecls("w")} w:val="clear" w:fill="FFFF00"/>'))
+
+
+TABLE_EDITS = {
+    "shading": shade_cell,
+    "width": lambda document: setattr(document.tables[0].cell(1, 1), "width", Inches(2)),
+    "vertical alignment": lambda document: setattr(document.tables[0].cell(1, 1), "vertical_alignment",
+                                                   WD_ALIGN_VERTICAL.CENTER),
+    "table borders": lambda document: document.tables[0]._tbl.tblPr.append(parse_xml(
+        f'<w:tblBorders {nsdecls("w")}><w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/></w:tblBorders>')),
+}
+
+
+@pytest.mark.parametrize("name", sorted(TABLE_EDITS))
+def test_a_change_to_direct_table_or_cell_layout_is_reported(deal, name):
+    """CH7: shading, borders, widths and alignment applied directly were invisible to the comparison."""
+    edit_document(TABLE_EDITS[name])
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "table" and finding["expected"] != finding["actual"]
+
+
+# ---------------------------------------------------------------------------
+# Third-pass review fixes (CH10, CH11, CH12)
+# ---------------------------------------------------------------------------
+
+def test_a_changed_table_column_width_is_reported(deal):
+    """CH10: the grid column widths were not read."""
+    def narrow(document):
+        grid = document.tables[0]._tbl.tblGrid
+        grid.gridCol_lst[0].w = Inches(1)
+
+    edit_document(narrow)
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "table" and finding["expected"]["layout"] != finding["actual"]["layout"]
+
+
+def test_a_restyled_style_definition_is_reported_even_though_no_paragraph_changed(deal):
+    """CH11: only the style's name was compared, so redefining 'List Bullet' as one-point text read as a match."""
+    edit_document(lambda document: setattr(document.styles["List Bullet"].font, "size", Pt(1)))
+
+    finding, = verify()["findings"]
+
+    assert (finding["location"], finding["kind"]) == ("style List Bullet", "style")
+    assert finding["expected"][4] != finding["actual"][4] and finding["actual"][4] == 1.0
+
+
+def test_a_resized_body_image_is_reported(deal):
+    """CH12: an image kept its hash and alt text but could be shrunk to a dot."""
+    edit_document(lambda document: setattr(document.inline_shapes[0], "width", Inches(0.1)))
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph"
+    assert finding["expected"]["image_extents"] != finding["actual"]["image_extents"]
+
+
+def test_a_resized_header_image_is_a_section_difference(tmp_path):
+    original = document_with_header_image(PNG_1X1, tmp_path, "size_one")
+    resized = document_with_header_image(PNG_1X1, tmp_path, "size_two")
+    resized.sections[0].header.paragraphs[0].runs[0].element.xpath(".//wp:extent")[0].set("cx", "12345")
+
+    assert export_readback._document_sections(original) != export_readback._document_sections(resized)
+
+
+def test_a_style_only_one_side_uses_is_left_to_the_block_comparison(deal):
+    edit_document(lambda document: setattr(document.sections[0].footer, "is_linked_to_previous", False))
+
+    kinds = {f["kind"] for f in verify()["findings"]}
+
+    assert "style" not in kinds
+
+
+def test_a_character_style_has_a_signature_without_paragraph_layout():
+    document = docx.Document()
+    character = next(style for style in document.styles if style.type == 2)   # WD_STYLE_TYPE.CHARACTER
+
+    signature = export_readback._style_signature(character)
+
+    assert signature[0] == character.name and len(signature) == 10

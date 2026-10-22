@@ -125,6 +125,13 @@ deal's record and approved draft and reports every cell or block that differs fr
 edit after export, or an export left stale by a later change to the record, is found. See
 [Export read-back](cli-reference.md#export-read-back).
 
+## The committee summary
+
+`python scripts/committee_summary.py` writes a short `<Company>_<Proposal>_Committee_Summary.md` and `.docx` beside the
+CAM from the deal's recorded state: key recorded terms, financial snapshot, covenant results, conditions, security and
+open gaps. It quotes recorded values and the deterministic policy check only, and it is a meeting aid, not a credit
+decision or a replacement for the CAM. See [Committee summary](cli-reference.md#committee-summary).
+
 ## The research brief
 
 `/research` exports a standalone `.docx` from a Markdown brief (a short header as a bullet list, the Go/No-Go verdict

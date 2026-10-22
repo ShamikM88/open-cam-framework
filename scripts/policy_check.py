@@ -51,6 +51,15 @@ def compute(company, proposal, draft_path=None):
     that data exists yet for this deal.
     """
     state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
+    return compute_from_state(state, draft_path=draft_path)
+
+
+def compute_from_state(state, draft_path=None):
+    """The same answer as compute(), for a state already read and validated by the caller.
+
+    Lets a caller that has chosen one exact dated state (rather than the newest) evaluate that state, with no
+    second read. `compute()` is this function applied to the newest state.
+    """
     financials = state.get("financials") or {}
     ratios = state.get("ratios") or {}
     collateral = state.get("collateral") or []

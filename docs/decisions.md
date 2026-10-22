@@ -316,5 +316,10 @@ so in its Related line) when a later decision supersedes it.
   command files are gated on exact wording recorded on an issue. The headless pipeline never invents a confirmation:
   it accepts only already confirmed structured input and otherwise fails closed. The work is delivered in small
   pull requests: the guard and this record, then case A, then entity records, then the elimination engine.
+  The covenant basis (decision of 2026-10-22, #48) is built as an engine change: a covenant carries an optional
+  `basis`; the engine states which one view the recorded ratios represent and tests a covenant only on its own basis,
+  returning UNRESOLVABLE with a reason otherwise, never a fallback. It computes rather than refuses; asking the
+  analyst to confirm an UNRESOLVABLE result is an interactive-step behaviour delivered separately, under the
+  prompt-change gate.
 - **Related.** #48 (the decisions comment of 2026-10-20), #49 (no FX), #96 (narrative parent research), #124, #266,
   D2, D4, D18.

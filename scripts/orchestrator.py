@@ -36,6 +36,8 @@ from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
     StateError,
+    state_path,
+    validate_state,
     write_state,
     append_review_trail,
     read_state,
@@ -542,6 +544,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 file=sys.stderr,
             )
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
+    # The policy engine reads a recorded group_basis as "these figures are the consolidated group's"; a malformed or
+    # inconsistent record must stop the run here, as it does in policy_check and the exporter, not be believed.
+    validate_state(existing_state, keys=("group_basis",), path=state_path(company, proposal, date_str=date_str))
     steps_completed = list(existing_state.get("steps_completed") or [])
 
     if multi_period_financials and existing_state.get("financials_source") == "analyst-supplied":
@@ -737,6 +742,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         "security_package": existing_state.get("security_package") or [],
         "guarantees": existing_state.get("guarantees") or [],
         "downside_case": downside_case,
+        "group_basis": existing_state.get("group_basis"),
     })
     # Same inputs the loop below already holds fixed across iterations
     # (financials/ratios/collateral/downside_case don't change draft-to-draft

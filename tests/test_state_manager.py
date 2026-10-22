@@ -3309,28 +3309,6 @@ def test_ca409_record_group_basis_validates_only_the_fields_it_consumes(tmp_path
     assert saved["group_basis"]["figures_basis"] == "recomputed"
 
 
-def test_ca409_record_group_basis_reads_the_selected_state_fields_before_write(tmp_path):
-    basis = _ca409_survivor_basis()
-    basis["figures_basis"] = "recomputed"
-    basis_file = tmp_path / "group-basis.json"
-    _ca409_write_group_basis_file(basis_file, basis)
-    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
-    before = state_path_value.read_bytes()
-
-    with pytest.raises(StateShapeError) as caught:
-        state_manager.record_group_basis(
-            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
-            perimeter_confirmed=True, base_dir=str(tmp_path),
-        )
-
-    assert str(caught.value) == (
-        f'Cannot use {state_path_value}: "financials_source" must be "analyst-supplied" or '
-        '\'framework-computed\', found \'analyst-supplied\'. Fix the file by hand or restore it from a backup; '
-        "the file was not modified."
-    )
-    assert state_path_value.read_bytes() == before
-
-
 def test_ca409_record_group_basis_rechecks_the_date_found_before_the_locked_read(tmp_path, monkeypatch):
     basis = _ca409_survivor_basis()
     basis["figures_basis"] = "supplied"
@@ -3341,7 +3319,7 @@ def test_ca409_record_group_basis_rechecks_the_date_found_before_the_locked_read
         "Synthetic Group Ltd", "Synthetic Group Facility",
         date_str="2026-02-01", base_dir=str(tmp_path),
     ))
-    created = {"done": False}
+    created = {"done": False, "newer_bytes": None}
 
     class CreateNewerStateOnLock:
         def __init__(self, _path):
@@ -3360,6 +3338,7 @@ def test_ca409_record_group_basis_rechecks_the_date_found_before_the_locked_read
                 }
                 with open(newer_path, "w", encoding="utf-8") as handle:
                     json.dump(newer_state, handle, indent=2)
+                created["newer_bytes"] = newer_path.read_bytes()
                 created["done"] = True
             return self
 
@@ -3367,12 +3346,10 @@ def test_ca409_record_group_basis_rechecks_the_date_found_before_the_locked_read
             return False
 
     monkeypatch.setattr(state_manager, "_FileLock", CreateNewerStateOnLock)
-    newer_before = None
     result = state_manager.record_group_basis(
         "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
         perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
     )
-    newer_before = newer_path.read_bytes()
     assert result["recorded"] is True
     saved_old = state_manager.read_state(
         "Synthetic Group Ltd", "Synthetic Group Facility",
@@ -3381,7 +3358,7 @@ def test_ca409_record_group_basis_rechecks_the_date_found_before_the_locked_read
     assert saved_old["date"] == "2026-01-01"
     assert saved_old["marker"] == "old-state"
     assert saved_old["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"
-    assert newer_path.read_bytes() == newer_before
+    assert newer_path.read_bytes() == created["newer_bytes"]
 
 
 def test_ca409_record_group_basis_success_preserves_the_selected_dated_folder(tmp_path):

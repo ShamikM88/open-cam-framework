@@ -20,6 +20,7 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `/assemble` | command | analyst | implemented | user | Maker | yes |
 | `/review` | command | analyst | implemented | user+model | Checker | yes |
 | `/start-review` | command | analyst | implemented | user | Setup | yes |
+| `/committee-summary` | command | analyst | implemented | user | Reporting | no |
 | `information-gaps` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `evidence-discipline` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
 | `financial-analysis` | skill | analyst | implemented: phase 2 | user | None (aid) | no |
@@ -38,7 +39,9 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
   in their loops. `model`: `user-invocable: false`. No skill is `user+model` or `model`; that needs a design change
   first.
 - **Role in the pipeline** says whose input a file is. A command acts as the Maker (`agents/underwriter_agent.md`), the
-  Checker (`agents/risk_reviewer_agent.md`) or sets the framework up. A skill is an aid: it is never any of these.
+  Checker (`agents/risk_reviewer_agent.md`), sets the framework up (`Setup`), or only reports on a deal's record
+  (`Reporting`: it adds no analysis and has no part in drafting or auditing). A skill is an aid: it is never any of
+  these.
 - **Headless**: `yes` means the headless scripts produce the same deal outputs (some modes of a `yes` command need a
   person and exist only interactively; see [architecture](../docs/architecture.md#two-ways-to-run-it)). A skill is `no`
   by design: it leaves no record in a deal, so nothing the headless pipeline cannot reproduce can depend on it.
@@ -97,6 +100,10 @@ Execute the following actions when triggered by their respective slash commands:
 11. `/start-review`
    - Primary Inputs: Exact company and proposal names, and optionally the date of the new review.
    - Core Action: Lists eligible earlier reviews without writing, asks for an explicit link/unlinked choice (and confirmation before proceeding if the newest review has no assembled CAM), then starts an empty state with an optional `prior_review_date`. It never inherits prior review content.
+
+12. `/committee-summary`
+   - Primary Inputs: Exact company and proposal names, and optionally the dated folder (`--date-str`).
+   - Core Action: Runs `scripts/committee_summary.py`, which writes a short Markdown and Word committee summary into the deal's dated folder from the recorded `state.json` and the deterministic policy check. It quotes recorded values only, makes no credit decision, and records nothing in `state.json`.
 
 See [`.claude/commands/`](../.claude/commands/) for the runnable slash-command implementation of
 each step above. Every step (`/calibrate` and `/calibrate-policy` excepted) also takes `--company

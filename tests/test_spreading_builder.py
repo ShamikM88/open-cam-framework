@@ -1480,3 +1480,73 @@ def test_evaluate_downside_case_still_ignores_historical_periods_and_accepts_no_
     )
     assert list(result["financials"]) == ["FY+1"]
     assert evaluate_downside_case(None, {}) == {"financials": {}, "ratios": {}}
+
+# ---------------------------------------------------------------------------
+# PR: test: kill case A group-basis mutation survivors (Part of #408)
+# ---------------------------------------------------------------------------
+
+def test_ca409_group_basis_sheet_round_trips_disclosure_labels_values_order_and_widths(tmp_path):
+    group_basis = {
+        "basis": "supplied_consolidated",
+        "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {
+            "document": "Borrower-supplied consolidated accounts",
+            "accounting_basis": "UK GAAP, consolidated",
+            "date": "2026-08-31",
+        },
+        "period_end": "2026-03-31",
+        "periods": ["FY-Current", "FY+1"],
+        "figures_basis": "recomputed",
+        "perimeter_confirmed": False,
+        "perimeter_confirmed_on": "2026-10-21",
+    }
+    output_path = tmp_path / "synthetic-group-basis.xlsx"
+    export_to_xlsx("Synthetic Group Ltd", str(output_path), group_basis=group_basis)
+
+    workbook = openpyxl.load_workbook(output_path)
+    try:
+        assert workbook.sheetnames == [
+            "Financial Spreading",
+            "Collateral & Exposure",
+            "Group basis",
+        ]
+        ws = workbook["Group basis"]
+        assert ws.max_row == 12
+        assert ws.max_column == 2
+        assert ws["A1"].value == (
+            "Credit aggregation of consolidated accounts supplied by the borrower; "
+            "not a statutory consolidation prepared by this framework."
+        )
+        assert ws["B1"].value is None
+
+        assert [ws.cell(row=row, column=1).value for row in range(2, 13)] == [
+            "Basis",
+            "Reporting entity",
+            "Entities covered",
+            "Source document",
+            "Accounting basis",
+            "Source document date",
+            "Common period end",
+            "Periods covered",
+            "Figures basis",
+            "Perimeter confirmed",
+            "Perimeter confirmed on",
+        ]
+        assert [ws.cell(row=row, column=2).value for row in range(2, 13)] == [
+            "supplied_consolidated",
+            "Synthetic Group Ltd",
+            "Synthetic Group Ltd; Synthetic Group OpCo",
+            "Borrower-supplied consolidated accounts",
+            "UK GAAP, consolidated",
+            "2026-08-31",
+            "2026-03-31",
+            "FY-Current, FY+1",
+            "recomputed",
+            "No",
+            "2026-10-21",
+        ]
+        assert ws.column_dimensions["A"].width == 34
+        assert ws.column_dimensions["B"].width == 72
+    finally:
+        workbook.close()

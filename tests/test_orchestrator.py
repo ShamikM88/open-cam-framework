@@ -2459,13 +2459,13 @@ def test_a_token_still_works_when_the_api_key_variable_is_present_but_empty(no_c
 
 def test_a_credentials_provider_counts(no_credentials, monkeypatch):
     """A client whose authentication is supplied per request (a credentials profile) has no static header."""
-    import orchestrator
+    import anthropic
 
     class Provider:
         custom_auth = object()
         default_headers = {"Accept": "application/json"}
 
-    monkeypatch.setattr(orchestrator, "Anthropic", lambda **kwargs: Provider())
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: Provider())
     assert isinstance(_default_client(), Provider)
 
 
@@ -2482,12 +2482,12 @@ def test_an_injected_client_is_used_without_the_credential_check(no_credentials,
 
 
 def test_other_failures_while_building_the_client_are_not_reported_as_missing_credentials(no_credentials, monkeypatch):
-    import orchestrator
+    import anthropic
 
     def broken(**kwargs):
         raise RuntimeError("synthetic SDK failure")
 
-    monkeypatch.setattr(orchestrator, "Anthropic", broken)
+    monkeypatch.setattr(anthropic, "Anthropic", broken)
     with pytest.raises(RuntimeError, match="synthetic SDK failure"):
         _default_client()
 

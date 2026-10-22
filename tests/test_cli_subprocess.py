@@ -80,10 +80,13 @@ def cli(tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()
 
-    def run(script, *args, cwd=None):
+    def run(script, *args, cwd=None, env_overrides=None):
+        env = child_env()
+        if env_overrides:
+            env.update(env_overrides)
         return subprocess.run(
             [sys.executable, str(SCRIPTS_DIR / f"{script}.py"), *map(str, args)],
-            cwd=cwd or workdir, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120,
+            cwd=cwd or workdir, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120,
             stdin=subprocess.DEVNULL)
 
     run.workdir = workdir
@@ -119,8 +122,22 @@ def test_the_main_block_detector_reads_code_not_text(tmp_path, source, expected)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("script", CLI_SCRIPTS)
-def test_help_prints_usage_and_exits_zero(cli, script):
-    result = cli(script, "--help")
+def test_help_prints_usage_and_exits_zero(cli, script, tmp_path):
+    env_overrides = None
+    if script in {"calibrate", "orchestrator"}:
+        sdk_stub_dir = tmp_path / "no-anthropic"
+        sdk_stub_dir.mkdir()
+        (sdk_stub_dir / "anthropic.py").write_text(
+            'raise ImportError("Anthropic SDK intentionally unavailable in this test")\n',
+            encoding="utf-8",
+        )
+        pythonpath = str(sdk_stub_dir)
+        inherited_pythonpath = os.environ.get("PYTHONPATH")
+        if inherited_pythonpath:
+            pythonpath = os.pathsep.join((pythonpath, inherited_pythonpath))
+        env_overrides = {"PYTHONPATH": pythonpath}
+
+    result = cli(script, "--help", env_overrides=env_overrides)
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("usage:") and result.stderr == ""
 

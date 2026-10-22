@@ -215,11 +215,16 @@ selection `deal_export.py` uses) and the expected document from the approved Mar
 `approved_draft_path` (which `/assemble` records), writes both to a temporary directory, and compares them with
 `<Company>_<Proposal>_Spreading.xlsx` and `<Company>_<Proposal>_CAM.docx` in the dated folder.
 
-- **Workbook:** sheet names and order; every cell's value (formulas as text, numbers within 1e-9, so an overwritten
-  formula or an edited input is found), number format, bold and italic; column widths, merged cells and freeze panes.
-  Cached formula results are not evaluated, and charts are not compared.
-- **Document:** the body blocks in order: each paragraph's style, text, run formatting, hyperlink targets and embedded
-  image hashes and alt text, and each table's cell text.
+- **Workbook:** sheet names, order and visibility; defined names; every cell's value (formulas as text, numbers within
+  1e-9, so an overwritten formula or an edited input is found) and its number format, font (name, size, colour,
+  bold, italic, underline, strike), fill, borders and alignment; row and column visibility, row heights and column
+  widths; merged cells, freeze panes, sheet protection, and how many data validations and conditional formats a
+  sheet has. Cached formula results are not evaluated, charts are not compared, and a sheet whose used range is
+  larger than 1,000,000 positions (one stray cell in the far corner does that) is refused rather than compared.
+- **Document:** the body blocks in order: each paragraph's style, alignment and spacing, every run's text, bold,
+  italic, underline, strike, font, size, colour and highlight, hyperlink targets, embedded image hashes and alt
+  text; each table's style and, per cell, the same paragraph detail; and each section's page size, orientation,
+  margins, header and footer text. Comments, footnotes, text boxes, themes and file properties are not compared.
 - **Output:** one JSON object on stdout: `status` (`match` or `mismatch`), `selected_folder`, the two artifacts' paths
   and counts, `mismatch_count`, up to 200 `findings` (each `artifact`, `location`, `kind`, `expected`, `actual`;
   `truncated` is `true` when there were more) and `limits`. Exit `0` on a match and `1` on a mismatch.

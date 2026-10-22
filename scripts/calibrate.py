@@ -3,12 +3,22 @@ import os
 import sys
 import glob
 import argparse
-from anthropic import Anthropic
 from pypdf import PdfReader
 from template_resolver import local_cam_template_path
 from response_utils import EmptyModelResponseError, require_response_text
 
-client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+client = None
+
+
+def _get_client():
+    """Build and cache the Anthropic client on the first real API call."""
+    global client
+    if client is None:
+        from anthropic import Anthropic
+
+        client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    return client
+
 
 _DEFAULT_MODEL = "claude-sonnet-5-5"
 
@@ -247,7 +257,8 @@ def _choose_overflow_mode(total_chars, chunk_count, requested):
 
 
 def _complete(model, prompt, max_tokens=3000):
-    response = client.messages.create(
+    api_client = client if client is not None else _get_client()
+    response = api_client.messages.create(
         model=model,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],

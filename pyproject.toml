@@ -58,20 +58,21 @@ critical_modules = [
     "spreading_builder", "spreading_check",             # every ratio and subtotal the CAM reports
     "state_manager", "deal_export", "docx_builder",     # the persisted deal state and the exported documents
     "review_compare",                                   # the read-only comparison of two dated reviews (issue #203)
+    "export_readback", "committee_summary",             # the export check and the committee summary (issue #196)
 ]
 
 # Coverage of the lines a pull request changes (diff-cover reads this table itself): 95% for any changed line. A
-# change to one of the nine governance modules is held to 98% by diff_cover_critical.toml, a second run of the
+# change to one of the eleven governance modules is held to 98% by diff_cover_critical.toml, a second run of the
 # same tool. CI runs both on pull requests only; on a push to main there is no base to compare with.
 [tool.diff_cover]
 compare_branch = "origin/main"
 fail_under = 95
 
 # Mutation testing (issue #146), run weekly by .github/workflows/mutation.yml -- never on a pull request. mutmut
-# copies source_paths and tests/ into mutants/, mutates the nine governance modules plus calibrate.py (the
+# copies source_paths and tests/ into mutants/, mutates the eleven governance modules plus calibrate.py (the
 # calibrate chunker/merge helpers, as a supporting module) one line at a time, and runs only the test files below
 # against each mutant. Linux/macOS only. scripts/mutation_report.py turns the result into a score per module. No
-# score is enforced: the report is diagnostic. `target_critical` below is a diagnostic target for the nine
+# score is enforced: the report is diagnostic. `target_critical` below is a diagnostic target for the eleven
 # governance modules (chosen after the first full run, issue #146): the report marks each of them met or below,
 # and never fails a build over it. Changing it is a reviewed change.
 #
@@ -85,6 +86,7 @@ only_mutate = [
     "src/policy_engine.py", "src/policy_checks.py", "src/policy_check.py",
     "src/spreading_builder.py", "src/spreading_check.py",
     "src/state_manager.py", "src/deal_export.py", "src/docx_builder.py", "src/review_compare.py",
+    "src/export_readback.py", "src/committee_summary.py",
     "src/calibrate.py",
 ]
 pytest_add_cli_args_test_selection = [
@@ -92,6 +94,7 @@ pytest_add_cli_args_test_selection = [
     "tests/test_spreading_builder.py", "tests/test_spreading_check.py",
     "tests/test_state_manager.py", "tests/test_deal_export.py", "tests/test_docx_builder.py",
     "tests/test_review_compare.py", "tests/test_legacy_state.py", "tests/test_golden_outputs.py",
+    "tests/test_export_readback.py", "tests/test_committee_summary.py",
     "tests/test_calibrate.py", "tests/test_properties.py",
 ]
 also_copy = [".github", "docs/examples"]    # selected tests read the workflow files and the synthetic example inputs, so the mutants/ copy needs them

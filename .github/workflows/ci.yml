@@ -77,7 +77,7 @@ jobs:
 
       - name: Enforce coverage of the lines this pull request changes in the governance modules
         if: github.event_name == 'pull_request'
-        # The stricter tier: diff_cover_critical.toml holds the lines changed in the nine governance modules to 98%
+        # The stricter tier: diff_cover_critical.toml holds the lines changed in the eleven governance modules to 98%
         # (the step above holds every changed line to 95%). Same rule about --config-file: without it the floor is
         # silently 0. tests/test_ci_workflow.py runs this exact command against an uncovered change.
         run: diff-cover coverage.xml --config-file diff_cover_critical.toml

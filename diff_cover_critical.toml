@@ -1,5 +1,5 @@
 # The second changed-lines gate (the first is [tool.diff_cover] in pyproject.toml): the lines a pull request changes
-# in one of the nine governance modules must be 98% covered, against 95% for any other changed line. diff-cover takes
+# in one of the eleven governance modules must be 98% covered, against 95% for any other changed line. diff-cover takes
 # one threshold per configuration, so the stricter tier is its own file; CI runs it with
 # `diff-cover coverage.xml --config-file diff_cover_critical.toml`, on pull requests only. A change that touches none
 # of these files passes (there is nothing to cover). `include` is the list under [tool.opencam.coverage]
@@ -18,4 +18,6 @@ include = [
     "scripts/deal_export.py",
     "scripts/docx_builder.py",
     "scripts/review_compare.py",
+    "scripts/export_readback.py",
+    "scripts/committee_summary.py",
 ]

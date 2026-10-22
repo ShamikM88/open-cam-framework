@@ -41,7 +41,7 @@ CI has four jobs (`test`, `test-windows`, `runtime-smoke`, `security`) and a sep
 | `test` / Run test suite | A real failure, a warning (they fail the run), a network attempt (`--disable-socket`) or a test over 120 s | Read the first failure, not the last; reproduce with `pytest path::test -x` |
 | `test` / Verify checked-in test count | The badge does not match the run | Update it from a complete green run ([above](#the-test-count-badge)); if the count looks wrong, find the test that did not run |
 | `test` / Enforce coverage floors | A governance module fell below 97% or the total below 95% | `python scripts/check_coverage.py coverage.json --report-only` for the table; add the missing test; do not lower a floor to pass (a lower floor is a reviewed decision) |
-| `test` / Enforce coverage of the lines this pull request changes (and, in the governance modules) | Changed lines are under 95% covered, or under 98% in one of the nine governance modules | `diff-cover coverage.xml --config-file pyproject.toml` (or `--config-file diff_cover_critical.toml`) lists the lines; code that only runs on Windows needs `# pragma: no cover - <reason>` |
+| `test` / Enforce coverage of the lines this pull request changes (and, in the governance modules) | Changed lines are under 95% covered, or under 98% in one of the eleven governance modules | `diff-cover coverage.xml --config-file pyproject.toml` (or `--config-file diff_cover_critical.toml`) lists the lines; code that only runs on Windows needs `# pragma: no cover - <reason>` |
 | `test-windows` | A platform bug: cp1252 console, backslash paths, CRLF, an `open()` without `encoding=` | Reproduce on Windows; the fix is usually an explicit encoding or `pathlib`, not a skip |
 | `runtime-smoke` | A script imports a development-only package, or `requirements.txt` is missing a runtime dependency a dev package happened to supply | Run `tests/runtime_smoke.py --expect-clean` in a venv built from `requirements.txt` alone |
 | `security` / pip-audit | A dependency has a published advisory (this can turn red on an unrelated pull request, which is the point) | Pin a fixed version; only if none exists, follow the reviewed ignore procedure in [Testing and CI](testing.md#ci) |
@@ -55,7 +55,7 @@ CI keeps `coverage.xml`, `coverage.json`, `pytest_output.txt` and `pip freeze` f
 
 **Purpose.** Coverage answers "did a test run this line?", never "would a test notice if it were wrong?". It is a floor against untested governance code, not a score ([D13](decisions.md#d13-mutation-testing-and-coverage-are-diagnostics-and-floors-not-a-scoring-game)).
 
-- The overall floor (85%) catches broad neglect; the per-module floor (90% for nine governance modules) stops a well-covered helper hiding an untested policy module; the changed-lines floor (90%) holds new code to the bar from the first pull request.
+- The overall floor (95%) catches broad neglect; the per-module floor (97% for eleven governance modules) stops a well-covered helper hiding an untested policy module; the changed-lines floor (95%, 98% in a governance module) holds new code to the bar from the first pull request.
 - Branch coverage is on. A line that runs but never takes one side of an `if` is the usual cause of a miss that "looks covered".
 - When a number is under, ask which behaviour is untested, then write the test for the behaviour. A test written only to execute the line raises the figure and protects nothing.
 - Floors are in `pyproject.toml`; `tests/test_check_coverage.py` pins the minimums so lowering one cannot be done quietly.
@@ -66,7 +66,7 @@ CI keeps `coverage.xml`, `coverage.json`, `pytest_output.txt` and `pip freeze` f
 
 The workflow (`.github/workflows/mutation.yml`) runs weekly and on demand from the Actions tab, on Ubuntu only, never on a pull request, and never fails over a score. Download the `mutation-report` artifact and read the job summary:
 
-- **The per-module table** gives `(killed + timed out) / (mutants - skipped)` for each module. A mutant no test reaches counts against its module. The nine governance modules have a diagnostic target of 75% (`[tool.opencam.mutation] target_critical`); the report marks each met or below and never gates on it.
+- **The per-module table** gives `(killed + timed out) / (mutants - skipped)` for each module. A mutant no test reaches counts against its module. The eleven governance modules have a diagnostic target of 75% (`[tool.opencam.mutation] target_critical`); the report marks each met or below and never gates on it.
 - **Completeness warnings** (a configured module with no mutants, a module whose mutants mostly have no test, mutants never checked) mean the *run* is suspect before the score is.
 - **The largest groups of survivors** are where to start.
 

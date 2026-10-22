@@ -2704,3 +2704,707 @@ def test_record_group_basis_accepts_recomputed_figures_on_a_deal_with_no_financi
         perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
     )
     assert report["recorded"] is True and report["figures_basis"] == "recomputed"
+
+# ---------------------------------------------------------------------------
+# PR: test: kill case A group-basis mutation survivors (Part of #408)
+# ---------------------------------------------------------------------------
+
+def _ca409_survivor_basis():
+    return {
+        "basis": "supplied_consolidated",
+        "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {
+            "document": "Borrower-supplied consolidated accounts",
+            "accounting_basis": "UK GAAP, consolidated",
+            "date": "2026-08-31",
+        },
+        "period_end": "2026-03-31",
+        "periods": ["FY-Current", "FY-1"],
+        "figures_basis": "recomputed",
+        "perimeter_confirmed": True,
+        "perimeter_confirmed_on": "2026-10-21",
+    }
+
+
+def _ca409_assert_basis_problems(value, problems):
+    """Assert the complete public validate_state() diagnostic, not just a substring."""
+    with pytest.raises(StateShapeError) as caught:
+        state_manager.validate_state({"group_basis": value}, keys=("group_basis",))
+    expected = (
+        "Cannot use state.json: " + "; ".join(problems)
+        + ". Fix the file by hand or restore it from a backup; the file was not modified."
+    )
+    assert str(caught.value) == expected
+
+
+def _ca409_write_group_basis_file(path, basis, *, ensure_ascii=True):
+    path.write_text(json.dumps(basis, ensure_ascii=ensure_ascii), encoding="utf-8")
+
+
+def _ca409_seed_state(tmp_path, **fields):
+    state_manager.write_state(
+        "Synthetic Group Ltd",
+        "Synthetic Group Facility",
+        date_str="2026-01-01",
+        base_dir=str(tmp_path),
+        **fields,
+    )
+    return Path(state_manager.state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility",
+        date_str="2026-01-01", base_dir=str(tmp_path),
+    ))
+
+
+def _ca409_record_expected_problem(problem):
+    return f"Refusing to record group_basis: {problem}. Nothing was changed."
+
+
+def test_ca409_group_basis_wrong_top_level_type_reports_its_actual_json_type():
+    _ca409_assert_basis_problems(
+        ["not", "an", "object"],
+        ['"group_basis" must be an object, found list'],
+    )
+
+
+def test_ca409_group_basis_required_string_diagnostics_keep_the_actual_type_and_path():
+    basis = _ca409_survivor_basis()
+    basis["reporting_entity"] = 7
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.reporting_entity" must be a non-empty string, found number'],
+    )
+
+    basis = _ca409_survivor_basis()
+    del basis["reporting_entity"]
+    _ca409_assert_basis_problems(basis, ['"group_basis.reporting_entity" is required'])
+
+
+def test_ca409_group_basis_basis_value_has_exact_refusal_text_and_valid_boundary():
+    basis = _ca409_survivor_basis()
+    _ca409_assert_basis_problems(
+        {**basis, "basis": "ownership_percentage"},
+        ['"group_basis.basis" must be "supplied_consolidated"'],
+    )
+    assert state_manager.validate_state(
+        {"group_basis": basis}, keys=("group_basis",)
+    )["group_basis"] == basis
+
+
+def test_ca409_group_basis_entity_list_must_be_a_nonempty_list_of_distinct_names():
+    basis = _ca409_survivor_basis()
+    basis["entities_covered"] = []
+    _ca409_assert_basis_problems(
+        basis,
+        [
+            '"group_basis.entities_covered" must be a non-empty list of distinct non-empty strings',
+            '"group_basis.entities_covered" must include group_basis.reporting_entity',
+        ],
+    )
+
+    basis = _ca409_survivor_basis()
+    basis["entities_covered"] = "Synthetic Group Ltd"
+    _ca409_assert_basis_problems(
+        basis,
+        [
+            '"group_basis.entities_covered" must be a non-empty list of distinct non-empty strings',
+            '"group_basis.entities_covered" must include group_basis.reporting_entity',
+        ],
+    )
+
+
+def test_ca409_group_basis_entity_loop_continues_after_each_invalid_entity_and_reports_duplicates():
+    basis = _ca409_survivor_basis()
+    basis["entities_covered"] = [None, "", "Synthetic Group OpCo", "Synthetic Group OpCo"]
+    _ca409_assert_basis_problems(
+        basis,
+        [
+            '"group_basis.entities_covered[0]" must be a non-empty string',
+            '"group_basis.entities_covered[1]" must be a non-empty string',
+            '"group_basis.entities_covered" contains duplicate entity \'Synthetic Group OpCo\'',
+            '"group_basis.entities_covered" must include group_basis.reporting_entity',
+        ],
+    )
+
+
+def test_ca409_group_basis_reporting_entity_must_be_in_the_covered_perimeter():
+    basis = _ca409_survivor_basis()
+    basis["entities_covered"] = ["Synthetic Group OpCo", "Synthetic Group Trading Ltd"]
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.entities_covered" must include group_basis.reporting_entity'],
+    )
+
+
+def test_ca409_group_basis_source_container_and_document_paths_are_exact():
+    basis = _ca409_survivor_basis()
+    basis["source"] = "Borrower document"
+    _ca409_assert_basis_problems(
+        basis,
+        [
+            '"group_basis.source" must be an object',
+            '"group_basis.source.document" is required',
+            '"group_basis.source.accounting_basis" is required',
+            '"group_basis.source.date" is required',
+        ],
+    )
+
+    basis = _ca409_survivor_basis()
+    del basis["source"]["document"]
+    _ca409_assert_basis_problems(basis, ['"group_basis.source.document" is required'])
+
+    basis = _ca409_survivor_basis()
+    basis["source"]["document"] = 17
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.source.document" must be a non-empty string, found number'],
+    )
+
+
+def test_ca409_group_basis_accounting_basis_required_string_path_is_exact():
+    basis = _ca409_survivor_basis()
+    del basis["source"]["accounting_basis"]
+    _ca409_assert_basis_problems(basis, ['"group_basis.source.accounting_basis" is required'])
+
+    basis = _ca409_survivor_basis()
+    basis["source"]["accounting_basis"] = None
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.source.accounting_basis" must be a non-empty string, found null'],
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("source.date", "2026-8-31"),
+        ("source.date", None),
+        ("period_end", "31/03/2026"),
+        ("period_end", None),
+        ("perimeter_confirmed_on", "2026-03-31T00:00:00"),
+        ("perimeter_confirmed_on", None),
+    ],
+)
+def test_ca409_group_basis_calendar_date_shape_and_type_are_refused_exactly(field, bad_value):
+    basis = _ca409_survivor_basis()
+    if field == "source.date":
+        basis["source"]["date"] = bad_value
+    else:
+        basis[field] = bad_value
+    path = "group_basis." + field
+    _ca409_assert_basis_problems(
+        basis,
+        [f'"{path}" must be a real YYYY-MM-DD calendar date'],
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("source.date", "2025-02-29"),
+        ("source.date", "2026-02-30"),
+        ("period_end", "2025-02-29"),
+        ("period_end", "2026-02-30"),
+        ("perimeter_confirmed_on", "2025-02-29"),
+        ("perimeter_confirmed_on", "2026-02-30"),
+    ],
+)
+def test_ca409_group_basis_rejects_impossible_calendar_dates_exactly(field, bad_value):
+    basis = _ca409_survivor_basis()
+    if field == "source.date":
+        basis["source"]["date"] = bad_value
+    else:
+        basis[field] = bad_value
+    _ca409_assert_basis_problems(
+        basis,
+        [f'"group_basis.{field}" must be a real YYYY-MM-DD calendar date'],
+    )
+
+
+def test_ca409_group_basis_accepts_a_real_leap_day_and_all_nonempty_metadata_strings():
+    basis = _ca409_survivor_basis()
+    basis["reporting_entity"] = "Synthetic Group Ltd "
+    basis["source"]["document"] = "Synthetic audited group accounts"
+    basis["source"]["accounting_basis"] = "Synthetic accounting basis"
+    basis["source"]["date"] = "2024-02-29"
+    basis["period_end"] = "2024-02-29"
+    basis["perimeter_confirmed_on"] = "2024-02-29"
+    assert state_manager.validate_state(
+        {"group_basis": basis}, keys=("group_basis",)
+    )["group_basis"] == basis
+
+
+def test_ca409_group_basis_periods_must_be_a_nonempty_list():
+    basis = _ca409_survivor_basis()
+    basis["periods"] = []
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.periods" must be a non-empty list of distinct framework period labels'],
+    )
+
+    basis = _ca409_survivor_basis()
+    basis["periods"] = ("FY-Current",)
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.periods" must be a non-empty list of distinct framework period labels'],
+    )
+
+
+def test_ca409_group_basis_period_type_checks_continue_and_detect_duplicate_labels():
+    basis = _ca409_survivor_basis()
+    basis["periods"] = ["FY-Current", 7]
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.periods[1]" must be a framework period label'],
+    )
+
+    basis = _ca409_survivor_basis()
+    basis["periods"] = [None, "", "FY-Current", "FY-Current"]
+    _ca409_assert_basis_problems(
+        basis,
+        [
+            '"group_basis.periods[0]" must be a framework period label',
+            '"group_basis.periods[1]" must be a framework period label',
+            '"group_basis.periods" contains duplicate period \'FY-Current\'',
+        ],
+    )
+
+
+def test_ca409_group_basis_rejects_unknown_period_labels_and_accepts_each_supported_label():
+    basis = _ca409_survivor_basis()
+    basis["periods"] = ["FY-3"]
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.periods[0]" has unknown period label \'FY-3\''],
+    )
+
+    basis = _ca409_survivor_basis()
+    basis["periods"] = ["FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3"]
+    assert state_manager.validate_state(
+        {"group_basis": basis}, keys=("group_basis",)
+    )["group_basis"] == basis
+
+
+def test_ca409_group_basis_figures_basis_and_confirmation_errors_are_exact():
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = "inferred"
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.figures_basis" must be "supplied" or "recomputed"'],
+    )
+
+    basis = _ca409_survivor_basis()
+    basis["perimeter_confirmed"] = False
+    _ca409_assert_basis_problems(
+        basis,
+        ['"group_basis.perimeter_confirmed" must be true after explicit analyst confirmation'],
+    )
+
+
+def test_ca409_group_basis_supplied_figures_require_a_matching_recorded_source():
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = "supplied"
+    _ca409_assert_basis_problems(
+        basis,
+        [
+            '"group_basis.figures_basis" is \'supplied\', but state financials_source is not recorded '
+            '(read as "framework-computed"); these must agree'
+        ],
+    )
+
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = "supplied"
+    state = {"group_basis": basis, "financials_source": "framework-computed"}
+    with pytest.raises(StateShapeError) as caught:
+        state_manager.validate_state(state, keys=("group_basis", "financials_source"))
+    assert str(caught.value) == (
+        'Cannot use state.json: "group_basis.figures_basis" is \'supplied\', but '
+        'state financials_source is \'framework-computed\'; these must agree. '
+        'Fix the file by hand or restore it from a backup; the file was not modified.'
+    )
+
+
+def test_ca409_record_group_basis_refusal_without_confirmation_is_exact_and_byte_preserving(tmp_path):
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, _ca409_survivor_basis())
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=False, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        "Refusing to record group_basis without explicit --perimeter-confirmed analyst confirmation; "
+        "nothing was changed."
+    )
+    assert state_path_value.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("company", "proposal", "field", "unsafe"),
+    [
+        ("Synthetic/Group Ltd", "Synthetic Group Facility", "company", "Synthetic/Group Ltd"),
+        ("Synthetic Group Ltd", "Synthetic/Group:Facility", "proposal", "Synthetic Group:Facility"),
+    ],
+)
+def test_ca409_record_group_basis_path_errors_name_the_exact_component_and_preserve_bytes(
+    tmp_path, company, proposal, field, unsafe
+):
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, _ca409_survivor_basis())
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            company, proposal, str(basis_file), perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    expected = (
+        f"{field} {unsafe!r} isn't safe to use as a filesystem path component "
+        '(no \\\\ / : * ? " < > | characters, and not "." or "..").'
+    )
+    assert str(caught.value) == expected
+    assert state_path_value.read_bytes() == before
+
+
+def test_ca409_record_group_basis_rejects_bad_json_with_exact_utf8_diagnostic_and_no_write(tmp_path):
+    basis_file = tmp_path / "bad-group-basis.json"
+    basis_file.write_text("not-json", encoding="utf-8")
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f"Cannot read group-basis file {str(basis_file)!r} as UTF-8 JSON: "
+        "Expecting value: line 1 column 1 (char 0)"
+    )
+    assert state_path_value.read_bytes() == before
+
+
+def test_ca409_record_group_basis_oserror_keeps_the_exact_wrapped_message_and_no_write(tmp_path, monkeypatch):
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, _ca409_survivor_basis())
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    def fail_open(_path, *, encoding):
+        assert encoding == "utf-8"
+        raise OSError("synthetic read denial")
+
+    monkeypatch.setattr(state_manager, "open", fail_open, raising=False)
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == f"Cannot read group-basis file {str(basis_file)!r}: synthetic read denial"
+    assert state_path_value.read_bytes() == before
+
+
+def test_ca409_record_group_basis_utf8_reader_preserves_non_ascii_source_text(tmp_path, cp1252_default_open):
+    basis = _ca409_survivor_basis()
+    basis["source"]["document"] = "Comptes consolidés — café"
+    basis_file = tmp_path / "group-basis-utf8.json"
+    _ca409_write_group_basis_file(basis_file, basis, ensure_ascii=False)
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="framework-computed", marker="keep")
+
+    result = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    saved = state_manager.read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("group_basis",),
+    )
+    assert result["recorded"] is True
+    assert saved["group_basis"]["source"]["document"] == "Comptes consolidés — café"
+    assert saved["marker"] == "keep"
+
+
+def test_ca409_record_group_basis_rejects_non_object_json_exactly_and_preserves_bytes(tmp_path):
+    basis_file = tmp_path / "group-basis-array.json"
+    basis_file.write_text('["not", "an", "object"]', encoding="utf-8")
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f"Group-basis file {str(basis_file)!r} must contain a JSON object; nothing was changed."
+    )
+    assert state_path_value.read_bytes() == before
+
+
+def test_ca409_record_group_basis_initial_validation_refusal_is_exact_and_byte_preserving(tmp_path):
+    basis = _ca409_survivor_basis()
+    basis["basis"] = "wrong"
+    basis["reporting_entity"] = "   "
+    basis_file = tmp_path / "invalid-group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="framework-computed", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        'Invalid group_basis: "group_basis.basis" must be "supplied_consolidated"; '
+        '"group_basis.reporting_entity" must be a non-empty string. Nothing was changed.'
+    )
+    assert state_path_value.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("figures_basis", "financials_source", "expected_problem"),
+    [
+        (
+            "supplied", "framework-computed",
+            '"group_basis.figures_basis" is \'supplied\', but state financials_source is \'framework-computed\'; these must agree',
+        ),
+        (
+            "recomputed", "analyst-supplied",
+            '"group_basis.figures_basis" is \'recomputed\', but state financials_source is \'analyst-supplied\'; these must agree',
+        ),
+        (
+            "supplied", None,
+            '"group_basis.figures_basis" is \'supplied\', but state financials_source is not recorded '
+            '(read as "framework-computed"); these must agree',
+        ),
+    ],
+)
+def test_ca409_record_group_basis_refuses_each_basis_source_disagreement_without_writing(
+    tmp_path, figures_basis, financials_source, expected_problem
+):
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = figures_basis
+    basis.pop("perimeter_confirmed")
+    basis.pop("perimeter_confirmed_on")
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    fields = {} if financials_source is None else {"financials_source": financials_source}
+    state_path_value = _ca409_seed_state(tmp_path, marker="keep", **fields)
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == _ca409_record_expected_problem(expected_problem)
+    assert state_path_value.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("figures_basis", "financials_source"),
+    [
+        ("supplied", "analyst-supplied"),
+        ("recomputed", "framework-computed"),
+        ("recomputed", None),
+    ],
+)
+def test_ca409_record_group_basis_accepts_each_agreeing_or_default_basis_source_without_changing_other_fields(
+    tmp_path, figures_basis, financials_source
+):
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = figures_basis
+    basis.pop("perimeter_confirmed")
+    basis.pop("perimeter_confirmed_on")
+    basis["future_metadata"] = {"keep": ["opaque", 4]}
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    fields = {} if financials_source is None else {"financials_source": financials_source}
+    state_path_value = _ca409_seed_state(
+        tmp_path,
+        marker="keep",
+        financials={"FY-Current": {"ebitda": 12}},
+        ratios={"FY-Current": {"dscr": 2.0}},
+        multi_period_financials={"FY-Current": {"revenue": 100}},
+        analyst_supplied_financials={"FY-Current": {"revenue": 101}},
+        **fields,
+    )
+    with open(state_path_value, encoding="utf-8") as handle:
+        before = json.load(handle)
+
+    result = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    with open(state_path_value, encoding="utf-8") as handle:
+        after = json.load(handle)
+
+    assert result == {
+        "recorded": True,
+        "state_path": str(state_path_value),
+        "figures_basis": figures_basis,
+    }
+    assert set(after) == set(before) | {"group_basis"}
+    assert {key: value for key, value in after.items() if key != "group_basis"} == before
+    expected_basis = dict(basis)
+    expected_basis["perimeter_confirmed"] = True
+    expected_basis["perimeter_confirmed_on"] = "2026-10-21"
+    assert after["group_basis"] == expected_basis
+
+
+def test_ca409_record_group_basis_rejects_an_invalid_recorded_source_exactly_without_writing(tmp_path):
+    basis = _ca409_survivor_basis()
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="unknown-source", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f'Cannot use {state_path_value}: "financials_source" must be "analyst-supplied" or '
+        '\'framework-computed\', found \'unknown-source\'. Fix the file by hand or restore it from a backup; '
+        "the file was not modified."
+    )
+    assert state_path_value.read_bytes() == before
+
+
+def test_ca409_record_group_basis_validates_only_the_fields_it_consumes(tmp_path):
+    basis = _ca409_survivor_basis()
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    state_path_value = _ca409_seed_state(
+        tmp_path,
+        financials_source="framework-computed",
+        collateral="intentionally malformed but unrelated",
+        marker="keep",
+    )
+
+    result = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    saved = state_manager.read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("group_basis", "financials_source"),
+    )
+    assert result["recorded"] is True
+    assert saved["collateral"] == "intentionally malformed but unrelated"
+    assert saved["financials_source"] == "framework-computed"
+    assert saved["group_basis"]["figures_basis"] == "recomputed"
+
+
+def test_ca409_record_group_basis_reads_the_selected_state_fields_before_write(tmp_path):
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = "recomputed"
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f'Cannot use {state_path_value}: "financials_source" must be "analyst-supplied" or '
+        '\'framework-computed\', found \'analyst-supplied\'. Fix the file by hand or restore it from a backup; '
+        "the file was not modified."
+    )
+    assert state_path_value.read_bytes() == before
+
+
+def test_ca409_record_group_basis_rechecks_the_date_found_before_the_locked_read(tmp_path, monkeypatch):
+    basis = _ca409_survivor_basis()
+    basis["figures_basis"] = "supplied"
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    old_path = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="old-state")
+    newer_path = Path(state_manager.state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility",
+        date_str="2026-02-01", base_dir=str(tmp_path),
+    ))
+    created = {"done": False}
+
+    class CreateNewerStateOnLock:
+        def __init__(self, _path):
+            self.path = _path
+
+        def __enter__(self):
+            if not created["done"]:
+                newer_path.parent.mkdir(parents=True, exist_ok=True)
+                newer_state = {
+                    "company": "Synthetic Group Ltd",
+                    "proposal": "Synthetic Group Facility",
+                    "date": "2026-02-01",
+                    "schema_version": state_manager.SCHEMA_VERSION,
+                    "financials_source": "framework-computed",
+                    "marker": "newer-state",
+                }
+                with open(newer_path, "w", encoding="utf-8") as handle:
+                    json.dump(newer_state, handle, indent=2)
+                created["done"] = True
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            return False
+
+    monkeypatch.setattr(state_manager, "_FileLock", CreateNewerStateOnLock)
+    newer_before = None
+    result = state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    newer_before = newer_path.read_bytes()
+    assert result["recorded"] is True
+    saved_old = state_manager.read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility",
+        date_str="2026-01-01", base_dir=str(tmp_path), keys=("group_basis",),
+    )
+    assert saved_old["date"] == "2026-01-01"
+    assert saved_old["marker"] == "old-state"
+    assert saved_old["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"
+    assert newer_path.read_bytes() == newer_before
+
+
+def test_ca409_record_group_basis_success_preserves_the_selected_dated_folder(tmp_path):
+    basis = _ca409_survivor_basis()
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, basis)
+    state_path_value = _ca409_seed_state(
+        tmp_path,
+        financials_source="framework-computed",
+        financials={"FY-Current": {"ebitda": 12}},
+        marker="preserve",
+    )
+    with open(state_path_value, encoding="utf-8") as handle:
+        before = json.load(handle)
+
+    state_manager.record_group_basis(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+        perimeter_confirmed=True, date_str="2026-10-21", base_dir=str(tmp_path),
+    )
+    with open(state_path_value, encoding="utf-8") as handle:
+        after = json.load(handle)
+
+    assert after["date"] == "2026-01-01"
+    assert {key: value for key, value in after.items() if key != "group_basis"} == before
+    assert after["group_basis"]["perimeter_confirmed"] is True
+    assert after["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"

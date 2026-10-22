@@ -830,6 +830,12 @@ def test_408_horizontal_rule_does_not_skip_the_following_paragraph(tmp_path):
     ]
 
 
+def test_408_unclosed_fence_marker_does_not_skip_the_line_after_it(tmp_path):
+    doc = _build(tmp_path, "```\nFirst.\n\nSecond.\n")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == ["First.", "Second."]
+
+
 def test_408_bullet_at_eof_without_newline_is_exported(tmp_path):
     doc = _build(tmp_path, "- final bullet")
 

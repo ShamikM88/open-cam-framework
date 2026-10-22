@@ -223,7 +223,9 @@ same state (`policy_check.compute_from_state()`), never on a different one.
 - **Recorded text is shown literally:** a value, a key or a table header that holds a pipe, a line break or text that
   the Word builder reads as markup (`*`, a backtick, `[`, `]`) cannot reshape the document or pass itself off as a
   heading or emphasis: `|` becomes `/`, line breaks and runs of spaces become one space, and a value with markup
-  characters is shown as a code span (a backtick inside it becomes an apostrophe).
+  characters (asterisk, backtick, square or angle brackets, or underscore emphasis such as `_x_`; names like
+  `snake_case` are untouched) is shown as a code span (a backtick inside it becomes an apostrophe). The report
+  title's company and proposal names get the same treatment.
 - **Nothing new is computed or judged:** every figure is a recorded value or a policy-check output, an unrecorded term
   says "not recorded", and there is no verdict, grade or recommendation. The policy check runs without a draft, so
   draft-level audit findings are "not assessed"; `/review` owns them.

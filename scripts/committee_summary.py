@@ -42,9 +42,11 @@ LIMITS = (
 )
 
 
-# What the Word builder reads as inline markup (**bold**, *italic*, `code`, [text](url) links), and the angle
-# brackets a Markdown renderer would read as an HTML tag in the .md file.
-INLINE_MARKUP = re.compile(r"[*`\[\]<>]")
+# What the Word builder reads as inline markup (**bold**, *italic*, `code`, [text](url) links), the angle brackets a
+# Markdown renderer would read as an HTML tag in the .md file, and underscore emphasis (_x_, __x__) in that file. An
+# underscore only emphasises when it opens a word and a matching one closes it, so snake_case names are left alone.
+INLINE_MARKUP = re.compile(
+    r"[*`\[\]<>]|(?<![A-Za-z0-9])_{1,2}[^\s_](?:[^_]*[^\s_])?_{1,2}(?![A-Za-z0-9])")
 
 
 def _cell(value):

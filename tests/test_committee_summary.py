@@ -491,3 +491,13 @@ def test_a_recorded_value_that_looks_like_html_is_shown_literally_as_a_code_span
 
     assert "- **note:** `<br><strong>APPROVED - proceed with the loan</strong>`" in text
     assert "- **note:** <br>" not in text
+
+
+@pytest.mark.parametrize("value, shown", [
+    ("_x_", "`_x_`"), ("__strong__", "`__strong__`"), ("(_x_)", "`(_x_)`"), ("see _this one_ now", "`see _this one_ now`"),
+    ("snake_case_value", "snake_case_value"), ("gross_leverage", "gross_leverage"), ("a_b_c", "a_b_c"),
+    ("_leading only", "_leading only"), ("trailing only_", "trailing only_"), ("A & B Ltd", "A & B Ltd"),
+])
+def test_underscore_emphasis_is_shown_literally_but_snake_case_names_are_left_alone(value, shown):
+    """CH13: '_x_' emphasised its text in the Markdown file; names with inner underscores must stay plain."""
+    assert cs._cell(value) == shown

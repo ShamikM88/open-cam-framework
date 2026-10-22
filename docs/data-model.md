@@ -53,7 +53,7 @@ shortened):
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
 | `collateral`, `security_package` | `/collateral` | One entry per asset; one per charge |
-| `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries; `{"provider", "type", "amount"}` entries |
+| `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries, each optionally with a `basis` (`borrower`, `consolidated` or `guarantor_group`; absent or null means `borrower`); `{"provider", "type", "amount"}` entries |
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
 | `deal_structure_notes.review_cap` | `/research` review checkpoint, when the analyst sets a lower maximum | Optional lower per-deal REJECTED-pass threshold; it takes precedence over the default third-pass checkpoint and is recorded when set. This is an optional nested deal note, not a schema-version bump |

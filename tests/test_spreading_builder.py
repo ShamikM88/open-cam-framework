@@ -1907,3 +1907,61 @@ def test_sb_validate_row_formulas_uses_exact_unknown_and_forward_reference_error
         "'Synthetic EBITDA' (row 5), which is not an already-written row (must be < 4). "
         "A row was likely inserted, removed, or reordered in SECTIONS without updating this formula's dependency."
     )
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CL11): the survivors a test can still kill - the wording of the refusals and the cell ranges the
+# charts plot. Named equivalents are in the PR body.
+# ---------------------------------------------------------------------------
+
+def test_a_non_finite_raw_line_is_refused_with_the_financial_inputs_label():
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model({"FY-Current": {"revenue": float("nan")}})
+
+    assert str(caught.value).startswith("financial inputs: period 'FY-Current', field 'revenue' must be a finite")
+
+
+def test_a_non_finite_number_anywhere_in_the_inputs_is_refused_with_its_path_under_financial_inputs():
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model({"FY-Current": {"revenue": 1, "memo": {"x": float("inf")}}})
+
+    assert str(caught.value) == "non-finite numeric value at financial inputs['FY-Current']['memo']['x']: inf"
+
+
+def test_the_downside_case_refuses_non_finite_inputs_and_assumptions_with_their_own_labels():
+    with pytest.raises(ValueError) as inputs:
+        evaluate_downside_case({"FY+1": {"revenue": float("nan")}}, {})
+    with pytest.raises(ValueError) as assumptions:
+        evaluate_downside_case({"FY+1": {"revenue": 1}}, {"revenue_haircut_pct": float("nan")})
+
+    assert str(inputs.value) == "non-finite numeric value at financial inputs['FY+1']['revenue']: nan"
+    assert str(assumptions.value) == "non-finite numeric value at stress assumptions['revenue_haircut_pct']: nan"
+
+
+def _plotted_ranges(chart):
+    return [(s.tx.strRef.f, s.val.numRef.f, (s.cat.numRef or s.cat.strRef).f) for s in chart.series]
+
+
+def test_each_chart_plots_the_row_named_by_its_series_label_over_the_period_header_columns(tmp_path):
+    raw = {"revenue": 5000, "cost_of_sales": 3000, "admin_expenses": 1200, "interest_paid": 50,
+           "long_term_debt": 2400, "scheduled_principal": 200}
+    periods = {key: raw for key in ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3")}
+    path = tmp_path / "charts.xlsx"
+    export_to_xlsx("Synthetic Co", str(path), financial_data=periods,
+                   downside_financial_data={"FY+1": raw, "FY+2": raw})
+    ws = openpyxl.load_workbook(path)["Financial Spreading"]
+    charts = sorted(ws._charts, key=lambda chart: chart.anchor._from.row)
+
+    def label_row(label):
+        return next(row for row in range(1, ws.max_row + 1) if ws.cell(row=row, column=1).value == label)
+
+    leverage, net_debt, revenue = (label_row(name) for name in ("Gross Leverage", "Net Debt / EBITDA", "Revenue"))
+    sheet = "'Financial Spreading'!"
+    assert _plotted_ranges(charts[0]) == [
+        (f"{sheet}$A${leverage}", f"{sheet}$B${leverage}:$G${leverage}", f"{sheet}$B$1:$G$1"),
+        (f"{sheet}$A${net_debt}", f"{sheet}$B${net_debt}:$G${net_debt}", f"{sheet}$B$1:$G$1")]
+    assert _plotted_ranges(charts[1]) == [
+        (f"{sheet}$A${revenue}", f"{sheet}$B${revenue}:$G${revenue}", f"{sheet}$B$1:$G$1")]
+    assert _plotted_ranges(charts[2]) == [
+        (f"{sheet}$A${leverage}", f"{sheet}$H${leverage}:$J${leverage}", f"{sheet}$H$1:$J$1"),
+        (f"{sheet}$A${net_debt}", f"{sheet}$H${net_debt}:$J${net_debt}", f"{sheet}$H$1:$J$1")]

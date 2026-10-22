@@ -1724,3 +1724,27 @@ def test_the_workbook_is_built_for_the_sanitised_company_and_written_beside_the_
     assert seen["company"] == "Synthetic Co"
     assert Path(seen["path"]) == Path(folder) / "Synthetic Co_Synthetic Fleet Loan_Spreading.xlsx"
     assert Path(seen["docx"]) == Path(folder) / "Synthetic Co_Synthetic Fleet Loan_CAM.docx"
+
+
+def test_a_second_new_deal_type_is_saved_even_though_the_local_template_folder_already_exists(tmp_path):
+    base = str(tmp_path)
+
+    export_deal("Synthetic Co", "Facility One", "first_new_type", "# first draft\n", date_str="2026-01-05",
+                base_dir=base)
+    export_deal("Synthetic Co", "Facility Two", "second_new_type", "# second draft\n", date_str="2026-01-05",
+                base_dir=base)
+
+    local = tmp_path / "templates" / "local" / "cam"
+    assert (local / "first_new_type_cam.md").read_text(encoding="utf-8") == "# first draft\n"
+    assert (local / "second_new_type_cam.md").read_text(encoding="utf-8") == "# second draft\n"
+
+
+def test_an_auto_saved_template_keeps_non_ascii_text_even_where_the_default_encoding_is_cp1252(
+    tmp_path, cp1252_default_open,
+):
+    draft = "# Synthetic Co\n\nFacility fee: £1m — café terms, 東京 office.\n"
+
+    export_deal("Synthetic Co", "Facility One", "brand_new_type", draft, date_str="2026-01-05", base_dir=str(tmp_path))
+
+    saved = tmp_path / "templates" / "local" / "cam" / "brand_new_type_cam.md"
+    assert saved.read_text(encoding="utf-8") == draft

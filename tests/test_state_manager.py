@@ -3407,3 +3407,18 @@ def test_ca409_record_group_basis_refusal_when_locked_state_disappears_preserves
         "no longer exists; nothing was created."
     )
     assert state_path_value.read_bytes() == before
+
+
+def test_record_group_basis_refuses_when_the_confirmation_argument_is_left_out_entirely(tmp_path):
+    """Review CL12: the analyst-confirmation default is False; if it were True, leaving the argument out would
+    record a perimeter nobody confirmed. Every earlier test passed the argument explicitly."""
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, _ca409_survivor_basis())
+    state_path_value = _ca409_seed_state(tmp_path, financials_source="analyst-supplied", marker="keep")
+    before = state_path_value.read_bytes()
+
+    with pytest.raises(ValueError, match="--perimeter-confirmed"):
+        state_manager.record_group_basis("Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+                                         base_dir=str(tmp_path))
+
+    assert state_path_value.read_bytes() == before

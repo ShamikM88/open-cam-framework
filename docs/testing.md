@@ -274,6 +274,40 @@ it -- issue #182; the draft-audit and covenant functions of `policy_checks`/`pol
 `calibrate.py` helpers #184. To run it by hand on Linux/macOS: `pip install -r requirements-dev.txt -r requirements-mutation.txt &&
 ln -s scripts src && mutmut run` (and `rm src` afterwards; `src` and `mutants/` are git-ignored).
 
+**Killed or named: how a survivor is dealt with.** A survivor is a line that can change without any test noticing,
+so each one is handled one of three ways, and a pull request that claims to handle a group of survivors says which
+for every mutant:
+
+- **Killed:** a test fails when the mutant's change is applied to the code. The test asserts something the change
+  breaks (an exact message, a boundary on both sides, an exact key or order), not a loose "something was raised".
+- **Named:** no test can tell the change from the original, and the pull request or commit says why in one line. A
+  valid reason is that the observable behaviour cannot change, for example two representations the code treats alike
+  everywhere (the internal "missing" marker and `None`), a guard made redundant by an earlier check (`zip(strict=True)`
+  after a length check), the same codec under a different spelling (`"utf-8"` and `"UTF-8"`), extra numeric precision
+  where only "enough" is needed, or a sort key that leaves the order unchanged. "Hard to test" is not a reason.
+- **Left, with a stated reason:** text with no behaviour to protect (argparse help and description strings, the
+  wording of a report's prose), or code no test can reach, listed as such.
+
+A score of 100% is not the aim and is not reachable: equivalent mutants exist (one module's non-prose survivors after
+its tests were strengthened were 43 equivalents and nothing else), and the last points are almost all of them. The
+number is a signal; the survivor list is the record. A module at 90% with every survivor named is better assured
+than one at 95% with unexplained gaps. The 75% target above stays a diagnostic floor; raising it for the modules that
+decide a result (policy, spreading, state, export, comparison) is a reviewed change to `target_critical`, not
+something this page sets.
+
+**Proving a kill.** A claim that a test kills a mutant is checked, not assumed. Take the mutant's exact change from the
+run's list of survivors, apply it to the source, run the test file, and the new test must fail (an easy way is to
+generate the mutated function with mutmut's `mutate_file_contents` and apply its diff at the mutant's own position:
+the same line often occurs twice in a function, and mutmut mutates each occurrence separately). Until that is done, or a
+mutation run on the branch confirms it, the claim is "expected to kill" and is marked unverified. Do not map mutants to
+tests from memory: without the run's list of survivors, stop and ask for it. A mapping written blind once claimed 71
+kills when 41 mutants still survived.
+
+**Measuring a branch.** Start the workflow on the branch (`gh workflow run mutation.yml --ref <branch>`) and read
+`mutation-all.txt` from the run's artifact, comparing the module's score and survivor count with the run on the
+base. The workflow's concurrency group keeps one run in progress and one waiting: a third dispatch cancels the one
+waiting, so queue the next branch after the previous one has started.
+
 ### Property-based tests
 
 **Property-based tests** (`tests/test_properties.py`, issue #143; `hypothesis`): invariants rather than

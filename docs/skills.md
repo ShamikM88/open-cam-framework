@@ -34,6 +34,7 @@ reference. Why skills are shaped this way, what they may never become, and what 
 | `credit-challenge` | `/credit-challenge --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Pressure-test assumptions against recorded evidence and counter-evidence; return challenge/question, evidence, potential impact, mitigant, residual uncertainty and a specific next question without a verdict | `Read`, `Glob`, `Grep` only; no shell or script |
 | `credit-risk` | `/credit-risk --company "<Name>" --proposal "<Proposal name>" [--draft "<repository-relative path>"]` | Organise the evidenced risk picture across applicable categories, with recorded evidence, impact, mitigant, residual uncertainty and next question; no score, verdict or recommendation | `Read`, `Glob`, `Grep` only; no shell or script |
 | `annual-review` | `/annual-review --company "<Name>" --proposal "<Proposal name>" [--current-date YYYY-MM-DD] [--prior-date YYYY-MM-DD] [--periods-rolled-one-year]` | Narrate what `review_compare.py` found between the current review and the earlier one it follows: recorded figures, ratios, covenant and policy results, security, guarantees and facility terms, and the opt-in restatement check, quoted without recalculation | `review_compare.py` (read-only) |
+| `deal-consistency` | `/deal-consistency --company "<Name>" --proposal "<Proposal name>" [--date-str YYYY-MM-DD]` | Report whether the exported workbook and CAM document in a deal's dated folder still match what its recorded state and approved draft regenerate, quoting `export_readback.py`'s findings (a change detector for edits after export or a stale export) | `export_readback.py` (read-only) |
 
 Each is described in the registry; the files are `.claude/skills/<name>/SKILL.md`, and the files are authoritative for
 exactly what the model is told.
@@ -183,6 +184,25 @@ It quotes and does not calculate: no delta, percentage or trend of its own, and 
 from `PASS` to `FAIL` is quoted as exactly that). It does not compare narrative material (management, new or repeated risks,
 new information gaps); `credit-risk` and `credit-challenge` read one review for those. It writes nothing, and it is an
 interactive aid: the headless equivalent is running `review_compare.py` yourself.
+
+### `deal-consistency`
+
+Use `/deal-consistency --company "<Name>" --proposal "<Proposal name>"` after `/assemble` has exported a deal, to check
+that the files in its dated folder have not been edited since, and have not gone stale against a later change to the
+record. The skill runs `scripts/export_readback.py` once and presents its JSON: the folder checked, a result and a
+mismatch count for the workbook and for the document, each finding (`artifact`, `location`, `kind`, `expected` and
+`actual`, exactly as printed) and the verifier's limits. It never guesses the dated folder: without `--date-str` the
+script uses the deal's newest dated folder that has a `state.json`, and the report names it.
+
+A `mismatch` means the listed locations differ from the regenerated files. The verifier cannot tell a deliberate edit
+from damage, so the skill says so and leaves any re-export to you, through `/assemble`. A failure to run (a missing
+workbook, document or approved draft, a damaged file, an unusable state) is reported as a tool error, never as a
+finding about the deal.
+
+It checks the files against their own record and draft. It does not read CAM prose, does not test the CAM against the
+policy results (`policy_check.py` and `/review` do), and does not show that the exporter itself is right, because the
+expected files come from the same builders. It writes nothing and is an interactive aid; the headless equivalent is
+running `export_readback.py` yourself.
 
 ## The maintainer procedures
 

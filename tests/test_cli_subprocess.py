@@ -36,8 +36,8 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "conventions", "deal_export",
-    "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export",
+    "export_readback", "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
 )
@@ -2299,3 +2299,95 @@ def test_orchestrator_refuses_an_entity_keyed_financials_file_before_credentials
     )
     assert "no Anthropic credentials" not in result.stderr
     assert saved_path.read_bytes() == before
+
+
+def _export_a_synthetic_deal(cli):
+    """A deal exported the way `/assemble` leaves it, under the CLI's working directory."""
+    from deal_export import export_deal
+    from state_manager import write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    draft = "# Synthetic memo\n\n- First point\n"
+    base = str(cli.workdir)
+    write_state(company, proposal, date_str=date_str, base_dir=base, financials_source="framework-computed",
+                financials={"FY-Current": {"raw": {"revenue": 5000, "cost_of_sales": 3000}}})
+    export_deal(company, proposal, "corporate_credit", draft, date_str=date_str, base_dir=base)
+    folder = cli.workdir / "deals" / company / f"{proposal}_{date_str}"
+    (folder / "draft_approved.md").write_text(draft, encoding="utf-8")
+    write_state(company, proposal, date_str=date_str, base_dir=base,
+                approved_draft_path=f"deals/{company}/{proposal}_{date_str}/draft_approved.md")
+    return company, proposal, folder
+
+
+def test_export_readback_reports_a_match_as_json_with_exit_zero(cli):
+    company, proposal, folder = _export_a_synthetic_deal(cli)
+    before = {p: p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+    result = cli("export_readback", "--company", company, "--proposal", proposal)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    report = json.loads(result.stdout)
+    assert report["status"] == "match" and report["mismatch_count"] == 0
+    assert {p: p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()} == before
+
+
+def test_export_readback_reports_an_edited_workbook_with_exit_one(cli):
+    import openpyxl
+
+    company, proposal, folder = _export_a_synthetic_deal(cli)
+    workbook_path = folder / f"{company}_{proposal}_Spreading.xlsx"
+    workbook = openpyxl.load_workbook(workbook_path)
+    cell = next(c for row in workbook["Financial Spreading"].iter_rows() for c in row if c.value == 5000)
+    cell.value = 5001
+    workbook.save(workbook_path)
+
+    result = cli("export_readback", "--company", company, "--proposal", proposal, "--date-str", "2026-01-05")
+
+    assert result.returncode == 1 and result.stderr == ""
+    report = json.loads(result.stdout)
+    assert report["status"] == "mismatch" and report["findings"][0]["expected"] == 5000
+
+
+def test_export_readback_refuses_a_missing_deal_with_one_error_line(cli):
+    result = cli("export_readback", "--company", "Synthetic Co", "--proposal", "No Such Deal")
+
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr == "error: no existing state.json for company 'Synthetic Co' and proposal 'No Such Deal'\n"
+
+
+def _seed_committee_deal(cli):
+    from state_manager import write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    write_state(company, proposal, date_str=date_str, base_dir=str(cli.workdir), deal_type="corporate_credit",
+                steps_completed=["spread"], financials_source="framework-computed",
+                inputs={"pd": "0.20%"}, covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+                ratios={"FY-Current": {"dscr": 1.4}}, financials={"FY-Current": {"ebitda": 800}})
+    return company, proposal, cli.workdir / "deals" / company / f"{proposal}_{date_str}"
+
+
+def test_committee_summary_writes_the_two_reports_and_changes_nothing_else(cli):
+    company, proposal, folder = _seed_committee_deal(cli)
+    before = {p: p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+    result = cli("committee_summary", "--company", company, "--proposal", proposal)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    report = json.loads(result.stdout)
+    assert report["status"] == "written"
+    written = {p for p in folder.rglob("*") if p.is_file()} - set(before)
+    assert {p.name for p in written} == {
+        f"{company}_{proposal}_Committee_Summary.md", f"{company}_{proposal}_Committee_Summary.docx"}
+    assert {p: p.read_bytes() for p in before} == before
+    assert "| dscr | minimum | 1.25 | 1.4 | PASS |" in (folder / f"{company}_{proposal}_Committee_Summary.md").read_text(
+        encoding="utf-8")
+
+
+def test_committee_summary_refuses_a_missing_deal_with_one_error_line_and_writes_nothing(cli):
+    result = cli("committee_summary", "--company", "Synthetic Co", "--proposal", "No Such Deal")
+
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr == "error: no existing state.json for company 'Synthetic Co' and proposal 'No Such Deal'\n"
+    assert not (cli.workdir / "deals").exists()

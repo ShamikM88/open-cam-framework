@@ -170,6 +170,26 @@ def _collateral_data_from_state(state):
     return collateral if isinstance(collateral, list) else None
 
 
+def workbook_inputs_from_state(state):
+    """The keyword arguments `export_to_xlsx()` receives for this state.
+
+    The one place that turns a deal's state into workbook inputs: `export_deal()` writes the workbook from them and
+    `export_readback.py` regenerates the expected workbook from them, so the two cannot select different figures.
+    """
+    supplied_values, supplied_downside_values, blank_downside_periods, derived_downside_fields = \
+        _analyst_forecast_columns(state)
+    return {
+        "financial_data": _financial_data_from_state(state) or None,
+        "collateral_data": _collateral_data_from_state(state),
+        "downside_financial_data": _downside_financial_data_from_state(state) or None,
+        "supplied_values": supplied_values,
+        "supplied_downside_values": supplied_downside_values,
+        "blank_downside_periods": blank_downside_periods or None,
+        "derived_downside_fields": derived_downside_fields or None,
+        "group_basis": state.get("group_basis"),
+    }
+
+
 def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, base_dir=None):
     """Create the dated deal folder, auto-save a new template if this deal
     type has none yet, and export the draft to .docx + .xlsx.
@@ -218,12 +238,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
         state, keys=("group_basis",),
         path=state_path(company, proposal, date_str=state_date_str, base_dir=base_dir),
     )
-    financial_data = _financial_data_from_state(state)
-    downside_financial_data = _downside_financial_data_from_state(state)
-    collateral_data = _collateral_data_from_state(state)
-    group_basis = state.get("group_basis")
-    supplied_values, supplied_downside_values, blank_downside_periods, derived_downside_fields = \
-        _analyst_forecast_columns(state)
+    workbook_inputs = workbook_inputs_from_state(state)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -243,12 +258,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     xlsx_path = os.path.join(output_dir, f"{company}_{proposal}_Spreading.xlsx")
 
     export_to_docx(draft_markdown, docx_path)
-    export_to_xlsx(company, xlsx_path, financial_data=financial_data or None,
-                    collateral_data=collateral_data,
-                    downside_financial_data=downside_financial_data or None,
-                    supplied_values=supplied_values, supplied_downside_values=supplied_downside_values,
-                    blank_downside_periods=blank_downside_periods or None,
-                    derived_downside_fields=derived_downside_fields or None, group_basis=group_basis)
+    export_to_xlsx(company, xlsx_path, **workbook_inputs)
 
     return output_dir
 

@@ -43,6 +43,12 @@ from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
 
+# The figures a covenant can be tested on (issue #48, decision of 2026-10-22). A covenant names one with `basis`; an
+# absent or null `basis` means "borrower", the legacy meaning of every covenant recorded before the field existed.
+COVENANT_BASES = ("borrower", "consolidated", "guarantor_group")
+DEFAULT_COVENANT_BASIS = "borrower"
+
+
 # Always required regardless of deal-specific structure.
 STANDARD_CONDITIONS_PRECEDENT = [
     {"cp_id": "KYC-AML", "text": "Standard KYC/AML clearance for all borrowing entities."},
@@ -84,10 +90,15 @@ def _slugify(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12].upper()
 
 
-def _evaluate_covenant(covenant, ratios, financials=None):
+def _evaluate_covenant(covenant, ratios, financials=None, recorded_view=DEFAULT_COVENANT_BASIS):
     """One covenant's PASS/FAIL/UNRESOLVABLE result against `ratios`
     (a single period's ratios dict, e.g. state.json's ratios["FY-Current"]).
     `financials` is that same period's `financials` dict, used only to explain WHY a ratio is N/A.
+
+    `recorded_view` names the one set of figures `ratios` represents: "borrower" for an ordinary deal, "consolidated"
+    when the deal records borrower-supplied consolidated group accounts (`group_basis`, issue #48). The covenant's own
+    `basis` (absent or null means "borrower") must equal it; a covenant on a different basis, or on a basis that is not
+    one of COVENANT_BASES, is UNRESOLVABLE with a reason, never tested against the figures that happen to be recorded.
 
     Every result carries a `reason`: None for PASS/FAIL, one sentence for UNRESOLVABLE. For a ratio that is N/A
     because its denominator is zero or negative (issue #169) the sentence names the metric and the denominator,
@@ -120,16 +131,31 @@ def _evaluate_covenant(covenant, ratios, financials=None):
     metric = covenant.get("metric")
     covenant_type = covenant.get("type")
     threshold = covenant.get("threshold")
+    basis = covenant.get("basis")
+    basis_stated = basis is not None
+    if not basis_stated:
+        basis = DEFAULT_COVENANT_BASIS
 
     result = {
         "metric": metric,
         "type": covenant_type,
         "threshold": threshold,
-        "actual": None,
-        "status": "UNRESOLVABLE",
-        "headroom_pct": None,
-        "reason": None,
     }
+    # A result names its basis when the covenant stated one, or when the recorded figures are not the borrower's (so
+    # the default is visible where it matters). An ordinary deal's results keep exactly their earlier shape.
+    if basis_stated or recorded_view != DEFAULT_COVENANT_BASIS:
+        result["basis"] = basis
+    result.update(actual=None, status="UNRESOLVABLE", headroom_pct=None, reason=None)
+
+    if basis not in COVENANT_BASES:
+        result["reason"] = (f"unrecognized covenant basis {basis!r} "
+                            "(expected 'borrower', 'consolidated' or 'guarantor_group')")
+        return result
+    if basis != recorded_view:
+        result["reason"] = (f"the covenant is on the {basis} basis but the recorded figures are the {recorded_view} "
+                            f"view, and no {basis} figures are recorded; state the covenant's basis, or record "
+                            "figures for it")
+        return result
 
     threshold_is_numeric = isinstance(threshold, (int, float)) and not isinstance(threshold, bool)
     if covenant_type not in ("minimum", "maximum"):
@@ -453,7 +479,7 @@ def _guarantee_standing_cs(guarantees):
 
 
 def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_financials=None,
-                                 downside_financials=None, unavailable=None):
+                                 downside_financials=None, unavailable=None, recorded_view=DEFAULT_COVENANT_BASIS):
     """For each covenant, independently re-check it against every forward
     period that has both a base-case and a downside-case ratio set. Where
     the base case PASSes but the downside (stressed) case FAILs, record it
@@ -504,9 +530,10 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
         downside_financials_for_period = _period_dict(downside_financials, period)
 
         for covenant in covenants:
-            base_result = _evaluate_covenant(covenant, base_ratios_for_period, base_financials_for_period)
+            base_result = _evaluate_covenant(covenant, base_ratios_for_period, base_financials_for_period,
+                                             recorded_view)
             downside_result = _evaluate_covenant(covenant, downside_ratios_for_period,
-                                                 downside_financials_for_period)
+                                                 downside_financials_for_period, recorded_view)
 
             if base_result["status"] == "PASS" and downside_result["status"] in ("FAIL", "UNRESOLVABLE"):
                 metric = covenant.get("metric")
@@ -528,7 +555,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
             continue
         for covenant in covenants:
             base_result = _evaluate_covenant(covenant, base_ratios_for_period,
-                                             _period_dict(base_financials, period))
+                                             _period_dict(base_financials, period), recorded_view)
             if base_result["status"] == "PASS":
                 metric = covenant.get("metric")
                 breaches.append({
@@ -545,7 +572,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     return breaches
 
 
-def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None):
+def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None, recorded_view=DEFAULT_COVENANT_BASIS):
     """Every covenant against every forward BASE-CASE year the deal has projected (issue #176).
 
     Policy: a covenant applies to each forward year (`FY+1`, `FY+2`, `FY+3`) that has a recorded, non-empty ratio
@@ -575,7 +602,7 @@ def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None):
             continue
         period_financials = _period_dict(base_financials, period)
         for covenant in covenants:
-            result = _evaluate_covenant(covenant, period_ratios, period_financials)
+            result = _evaluate_covenant(covenant, period_ratios, period_financials, recorded_view)
             result["year"] = period
             result["forward_id"] = _unique_id(
                 "FORWARD", f"{_slugify(period)}-{_slugify(covenant.get('metric'))}", used_ids)
@@ -633,15 +660,18 @@ def evaluate_deal_policy(state_dict):
     downside_ratios = (state_dict.get("downside_case") or {}).get("ratios") or {}
 
     base_financials = state_dict.get("financials")
-    covenant_results = [_evaluate_covenant(covenant, ratios, _period_dict(base_financials, "FY-Current"))
+    # A recorded group_basis means the deal's recorded figures are borrower-supplied consolidated group accounts
+    # (issue #48, case A); otherwise they are the borrower's own. A covenant is tested only on its own basis.
+    recorded_view = "consolidated" if isinstance(state_dict.get("group_basis"), dict) else DEFAULT_COVENANT_BASIS
+    covenant_results = [_evaluate_covenant(covenant, ratios, _period_dict(base_financials, "FY-Current"), recorded_view)
                         for covenant in covenants]
     security_gaps, security_cps = _evaluate_security(collateral, security_package)
     guarantee_cps = _guarantee_cps(guarantees)
     downside_covenant_breaches = _evaluate_downside_covenants(
         covenants, all_ratios, downside_ratios, base_financials,
         (state_dict.get("downside_case") or {}).get("financials"),
-        (state_dict.get("downside_case") or {}).get("unavailable"))
-    forward_covenant_results = _evaluate_forward_covenants(covenants, all_ratios, base_financials)
+        (state_dict.get("downside_case") or {}).get("unavailable"), recorded_view)
+    forward_covenant_results = _evaluate_forward_covenants(covenants, all_ratios, base_financials, recorded_view)
 
     required_conditions_precedent = (
         list(STANDARD_CONDITIONS_PRECEDENT) + security_cps + guarantee_cps

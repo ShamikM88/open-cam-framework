@@ -11,6 +11,8 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `calibrate.py` | Derives a style guide and a template from your sample PDFs | Yes, unless `--mock` (automatic without a key) | [Calibrate](#calibrate) |
 | `orchestrator.py` | The whole deal pipeline in one process: draft, audit, checks, export | Yes | [Orchestrator](#orchestrator) |
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
+| `committee_summary.py` | Writes a short committee summary (Markdown and Word) from a deal's recorded state and the policy check | No | [Committee summary](#committee-summary) |
+| `export_readback.py` | Compares a deal's exported `.xlsx` and `.docx` with what its record regenerates; read-only | No | [Export read-back](#export-read-back) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
@@ -204,6 +206,82 @@ Without this a deal
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
 patch to re-home `state.json`.
+
+## Committee summary
+
+`scripts/committee_summary.py --company ... --proposal ... [--date-str YYYY-MM-DD]` writes a one-to-two-page meeting aid
+for one deal: `<Company>_<Proposal>_Committee_Summary.md` and `.docx` in the deal's dated folder. Without `--date-str`
+it uses the newest dated folder that has a `state.json`; with it, that exact folder, and the policy check runs on that
+same state (`policy_check.compute_from_state()`), never on a different one.
+
+- **Content:** the record and financial basis; the group-accounts disclosure when `group_basis` is recorded; the
+  recorded inputs, deal type and guarantees (facility amount, tenor and pricing say "not recorded", because state holds
+  no such key); recorded subtotals and ratios by period, exactly as stored (`null` prints `N/A`); covenant results now
+  (FY-Current), per forward year (disclosure only) and downside breaches; the required conditions precedent and
+  subsequent; recorded collateral, the security package and the policy check's security gaps; open gaps (a missing
+  `spread` step, steps not recorded, `UNRESOLVABLE` counts, saved-source status); the recorded review verdict and
+  iteration count, labelled historical; and a fixed limits section.
+- **Recorded text is shown literally:** a value, a key or a table header that holds a pipe, a line break or text that
+  the Word builder reads as markup (`*`, a backtick, `[`, `]`) cannot reshape the document or pass itself off as a
+  heading or emphasis: `|` becomes `/`, line breaks and runs of spaces become one space, and a value with markup
+  characters (asterisk, backtick, square or angle brackets, or underscore emphasis such as `_x_`; names like
+  `snake_case` are untouched) is shown as a code span (a backtick inside it becomes an apostrophe). The report
+  title's company and proposal names get the same treatment.
+- **Nothing new is computed or judged:** every figure is a recorded value or a policy-check output, an unrecorded term
+  says "not recorded", and there is no verdict, grade or recommendation. The policy check runs without a draft, so
+  draft-level audit findings are "not assessed"; `/review` owns them.
+- **Writes:** only the two report files, each through a temporary file and an atomic replace. A Word failure after the
+  Markdown was written is reported as exactly that. It never writes `state.json`, `steps_completed`, `review_trail`,
+  a draft, the source manifest or a template. Running it again replaces both reports.
+- **Output and exit codes:** one JSON object on stdout (`status`, `selected_folder`, `markdown_path`, `docx_path`,
+  `included_sections`, `policy_scope`). A missing deal or dated folder, a malformed state key (including
+  `group_basis`) or an unusable source manifest gives one `error:` line on stderr and exit `1`, with nothing written.
+  A usage error exits `2`.
+
+```bash
+python scripts/committee_summary.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
+
+## Export read-back
+
+`scripts/export_readback.py --company ... --proposal ... [--date-str YYYY-MM-DD]` checks that a deal's exported files
+still match its record. Without `--date-str` it uses the deal's newest dated folder that has a `state.json`; with it,
+that exact folder. It regenerates the expected workbook from the folder's `state.json` (through the same input
+selection `deal_export.py` uses) and the expected document from the approved Markdown draft that `state.json` names in
+`approved_draft_path` (which `/assemble` records), writes both to a temporary directory, and compares them with
+`<Company>_<Proposal>_Spreading.xlsx` and `<Company>_<Proposal>_CAM.docx` in the dated folder.
+
+- **Workbook:** sheet names, order and visibility; defined names; every cell's value (formulas as text, numbers within
+  1e-9, so an overwritten formula or an edited input is found) and its number format, font (name, size, colour,
+  bold, italic, underline, strike), fill, borders and alignment; row and column visibility, row heights and column
+  widths; merged cells, freeze panes, sheet protection; each chart's type, position and the cell ranges it plots;
+  and how many data validations and conditional formats a sheet has. Cached formula results are not evaluated, and a
+  sheet whose used range is larger than 1,000,000 positions (one stray cell in the far corner does that) is refused
+  rather than compared.
+- **Document:** the body blocks in order: each paragraph's style, alignment and spacing, every run's text, bold,
+  italic, underline, strike, font, size, colour, highlight, superscript, subscript and capitals, hyperlink targets
+  with the formatting of the link text, embedded image hashes, sizes and alt text; the definition (font, size, colour,
+  spacing) of every style both documents use; each table's style, direct layout (shading, borders, cell and column
+  widths, vertical alignment, spanning) and, per cell, the same paragraph detail; and each
+  section's page size, orientation, margins and its headers and footers (including first-page and even-page ones,
+  and whether each is inherited), compared with the same paragraph, table and image detail as the body. Comments,
+  footnotes, text boxes, themes and file properties are not compared.
+- **Output:** one JSON object on stdout: `status` (`match` or `mismatch`), `selected_folder`, the two artifacts' paths
+  and counts, `mismatch_count`, up to 200 `findings` (each `artifact`, `location`, `kind`, `expected`, `actual`;
+  `truncated` is `true` when there were more) and `limits`. Exit `0` on a match and `1` on a mismatch.
+- **Refusals:** a missing state, workbook, document or draft, an `approved_draft_path` that is not a relative path to a
+  file inside the dated folder, a damaged file, or a state `group_basis` or `financials_source` that is malformed gives
+  one `error:` line on stderr and exit `1`, with nothing compared. A usage error exits `2`.
+- **Read-only:** the only files it writes are temporary comparison files, removed on exit. It never edits the deal.
+
+It detects edits made after export and exports that are stale against a changed record. It does not prove the
+exporter itself is right (the expected files come from the same builders), does not read CAM prose, and does not
+replace `policy_check.py` or `/review`. Run it from the directory the export was run from, because a draft's image
+paths resolve against the working directory.
+
+```bash
+python scripts/export_readback.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
 
 ## Research export
 

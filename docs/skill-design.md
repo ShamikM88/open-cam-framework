@@ -2,9 +2,9 @@
 
 How Claude Code skills fit this repository, and what they are not allowed to become. This page is the Phase 1 design
 for [#196](https://github.com/ShamikM88/open-cam-framework/issues/196): it settles the questions the later phases
-build on. The seven analyst aids are implemented and described in [Skills](skills.md): the Phase 2 skills
+build on. The eight analyst aids are implemented and described in [Skills](skills.md): the Phase 2 skills
 `information-gaps`, `evidence-discipline` and `financial-analysis`, the Phase 4 skills `policy-fit`,
-`credit-challenge` and `credit-risk`, and the Phase 5 skill `annual-review`. The four maintainer procedures are `cam-change-verification`,
+`credit-challenge` and `credit-risk`, the Phase 5 skill `annual-review`, and the Phase 6 skill `deal-consistency`. The four maintainer procedures are `cam-change-verification`,
 `docs-maintenance`, `mutation-triage` and `prompt-change-gate`. The inventory of commands and skills is
 [`config/skills_registry.md`](../config/skills_registry.md); this page is the reasoning behind it, and
 `tests/test_skill_inventory.py` keeps the two in step with the files.
@@ -204,6 +204,7 @@ scripts that exist today; the procedures wrap documented sequences for change ve
 | `credit-challenge` | 4 | analyst | user | Report | Yes, no record |
 | `credit-risk` | 4 | analyst | user | Report | Yes, no record |
 | `annual-review` | 5 | analyst | user | Report | Yes, no record |
+| `deal-consistency` | 6 | analyst | user | Report | Yes, no record |
 
 Automatic invocation is not permitted for any of them: each is something a person asks for by name, none is
 contextual, and a model-invocable description would sit in every session's context. None is hashed or evaluated
@@ -338,6 +339,13 @@ contextual, and a model-invocable description would sit in every session's conte
 - **Gate logic.** It distinguishes an observed issue/PR/authorisation reference from an assertion supplied in arguments. Where issue or review discussion is not in the local evidence, it marks that gate unknown. It checks whether a relevant, complete baseline exists and distinguishes assembled-prompt hashes from source-file hashes. Issue #150 remains blocked until the applicable pre-change baseline required by #151 exists; a green structural test is not generative-quality evidence.
 - **Limits.** It cannot grant authorisation or verify remote GitHub discussion without the evidence being supplied. It reports present/missing/unknown, never “approved”, “safe” or “ready to merge”. The maintainer decides whether the evaluation rationale is sufficient and whether any change may proceed.
 
+### `deal-consistency` (Phase 6)
+
+- **Purpose.** Present the result of the export read-back verifier for a named deal: whether the exported workbook and CAM document still match what the deal's recorded state and approved draft regenerate, so an edit after export or a stale export is found and located.
+- **Reads / delegates to.** `scripts/export_readback.py` (one call, read-only); [CLI reference](cli-reference.md#export-read-back) defines the output. The skill quotes the JSON and compares nothing itself.
+- **Side effects.** None. It runs a read-only CLI and returns a chat report; the verifier writes only temporary files and removes them.
+- **Limits.** It is a change detector, not proof the exporter is right: the expected files come from the same builders. It never parses CAM prose, never judges the CAM against the policy results (that stays with `policy_check.py` and `/review`), never explains a cause, and never re-exports. A failure to run is a tool error, not a finding. It is interactive-only; the headless equivalent is running the script.
+
 ### `annual-review` (Phase 5)
 
 - **Purpose.** Narrate the deterministic comparison of a named deal's current review with the earlier review it follows: recorded figures and ratios, covenant and policy results, conditions, collateral, security, guarantees, ownership and facility terms, the financial-basis change, and the opt-in restatement check.
@@ -355,7 +363,8 @@ contextual, and a model-invocable description would sit in every session's conte
 | `credit-challenge` | Implemented, Phase 4 | Analyst-invoked, adversarial question set over recorded evidence. Read-only and forked; no verdict, score, recommendation, persistence or Checker wiring. The detailed contract and limits are below. |
 | `credit-risk` | Implemented, Phase 4 | A structured, evidence-grounded analyst risk picture across applicable categories. It remains separate from `credit-challenge`, `policy-fit`, financial interpretation and formal `/review`; see the design contract and implementation in the stacked #196 PRs. |
 | `annual-review` | Implemented, Phase 5 | Unblocked by [#203](https://github.com/ShamikM88/open-cam-framework/issues/203) (constraint 7): a read-only narration of `review_compare.py`'s comparison of two dated reviews, with no recalculation, no guessed earlier review and no narrative comparison. |
-| `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep`, `deal-consistency` | Not designed | Chosen from how Phase 2 is used. Four overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `deal-consistency` with `policy_check.py` and `/review`, `covenant-and-downside` with the policy engine) and must show what they add. |
+| `deal-consistency` | Implemented, Phase 6 | Narrowed by the maintainer on #196 to an export read-back verifier (a script, then this thin skill): a change detector for post-export edits and stale exports, read-only, with no verdict and no reading of CAM prose. |
+| `covenant-and-downside`, `collateral-security`, `borrower-research`, `committee-prep` | Not designed | Chosen from how Phase 2 is used. Three overlap a command or a check (`borrower-research` with `/research` and `/commercial`, `committee-prep` with `/assemble`, `covenant-and-downside` with the policy engine) and must show what they add. |
 | `state-migration`, `release-readiness` | Not designed | Each overlaps a runbook section already in Contributing or Operations. (`mutation-triage` had the same overlap and was built because it gathers evidence against one report; `prompt-change-gate` has the same rationale: gather change-specific evidence rather than restate the runbook.) |
 | The issue's "nice to have" skills | Out of scope | Unchanged from the issue. |
 
@@ -510,6 +519,8 @@ Lead with a **Material reviewed:** line (the `state.json` read, whether the mani
    duplicating `financial-analysis`, `policy-fit`, `credit-challenge` or the formal Checker).
 5. **Annual review (done):** `annual-review`, once [#203](https://github.com/ShamikM88/open-cam-framework/issues/203)
    delivered the review-start and comparison primitives: it narrates `review_compare.py` and adds no logic of its own.
+6. **Export read-back (done):** `deal-consistency`, a thin presenter over `scripts/export_readback.py`, which was built
+   and merged first as its own script PR; it adds no comparison logic of its own.
 
 Every skill pull request meets the same contract: the frontmatter equals its registry row; `disable-model-invocation:
 true`; a report skill is forked, lists `Write`, `Edit` and `NotebookEdit` in `disallowed-tools`, and its

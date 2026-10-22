@@ -31,6 +31,7 @@ from pathlib import Path
 
 import pytest
 from pii_scan import scan_for_likely_real_data
+from deal_export import export_deal
 from policy_check import compute as policy_compute
 from spreading_builder import evaluate_financial_model
 from state_manager import write_state
@@ -47,6 +48,7 @@ READ_ONLY_CALLS = {
     "python scripts/state_manager.py --check-steps *": ("state_manager", {"--check-steps", "--company", "--proposal", "--required"}),
     "python scripts/source_manifest.py --check-sources *": ("source_manifest", {"--check-sources", "--company", "--proposal"}),
     "python scripts/policy_check.py *": ("policy_check", {"--company", "--proposal"}),
+    "python scripts/export_readback.py *": ("export_readback", {"--company", "--proposal", "--date-str"}),
     "python scripts/review_compare.py *": ("review_compare", {"--company", "--proposal", "--current-date", "--prior-date", "--periods-rolled-one-year"}),
 }
 READ_ONLY_TOOLS = {"Read", "Glob", "Grep"}
@@ -77,7 +79,7 @@ def tools(fields, key):
 
 
 def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_fit_credit_risk_are_bounded():
-    assert report_skills() == ["annual-review", "credit-challenge", "credit-risk", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
+    assert report_skills() == ["annual-review", "credit-challenge", "credit-risk", "deal-consistency", "evidence-discipline", "financial-analysis", "information-gaps", "policy-fit"]
 
     policy_fit = skill_text("policy-fit")
     body = body_of(policy_fit)
@@ -159,6 +161,45 @@ def test_the_implemented_analyst_report_skills_are_in_the_inventory_and_policy_f
                          "**Residual risk / uncertainty:**", "**Information gap / next question:**"]
     positions = [risk_contract.index(label) for label in risk_fields_order]
     assert positions == sorted(positions), "the six required risk fields must stay in order"
+
+
+def test_deal_consistency_presents_one_read_back_verifier_and_stays_a_bounded_aid():
+    text = skill_text("deal-consistency")
+    fields = frontmatter(text)
+    body = body_of(text)
+    assert tools(fields, "allowed-tools") == ["Read", "Glob", "Grep", "Bash(python scripts/export_readback.py *)"]
+    assert set(tools(fields, "disallowed-tools")) >= WRITE_TOOLS | NETWORK_TOOLS
+    assert fields.get("background") == "false"
+    assert command_problems(text) == []
+
+    command_lines = [line.strip() for line in body.splitlines() if line.strip().startswith("python scripts/")]
+    assert command_lines == [
+        'python scripts/export_readback.py --company "<company>" --proposal "<proposal>"',
+        'python scripts/export_readback.py --company "<company>" --proposal "<proposal>" --date-str <date>',
+    ]
+    for phrase in (
+        "Run exactly one of these",
+        "Use the second only when the analyst gave `--date-str`",
+        "Never choose or guess a date yourself",
+        "never run the verifier from a directory other than the repository root",
+        "Exit status `1` with one JSON object on stdout is a mismatch",
+        "means the comparison could not be made",
+        "Do not derive any finding about the deal from a failed run",
+        "do not suggest which file to edit or delete",
+        "If `truncated` is `true`, say that only the first findings are shown",
+        "Quote every line of `limits`",
+        "the verifier cannot tell whether the difference is a deliberate edit or damage",
+        "a re-export is a decision for the analyst through the normal `/assemble` workflow",
+        "Do not recommend lending or declining, and do not say the CAM is accurate or inaccurate",
+        "Never parse CAM prose to test figures, never open or edit the exported files to \"confirm\" a finding, and never re-export",
+        "never constitute a verdict on the credit",
+        "this is an instruction, not an enforced boundary",
+    ):
+        assert phrase in body, phrase
+    assert body.rstrip().endswith(
+        "> Analyst aid. Nothing was written to the deal. This compares exported files with what the record regenerates; "
+        "it is not a credit verdict or a CAM approval, and it does not prove the exporter is correct. Deterministic "
+        "checks and /review retain their authoritative roles.")
 
 
 def test_annual_review_narrates_one_comparison_script_and_stays_a_bounded_aid():
@@ -379,6 +420,7 @@ def run_commands(name, cwd):
             continue
         line = line.replace('"<company>"', '"Synthetic Co"').replace('"<proposal>"', '"Synthetic Fleet Loan"')
         line = line.replace("<current date>", current_review_date(cwd)).replace("<prior date>", PRIOR_REVIEW_DATE)
+        line = line.replace("<date>", current_review_date(cwd))
         words = shlex.split(line, posix=True)
         argv = [sys.executable, str(SCRIPTS / words[1].removeprefix("scripts/")), *words[2:]]
         results.append(subprocess.run(argv, cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=60))
@@ -396,7 +438,17 @@ def rich_deal(tmp_path, monkeypatch):
                 prior_review_date=PRIOR_REVIEW_DATE)
     write_state("Synthetic Co", "Synthetic Fleet Loan", date_str=PRIOR_REVIEW_DATE, steps_completed=["triage"],
                 financials={"FY-Current": {"ebitda": 200}}, ratios={"FY-Current": {"dscr": 1.2}})
+    export_synthetic_deal(current_review_date(tmp_path))
     return tmp_path
+
+
+def export_synthetic_deal(date_str):
+    """Export the current review the way `/assemble` leaves it, with its approved draft recorded in the state."""
+    memo = "# Synthetic memo\n\n- First point\n"
+    export_deal("Synthetic Co", "Synthetic Fleet Loan", "corporate_credit", memo, date_str=date_str)
+    draft = Path("deals") / "Synthetic Co" / f"Synthetic Fleet Loan_{date_str}" / "draft_approved.md"
+    draft.write_text(memo, encoding="utf-8")
+    write_state("Synthetic Co", "Synthetic Fleet Loan", date_str=date_str, approved_draft_path=draft.as_posix())
 
 
 @pytest.mark.parametrize("name", report_skills())

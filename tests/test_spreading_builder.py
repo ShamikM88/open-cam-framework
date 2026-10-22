@@ -1635,7 +1635,7 @@ def test_sb_evaluate_financial_model_exactly_calculates_the_registered_subtotals
     assert financials["total_debt"] == 345
     assert financials["tangible_net_worth"] == 140
     assert _ratio("{Gross Profit}", "{Revenue}") == (
-        '=IFERROR(IF(({Gross Profit})>0,({Gross Profit})/({Revenue}),"N/A"),"N/A")'
+        '=IFERROR(IF(({Revenue})>0,({Gross Profit})/({Revenue}),"N/A"),"N/A")'
     )
 
 
@@ -1663,9 +1663,9 @@ def test_sb_evaluate_financial_model_raw_input_refusal_text_is_exact():
 
 def test_sb_evaluate_financial_model_finite_input_refusal_text_is_exact():
     with pytest.raises(ValueError) as caught:
-        evaluate_financial_model({"FY-Current": {"revenue": float("nan")}})
+        evaluate_financial_model({"FY-Current": {"synthetic_metadata": float("nan")}})
 
-    assert str(caught.value) == "non-finite numeric value at financial inputs['FY-Current']['revenue']: nan"
+    assert str(caught.value) == "non-finite numeric value at financial inputs['FY-Current']['synthetic_metadata']: nan"
 
 
 def test_sb_evaluate_financial_model_computed_result_refusal_text_is_exact():

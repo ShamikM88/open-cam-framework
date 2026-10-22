@@ -273,6 +273,18 @@ worked examples are in [Workflows](workflows.md).
   also checks closing Sources-list completeness and citation-key definitions, or that an override footnote replacing
   Sources has a reason and date. The authorised override is not itself a rejection reason; untraceable claims remain findings. A listed source that no claim cites is a minor point, not a reason to reject on its own.
 
+## Reporting
+
+### /committee-summary
+
+- **What:** writes a short committee summary, `<Company>_<Proposal>_Committee_Summary.md` and `.docx`, into the deal's dated folder, from the recorded `state.json` and the deterministic policy check. It is a meeting aid, not a credit decision, rating, recommendation or approval, and it does not replace the CAM or `/review`.
+- **Use when:** a committee wants a compact view of what the record holds: key terms, the financial snapshot, covenant results (now, forward, downside), conditions, collateral and security, open gaps and the recorded review status.
+- **Inputs:** `--company "<Name>" --proposal "<Proposal name>"`; optionally `--date-str YYYY-MM-DD` (otherwise the deal's newest dated folder that has a `state.json`).
+- **Steps:** checks the arguments (the same refusal rule as the other commands), runs `python scripts/committee_summary.py` once, treats any failure as a failure, and reports the folder, the two file paths and the section names. It does not read the summary back as advice.
+- **State:** none. It writes no `state.json`, `steps_completed`, `review_trail`, draft, source manifest or template, and it does not add itself to `steps_completed`; the script writes only the two summary files.
+- **Can go wrong:** missing or unsafe names, a malformed date, a deal or dated folder with no `state.json`, a malformed state key (including `group_basis`), an unusable source manifest, or a Word failure after the Markdown was written (the error says so). Details are in [Committee summary](cli-reference.md#committee-summary).
+- **Headless equivalent:** run `python scripts/committee_summary.py` yourself; there is no orchestrator mode.
+
 ## Implementation notes
 
 The per-command implementation notes below were moved here from `CLAUDE.md` ([ledger](move-ledger.md)); the command

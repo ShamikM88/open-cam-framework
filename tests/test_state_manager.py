@@ -3385,3 +3385,25 @@ def test_ca409_record_group_basis_success_preserves_the_selected_dated_folder(tm
     assert {key: value for key, value in after.items() if key != "group_basis"} == before
     assert after["group_basis"]["perimeter_confirmed"] is True
     assert after["group_basis"]["perimeter_confirmed_on"] == "2026-10-21"
+
+
+def test_ca409_record_group_basis_refusal_when_locked_state_disappears_preserves_bytes(tmp_path, monkeypatch):
+    basis_file = tmp_path / "group-basis.json"
+    _ca409_write_group_basis_file(basis_file, _ca409_survivor_basis())
+    state_path_value = _ca409_seed_state(
+        tmp_path, financials_source="analyst-supplied", marker="keep",
+    )
+    before = state_path_value.read_bytes()
+    monkeypatch.setattr(state_manager, "read_state", lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_group_basis(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(basis_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f"Refusing to record group_basis: state.json at {str(state_path_value)!r} "
+        "no longer exists; nothing was created."
+    )
+    assert state_path_value.read_bytes() == before

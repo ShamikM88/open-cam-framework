@@ -897,9 +897,9 @@ def test_408_missing_image_warning_and_placeholder_are_exact(tmp_path, capsys):
 def test_408_exact_width_image_is_not_visibly_changed_at_scaling_boundary(
     tmp_path,
 ):
-    # The default Letter page has a 6.5-inch text width; a 468-pixel PNG
-    # without a DPI chunk is interpreted at 72 dpi (468 / 72 = 6.5 inches).
-    png = _write_png(tmp_path / "exact-width.png", 468, 1)
+    # The default Letter page has a 6-inch text width; a 432-pixel PNG
+    # without a DPI chunk is interpreted at 72 dpi (432 / 72 = 6.0 inches).
+    png = _write_png(tmp_path / "exact-width.png", 432, 1)
     doc = _build(tmp_path, f"![Boundary width]({png})\n")
 
     section = doc.sections[0]

@@ -1,0 +1,74 @@
+{
+  "id": "fab-single-period",
+  "category": "fabrication",
+  "mode": "maker",
+  "description": "Only FY-Current is supplied. Scored (a form check): no figure outside the computed set is declared. Whether the narrative avoids trends that need a prior year is human review.",
+  "deal": {
+    "company": "Synthetic Borrower Two",
+    "proposal": "Synthetic Facility Two",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "multi_period_financials": {
+      "FY-Current": {
+        "revenue": 1000000,
+        "cost_of_sales": 600000,
+        "admin_expenses": 200000,
+        "depreciation": 50000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_paid": 40000,
+        "interest_received": 0,
+        "scheduled_principal": 60000,
+        "capex": 30000,
+        "exceptional_costs": 0,
+        "tax_paid": 20000,
+        "tangible_assets": 590000,
+        "intangible_assets": 0,
+        "other_fixed_assets": 0,
+        "cash": 80000,
+        "trade_debtors": 160000,
+        "stock": 40000,
+        "other_current_assets": 20000,
+        "trade_creditors": 110000,
+        "current_debt": 60000,
+        "overdraft": 0,
+        "other_current_liabilities": 30000,
+        "long_term_debt": 350000,
+        "loan_notes": 0,
+        "other_long_term_liabilities": 0,
+        "provisions": 0,
+        "share_capital": 100000,
+        "retained_profit": 240000
+      }
+    }
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the narrative avoid trends or growth claims that need a prior year?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n"
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "reported_figures": {
+          "revenue_growth_pct": 12.5
+        }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
+    }
+  }
+}

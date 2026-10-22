@@ -1,0 +1,299 @@
+# Troubleshooting
+
+Symptoms, what they mean and what to do. Every message quoted here is what the scripts print today; if a message
+differs from your screen, the script is right and this page needs updating. The examples use the synthetic deal from
+[Workflows](workflows.md).
+
+## First checks
+
+- **Run scripts from the repository root.** Every path (`deals/`, `config/`, `templates/`, `agents/`, `inputs/`) is
+  resolved against the working directory. Run from elsewhere and you get file-not-found errors, or, worse, a second
+  empty `deals/` folder. Example: `orchestrator.py` started in the wrong directory fails with `FileNotFoundError: ...
+  'agents/underwriter_agent.md'`.
+- **Use the same `--company` and `--proposal` text every time.** They name the deal's folder; a different spelling is
+  a different deal.
+- **Read `state.json`.** It is the record of the deal (see the [data model](data-model.md)); if something looks
+  wrong, look at what it actually holds before re-running a step.
+- **Ask the script.** `python scripts/<name>.py --help` is authoritative for flags.
+
+## Credentials and cost
+
+### `ANTHROPIC_API_KEY not found. Running calibrate.py in --mock mode.`
+
+Expected, not an error. `calibrate.py` has no key, so it wrote placeholder files labelled `(MOCK)` and made no API
+call. To calibrate for real, set the key in your own shell (see [Configuration](configuration.md#credentials)) and
+run again without `--mock`.
+
+### `calibrate.py` reports that PDFs have no extractable text
+
+A sample PDF may be an image-only scan or otherwise lack a text layer. Calibration warns with the PDF's filename and skips it. If the complete sample set has no extractable text, the command exits with status 1 before making a model call or writing either output, including in `--mock` mode. Use `/calibrate`, which reads PDFs natively, or OCR the samples before running the headless calibration script.
+
+### `orchestrator.py` stops with `error: no Anthropic credentials were found`
+
+The headless pipeline needs credentials the Anthropic SDK can use: normally `ANTHROPIC_API_KEY` in the environment of
+the process (the SDK also accepts `ANTHROPIC_AUTH_TOKEN` or a configured credentials profile). With none, it checks
+before anything else, prints one line and exits with status 1:
+
+```text
+error: no Anthropic credentials were found; the headless pipeline calls the Anthropic API directly. Set ANTHROPIC_API_KEY in the environment of this process (the SDK also accepts ANTHROPIC_AUTH_TOKEN or a configured credentials profile), or use the slash commands, which need no key. See docs/configuration.md#credentials.
+```
+
+Nothing was read, written or sent: no progress line, no deal folder and no `state.json` change, and nothing was billed. Set
+the variable in the shell you run the script from (never in a file in this repository), or use the slash commands, which
+need no key. An empty `ANTHROPIC_API_KEY` counts as not set. If you do have credentials and still see this line, the
+SDK found none it could use: check the variable is exported to the process that runs the script, not just set in another
+terminal. Any other error from the SDK, such as a rejected key, is reported as it is and is not this message.
+
+### The headless pipeline stops with "response was truncated"
+
+`orchestrator.py` printed one `error:` line such as `error: Maker draft response was truncated (stop_reason=max_tokens,
+max_tokens=4000); ...` and exited with status 1. The API ended that call at its output-token limit (4000 for the Maker draft
+and each revision, 2000 for the Checker audit), so the text is incomplete and is never used: it is not parsed, saved,
+audited, recorded as a verdict or exported. The check runs before anything from that call is checkpointed. Earlier,
+complete steps stay as they were: a truncated revision leaves the previous `draft_vN.md` and its real Reviewer verdict in
+`review_trail`, and a truncated audit leaves the saved draft with no verdict recorded for it.
+
+Run the command again; a re-run starts a fresh draft. The shipped `max_tokens` value in `config/settings.json` is inert,
+so raising the limits is a separately reviewed code change. Do not use the partial response as an approval or export it
+by hand as if the pipeline had accepted it.
+
+### A headless run is costing more than expected
+
+Only `calibrate.py` (without `--mock`), `orchestrator.py` and `run_evals.py --live` call the API. The orchestrator
+makes one draft call, then an audit call per iteration and a revision call after each rejection; `run_evals.py --live` prints its plan
+and refuses to exceed `--max-calls` before it reads your key. The slash commands are covered by your Claude Code plan,
+not by API billing.
+
+## State errors
+
+The scripts stop with one `error:` line and exit status 1 rather than guess at a damaged or foreign state file.
+Fix the file (or the checkout) and run again; nothing was modified.
+
+| Message begins | Meaning | Fix |
+| :--- | :--- | :--- |
+| `error: Cannot use deals/.../state.json: "ratios" must be an object keyed by period whose values are objects ..., found list.` | A key the step reads has the wrong type (here a list). The message names every offending key and the type it needs | Correct the key by hand, or restore the file from a backup. Re-running `/spread` rewrites `financials` and `ratios` |
+| `error: state.json at ... is corrupted and could not be parsed (...)` | The file is not valid JSON, for instance because a write was interrupted | Restore from a backup or repair the JSON by hand |
+| `error: Refusing to write ...: it was written by a newer framework (schema_version 9.0.0) than this one supports (1.1.0); writing would downgrade it. Update this checkout of the framework instead; nothing was changed.` | The deal was written by a newer version of the framework | Update this checkout. Do not edit `schema_version` by hand. Reading such a file still works |
+
+A `schema_version` that is not `MAJOR.MINOR.PATCH` digits (`null`, `1.2`, `v1.1.0`) is refused the same way. The
+slash commands that write `state.json` directly with Claude's file tools (`/triage`, `/commercial`, `/collateral`,
+`/review`, `/assemble`, `/research`) bypass the downgrade guard, so keep the framework checkout current across the
+people and sessions that share a deal.
+
+### `/assemble` stops: `"ok": false`, `missing_steps: ["spread"]`
+
+`state_manager.py --check-steps` found no `spread` in the deal's `steps_completed`. Run `/spread` first. `/triage` and
+`/collateral` are deliberately not required.
+
+### A second dated folder appeared for the same deal
+
+A dated folder is found automatically (the most recent one for that company and proposal), so one normally does not.
+It is created for a brand-new deal, or on purpose by `orchestrator.py --new-review` for a new annual review. If a
+differently spelled company or proposal name created it, move the files together or re-run with the original
+spelling.
+
+## A deal name does not match a saved record
+
+When an interactive command reports `No deal record exists for company "<company>" and proposal "<proposal>". Check the spelling and confirm the deal has been created before running this step.`, the supplied company/proposal pair did not resolve to a saved deal. Check the returned near-miss candidates and correct the name before re-running. A command that requires an existing record does not create a deal folder or `state.json` when the record is missing.
+
+A genuinely new deal should begin with `/triage`, `/spread` or `/research`: these starters announce that they will create a new deal under the supplied name and identify returned near matches, if any. If `company_folder_exists: false`, the company folder is absent and near matches are not offered. `/commercial`, `/collateral`, `/project` and `/assemble` stop when no record exists; `/review` also stops and offers only normalization-only near matches returned by `state_manager.py --find`. The headless orchestrator instead warns and carries on; this interactive behaviour is intentionally stricter.
+
+### `/start-review` asks about an unfinished review or refuses to start
+
+`/start-review` deliberately makes you choose which earlier review to link to. If the newest existing review has no
+assembled CAM recorded, it may still be in progress: once a new dated review exists, ordinary commands select that
+newest review and will not pick up the unfinished one automatically. The command asks whether to continue or stop.
+Continue only after an explicit yes; a vague “go ahead” is not enough when it does not answer the choice question.
+A `/research` brief by itself never records an assembled CAM, so this question is expected for research-only deals.
+
+If the candidate list is empty, the command says no earlier review for the exact company and proposal was found, then
+asks whether to start without a link or stop. Check the spelling first. Names are matched exactly, not approximately:
+keep the proposal name unchanged across years. An earlier review saved under a renamed proposal cannot be linked or
+compared, even when the company is the same.
+
+The command stops if either read-only script fails, prints `error:`, a traceback, or anything other than its expected
+single JSON object. It reports the first line and creates nothing; do not guess from partial output.
+
+| Refusal | Meaning and next step |
+| :--- | :--- |
+| The dated folder already exists | A folder for the selected new-review date is already there. It is never overwritten; inspect it and choose how to proceed yourself. |
+| The date is not later than the newest state-bearing review | The new date is the same as or earlier than the latest review. Choose a later date only if that is the date you intend to use. |
+| The company has no deal folder | The company name matches no folder under `deals/`, so starting a review for it would quietly create a new deal (usually a mistyped name). Check the spelling; use `/triage` or `/spread` for a deal that has never been reviewed. |
+| The chosen earlier date is not one of the eligible earlier reviews | The chosen date was not returned as a valid state-bearing candidate for this exact company/proposal, or is not earlier than the new date. Choose a date from the listed candidates, start unlinked, or stop. |
+
+Every refusal is surfaced as one `error:` line; nothing is created or changed. The command never tries another date or link
+choice on your behalf. See [Starting a new review](data-model.md#starting-a-new-review) for the date-only link and empty-state
+rules.
+
+The listing script also reports earlier reviews whose `state.json` could not be read, under `skipped` (date and reason),
+instead of leaving them out silently. The command names those dates and reasons and does not offer them as a link; when
+only unreadable reviews exist it says that earlier reviews exist but could not be read, rather than that none was found.
+Repair or restore the unreadable `state.json` if you want to link to it.
+
+## Figures
+
+### A ratio shows `null` in `state.json`, or `N/A` in the workbook
+
+Its denominator was zero or negative (negative EBITDA, negative equity, no interest paid, ...). That is a result, not
+an error: the ratio is not meaningful, so it is recorded as `null` rather than a misleading number. `policy_check.py`
+explains it in the covenant's `reason`, for example `gross leverage not meaningful: EBITDA is negative`. See the
+[financial model](financial-model.md#na-and-unresolvable).
+
+### A covenant is `UNRESOLVABLE`
+
+The covenant cannot be tested: its ratio is N/A, its metric is not a computed ratio, its type is not `minimum` or
+`maximum`, or its threshold is missing or not a number. The `reason` says which. For the current year this makes the
+draft `REJECTED` by code until the figures or the covenant record change. For a forward year it is disclosed but does
+not reject (see "Forward results" below).
+
+### A figure in the exported workbook differs from what I see in Excel
+
+The workbook's subtotals and ratios are Excel formulas over the raw input rows, so editing a raw cell changes them,
+while `state.json` keeps the figures the framework computed. Compare against `state.json` (or re-run `/spread`), not
+against an edited copy.
+
+### An analyst-supplied forecast
+
+Messages from `supplied_forecast.py` (`/project`'s analyst-supplied mode). Each is one `error:` line, exit status `1`, and nothing has been written.
+
+| Message starts with | Meaning | Fix |
+| :--- | :--- | :--- |
+| `error: forecast.FY+1.subtotals.ebitda: expected a finite number` | A figure is a string, `null` (not allowed for a subtotal), a boolean, `NaN` or infinite | Supply plain numbers exactly as the analyst gave them; only a ratio may be `null` (N/A) |
+| `error: ... unknown name(s) [...]` / `unknown forecast year(s)` | A misspelt subtotal, ratio or raw-line name, or a year other than `FY+1` to `FY+3` | Use the names listed in `/project` and `/spread` |
+| `error: forecast.FY+1: give the subtotals and/or ratios ...` | A year with only raw lines: that is the default mode's input | Use the default `/project` path, or add the analyst's subtotals/ratios |
+| `error: downside.description is required` | A stressed forecast was given without saying what scenario it is | Add the analyst's description |
+| `error: refused: forward years [...] are already recorded from raw line items` | The deal already has framework-computed forward years; supplying others would overwrite or blend them | Use the default path for this deal |
+| `error: refused: this deal's historical figures were computed by the framework` (or `record financial figures but no financials_source`) | One basis per deal: the deal-wide flag and the workbook's raw inputs cannot describe both | Redo the historical spread in `/spread`'s analyst-supplied mode, or use the default `/project` path |
+| `error: refused: the analyst scenario already recorded for [...] is described as ...` | A downside case has one description, and this call describes its scenario differently while earlier analyst-supplied years are not restated | Restate those years in the same call with the new description, or reuse the recorded one |
+| `error: refused: the stress_assumptions recorded in state.json have a malformed ...` | A shock stored in `state.json` is not a number | Correct or remove it by hand (or restore a backup); the file was not modified |
+| `error: could not write the deal's state: ...; state.json is unchanged and nothing was recorded` (or `read`) | The state file could not be written, for example a stale `.lock` file or a full disk, and the file was shown to be as it was | Fix the cause (a stale lock is safe to delete if no run is in progress) and run again |
+| `error: the state update did not complete cleanly: ...` | A failure came after the file may already have been replaced (for example the lock file could not be removed), or the file could not be read back to tell | Open `state.json` and check whether it already holds this forecast before running again |
+| `error: refused: --stress-assumptions differs from the stress assumptions recorded for this deal` (from `orchestrator.py`) | The deal's forecast is analyst-supplied, and the headless run cannot recompute that downside | Omit `--stress-assumptions` (or repeat the recorded ones), or change them by re-running `/project`'s analyst-supplied mode |
+| `error: refused: --note is required` | The analyst's description of their forecast convention is what the CAM caveat quotes | Pass it |
+| `error: This deal's forecast ... was supplied by the analyst` from `spreading_check.py` | A framework-computed forward year, or a framework-computed `/spread`, was attempted on a deal with an analyst-supplied forecast | Record forward changes with `supplied_forecast.py`; spread history in the analyst-supplied mode |
+
+If a covenant is reported `UNRESOLVABLE` in a downside breach with the reason `downside analysis unavailable for FY+n: ...`, the
+forecast year had no downside the framework could produce (no raw lines, a line a requested shock or a covenant ratio reads
+left out (an omitted line is not a zero: give an explicit `0`), or the lines do not reproduce the figures the analyst
+supplied) and no scenario of the analyst's own. Supply the year's own stressed forecast, or the complete reconciling raw
+lines, or address it in the draft.
+
+### Figures read from an image
+
+The checks behind `transcription_check.py` (see [Workflows](workflows.md#figures-read-from-an-image)). Each failure is reported as one `error:` line with exit status `1`. Most are refused before anything is saved, and their rows say nothing was saved or changed. The exceptions are failures once the image may have been saved: an image that could not be saved cleanly, a failed state update, a deal that changed or could not be re-read after the image was saved, or a saved copy that fails its fingerprint check or cannot be read back. In those cases the image and its `sources/manifest.json` entry can remain with no figures recorded, and the message says so. See the rows `the state update failed` and `the saved copy ... does not match the fingerprint` below for what remains and what to do.
+
+| Message starts with | Meaning | Fix |
+| :--- | :--- | :--- |
+| `error: refused: the confirmation does not match these figures` | `--confirm` is not the digest of the staged figures as they are now: the figures, unit, source or an acknowledgement changed since the read-back that was confirmed, or the digest was mistyped | Read back again, show the analyst the new read-back, and commit only the digest of the one they confirmed |
+| `error: refused: unresolved cross-foot discrepancies (FY-Current/gross_profit, ...)` | A subtotal the image states does not equal the sum of the transcribed lines that feed it, within rounding, and no acknowledgement covers it | Compare the discrepancy with the image and correct the staged file where it is wrong; if the source defines the subtotal differently, record the analyst's reason under `acknowledged` for that period and check, then read back again |
+| `error: FY-Current.lines.revenue: cannot read '1,5' as a figure` | The text is not a plain number: a comma decimal, a currency symbol, `n/a`, a dash or unbalanced brackets are refused rather than guessed | Write the number as it appears with commas for thousands and a point for decimals; ask the analyst what a dash or `n/a` means; put the currency in `source.unit` |
+| `error: ... unknown name(s) [...]` or `unknown key(s) [...]` | A misspelt field in the staged file | Use the raw field names listed in `/spread`, the subtotal and ratio names it lists, and the keys in the example |
+| `error: refused: this deal's financials_source is 'analyst-supplied' and this transcription is 'framework-computed'` (or the reverse) | `financials_source` is a whole-deal flag and one deal never mixes the two bases; nothing converts a deal from one to the other. The same refusal, worded "records financial figures but no financials_source", applies to a state whose basis is unknown | Record this under a different proposal, or ask the analyst whether to redo the deal's spreading in one mode; nothing was saved or changed |
+| `error: refused: the confirmation does not match these figures ... or the image file itself` | The digest also covers the image's bytes, so replacing or editing the screenshot after the read-back makes the confirmation stale | Read back again and confirm the new read-back |
+| `error: source.cost_sign is required because [...] are transcribed` (or `outflow_sign`, `liability_sign`) | A line whose sign the source may present the opposite way to the framework's input convention was transcribed with no declaration of how the source writes it | Read it off the image (`"positive"` or `"negative"`); if it is not plain, ask the analyst |
+| A `MISMATCH` marked `matches if costs were read with the opposite sign` | A sign declaration is probably wrong: reading that class the other way makes the subtotal match. An acknowledgement of it is refused | Look at the image again and correct the declaration (or the figure) |
+| `error: Refusing to write ...: it was written by a newer framework (schema_version ...)` from `transcription_check.py` | The deal's state is a newer schema than this checkout supports; `state_manager` refuses to downgrade it, and the commit is refused before the image is saved | Update this checkout; nothing was saved or changed |
+| `error: refused: the figures cannot be computed against this deal's stored state (TypeError: ...)` | In framework-computed mode the stored state (for example a `stress_assumptions` value applied to a forward year on file) cannot be combined with the new figures | Fix the stored value by hand; nothing was saved or changed |
+| `error: refused: this deal's sources/manifest.json cannot be read` / `is not a list` | The deal's source manifest is corrupt, so the image could not be recorded | Fix or restore the file; nothing was saved |
+| `error: refused: the source image could not be copied for verification` / `a scratch folder ... could not be created` / `the deal's state could not be read` | An I/O failure before anything was saved | Fix the cause (permissions, disk space) and commit again; nothing was saved and no figures were recorded |
+| `error: the image could not be saved (...)` | `save_source()` failed (a lock timeout, a disk error, a manifest that became unreadable). The message lists the new files left in `sources/` (for example a copied image or `manifest.json.tmp`) and whether `sources/manifest.json` changed; no figures were recorded and `state.json` was not modified | Inspect `sources/` and `sources/manifest.json`; remove a leftover file with no manifest entry by hand, then commit again. Nothing is removed automatically |
+| `error: the image '...' was saved and its sources/manifest.json entry exists, but the saved copy could not be read back` | The copy written into `sources/` could not be read to verify it | Inspect the file and the entry; no figures were recorded. Do not retry blindly: a retry saves the image again |
+| `error: the state update failed (OSError: ...)` (or `TimeoutError`, or a `state_manager` error) | The single state update after the image was saved failed, for example a full disk or a lock that timed out. The message says whether `state.json` was checked and is unchanged, changed during the failed update and may already hold this transcription (an error after the atomic replacement), or could not be checked. The verified image (named in the message) and its `sources/manifest.json` entry remain; neither is removed automatically | Inspect `state.json` and `sources/` first and do not retry blindly: a retry saves the image again. If the state already holds the transcription, do not commit it again; otherwise remove the extra copy and manifest entry by hand if you retry |
+| `error: refused: the saved copy ... does not match the fingerprint` | The copy written into `sources/` differs from the image that was confirmed (a disk problem); no figures were recorded and `state.json` was not modified | Delete that file and its entry in `sources/manifest.json`, then read back and commit again |
+| `error: refused: analyst-supplied mode needs --source-note` | Analyst-supplied mode records the confirmed convention as `financials_source_note`, and the transcription disclosure is added to it | Pass the convention description the analyst confirmed |
+| `error: refused: the source file ... does not exist` | `source.file` does not point at the image | Correct the path; the image is saved from there |
+
+A cross-foot row that reads `NOT ASSESSED: not transcribed: stock, ...` is not a failure and not a pass: the check was not made because those lines were not written down. Transcribe them (an explicit `0` counts) if you want the check, or accept that those figures are not cross-footed. A `MISMATCH` on `balance_sheet_balances` with every other check matching usually means a balance sheet line the framework has no field for (for example other reserves) or a line that was not transcribed as zero.
+
+## Review and rejection
+
+A `REJECTED` verdict has two possible sources: the **code-enforced check** (mandatory, quoted verbatim in the notes)
+and the **Risk Reviewer's judgement**. Reasons from the code have fixed wording:
+
+| Reason starts with | Meaning | Fix |
+| :--- | :--- | :--- |
+| `Missing Required CP <id>: ...` / `Missing Required Condition Subsequent <id>: ...` | The deal's structure requires this condition and the draft's `cp_ids_included` / `cs_ids_included` does not list it | Render the condition in the draft and add its id |
+| `Missing or malformed Risk Category: <name>` | A category of the required taxonomy is absent from `risk_categories_covered`, has a status other than `covered` / `not_applicable`, or is `not_applicable` with no justification | Cover it, or mark it `not_applicable` with a justification |
+| `Undisclosed Downside Breach <id>: ...` | A covenant that passes in the base case fails or cannot be tested under stress and the draft's `downside_breaches_acknowledged` omits it | Address it in Projections & Sensitivities and list the id |
+| `Covenant FAIL: ...` / `Covenant UNRESOLVABLE: ...` | A current-year covenant fails or cannot be tested | Change the draft's facts only if the record is wrong; otherwise the structure (covenant or figures) must change |
+| `Unperfected Security: ...`, `Subordinate Ranking: ...`, `Uncharged Asset: ...` | A charge is not `"Perfected"`, does not rank `"First"`, or an asset has no charge | Fix the security record (`/collateral`), or accept the rejection until the security is perfected |
+| `Narrative/Ground-Truth Mismatch: reported dscr 2.5 vs computed 2.0` | A figure in `reported_figures` differs from the computed one | Report the computed figure, or omit the metric |
+| `UNRESOLVABLE_REPORTED_FIGURE: '<metric>' is not a recognized computed figure` | A reported figure has no computed counterpart (including an N/A ratio) | Omit it or describe it in prose |
+| `Missing Narrative Sources: ...` | The draft declares no `sources` | List the sources the narrative rests on |
+| `Missing Analyst-Supplied Spreading Disclosure: ...` | The deal's `financials_source` is `analyst-supplied` and the draft does not say so | Add the caveat and set `financials_source_disclosed` |
+| `Missing Credit Policy Consideration: ...` | A calibrated policy exists and the draft does not declare it considered it | Draft with the policy in mind and set `credit_policy_considered` |
+
+The block that carries these declarations is the draft's trailing fenced `json` block; if it is missing or malformed
+you get a full list of "Missing" reasons at once. The review loop keeps going until `APPROVED`; every iteration is
+kept in `review_trail`.
+
+### Forward results
+
+A forward-year covenant `FAIL` or `UNRESOLVABLE` never rejects a draft by itself. It appears in
+`policy_state["forward_covenant_results"]` (and the non-`PASS` entries are shown to the model as data). Seeing one in the
+output of `policy_check.py` while `compliant` is `true` is correct.
+
+### A loss-making deal is rejected on every iteration
+
+If a current-year covenant is `UNRESOLVABLE` (for example leverage with negative EBITDA), no draft can satisfy the
+code-enforced check, and the loop will keep rejecting until the covenant record, the figures or the facility structure
+change. Stop the loop and resolve the structure with the analyst.
+
+## Sources and exports
+
+### `error: Research brief must contain a populated Sources or References section.`
+
+`research_export.py` refuses to export a brief unless an ATX `Sources` or `References` section contains at least one list item or an HTTP(S) URL. The section heading is case-insensitive; fenced code blocks do not count. Nothing is written when this check fails. Add a populated, flat `## Sources` section at the end of the brief, listing relied-on documents and URLs and defining any short-form citation keys.
+
+If the analyst has explicitly authorised an export without sources in chat and given a reason, the session may pass `--analyst-override-no-sources "<reason>"`. The generated DOCX ends with a dated footnote recording that exception. An empty or whitespace-only reason is refused. The command must not suggest or infer the override, and it is not recorded in `state.json`.
+
+### `error: Cannot use .../sources/manifest.json: ...`
+
+`source_manifest.py` (either mode) found a `sources/manifest.json` it cannot use: invalid JSON, not UTF-8 text, a value that
+is not a list, an entry that is not an object, or a link whose target does not exist (a broken link is never read as
+"no manifest", and a save would otherwise have replaced it). Nothing was changed, and nothing was read as "no sources saved". Fix the
+file by hand or restore it from a backup (it is a list of objects with `filename`, `url`, `step`, `claim` and
+`fetched_date`). A company or proposal containing a character that is not valid in a folder name is refused the same way.
+
+### The step stops about saved sources
+
+`source_manifest.py --check-sources` prints two keys, for example `{"missing_saved_sources": true, "sources_declared":
+"declared"}`. `sources_declared` is `"declared"`, `"not_declared"` or `"unknown"`.
+
+- **`missing_saved_sources` is `true` and `sources_declared` is `"declared"`:** the step declared citations but saved no
+  material. Save at least one source document with `source_manifest.py ... --file <path>`, or say explicitly why none
+  could be saved (for instance a page that blocks downloads).
+- **`sources_declared` is `"unknown"`** (and `missing_saved_sources` is `true`, even when material was saved): a
+  completed step's saved state has no valid `sources` list, so the check cannot tell whether citations were used. The
+  `triage` or `commercial` section is missing its `sources` list, or the value is not a list of strings. Restore the list
+  in `state.json` (a list of citation strings, or `[]` when none were used) and rerun the check; do not assume no
+  citations were used.
+
+### The `.docx` is missing a chart, or contains `[Image not embedded: ...]`
+
+A standalone `![caption](path)` line becomes an embedded image only for an existing local PNG, JPEG, GIF or BMP file;
+anything else becomes a visible placeholder (`file not found`, `remote URLs aren't supported`, `not a supported image
+type`, `could not be read as an image`) and a warning on stderr. Fix the path or format and export again. See
+[Outputs](outputs.md).
+
+### A line of header fields runs together in the `.docx`
+
+A single newline is a soft wrap, as in ordinary Markdown. Write distinct fields as a bullet list
+(`- **Label:** value`) or as separate paragraphs.
+
+### Part of my draft is missing from the `.docx`
+
+A fenced block tagged `json` is stripped (it is reserved for the structured-output block). Any other fenced block, or
+one with another tag, is kept as monospace text.
+
+## Tests and tooling
+
+- **`pytest` rejects its own options.** Install the development requirements first: `pip install -r
+  requirements-dev.txt`.
+- **A test fails after editing a document.** Documents are checked: relative links and heading anchors resolve, every
+  `--flag` shown for a script exists in its `--help`, `Guideline N` references point at real items, and the cited
+  `CLAUDE.md` headings exist. The failure names the file and line. See [Testing](testing.md).
+- **`check_test_count.py` fails.** The passing-test count in `badges/test-count.json` is out of date: run the whole
+  suite, capture the output, and run `python scripts/check_test_count.py pytest_output.txt --write` (never in CI).
+- **`mutmut` fails on Windows.** It forks and runs on Linux and macOS only; the weekly mutation workflow runs it on
+  Ubuntu.

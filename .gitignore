@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# CI's own scratch file (see .github/workflows/ci.yml, scripts/check_test_count.py)
+pytest_output.txt
+
+# Coverage output (issue #142): data files and reports, never committed
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+coverage.json
+
+# mutmut's working copy of scripts/ and tests/ (issue #146; Linux/macOS only)
+mutants/
+/src
+
+# Hypothesis example database (HYPOTHESIS_PROFILE=explore only; the CI profile keeps none)
+.hypothesis/
+
+# Environment / secrets
+.env
+*.key
+
+# User-specific calibration input and generated artifacts — never commit real deal data
+inputs/
+config/style_guide.md
+config/credit_policy.md
+config/credit_policy_notes.md
+config/spreading_conventions.json
+config/deal_learnings.md
+templates/local/
+
+# Generated deal outputs (contain borrower financials — confidential by nature)
+deals/
+
+# Local live-model evaluation output (issue #151): per-run results, review packs and any
+# model text, even on synthetic data. Never tracked; only a deliberately exported baseline
+# summary is ever copied into evals/baselines/ by hand.
+evals/results/

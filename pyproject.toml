@@ -1,0 +1,102 @@
+# Central tool configuration (issues #139 and #142). This file holds NO project metadata: the framework is
+# run from a checkout (`python scripts/...`), not installed. CI and local runs both read the settings here, so
+# a rule or threshold is changed in one place, in a reviewed diff, and never in a workflow command line.
+
+[tool.ruff]
+target-version = "py311"      # minimum supported Python version; CI runs 3.11
+extend-exclude = ["./mutants", "./src"]  # mutmut's working copy and its alias of scripts/ (Linux/macOS only; git-ignored)
+
+[tool.ruff.lint]
+select = [
+    "E9", "F63", "F7", "F82",   # syntax errors, invalid comparisons, undefined names
+    "B",                        # flake8-bugbear: likely bugs
+    "UP",                       # pyupgrade: outdated idioms
+    "S",                        # flake8-bandit: security
+]
+# PLW1514 (open() without encoding=) is a preview rule: it is the regression guard for the UTF-8 policy of
+# issue #137 (scripts/textio.py). explicit-preview-rules keeps it from switching on OTHER preview rules.
+extend-select = ["PLW1514"]
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert (S101), spawn the interpreter and `git` as fixed argument lists (S603, S607), and use obvious
+# fake credentials as test data (S105, S106, S307 for one eval() of a literal in an oracle test). None of
+# those is a finding in tests; all of them remain findings under scripts/.
+"tests/**" = ["S101", "S603", "S607", "S105", "S106", "S307"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--disable-socket"          # pytest-socket: no test may open a network connection (README: "needs no key or network")
+timeout = 120                         # pytest-timeout: a hung test fails after 2 minutes instead of eating the CI job limit
+filterwarnings = ["error"]            # every warning is a failure; fix the cause or filter it here WITH a reason
+
+[tool.coverage.run]
+source = ["scripts"]
+branch = true                         # line + branch coverage (issue #142)
+# Follow the Python subprocesses the CLI tests start (tests/test_cli_subprocess.py), so each script's
+# `if __name__ == "__main__":` block counts. coverage >= 7.10; each child writes its own data file and
+# pytest-cov combines them.
+patch = ["subprocess"]
+parallel = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# `# pragma: no cover` is allowed only with a reason comment on the same line (tests/test_repo_conventions.py).
+exclude_also = []
+
+# Coverage floors enforced by CI (issue #142), read by scripts/check_coverage.py. coverage.py can only enforce one
+# overall number, so the modules that decide a draft's code-enforced verdict or compute the figures a CAM reports
+# get a higher floor of their own. Raising a floor is a one-line change here; LOWERING one is a decision that needs
+# its reason in the PR (tests/test_check_coverage.py pins the minimum values and the module list).
+[tool.opencam.coverage]
+overall = 95
+critical = 97
+critical_modules = [
+    "policy_engine", "policy_checks", "policy_check",   # covenant / security / CP evaluation and the draft audit
+    "spreading_builder", "spreading_check",             # every ratio and subtotal the CAM reports
+    "state_manager", "deal_export", "docx_builder",     # the persisted deal state and the exported documents
+    "review_compare",                                   # the read-only comparison of two dated reviews (issue #203)
+]
+
+# Coverage of the lines a pull request changes (diff-cover reads this table itself): 95% for any changed line. A
+# change to one of the nine governance modules is held to 98% by diff_cover_critical.toml, a second run of the
+# same tool. CI runs both on pull requests only; on a push to main there is no base to compare with.
+[tool.diff_cover]
+compare_branch = "origin/main"
+fail_under = 95
+
+# Mutation testing (issue #146), run weekly by .github/workflows/mutation.yml -- never on a pull request. mutmut
+# copies source_paths and tests/ into mutants/, mutates the nine governance modules plus calibrate.py (the
+# calibrate chunker/merge helpers, as a supporting module) one line at a time, and runs only the test files below
+# against each mutant. Linux/macOS only. scripts/mutation_report.py turns the result into a score per module. No
+# score is enforced: the report is diagnostic. `target_critical` below is a diagnostic target for the nine
+# governance modules (chosen after the first full run, issue #146): the report marks each of them met or below,
+# and never fails a build over it. Changing it is a reviewed change.
+#
+# mutmut names a mutant after the module's path and strips a leading "src." only; the tests import these modules
+# as top-level names (`import deal_export`, via tests/conftest.py), so scripts/ is exposed to mutmut as src/
+# (the workflow runs `ln -s scripts src`; src is git-ignored). Without that, mutmut records hits under
+# "deal_export" but expects "scripts.deal_export" and stops with no result (found by a trial run of this workflow).
+[tool.mutmut]
+source_paths = ["src"]
+only_mutate = [
+    "src/policy_engine.py", "src/policy_checks.py", "src/policy_check.py",
+    "src/spreading_builder.py", "src/spreading_check.py",
+    "src/state_manager.py", "src/deal_export.py", "src/docx_builder.py", "src/review_compare.py",
+    "src/calibrate.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/test_policy_engine.py", "tests/test_policy_checks.py", "tests/test_policy_check.py",
+    "tests/test_spreading_builder.py", "tests/test_spreading_check.py",
+    "tests/test_state_manager.py", "tests/test_deal_export.py", "tests/test_docx_builder.py",
+    "tests/test_review_compare.py", "tests/test_legacy_state.py", "tests/test_golden_outputs.py",
+    "tests/test_calibrate.py", "tests/test_properties.py",
+]
+also_copy = [".github", "docs/examples"]    # selected tests read the workflow files and the synthetic example inputs, so the mutants/ copy needs them
+
+# Diagnostic target, in percent, for the mutation score of each governance-critical module (issue #146). Not a gate:
+# the mutation workflow is not a required check, and a module below target is reported, never failed.
+[tool.opencam.mutation]
+target_critical = 75

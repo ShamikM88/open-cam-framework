@@ -1,0 +1,52 @@
+name: Publish wiki
+
+# Publishes the docs/ corpus to the repository's GitHub Wiki one-way (issue #192): docs/ is canonical,
+# the wiki is generated from it and every wiki edit is overwritten by the next publish. Never runs on
+# a pull request, is not a required check, and no fallback credential is ever used.
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "docs/**"
+      - "scripts/wiki_publish.py"
+      - ".github/workflows/wiki-publish.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+# Publishes serialize (only one runs at a time, and a newer queued run replaces an older queued
+# one); each run publishes the main it checked out, and a mid-run advance of main is reconverged by
+# the next run.
+concurrency:
+  group: wiki-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The one documented write-permission exception (like model-freshness's issues: write): the job
+    # pushes the generated pages to the repository's wiki. main only (dispatch can select any ref, so
+    # the ref is re-checked here) and never on a fork, whose wiki is a different repository's.
+    if: github.ref == 'refs/heads/main' && github.event.repository.fork == false
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false  # the wiki push authenticates itself, from the step's env below
+          fetch-depth: 1
+
+      - name: Publish the wiki
+        # The runner's own python3, with no tool installation step: the publisher is stdlib-only.
+        # The token is read from the environment by the script and reaches git only as an HTTP
+        # header -- never in a URL, a log line or a file. A generator error or a rejected push is
+        # one error line and a red run; see docs/operations.md#publishing-the-wiki.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: python3 scripts/wiki_publish.py --repo "$GITHUB_REPOSITORY" --publish --source-sha "$GITHUB_SHA"

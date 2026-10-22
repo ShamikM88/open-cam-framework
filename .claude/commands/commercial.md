@@ -1,0 +1,77 @@
+---
+description: Draft Company History, Management, Sector Dynamics, and Competitive Landscape (see config/skills_registry.md).
+argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [sector] [management bios] [customer/supplier notes] [business model description]"
+disable-model-invocation: true
+---
+
+## Task: /commercial
+
+Read `agents/underwriter_agent.md` and act according to that role for the rest of this task.
+
+**Arguments:** `--company "<Name>" --proposal "<Proposal name>"`, followed by whatever inputs
+you have below (this deal identity is needed so results can be checkpointed to its state file).
+
+$ARGUMENTS
+
+## State: read
+
+Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files,
+newest-modified first, which is not the same as latest by date; if the list reaches 100 files (the tool also flags
+truncation) it may be incomplete: say that the latest dated folder could not be established, and stop. Otherwise consider
+only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
+two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
+latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
+rule). Read its `state.json` and note the folder.
+If found, treat every fact already recorded there as the source of truth — never re-derive something from a summarized/compacted conversation when state.json already has it.
+**No matching record is a stop, not an empty record.** Run `python scripts/state_manager.py --find --company "<company>" --proposal "<proposal>"` first. If it reports `record_found: false`, stop and tell the analyst plainly: `No deal record exists for company "<company>" and proposal "<proposal>". Check the spelling and confirm the deal has been created before running this step.` Offer the near-miss candidates it returned, if any; do not invent others. Do not create a deal folder or state file. If it reports `company_folder_exists: false`, say the company folder is absent rather than offering near matches.
+
+**Primary inputs** (ask the user for whatever's missing and isn't already in state): Sector
+name, management bios, customer/supplier notes, business model description.
+
+Draft: Company History, Executive Management overview, Parent/UBO Support analysis, Sector
+Dynamics, Customer/Supplier Concentration, and Competitive Landscape. Cite the source for every
+factual claim (company website, filings, a credible public source, or what the user told you
+directly) — never invent a fact about the company, its management, or its market.
+
+**Parent/UBO Support analysis specifically:** follow `agents/underwriter_agent.md`'s Guideline 12
+— trace the *full* ownership chain (not just the immediate parent), capture ownership
+percentages where disclosed, and actively check for any recent ownership change or investment
+rather than only reporting one if it happens to come up. Guideline 12 also covers the judgment
+call on whether this deal needs the full Ultimate Parent template section or just a brief note.
+
+## Source material
+
+Whenever you fetch a web page, a filing, or an industry report — or the user hands you a
+document directly — save the actual material — not just its citation — to this deal's `sources/`
+folder:
+```
+python scripts/source_manifest.py --company "<company>" --proposal "<proposal>" --step commercial \
+    --claim "<short description of what this backs, e.g. 'UK fire and security sector M&A review'>" \
+    --file <path to the downloaded/saved file> [--url <source URL, if any>]
+```
+This preserves the source of record for later audit (see issue #67) — a citation is only as
+checkable as the document it points to, and a web page can change or disappear after the fact.
+Don't save incidental scratch/intermediate artifacts (e.g. a page render used only to OCR a
+figure) — only the source documents themselves.
+
+## State: write
+
+Update this deal's state file with this step's results (merge with whatever you read above —
+never drop a field another step already recorded):
+- If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
+  otherwise write back to that same file.
+- Set/update: `company`, `proposal`, `date`, `deal_type` (if known), and a `commercial` key
+  holding the drafted sections above (or at least their key conclusions and sources).
+- Set `commercial.sources` to a list of citation strings used by this step (use `[]` when none were used); never omit the list.
+- Append `"commercial"` to `steps_completed` if it isn't already there.
+
+Then run:
+```
+python scripts/source_manifest.py --check-sources --company "<company>" --proposal "<proposal>"
+```
+If `sources_declared` is `"unknown"`, this completed step's saved state has no valid `sources` list. Restore the list
+of citation strings in state and rerun this check; do not assume no citations were used or continue silently.
+Otherwise, if `missing_saved_sources` is `true`, this step cited sources above but never actually saved any
+of the material behind them (see issue #72) — go back and save at least one via the Source
+material step above before finishing, or tell the user explicitly that no source material was
+saved for this step and why (e.g. every source was unsaveable) rather than silently moving on.

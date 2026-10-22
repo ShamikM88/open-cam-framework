@@ -1,0 +1,4 @@
+# Tools CI's `security` job installs (issue #141). Kept apart from requirements-dev.txt so a contributor's
+# everyday environment does not need them; Dependabot still tracks these versions like any other requirements file.
+pip-audit>=2.10.1       # known-vulnerability audit of the dependency files
+zizmor>=1.30.1          # static analysis of the GitHub Actions workflows (unpinned actions, excessive permissions, ...)

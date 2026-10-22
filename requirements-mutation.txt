@@ -1,0 +1,4 @@
+# Installed only by .github/workflows/mutation.yml (issue #146), on top of requirements-dev.txt. mutmut runs on
+# Linux and macOS only (it forks); on Windows use WSL. Kept apart so a contributor's everyday environment and the
+# per-pull-request jobs never install it; Dependabot still tracks the version.
+mutmut>=3.8.0

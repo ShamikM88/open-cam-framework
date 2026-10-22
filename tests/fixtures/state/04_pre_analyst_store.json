@@ -1,0 +1,39 @@
+{
+  "company": "Synthetic Legacy Co",
+  "proposal": "Synthetic Fleet Loan",
+  "date": "2026-01-01",
+  "deal_type": "corporate_credit",
+  "inputs": {
+    "pd": "0.50%",
+    "lgd": "LGD 3 (15%)",
+    "experian_score": "62"
+  },
+  "schema_version": "1.1.0",
+  "financials": {
+    "FY-Current": {
+      "raw": {},
+      "gross_profit": 1750,
+      "operating_profit": 1210,
+      "ebitda": 1250,
+      "total_debt": 1100,
+      "total_equity": 890,
+      "tangible_net_worth": 890,
+      "current_assets": 1240,
+      "current_liabilities": 350
+    }
+  },
+  "ratios": {
+    "FY-Current": {
+      "dscr": 5.04,
+      "gross_leverage": 0.88,
+      "gearing": 1.24,
+      "current_ratio": 3.54
+    }
+  },
+  "financials_source": "analyst-supplied",
+  "financials_source_note": "Depreciation is embedded in Cost of Goods Sold in this borrower's accounts.",
+  "steps_completed": [
+    "triage",
+    "spread"
+  ]
+}

@@ -1,0 +1,563 @@
+# CLI reference
+
+> The sections "Calibrate", "Orchestrator" and "Export" were moved from `CLAUDE.md` (unchanged apart from the fixes in the [move ledger](move-ledger.md)); the rest of the page is written for readers.
+
+Usage reference for every script in `scripts/` that has a command line: what it does, its flags, what it prints, how it exits and whether it needs `ANTHROPIC_API_KEY`. The slash commands are described in the [command reference](commands.md); how the scripts fit together in the [workflows](workflows.md) and the [architecture](architecture.md). `python scripts/<name>.py --help` is authoritative for flags.
+
+## The scripts at a glance
+
+| Script | Does | Needs `ANTHROPIC_API_KEY` | Detail |
+| :--- | :--- | :--- | :--- |
+| `calibrate.py` | Derives a style guide and a template from your sample PDFs | Yes, unless `--mock` (automatic without a key) | [Calibrate](#calibrate) |
+| `orchestrator.py` | The whole deal pipeline in one process: draft, audit, checks, export | Yes | [Orchestrator](#orchestrator) |
+| `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
+| `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
+| `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
+| `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
+| `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
+| `state_manager.py` | Finds deals read-only, lists prior-review candidates, starts a clean review state, checks completed steps, exports Reviewer-view files, and records borrower-supplied consolidated group-basis metadata | No | [State manager](#state-manager) |
+| `review_compare.py` | Compares two exact dated states of the same deal; optionally checks historical-period restatements | No | [Review comparison](#review-comparison) |
+| `check_model_freshness.py` | Reports newer, deprecated and unknown model IDs using the installed SDK's metadata tables | No | [Model freshness check](#model-freshness-check) |
+| `source_manifest.py` | Saves a source document; checks sources were saved | No | [Source manifest](#source-manifest) |
+| `conventions.py` | Reads and writes persisted spreading conventions | No | [Conventions](#conventions) |
+| `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
+| `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
+| `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/`, and publishes it to the wiki with `--publish` | No | [Wiki publish](#wiki-publish) |
+| `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
+
+Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic and makes no
+network call -- the one exception is `wiki_publish.py`'s `--publish` mode, whose git clone and push over HTTPS are
+the wiki publish -- and is what the slash commands run in their Bash steps.
+
+## Conventions common to the scripts
+
+- **Run from the repository root.** Paths such as `deals/`, `config/`, `templates/` and `agents/` are relative to the
+  working directory.
+- **A deal is named by `--company` and `--proposal`.** Together they select `deals/<Company>/<Proposal>_<Date>/`; the
+  dated folder is found automatically (the most recent one), so a deal resumed on another day finds its own state.
+- **Output.** Scripts that return data print JSON to standard output; export scripts print one `Done!` line with the
+  path. Progress and warnings go to standard error.
+- **Exit status.** `0` on success. `1` for a failure the script reports itself, including an unusable `state.json`
+  (printed as one `error: ...` line, never a traceback; see [Troubleshooting](troubleshooting.md#state-errors)).
+  `2` for a command-line usage error (an unknown flag or a missing required one). A few checks have their own rules,
+  noted per script; `--check-steps` and `--check-sources` exit `0` whatever their *result*, because the calling command
+  decides what a missing step or source means.
+- **Text.** Everything is read and written as UTF-8 and the output streams are made UTF-8 even when redirected, so a
+  non-ASCII name survives a pipe on Windows.
+- **`--help` is authoritative.** The flags below are checked against it by the test suite.
+
+## Calibrate
+
+**`scripts/calibrate.py --type <deal_type>`** (headless; needs `ANTHROPIC_API_KEY`) — reads historical CAM PDFs from
+`inputs/calibration_samples/` (in sorted filename order) and makes two Claude calls against that
+text (more when the samples overflow one call's limit -- see "Sample length" below): one extracts
+writing style/tone into `config/style_guide.md`; the other derives a genericized CAM template
+(explicitly instructed to strip all real data to `[placeholder]`s) written to
+`templates/local/cam/<deal_type>_cam.md`. `<deal_type>` defaults to `corporate_credit` and
+should match the value later passed to `orchestrator.py --type`.
+
+Each PDF is checked for extractable non-whitespace text. A PDF with none (often an image-only scan) is named in a warning and skipped; if no sample PDF contains extractable text, calibration exits with an error before any model call or output write. Use `/calibrate`, which reads PDFs natively, or OCR the scans first.
+```
+python scripts/calibrate.py --type asset_finance
+```
+**`--mock`**: skips both Anthropic calls and writes deterministic placeholder output instead
+(clearly labeled `(MOCK)` in the file content) -- for smoke-testing the PDF-reading and
+file-writing plumbing without an API key or network access. It never fabricates anything
+domain-specific (no invented PD/LGD/rating figures -- that would contradict the grounding rule
+and isn't this script's job in the first place); it only proves the pipeline runs end to end.
+Triggers automatically, with a printed notice, whenever `ANTHROPIC_API_KEY` isn't set:
+```
+python scripts/calibrate.py --mock --type asset_finance
+```
+**Sample length (issue #109):** each Claude call takes at most `CHUNK_CHAR_LIMIT` (12,000)
+characters of sample text, and the combined text of every PDF in `inputs/calibration_samples/`
+routinely exceeds that. The length check is the run's first decision point -- after the PDFs
+are read (local only) but before any API call or file write -- and offers two choices: *ignore*
+(use only the first 12,000 characters, discarding the rest, now stated explicitly) or *split*
+(split the text in memory at paragraph/line boundaries into parts, run the style/template prompt
+on each, then merge the per-part results with one consolidation call, hierarchically if there
+are very many parts; the merge prompts restate the "zero real data, bracketed placeholders"
+and editorial-judgment rules). `--on-overflow {ask,split,ignore}` (default `ask`) pre-answers it;
+`ask` prompts on a terminal and falls back to `split` when there's no TTY, since silently losing
+material is the failure this exists to prevent and splitting only costs extra API calls.
+`--mock` makes no calls, so it only reports how many parts a real run would use (it ignores
+`--on-overflow`). Whitespace-only parts (e.g. a lone trailing newline) are dropped before
+counting or calling, and if only one non-blank part remains nothing is lost, so there's no
+prompt. The original sample PDFs are only ever read, never written or split on disk. Both result
+files are computed in memory first, with no API call between the two writes at the end, so an API
+failure partway through a long split run leaves any existing `config/style_guide.md`/template
+untouched. A response cut off at its output-token limit prints a `[WARN]` rather than flowing on
+silently. `/calibrate` has no such cap (native PDF reading) and is unaffected.
+
+## Orchestrator
+
+**`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
+given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
+prompts and style guide, resolves the CAM template for `--type` via
+`template_resolver.cam_template_path` and includes it in the drafting prompt if one exists,
+runs the Underwriter draft and then the Risk Reviewer audit, checkpointing to `state.json` via
+`state_manager.write_state` after each of those two agent calls (see the state management protocol in `CLAUDE.md`), then calls `deal_export.export_deal` (see below) to do the
+folder-creation/template-auto-save/export work:
+```
+python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance"
+```
+
+## Orchestrator flags and defaults
+
+`scripts/orchestrator.py --company <name> --proposal <name> [--pd <PD>] [--lgd <LGD>] [--type <deal_type>]
+[--financials <json>] [--spread <json>] [--collateral <json>] [--stress-assumptions <json>] [--new-review]`
+
+- `--company` and `--proposal` are required and name the deal.
+A read-only `state_manager.py --find` lookup is used at the single state-resolution point. When no exact record
+exists but a normalized near match is present, the orchestrator prints one warning line to standard error naming the
+candidate proposal/date, then continues with today's behavior; it does not refuse the run or select the candidate.
+No warning is printed when no normalized candidate exists. If the company folder cannot be listed (for example
+a permission error), the advisory is skipped and the run continues exactly as it did before the lookup existed.
+See [State manager](#state-manager).
+
+- `--pd` (default `0.20%`) and `--lgd` (default `LGD 3 (15%)`) are **user-supplied risk inputs** and are used exactly as
+  given. The defaults are example values: if you omit the flags they flow into the CAM as if you had supplied them,
+  so always pass your own.
+- `--type` selects the template and defaults to `corporate_credit`.
+- A model reply that ends at its output-token limit (`stop_reason` `max_tokens`: 4000 for the Maker draft and revision, 2000
+  for the Checker audit) stops the run with one `error:` line and exit status 1. The partial text is not parsed, saved,
+  audited, recorded as a verdict or exported, and nothing from that call is checkpointed; see
+  [Troubleshooting](troubleshooting.md#the-headless-pipeline-stops-with-response-was-truncated).
+- `--financials` is a JSON file of raw line items per period (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`,
+  any subset); `--spread` has the same shape and takes precedence if both are given. Forward years are management's
+  own forecast, never derived by the tool.
+  Periods are merged into the deal's recorded `multi_period_financials` rather than replacing the whole
+  history. Within a period, supplied fields update the recorded fields and any omitted fields remain; computed
+  `financials` and `ratios` for touched periods are recomputed and merged with the other recorded periods. This
+  matches the interactive `spreading_check.py` behavior, so a forward-only file does not erase FY-1/FY-Current.
+  Each period key must be one of the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`,
+  `FY+3`): any other key, for example an entity name such as `HoldCo`, is refused with one `error:` line naming the
+  key before a model call or write (D19 in [decisions](decisions.md)). Each period value must be an object of raw
+  line items; a string, number, null, list or other non-object period is refused with one `error:` line naming the
+  period. For recognised raw line-item fields, each non-null value must be a
+  finite JSON number: numeric strings are not coerced and booleans are not numbers. Invalid values (including JSON
+  overflow values such as `1e999`) are refused with one `error:` line naming the period and field, exit status 1,
+  before a model call or state write. Null raw line-item values retain the evaluator's existing behavior and are not
+  rejected; missing fields keep their existing behavior too. Each supplied stress value must also be a finite JSON
+  number; strings, booleans, null, lists and objects are refused with a key-naming `error:` line before a model call
+  or state write.
+  **Analyst-supplied history safeguard:** a run on an analyst-supplied deal that supplies any historical period
+  (`FY-2`, `FY-1`, `FY-Current`) is refused with one `error:` line and exit status 1, before a model call, with
+  nothing written and `financials_source` unchanged; record historical figures with `/spread`'s analyst-supplied mode.
+  Forward-year-only input is refused the same way: `financials_source` is a deal-level flag, and a headless run
+  never recomputes or relabels an analyst-supplied deal, whether or not raw line items exist for its preserved
+  periods (one `error:` line, exit status 1, nothing written, `financials_source` unchanged). Record changes to
+  supplied figures with `/spread`'s analyst-supplied mode; an interactive, forward-only `/project` call is the
+  one allowed way to add framework-computed forward years to such a deal ([data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period)).
+- `--collateral` is a JSON file holding a flat list of asset objects.
+- `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
+  refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
+  `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none. Each supplied value must be a
+  finite JSON number; strings, booleans, nulls, lists and objects are refused with one key-naming `error:` line.
+- `--new-review` targets today's dated folder. If it already contains a `state.json`, the pipeline resumes
+  that review as a rerun after a failure and leaves its existing `prior_review_date` unchanged. If the dated folder
+  does not exist, the orchestrator creates a minimal fresh state through `state_manager.start_review()`, linking it
+  to the nearest earlier state-bearing review for the exact same company and proposal; if none exists, it starts
+  unlinked. The link is a date only: no earlier-review inputs or results are inherited. Subsequent pipeline checkpoints
+  preserve `prior_review_date`. If a dated folder already exists without a `state.json`, it is refused rather than
+  overwritten (and is refused before any model call, with the folder left untouched). A refusal (including when
+  today's date is not later than the newest existing state-bearing review) exits with one `error:` line and status 1
+  before a model call or write. A single `[INFO]` line on standard error says whether the new review was linked and
+  to which date, or started unlinked. A company that has no deal folder yet is the exception: the headless run
+  keeps its earlier behaviour for it, with no link, no refusal and no `[INFO]` line (a company name typed on a
+  command line is deliberate; the interactive `/start-review` and `state_manager.py --start-review` are the paths
+  that refuse an unknown company), and the near-miss warning described above still applies.
+
+Headless execution needs `ANTHROPIC_API_KEY` (or other credentials the SDK accepts); without any, it exits with one
+`error: no Anthropic credentials were found...` line and status `1` before a model call. Ordinary runs do not write
+state before that credential check. A successful `--new-review` start may already have created the minimal state and
+its optional `prior_review_date` link; without credentials, no financial/model checkpoint or generated documents are
+written, and a same-day rerun resumes that minimal state without relinking. See
+[Troubleshooting](troubleshooting.md#orchestratorpy-stops-with-error-no-anthropic-credentials-were-found).
+
+## Export
+
+**`scripts/deal_export.py`** — no `anthropic` dependency, so it's callable two ways: imported
+directly by `orchestrator.py` (`export_deal(...)`), or run standalone as
+`python scripts/deal_export.py --company ... --proposal ... --type ... --draft <path>` from
+`/assemble`'s Bash step, since Claude has already produced the draft itself by that point and
+just needs it turned into deal output files. `export_deal()` creates the dated
+`deals/[Company]/[Proposal]_[Date]/` folder, auto-saves the draft as a new
+`templates/local/cam/<type>_cam.md` if that deal type had no template at all yet (never into
+the git-tracked `templates/cam/` -- see the confidentiality rule in `CLAUDE.md`), and exports
+`.docx`/`.xlsx`. **Which dated folder and state:** an explicit `date_str` selects both the output
+folder and the `state.json` read for the workbook, so an older review cannot be populated from a newer
+review's figures. `orchestrator.py` passes the `date_str` it resolved at the start of its run; the CLI takes an
+optional `--date-str`. Without it, `state_manager.resolve_export_date_str()` prefers the latest state-bearing
+folder, then reuses the latest date-shaped output folder if no state exists yet, else uses today.
+State auto-resume remains separate: `state_manager.resolve_date_str()` selects only the latest
+folder containing `state.json`, so an explicit export-only folder cannot hijack later state reads.
+A present malformed `state.json` remains selected so its existing corruption error is surfaced.
+Only a folder named exactly `<proposal>_<YYYY-MM-DD>` counts, so proposal `Fleet` never claims
+another deal's `Fleet_Q2_2026-05-01`, and `--date-str` must be a real calendar date in `YYYY-MM-DD` format, so an
+impossible date such as `2026-02-31` is rejected with one `error:` line and exit status 1. An explicit date that names a dated folder with no `state.json` is an error (one `error:` line, exit status 1, nothing
+written) when the deal has state in another dated folder; a deal with no state anywhere still exports into the named
+folder. A bare library call that
+omits `date_str` retains its existing state auto-discovery, while its output folder still defaults to today.
+Without this a deal
+finished days after it started exported into a new folder, disconnected from its own
+`state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
+patch to re-home `state.json`.
+
+## Research export
+
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
+
+An explicitly authorised release of a brief the Reviewer did not approve uses `--analyst-release-unapproved "<reason>"`. The non-empty reason is collapsed to one line. The flag is refused, with one `error:` line, exit status 1 and nothing written, when the saved `review_trail` has no trailing `REJECTED` entry (no review yet, or the latest verdict is not `REJECTED`). The exporter counts consecutive trailing `REJECTED` entries in the saved `review_trail`, inserts a `Review status: Not approved by the independent Risk Reviewer...` paragraph immediately after the first document heading, and, after writing the DOCX, appends one `{date, passes, reason}` record to the `review_stopped_by_analyst` list in `state.json`. The list is append-only: no release clears or overwrites an earlier record, a later approved export leaves it untouched, and `review_verdict` keeps carrying the current verdict. A `review_stopped_by_analyst` that is already present but is not a list is refused with one `error:` line before anything is written. This is not an automatic fallback: the slash-command session may pass the flag only after the analyst explicitly chooses the disclosed manual-review option. When both release flags are used, the review status remains near the top and the missing-sources footnote remains last.
+
+`scripts/research_export.py --company ... --proposal ... --brief <path>` exports a drafted research brief (Markdown)
+to `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder, reusing the folder that exists or creating
+one. It is deliberately separate from `deal_export.py`, so a research-only deal never triggers a CAM's side effects
+(no workbook, no template auto-save). It has no Anthropic dependency.
+
+```bash
+python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --brief "deals/Synthetic Co/Synthetic Fleet Loan_brief.md"
+```
+
+```text
+Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
+```
+
+`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+
+An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
+
+## Spreading check
+
+`scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
+[--no-update-financials-source]` recomputes `financials` and `ratios` from raw line items, derives the downside case
+when stress assumptions and at least one forward year exist, checkpoints everything to `state.json` and prints the
+updated state (`financials`, `ratios`, `downside_case`, `financials_source`) as one JSON object, indented two spaces and
+ending in one newline (read it as JSON; the order of its members is not a contract). It merges what it is given into what
+the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
+re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
+what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
+always passes it. The keys must be the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`): any other key, for example an entity name such as `HoldCo`, is refused with one `error:` line naming the key and listing the valid labels, exit status 1, and no state write (the evaluator has no entity dimension; D19 in [decisions](decisions.md)). Each supplied period must be an object of line items; a string, scalar, null or list period is refused with one
+`error:` line naming the period, exit status 1, and no state write. For recognised raw line-item fields, non-null values
+must be finite JSON numbers; numeric strings and booleans are refused rather than coerced. Each stress value must also be
+a finite JSON number (not a string, boolean, null, list or object). Invalid input produces one key/period-naming
+`error:` line and leaves `state.json` byte-identical. A `null` raw line-item value retains the evaluator's existing
+behavior; omitted fields are also unchanged. The same rules apply to the orchestrator's `--financials` and `--spread` inputs. The slash
+commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
+
+```bash
+python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Supplied forecast
+
+`scripts/supplied_forecast.py --company ... --proposal ... --forecast <json> [--stress-assumptions <json>] --note <text>`
+is `/project`'s analyst-supplied mode (issue #124). `--forecast` holds `{"forecast": {"FY+1": {"subtotals": {...},
+"ratios": {...}, "lines": {...}}}, "downside": {"description": "...", "periods": {"FY+1": {"subtotals": {...},
+"ratios": {...}}}}}`: numbers as the analyst gave them, a ratio that is N/A as `null`, `lines` (the `/spread` raw field
+names) and `downside` optional. It validates strictly (unknown names, non-numbers, any forecast/downside period whose value is not an object
+of line items, a year with only raw lines, a stressed forecast without a description, and stress values that are not
+finite JSON numbers), checks the deal (the state is readable and writable by this checkout, the
+basis is compatible: no framework-computed forward years, no framework-computed or unknown-basis history), and then
+writes `financials`, `ratios`, the optional `analyst_supplied_financials`, `forecast_source`, `financials_source`, the
+note and the downside treatment in **one** state update, printing a summary of which forward years are analyst-supplied
+and which downside years are framework-derived or unavailable. Any refusal is one `error:` line, exit status `1`, and
+nothing is written. A state that cannot be read or written (a lock that cannot be taken, a full disk) and a malformed
+shock already stored in `stress_assumptions` are also one `error:` line. When the file is shown to be as it was, it says
+so and that nothing was recorded; when a failure came after the file may have been replaced (for example the lock file
+could not be removed), or the file cannot be read back, it says the update did not complete cleanly and to inspect
+`state.json` before retrying. `--note` is required; it
+is added to `financials_source_note`. It never uses the framework's formulas to produce a recorded value; the formulas
+are used only to test whether the stress shocks may be applied, which needs every line the covenant ratios read. The
+rules are in [the financial model](financial-model.md#analyst-supplied-forecasts-and-their-downside).
+
+```bash
+python scripts/supplied_forecast.py --company "Synthetic Co" --proposal "Synthetic Budget Loan" \
+    --forecast docs/examples/synthetic_co/forecast_supplied.json \
+    --stress-assumptions docs/examples/synthetic_co/forecast_stress.json \
+    --note "Management budget; depreciation is within cost of sales"
+```
+
+## Transcription check
+
+`scripts/transcription_check.py --transcription <json> [--json]` reads back figures that `/spread` transcribed from
+an image (a screenshot, a photo, a scanned page) and writes nothing: no deal is read or changed. It prints the image's
+SHA-256 fingerprint; the sign conventions in words; the figures grouped by period and statement, each as written
+beside the value that would be recorded and how one was read as the other; every figure that will be recorded as
+negative; a cross-foot of every subtotal the source states against the sum of the recorded lines that feed it; and a
+**digest** of exactly what it showed (including the declarations and the image's bytes). `--json` prints the same as
+`{digest, source_sha256, report, text}`.
+
+`scripts/transcription_check.py --transcription <json> --commit --confirm <digest> --company ... --proposal ...
+[--source-note <text>]` records the transcription, but only if `--confirm` is the digest of these figures and this
+image as they are now, no cross-foot discrepancy is unresolved, the deal's existing `financials_source` is the
+same mode and the deal's state can be written by this checkout (readable, correctly shaped, not a newer schema
+version, a readable `sources/manifest.json`, and in `framework-computed` mode a computation that succeeds against what
+is stored); otherwise it exits `1` with one `error: refused: ...` line and writes nothing (no source copied, no state
+changed). On success it saves the image as the source of record after checking it against the confirmed fingerprint
+(the manifest claim says the figures were transcribed from an image and carries the digest and a fingerprint prefix),
+then, in **one** state update, records the figures, appends `spread` to `steps_completed` and appends a record to
+`financials_transcriptions` (holding the fingerprint, never the image). The image is saved before that update and
+the two cannot be committed atomically: if the update fails, the verified image and its manifest entry remain with
+no figures recorded. In `framework-computed` mode it recomputes exactly as `spreading_check.py`
+does; in `analyst-supplied` mode it records subtotals, ratios and any lines exactly as given and needs `--source-note`,
+the confirmed convention, to which it appends a sentence saying the figures were transcribed from an image (stored as
+`financials_source_note`, which the CAM caveat quotes). What it enforces and what it cannot is in
+[Figures read from an image](financial-model.md#figures-read-from-an-image) and
+[AI assurance](ai-assurance.md#what-the-code-guarantees).
+
+The staged file holds every figure as text exactly as it appears, plus the unit and how the source writes the signs
+of costs, cash outflows and liabilities; a worked example is in
+[Workflows](workflows.md#figures-read-from-an-image).
+
+```bash
+python scripts/transcription_check.py --transcription "deals/Synthetic Co/Synthetic Fleet Loan_transcription.json"
+```
+
+## Policy check
+
+`scripts/policy_check.py --company ... --proposal ... [--draft <path>]` prints JSON: `policy_state` (required
+conditions precedent and subsequent, covenant results, security gaps, downside breaches, forward covenant results),
+`reasons` (every reason the draft is code-enforced rejected, empty without `--draft` unless the recorded structure
+itself forces one), `compliant`, and `cam_data_present` (false for a deal with no financials, ratios, covenants or
+security recorded, i.e. nothing was actually checked, as for a research-only deal). With `--draft` it audits that
+file's trailing structured JSON block. It exits `0` whether or not `reasons` is empty (an unusable `state.json` is the exception: one `error:` line, exit `1`); the caller decides what a non-empty `reasons` means.
+
+```bash
+python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --draft "deals/Synthetic Co/Synthetic Fleet Loan_draft.md"
+```
+
+## Review comparison
+
+`scripts/review_compare.py --company ... --proposal ... --current-date YYYY-MM-DD [--prior-date YYYY-MM-DD]
+[--format json|markdown] [--periods-rolled-one-year]` is a read-only, deterministic comparison of two
+`state.json` snapshots belonging to the exact same company and proposal. It uses `state_manager.state_path()`
+for the normal `deals/<Company>/<Proposal>_<Date>/state.json` layout, reads both files as UTF-8 JSON, and
+never creates a folder, changes state, or calls a model.
+
+- `--company` and `--proposal` are exact identity matches; fuzzy or normalized matching is never used.
+- `--current-date` is the current review's real calendar date and dated folder.
+- `--prior-date` explicitly names an earlier review. When omitted, the current state must record
+  `prior_review_date`; otherwise the command refuses rather than guessing from the other folders.
+- `--format json|markdown` selects the output shape (JSON is the default). JSON mode prints exactly one JSON
+  object. Both renderers order changes deterministically and include the number of changed paths, unchanged
+  categories, and categories not recorded in either state.
+- `--periods-rolled-one-year` is explicit analyst confirmation that historical period labels moved forward by
+  exactly one year. It adds a separate restatement check after the standard by-label comparison; forward periods
+  are excluded. Without the flag the output has no `restatement_check` key.
+
+A missing, unreadable, corrupt, non-object, wrong-identity, impossible-date, non-finite, or too deeply nested (more than 100
+levels of objects and lists; real states are a few levels deep) state is one
+`error: ...` line on standard error and exit status `1`, with no traceback. A prior date must be strictly earlier
+than the current date. Legacy states without `schema_version` and newer-schema states are read without rewriting
+them. Numeric equality uses exact decimal values; delta is present only when both sides record a number. If
+`financials_source` changes, the report warns that movement may not be like-for-like.
+
+```bash
+python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Facility" --current-date 2026-10-20 --prior-date 2025-10-20 --format markdown
+python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Facility" --current-date 2026-10-20 --periods-rolled-one-year
+```
+
+## State manager
+
+`scripts/state_manager.py` has six mutually exclusive modes:
+
+- `--find --company ... --proposal ...` is a **read-only** lookup. It prints one JSON object. An exact existing
+  record yields `{"record_found": true, "state_path": "...", "date": "YYYY-MM-DD"}`, using the newest valid dated
+  folder with a `state.json`. A present but corrupt `state.json` still counts as a record; reading it through the
+  normal mode continues to raise the established corruption error. If no exact record exists, the object has
+  `record_found: false`, `company_folder_exists`, and `near_misses`. Suggestions normalize case and runs of
+  whitespace/hyphens only; they never select a different proposal. The mode creates no files or directories.
+- `--review-candidates --company ... --proposal ... [--date YYYY-MM-DD]` is **read-only** and prints one JSON object:
+  `{"company": "...", "proposal": "...", "date": "...", "candidates": [...], "default_prior_date": "..."|null,
+  "skipped": [...]}`. `--date` defaults to today, using the same clock source as state-date resolution. Candidates
+  are folders for the exact same company and proposal that have a readable, structurally valid `state.json` and a
+  valid calendar date strictly earlier than the requested date. The array is sorted newest first; each entry
+  contains `date` and `state_path`; `default_prior_date` is the nearest eligible date or `null`. Export-only
+  folders, invalid dates, other proposals, and case/spacing/hyphen near-matches are excluded. An earlier dated
+  folder whose `state.json` cannot be read is not offered as a link, but it is listed in `skipped` (`date` and a
+  one-line `reason`) so that "no earlier review" is never reported when one exists. The mode applies the same
+  refusals as `--start-review` (below): an unknown company, or a date that is not strictly later than the newest
+  existing review, is one `error:` line and exit status `1`. No selection or filesystem write occurs.
+- `--start-review --company ... --proposal ... [--date YYYY-MM-DD] [--prior-date YYYY-MM-DD | --no-prior]` creates
+  a genuinely fresh review. `--date` defaults to today. With neither prior option it links to the nearest earlier
+  candidate, or starts unlinked and says plainly that no eligible earlier review was found. `--prior-date` selects
+  an explicit eligible earlier candidate; if it is not eligible, the command refuses. `--no-prior` deliberately
+  starts unlinked even when candidates exist; `--prior-date` and `--no-prior` together are an argparse usage error
+  (exit `2`). A successful run prints one JSON object with `started`, `state_path`, `date`,
+  `prior_review_date` (or `null`), `linked`, and a human-readable `message`. The new `state.json` contains only
+  `company`, `proposal`, `date`, `schema_version`, and optional `prior_review_date`. No prior review fields,
+  source files, drafts, inputs, or calculations are copied. The target dated folder is never reused or overwritten.
+  The start date must be strictly later than the newest existing state-bearing folder for this company/proposal so
+  existing automatic resume commands find the new review as active; backdating is refused. The company must
+  already have a deal folder: a company with no folder is refused (one `error:` line, exit status `1`, nothing
+  created) so that a mistyped company name cannot quietly become a new deal; a deal that has never been reviewed
+  starts with `/triage` or `/spread`. An existing company with a proposal that has no earlier review may start an
+  unlinked review (the renamed-proposal case). The decision and the creation run under one lock per company and
+  proposal, so two concurrent starts cannot both pass the date check, and the creation is all-or-nothing: if
+  writing fails, the temporary file and the folder that this call created are removed and the error is one
+  `error:` line. An empty or blank `--company` or `--proposal` is refused by every `state_manager.py` mode.
+- `--check-steps --company ... --proposal ... --required <step,step>` checks every named step against
+  `steps_completed` and prints `{"missing_steps": [...], "ok": true|false}`. A valid result always exits `0`;
+  an unreadable or malformed state is one `error:` line and exit `1`. Its JSON output is unchanged.
+- `--export-reviewer-view --company ... --proposal ...` validates the saved state and writes
+  `review_view/state_for_review.json` (the record without `review_trail` or `review_verdict`) and
+  `review_view/review_trail.json` (the history list, or `[]` when absent) into the deal's dated folder. A successful
+  run overwrites both derived files and prints one JSON object with their paths. Invalid state, or a newer or malformed
+  schema version, produces one `error:` line, exit `1`, and writes nothing.
+- `--record-group-basis --company ... --proposal ... --group-basis-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]`
+  records optional case-A metadata on an **exact existing deal only**. The UTF-8 JSON file supplies `basis`,
+  `reporting_entity`, `entities_covered`, `source` (`document`, `accounting_basis`, document `date`),
+  `period_end`, `periods` and `figures_basis`; it does not hold financial figures. The command refuses unless
+  the explicit `--perimeter-confirmed` flag is present, then records `perimeter_confirmed: true` and
+  `perimeter_confirmed_on` from `--date` or today. Here `--date` is the confirmation date; the source document
+  has its own `source.date`. Supplied figures need `financials_source: "analyst-supplied"` recorded;
+  recomputed figures must agree with `"framework-computed"`, and an unrecorded source is read as
+  `"framework-computed"`, the default the exporter assumes. A contradiction is refused, at recording and at export. No deal is
+  created and no existing financial/raw-figure key other than `group_basis` is changed; the ordinary
+  `write_state` schema-version policy still applies. Success prints one JSON line with
+  `recorded`, `state_path` and `figures_basis`; a file, field, date or existing-state refusal prints one
+  `error:` line, exits `1`, and writes nothing. The workbook describes this as a **credit aggregation**, never
+  a statutory consolidation.
+
+The two review-view files are derived copies for the interactive Reviewer, not records of the deal; no other script may
+read them as a record. The source of truth remains the real `state.json`, which `/review` updates in its `State: write`
+stage. See the [data model](data-model.md). Script-reported refusals use exit status `1`, exactly one
+`error: ...` line on standard error, no stdout and no traceback; malformed CLI usage exits `2`.
+
+```bash
+python scripts/state_manager.py --find --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+python scripts/state_manager.py --review-candidates --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21
+python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21
+python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21 --prior-date 2025-10-21
+python scripts/state_manager.py --start-review --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --date 2026-10-21 --no-prior
+python scripts/state_manager.py --check-steps --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --required spread,collateral
+python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+python scripts/state_manager.py --record-group-basis --company "Synthetic Group Ltd" --proposal "Synthetic Group Facility" --group-basis-file group-basis.json --perimeter-confirmed --date 2026-10-21
+```
+
+## Source manifest
+
+`scripts/source_manifest.py --company ... --proposal ... --step <step> --claim <text> --file <path> [--url <url>]
+[--filename <name>]` copies an already-downloaded document into the deal's `sources/` folder and appends an entry
+(`filename`, `url`, `step`, `claim`, `fetched_date`) to `sources/manifest.json`; it never fetches anything. With
+`--check-sources` instead prints `{"missing_saved_sources": true|false, "sources_declared": "declared"|"not_declared"|"unknown"}`.
+The existing `missing_saved_sources` key remains boolean: true when declared, non-empty citations have no saved material,
+or when the consumed completion/declaration shape is unknown. `steps_completed`, when present, must be a list of strings;
+absence remains valid for new/incomplete historical states. `sources_declared` is `"unknown"` for malformed consumed
+completion metadata, any invalid declaration, or a completed source-bearing step without a `list[str]` declaration.
+Nulls, mappings, scalars and lists containing non-strings are invalid; a nonempty manifest cannot conceal them.
+It is `"declared"` when at least one valid `triage.sources` or `commercial.sources` list exists and the completed
+relevant steps have valid lists; explicit `[]` declares no citations. Otherwise it is `"not_declared"`.
+A calling command must stop and request a corrected state shape on `"unknown"` rather than treating it
+as proof that no citations were used. The command exits `0` for any check result. A `sources/manifest.json` that cannot
+be used (unreadable, a link whose target does not exist, not UTF-8, not JSON, not a list, or a list with an entry that
+is not an object), and a company or proposal that is not a safe folder name, are errors: each is one `error:` line, exit
+status `1`, no traceback and no JSON on stdout, and the file is never modified. Saving checks the manifest before copying
+anything, so a refusal leaves no copied document behind.
+
+```bash
+python scripts/source_manifest.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --step research \
+    --claim "Synthetic legal identity extract" --file registry_extract.txt --url https://example.invalid/registry
+python scripts/source_manifest.py --check-sources --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
+
+## Conventions
+
+`scripts/conventions.py (--company <name> | --enterprise) (--read | --write) [--financials-source <value>] [--note
+<text>] [--confirmed-date <date>] [--proposal <name>]` reads or writes a persisted, analyst-confirmed spreading
+convention: borrower-specific (`--company`, stored at `deals/<Company>/_conventions.json`) or enterprise-wide
+(`--enterprise`, `config/spreading_conventions.json`). `--write` requires `--financials-source`; it overwrites the
+current fields and appends to a history. `--read` prints `{"found": true|false, "convention": ...}`. It is run by
+`/spread` only; the headless pipeline never calls it, because nothing may be persisted without a person's explicit
+confirmation. See the [data model](data-model.md).
+
+```bash
+python scripts/conventions.py --enterprise --read
+```
+
+## PII scan
+
+`scripts/pii_scan.py <path>` scans one template file for likely-real data (currency figures, emails, phone numbers,
+dates, company names, registration numbers) and prints JSON findings. An empty list means only that nothing obvious
+was found; it is not a guarantee, and a human review is still required before a local template is promoted into
+`templates/cam/`. See [Security](security.md).
+
+```bash
+python scripts/pii_scan.py templates/local/cam/asset_finance_cam.md
+```
+
+## Test tooling
+
+- `scripts/check_coverage.py <coverage.json> [--config <pyproject.toml>] [--report-only]` compares coverage.py's JSON
+  report with the floors in `pyproject.toml`; exit `0` when met, `1` when not, `2` for an unreadable report or
+  configuration; `--report-only` prints the table and always exits `0`.
+- `scripts/check_test_count.py <pytest_output> [--badge-path <path>] [--write]` compares pytest's passed count with
+  `badges/test-count.json` (exit `1` on a mismatch); `--write` updates the file from a complete green run (never used
+  in CI).
+- `scripts/check_model_freshness.py [--json PATH]` reports configured-model freshness from local SDK tables; findings never fail the report.
+- `scripts/mutation_report.py <results> [--config <pyproject.toml>] [--top <n>] [--json <path>]` prints the
+  per-module mutation score from `mutmut results --all true`; exit `0` whenever a report is produced, `2` for an
+  unreadable file.
+
+Their rules and the reasoning are in [Testing](testing.md).
+
+## Model freshness check
+
+`python scripts/check_model_freshness.py [--json PATH]` prints a Markdown report of model IDs configured in
+`config/settings.json` (`maker_model`, `checker_model`, and `calibrate_model` when set) and the string literal
+`_DEFAULT_MODEL` in `scripts/calibrate.py`. The default is read with `ast`, not by importing `calibrate.py`.
+The installed `anthropic.types.Model` and
+`anthropic.resources.messages.messages.DEPRECATED_MODELS` tables supply known IDs and deprecation dates.
+
+The report suggests a newer stable ID only from the same family. Dated variants, `-latest` and `-preview` aliases are
+not used for version comparison. An ID that cannot be parsed or found is marked `unknown`; a missing or reshaped SDK
+table is reported as `SDK table not found` without a guess. With `--json PATH`, report data is written as JSON
+(`report_version`, `sdk_version`, `freshness_note`, `sdk_tables`, `models`, `findings` and `summary`).
+Exit `0` whenever a report is produced, including when it contains findings; exit `2` for unreadable configuration.
+It does not read an API key, call the API, or make a model call. It is only as fresh as the installed Anthropic SDK.
+A model change remains a separate reviewed PR with an evaluation statement; the script never upgrades one automatically.
+See [Model freshness report](operations.md#model-freshness-report).
+
+## Evaluation harness
+
+`scripts/run_evals.py` validates the synthetic dataset (`--validate`, `--list`), plans and self-checks with zero model
+calls (`--dry-run`), and, only with `--live` and your own `ANTHROPIC_API_KEY`, runs the cases under a hard call cap
+(`--max-calls`, default 80, never above 250; `--repeats`, `--cases`, `--yes`, `--keep-work`, `--out`), exporting and
+comparing baselines (`--export-baseline`, `--allow-partial`, `--compare`). See [Evaluation](evaluation.md).
+
+```bash
+python scripts/run_evals.py --dry-run
+```
+
+## Wiki publish
+
+`python scripts/wiki_publish.py --repo <owner/name> [--root <repo root>] (--out <dir> | --check | --publish
+--source-sha <sha>)` (no `ANTHROPIC_API_KEY`) generates the GitHub Wiki page tree for the `docs/` corpus.
+`--out` writes the tree into a directory (which may not be the repository root, `docs/`, a directory inside
+`docs/` or an ancestor of `docs/`: the paths are resolved first and such an output is one `error:` line, exit
+`1`, nothing written, so the source pages can never be overwritten); `--check` builds and validates in memory
+and writes nothing; `--publish` (with `--source-sha`, the commit it publishes from) clones the repository's
+wiki, fully replaces its content with the generated set, makes one commit carrying the source sha -- or none,
+when nothing changed -- and pushes it back to the wiki's default branch. The token is read only from the
+`GITHUB_TOKEN` environment variable and reaches git only as an HTTP header: never a URL, a log line, a file or
+a git process's environment (the variable is removed from every git child's environment). Generation and validation run before anything is cloned or pushed, so a broken corpus publishes
+nothing; a failed push, an unreachable wiki and a missing token are each one `error:` line, exit `1`. It runs
+on every push to `main` that changes `docs/` (the `wiki-publish` workflow; see
+[Operations](operations.md#publishing-the-wiki)).
+
+Only the allowlisted pages (`docs/*.md`, dotfiles excluded, and the example pages under `docs/examples/synthetic_co/`)
+are read; linked repository files are checked and rewritten to URLs, never copied. Page names come
+from the file names (`docs/README.md` becomes `Home`, the example pages are flattened with an
+`examples-synthetic_co-` prefix); links are rewritten to wiki, blob, tree or raw-blob URLs; every
+page starts with a generated-source notice saying `docs/` is canonical; `Home` is the docs index and
+`_Sidebar` is its reading order. A missing target, a broken anchor, a symlinked page or a target
+outside the repository is one `error:` line naming the file and line, exit `1`, and nothing is
+written. Deterministic: the same `docs/` tree always gives byte-identical output. See
+[issue #192](https://github.com/ShamikM88/open-cam-framework/issues/192).

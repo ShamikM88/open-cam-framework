@@ -1,0 +1,155 @@
+---
+description: Assemble the final CAM from the /triage /spread /commercial /collateral /project outputs, audit it via /review, and export .docx + .xlsx (see config/skills_registry.md).
+argument-hint: --company "<Name>" --proposal "<Proposal name>" --type <deal_type> --pd <PD> --lgd <LGD>
+allowed-tools: Bash(python scripts/deal_export.py *), Bash(python scripts/policy_check.py *), Bash(python scripts/state_manager.py *)
+disable-model-invocation: true
+---
+
+## Task: /assemble
+
+**Arguments:** `--company "<Name>" --proposal "<Proposal name>" --type <deal_type> --pd <PD> --lgd <LGD>`
+
+$ARGUMENTS
+
+## State: read
+
+Glob `deals/<company>/<proposal>_*/state.json`. It lists at most 100 files,
+newest-modified first, which is not the same as latest by date; if the list reaches 100 files (the tool also flags
+truncation) it may be incomplete: say that the latest dated folder could not be established, and stop. Otherwise consider
+only a folder named exactly `<proposal>_YYYY-MM-DD` (the proposal, an underscore, a four-digit year, two-digit month and
+two-digit day); ignore every other folder, including another proposal that merely starts with the same words. Take the
+latest of those by comparing the date text: that is the folder the scripts read too (`state_manager` applies the same
+rule). Read its `state.json` and note the folder.
+If found, it may already hold the outputs of `/triage`, `/spread`, `/commercial`, `/collateral`, and `/project` from earlier in this conversation, from a previous session, or from after a context compaction. Treat it as the source of truth for any figure it has recorded; never fall back to a summarized/compacted memory of a step when state.json already has that step's result.
+**No matching record is a stop, not an empty record.** Run `python scripts/state_manager.py --find --company "<company>" --proposal "<proposal>"` first. If it reports `record_found: false`, stop and tell the analyst plainly: `No deal record exists for company "<company>" and proposal "<proposal>". Check the spelling and confirm the deal has been created before running this step.` Offer the near-miss candidates it returned, if any; do not invent others. Do not create a deal folder or state file. If it reports `company_folder_exists: false`, say the company folder is absent rather than offering near matches.
+
+### Analyst-defined terms
+
+If, at any point in this step, the analyst tells you what an abbreviation, house term or product name means (whether you asked or they volunteered it), write it to this deal's `state.json` at once as a new entry in an `analyst_terms` list (merge; never drop an existing entry): `{"term": "<as written>", "meaning": "<in the analyst's own words, not paraphrased>", "date": "<today>"}`. Do not wait for the end of the deal: a conversation can be compacted. If you do not know a term, ask the analyst; never guess its meaning.
+
+## Assemble the memorandum
+
+You're assembling the final Credit Assessment Memorandum from the outputs of `/triage`,
+`/spread`, `/commercial`, and `/collateral` — from state.json if present, otherwise from earlier
+in this conversation. If any of those steps' results aren't available from either source, tell
+the user which ones are missing and stop rather than guessing their content. `/project`'s output
+(forward-year financials, downside case, covenants, guarantees) is separately optional — a deal
+with none of it recorded simply has no Projections & Sensitivities section and no covenants/
+guarantees to condition on; don't treat its absence as a missing step.
+
+1. **Resolve the template.** Read `templates/local/cam/<type>_cam.md` if it exists (a calibrated
+   override — see `/calibrate`); otherwise read `templates/cam/<type>_cam.md` (the shipped
+   default). If neither exists, this is a new deal type — note that, and you'll be establishing
+   its structure with this draft.
+2. **Hard-check step order.** Run:
+   ```
+   python scripts/state_manager.py --check-steps --company "<company>" --proposal "<proposal>" --required spread
+   ```
+   This is a code-level gate, not the prose reminder above — it reads this deal's actual
+   `steps_completed` from `state.json` rather than trusting anything said earlier in this
+   conversation. `spread` is the only hard requirement: the CAM's Financial Analysis section
+   always needs the ratios `/spread` computes, so drafting without it would mean inventing
+   figures. `/triage` and `/collateral` are deliberately **not** hard-required here — a deal can
+   legitimately have no collateral (an unsecured facility) or have its triage-equivalent
+   information supplied directly by the user in conversation without `/triage` ever having been
+   run; the prose reminder above (state.json or this conversation) still applies to those. If
+   this command's JSON output has `"ok": false`, **stop immediately** — do not draft anything —
+   and tell the user exactly which step(s) in `missing_steps` still need to run (e.g. "run
+   `/spread` first") rather than proceeding or guessing the missing figures.
+3. **Get this deal's policy_state.** Run:
+   ```
+   python scripts/policy_check.py --company "<company>" --proposal "<proposal>"
+   ```
+   This reads `state.json`'s `ratios`/`collateral`/`covenants`/`security_package`/`guarantees`
+   (whatever of those exist — none of them are required) and deterministically computes
+   `required_conditions_precedent`, `covenant_results`, and `security_gaps`. If its `reasons`
+   list is non-empty (a real covenant breach or security gap already exists in this deal's
+   recorded structure), note that now — it's independent of anything you're about to draft.
+4. **Draft the CAM.** Read `agents/underwriter_agent.md` and act according to that role for this
+   step. Write the full CAM as Markdown, following the template's exact section structure,
+   filling every placeholder with the grounded content already produced by the prior steps.
+   `--pd`/`--lgd` above are user-supplied inputs — use them exactly as given; never invent or
+   independently recompute a risk grade. Never state a fact or figure that wasn't grounded in one
+   of the prior steps or a source the user supplied. Render every entry in policy_state's
+   `required_conditions_precedent` (from step 3) as prose in the CAM's Conditions Precedent
+   section, and end your response with the structured JSON block `agents/underwriter_agent.md`'s
+   Structured Output guideline specifies (`cp_ids_included`, `risk_categories_covered`,
+   `reported_figures`) — `/review` in step 6 checks the draft against this deterministically, so
+   it must actually be present and accurate, not a formality.
+5. Save that draft (Markdown *and* its trailing structured JSON block together, exactly as
+   written) to `deals/<company>/<proposal>_draft.md` (create the folder if it doesn't exist).
+6. **Run `/review --company "<company>" --proposal "<proposal>" --draft "deals/<company>/<proposal>_draft.md"`**
+   against that saved draft. `/review` reviews only the file on disk, never this conversation, and hands the
+   qualitative audit to a fresh Risk Reviewer sub-agent that has not seen this conversation (issue #204). If the
+   verdict is REJECTED, revise the draft per the notes (which may include code-enforced reasons
+   from `policy_check.py` alongside the Reviewer's own qualitative feedback), **overwrite**
+   `deals/<company>/<proposal>_draft.md` with the revised Markdown and structured JSON block
+   (never leave the stale, rejected version on disk; `/review` does not write the draft, so a stale file would be
+   reviewed again), and run `/review` again — a new Reviewer each time — repeat until APPROVED. If `/review`
+   reports that it could not run the check or that no valid verdict came back, stop: that is neither an approval
+   nor a rejection, so do not export; tell the user.
+7. **Export it.** Once approved, run:
+   ```
+   python scripts/deal_export.py --company "<company>" --proposal "<proposal>" --type <type> --draft "deals/<company>/<proposal>_draft.md"
+   ```
+   This exports `.docx` + `.xlsx` into this deal's own dated folder — the same one "State: read"
+   found, however many days the deal has taken (`deal_export.py` discovers it itself, so you never
+   need to work out or pass a date; only a brand-new deal gets a folder dated today) — and, only
+   if this deal type had no template at all, auto-saves the draft's structure as a new override
+   under `templates/local/cam/`.
+8. Report the output folder to the user. Then preserve the approved Markdown draft, including its trailing structured `json` block: move `deals/<company>/<proposal>_draft.md` into the same dated deal folder used for this export (the actual folder date, not a new one) as `draft_approved.md`, and set `approved_draft_path` in that folder's `state.json` to the repository-relative path of the moved file. Do not delete the approved draft: the `.docx`/`.xlsx` are client-facing outputs, and the retained file is the exact code-checked artifact for audit.
+9. **Surface end-of-deal learnings (optional — only on explicit confirmation).** Read this deal's
+   own `review_trail` (already read in "State: read" above). A REJECTED entry's `notes` can mix
+   two very different kinds of content in the same string: code-enforced deterministic reasons
+   (from `scripts/policy_checks.py`'s `check_draft_compliance()`, folded in verbatim per
+   `/review`'s own instructions) and the Reviewer's own free-form qualitative paragraph. Don't
+   filter whole entries in or out — pull out only the individual insights that are genuinely
+   reusable facts about this borrower or this institution, discarding the deterministic portions
+   alongside them even when they share the same `notes` string. A deterministic reason is
+   recognizable by its own rigid, templated wording — it always names a specific `cp_id`/
+   `cs_id`/`breach_id`/asset/metric/computed value (e.g. "Missing Required CP...", "Missing
+   Required Condition Subsequent...", "Missing or malformed Risk Category...", "Undisclosed
+   Downside Breach...", "Missing Narrative Sources...", "Covenant FAIL/UNRESOLVABLE...",
+   "Uncharged Asset..." or another security-gap line, "UNRESOLVABLE_REPORTED_FIGURE...",
+   "Narrative/Ground-Truth Mismatch...", "Missing Analyst-Supplied Spreading Disclosure...",
+   "Missing Credit Policy Consideration..." — `check_draft_compliance()` is the authoritative,
+   full list, since this framework may add more of these over time) — these are bugs in *this*
+   draft, never a standing fact worth remembering. Also exclude anything already routed through
+   `/review`'s own "Persisting a policy-interpretation correction" step (never double-capture the
+   same correction in two places).
+
+   Also read `analyst_terms` from this deal's `state.json`. List each entry in the same batch as
+   the other candidates, and persist it on an explicit yes exactly like any other learning (same
+   scope question, same files) in the form `**Term:** X — meaning.` If the analyst says a term is
+   industry-standard rather than specific to their institution, say so and point to
+   docs/glossary.md; never write to a tracked file. Only what is already in `analyst_terms` is a
+   candidate; never infer a term from the conversation.
+
+   If any candidates remain, surface them **as one batch**, not a
+   prompt per item: *"This deal's review surfaced N item(s) that might be worth remembering
+   for future deals: [list]. Persist any of these?"* For each one
+   the analyst confirms, ask explicitly **"Is this specific to `<company>`, or does it apply
+   across every borrower?"** (same question `/spread`'s own persisted-convention step asks) and
+   append a dated entry to the matching file — `deals/<company>/_learnings.md` (borrower-specific)
+   or `config/deal_learnings.md` (enterprise-wide) — creating it with a `# Deal Learnings` heading
+   if it doesn't exist yet, e.g.:
+   ```markdown
+   ## 2026-01-15 — Acme Corp/Fleet Loan
+   **Learning:** New CFO has a banking background; always cross-reference their prior institution
+   in Executive Management commentary.
+   ```
+   Never write without an explicit yes, and never infer consent from the analyst simply moving on
+   — see issue #58's "deterministic, analyst-confirmed, never silently assumed" principle. This is
+   independent of "State: write" below, which always runs regardless of whether anything was
+   persisted here.
+
+## State: write
+
+Update this deal's state file (merge with whatever you read above — never drop a field another
+step already recorded): `deal_type`, `inputs.pd`/`inputs.lgd`, `draft_path` (the exported
+`.docx` path from step 7), `policy_state` (step 3's computed output, verbatim — per CLAUDE.md's
+state-management protocol, a code-enforced structural finding like a covenant breach or security
+gap must exist as a disk artifact, not only in this conversation), and append `"assemble"` to
+`steps_completed` if it isn't already there. `/review` already checkpoints `review_verdict`
+itself. `state.json` already sits next to the exported `.docx`/`.xlsx` — step 7 exports into the
+deal's existing dated folder — so write back to that same file; no re-homing needed.

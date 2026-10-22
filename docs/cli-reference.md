@@ -11,6 +11,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `calibrate.py` | Derives a style guide and a template from your sample PDFs | Yes, unless `--mock` (automatic without a key) | [Calibrate](#calibrate) |
 | `orchestrator.py` | The whole deal pipeline in one process: draft, audit, checks, export | Yes | [Orchestrator](#orchestrator) |
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
+| `committee_summary.py` | Writes a short committee summary (Markdown and Word) from a deal's recorded state and the policy check | No | [Committee summary](#committee-summary) |
 | `export_readback.py` | Compares a deal's exported `.xlsx` and `.docx` with what its record regenerates; read-only | No | [Export read-back](#export-read-back) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
@@ -205,6 +206,41 @@ Without this a deal
 finished days after it started exported into a new folder, disconnected from its own
 `state.json`/`sources/`/`draft_v*.md` (issue #97) -- `/assemble` no longer needs a prose
 patch to re-home `state.json`.
+
+## Committee summary
+
+`scripts/committee_summary.py --company ... --proposal ... [--date-str YYYY-MM-DD]` writes a one-to-two-page meeting aid
+for one deal: `<Company>_<Proposal>_Committee_Summary.md` and `.docx` in the deal's dated folder. Without `--date-str`
+it uses the newest dated folder that has a `state.json`; with it, that exact folder, and the policy check runs on that
+same state (`policy_check.compute_from_state()`), never on a different one.
+
+- **Content:** the record and financial basis; the group-accounts disclosure when `group_basis` is recorded; the
+  recorded inputs, deal type and guarantees (facility amount, tenor and pricing say "not recorded", because state holds
+  no such key); recorded subtotals and ratios by period, exactly as stored (`null` prints `N/A`); covenant results now
+  (FY-Current), per forward year (disclosure only) and downside breaches; the required conditions precedent and
+  subsequent; recorded collateral, the security package and the policy check's security gaps; open gaps (a missing
+  `spread` step, steps not recorded, `UNRESOLVABLE` counts, saved-source status); the recorded review verdict and
+  iteration count, labelled historical; and a fixed limits section.
+- **Recorded text is shown literally:** a value, a key or a table header that holds a pipe, a line break or text that
+  the Word builder reads as markup (`*`, a backtick, `[`, `]`) cannot reshape the document or pass itself off as a
+  heading or emphasis: `|` becomes `/`, line breaks and runs of spaces become one space, and a value with markup
+  characters (asterisk, backtick, square or angle brackets, or underscore emphasis such as `_x_`; names like
+  `snake_case` are untouched) is shown as a code span (a backtick inside it becomes an apostrophe). The report
+  title's company and proposal names get the same treatment.
+- **Nothing new is computed or judged:** every figure is a recorded value or a policy-check output, an unrecorded term
+  says "not recorded", and there is no verdict, grade or recommendation. The policy check runs without a draft, so
+  draft-level audit findings are "not assessed"; `/review` owns them.
+- **Writes:** only the two report files, each through a temporary file and an atomic replace. A Word failure after the
+  Markdown was written is reported as exactly that. It never writes `state.json`, `steps_completed`, `review_trail`,
+  a draft, the source manifest or a template. Running it again replaces both reports.
+- **Output and exit codes:** one JSON object on stdout (`status`, `selected_folder`, `markdown_path`, `docx_path`,
+  `included_sections`, `policy_scope`). A missing deal or dated folder, a malformed state key (including
+  `group_basis`) or an unusable source manifest gives one `error:` line on stderr and exit `1`, with nothing written.
+  A usage error exits `2`.
+
+```bash
+python scripts/committee_summary.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
 
 ## Export read-back
 

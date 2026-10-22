@@ -3,8 +3,10 @@ import zlib
 
 import pytest
 import docx
+import docx_builder
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 from docx_builder import export_to_docx
 
@@ -609,3 +611,304 @@ def test_inline_markdown_in_heading_is_characterized_as_literal_text(tmp_path):
     assert len(doc.paragraphs) == 1
     assert doc.paragraphs[0].text == "Risk **Mitigants**"
     assert doc.paragraphs[0].style.name == "Heading 2"
+
+
+# ---------------------------------------------------------------------------
+# Issue #408: behaviour-focused checks for surviving docx_builder mutants.
+# All inputs and paths here are synthetic; Word output is reopened before its
+# observable text, styles, formatting, OOXML hyperlinks, or table layout is
+# asserted.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("codepoint", "kept"),
+    [
+        (0x08, False),
+        (0x09, True),
+        (0x0A, True),
+        (0x0B, False),
+        (0x0C, False),
+        (0x0D, True),
+        (0x0E, False),
+        (0x1F, False),
+        (0x20, True),
+        (0x21, True),
+        (0xD7FE, True),
+        (0xD7FF, True),
+        (0xD800, False),
+        (0xDFFE, False),
+        (0xDFFF, False),
+        (0xE000, True),
+        (0xE001, True),
+        (0xFFFC, True),
+        (0xFFFD, True),
+        (0xFFFE, False),
+        (0xFFFF, False),
+        (0x10000, True),
+        (0x10001, True),
+        (0x10FFFE, True),
+        (0x10FFFF, True),
+    ],
+)
+def test_408_xml_sanitizer_keeps_and_replaces_each_range_boundary(
+    codepoint, kept, capsys
+):
+    character = chr(codepoint)
+    expected = character if kept else "\uFFFD"
+
+    assert docx_builder._sanitize_xml_invalid_characters(character) == expected
+
+    warning = (
+        ""
+        if kept
+        else "[docx_builder] Replaced 1 XML-invalid character(s) with "
+        "U+FFFD before export.\n"
+    )
+    assert capsys.readouterr().err == warning
+
+
+def test_408_split_row_preserves_unpadded_cell_edges_in_saved_docx(tmp_path):
+    markdown = "|Name|Amount|\n|---|---:|\n|Alpha|42|\n"
+    doc = _build(tmp_path, markdown)
+
+    assert len(doc.tables) == 1
+    table = doc.tables[0]
+    assert [cell.text for cell in table.rows[0].cells] == ["Name", "Amount"]
+    assert [cell.text for cell in table.rows[1].cells] == ["Alpha", "42"]
+
+
+def test_408_split_row_keeps_an_escaped_pipe_at_the_end_of_a_cell():
+    assert docx_builder._split_row("|A\\||") == ["A|"]
+
+
+def test_408_split_row_does_not_index_past_a_terminal_backslash():
+    assert docx_builder._split_row("|tail\\|") == ["tail\\"]
+
+
+def test_408_closing_fence_can_be_the_line_immediately_after_opening():
+    assert docx_builder._find_closing_fence(["```", "```"], 0) == 1
+
+
+def test_408_empty_list_is_not_a_table_separator_row():
+    assert docx_builder._is_separator_row([]) is False
+    assert docx_builder._is_separator_row(["---", ":---:"]) is True
+
+
+def test_408_hyperlink_run_keeps_style_bold_target_and_boundary_spaces(
+    tmp_path,
+):
+    url = "https://example.invalid/path"
+    doc = _build(tmp_path, f"| [ link ]({url}) |\n| --- |\n")
+    cell = doc.tables[0].rows[0].cells[0]
+    paragraph = cell.paragraphs[0]
+
+    assert paragraph.text == " link "
+    assert paragraph.style.name == "Normal"
+    hyperlink = paragraph._p.findall(qn("w:hyperlink"))[0]
+    rel_id = hyperlink.get(qn("r:id"))
+    assert doc.part.rels[rel_id].target_ref == url
+
+    hyperlink_run = hyperlink.find(qn("w:r"))
+    assert hyperlink_run is not None
+    run_properties = hyperlink_run.find(qn("w:rPr"))
+    assert run_properties is not None
+    style = run_properties.find(qn("w:rStyle"))
+    assert style is not None
+    assert style.get(qn("w:val")) == "Hyperlink"
+    assert run_properties.find(qn("w:b")) is not None
+    text_element = hyperlink_run.find(qn("w:t"))
+    assert text_element is not None
+    assert text_element.text == " link "
+    assert text_element.get(qn("xml:space")) == "preserve"
+
+
+def test_408_inline_formats_keep_header_bold_and_code_font_after_readback(
+    tmp_path, capsys
+):
+    url = "ftp://example.invalid/resource"
+    markdown = (
+        "|plain **bold** *italic* `code` [linked](https://example.invalid/ok) "
+        f"[unsupported]({url})|\n| --- |\n"
+    )
+    doc = _build(tmp_path, markdown)
+    paragraph = doc.tables[0].rows[0].cells[0].paragraphs[0]
+
+    assert paragraph.text == (
+        "plain bold italic code linked "
+        f"unsupported ({url})"
+    )
+    assert paragraph.style.name == "Normal"
+    runs_by_text = {run.text: run for run in paragraph.runs}
+    assert runs_by_text["plain "].bold is True
+    assert runs_by_text["bold"].bold is True
+    assert runs_by_text["italic"].bold is True
+    assert runs_by_text["italic"].italic is True
+    assert runs_by_text["code"].bold is True
+    assert runs_by_text["code"].font.name == "Consolas"
+    assert runs_by_text[f"unsupported ({url})"].bold is True
+    assert _hyperlink_targets(doc, paragraph) == ["https://example.invalid/ok"]
+
+    assert capsys.readouterr().err == (
+        "[docx_builder] Unsupported hyperlink target rendered as text: "
+        f"{url}\n"
+    )
+
+
+def test_408_equal_width_table_rows_do_not_emit_a_ragged_row_warning(
+    tmp_path, capsys
+):
+    doc = _build(tmp_path, "|A|B|\n|---|---|\n|one|two|\n")
+
+    assert [cell.text for cell in doc.tables[0].rows[1].cells] == ["one", "two"]
+    assert capsys.readouterr().err == ""
+
+
+def test_408_table_autofit_stays_enabled_after_docx_round_trip(tmp_path):
+    doc = _build(tmp_path, "|A|B|\n|---|---|\n|one|two|\n")
+
+    assert doc.tables[0].autofit is True
+
+
+def test_408_table_alignment_defaults_left_when_separator_is_shorter(
+    tmp_path,
+):
+    doc = _build(tmp_path, "|First|Second|\n|---|\n|one|two|\n")
+    table = doc.tables[0]
+
+    assert len(table.columns) == 2
+    for row in table.rows:
+        assert row.cells[0].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
+        assert row.cells[1].paragraphs[0].alignment == WD_ALIGN_PARAGRAPH.LEFT
+
+
+def test_408_table_without_body_rows_still_exports_as_a_table(tmp_path):
+    doc = _build(tmp_path, "|A|B|\n|---|---|")
+
+    assert len(doc.tables) == 1
+    assert [cell.text for cell in doc.tables[0].rows[0].cells] == ["A", "B"]
+
+
+def test_408_table_body_ending_at_eof_preserves_all_cells(tmp_path):
+    doc = _build(tmp_path, "|A|B|\n|---|---|\n|one|two|")
+
+    assert len(doc.tables) == 1
+    assert [cell.text for cell in doc.tables[0].rows[0].cells] == ["A", "B"]
+    assert [cell.text for cell in doc.tables[0].rows[1].cells] == ["one", "two"]
+
+
+def test_408_single_table_row_without_separator_remains_plain_text(tmp_path):
+    row = "| lone | row |"
+    doc = _build(tmp_path, row)
+
+    assert doc.tables == []
+    assert [paragraph.text for paragraph in doc.paragraphs] == [row]
+
+
+def test_408_heading_does_not_skip_the_paragraph_after_it(tmp_path):
+    doc = _build(tmp_path, "## Heading\nFollowing sentence.\n")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == [
+        "Heading",
+        "Following sentence.",
+    ]
+    assert [paragraph.style.name for paragraph in doc.paragraphs] == [
+        "Heading 2",
+        "Normal",
+    ]
+
+
+def test_408_horizontal_rule_does_not_skip_the_following_paragraph(tmp_path):
+    doc = _build(tmp_path, "Before.\n---\nAfter.\n")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == [
+        "Before.",
+        "After.",
+    ]
+    assert [paragraph.style.name for paragraph in doc.paragraphs] == [
+        "Normal",
+        "Normal",
+    ]
+
+
+def test_408_unclosed_fence_marker_does_not_skip_the_line_after_it(tmp_path):
+    doc = _build(tmp_path, "```\nFirst.\n\nSecond.\n")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == ["First.", "Second."]
+
+
+def test_408_bullet_at_eof_without_newline_is_exported(tmp_path):
+    doc = _build(tmp_path, "- final bullet")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == ["final bullet"]
+    assert [paragraph.style.name for paragraph in doc.paragraphs] == [
+        "List Bullet"
+    ]
+
+
+def test_408_plain_paragraph_at_eof_without_newline_is_exported(tmp_path):
+    doc = _build(tmp_path, "Plain final line")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == [
+        "Plain final line"
+    ]
+    assert [paragraph.style.name for paragraph in doc.paragraphs] == ["Normal"]
+
+
+def test_408_monospace_block_has_zero_spacing_and_consolas_after_readback(
+    tmp_path,
+):
+    doc = _build(tmp_path, "```\n  tree  \nbranch\n```\n")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == [
+        "  tree  ",
+        "branch",
+    ]
+    for paragraph in doc.paragraphs:
+        assert paragraph.style.name == "Normal"
+        assert paragraph.paragraph_format.space_before == Pt(0)
+        assert paragraph.paragraph_format.space_after == Pt(0)
+        assert len(paragraph.runs) == 1
+        assert paragraph.runs[0].font.name == "Consolas"
+
+
+def test_408_unknown_cell_alignment_defaults_to_explicit_left_after_readback(
+    tmp_path,
+):
+    document = docx.Document()
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    docx_builder._set_cell_text(cell, "Synthetic cell", "not-an-alignment")
+    output_path = tmp_path / "unknown-alignment.docx"
+    document.save(output_path)
+
+    reopened = docx.Document(output_path)
+    paragraph = reopened.tables[0].cell(0, 0).paragraphs[0]
+    assert paragraph.text == "Synthetic cell"
+    assert paragraph.alignment == WD_ALIGN_PARAGRAPH.LEFT
+
+
+def test_408_missing_image_warning_and_placeholder_are_exact(tmp_path, capsys):
+    missing_path = tmp_path / "missing-chart.png"
+    doc = _build(tmp_path, f"![Synthetic chart]({missing_path})\nAfter.\n")
+
+    assert len(doc.inline_shapes) == 0
+    assert [paragraph.text for paragraph in doc.paragraphs] == [
+        "[Image not embedded: Synthetic chart -- file not found]",
+        "After.",
+    ]
+    assert capsys.readouterr().err == (
+        f"[docx_builder] Image not embedded (file not found): {missing_path}\n"
+    )
+
+
+def test_408_exact_width_image_is_not_visibly_changed_at_scaling_boundary(
+    tmp_path,
+):
+    # The default Letter page has a 6-inch text width; a 432-pixel PNG
+    # without a DPI chunk is interpreted at 72 dpi (432 / 72 = 6.0 inches).
+    png = _write_png(tmp_path / "exact-width.png", 432, 1)
+    doc = _build(tmp_path, f"![Boundary width]({png})\n")
+
+    section = doc.sections[0]
+    max_width = section.page_width - section.left_margin - section.right_margin
+    assert doc.inline_shapes[0].width == max_width
+    assert doc.inline_shapes[0]._inline.docPr.get("descr") == "Boundary width"

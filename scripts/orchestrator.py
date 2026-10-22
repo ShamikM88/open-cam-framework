@@ -737,6 +737,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         "security_package": existing_state.get("security_package") or [],
         "guarantees": existing_state.get("guarantees") or [],
         "downside_case": downside_case,
+        "group_basis": existing_state.get("group_basis"),
     })
     # Same inputs the loop below already holds fixed across iterations
     # (financials/ratios/collateral/downside_case don't change draft-to-draft

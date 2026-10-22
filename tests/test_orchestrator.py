@@ -2654,3 +2654,37 @@ def test_run_pipeline_refuses_an_entity_keyed_input_before_any_model_call_or_wri
     )
     assert client.call_count == 0
     assert not (project_root / "deals").exists()
+
+
+def test_run_pipeline_hands_the_states_group_basis_to_the_policy_engine(project_root, monkeypatch):
+    import orchestrator
+
+    seen = []
+    real = orchestrator.evaluate_deal_policy
+    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
+    group_basis = {"basis": "supplied_consolidated"}
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
+                group_basis=group_basis,
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"}])
+
+    # The covenant has no recorded ratio to test, so it is UNRESOLVABLE and the code-enforced check rejects the draft:
+    # this test is about what the engine was handed, not about the outcome.
+    with pytest.raises(SystemExit):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1)
+
+    assert seen and all(call["group_basis"] == group_basis for call in seen)
+    assert seen[0]["covenants"] == [{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"}]
+
+
+def test_run_pipeline_passes_no_group_basis_for_an_ordinary_deal(project_root, monkeypatch):
+    import orchestrator
+
+    seen = []
+    real = orchestrator.evaluate_deal_policy
+    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1)
+
+    assert seen and all(call["group_basis"] is None for call in seen)

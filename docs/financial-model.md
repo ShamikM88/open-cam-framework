@@ -135,6 +135,16 @@ a `reason`, empty for a pass or fail and one sentence for UNRESOLVABLE, for exam
 EBITDA is negative`. If a stored ratio sits next to a recorded denominator that is zero or negative (an older
 checkpoint, or an analyst-supplied ratio), the covenant is still UNRESOLVABLE and the stored number is ignored.
 
+A covenant is tested only on its own **basis**: `borrower`, `consolidated` or `guarantor_group` (an absent or null
+`basis` means `borrower`, which is what every covenant recorded before the field existed meant). The deal's recorded
+figures are one view: the borrower's, or, when the deal records `group_basis` (borrower-supplied consolidated group
+accounts), the consolidated group's. A covenant on a different basis than the recorded view is **UNRESOLVABLE**, with a
+reason that says so, and so is a covenant whose basis is not one of the three: the engine never tests it against the
+figures that happen to be recorded. Example: a deal that records consolidated group accounts and a covenant on the
+borrower's own DSCR (the default, because the covenant states no basis) is UNRESOLVABLE until the covenant states its
+basis or borrower figures are recorded. Nothing is refused; the engine computes, reports the result, and the
+interactive steps ask the analyst to confirm any UNRESOLVABLE result (decision of 2026-10-22 on #48).
+
 ## Covenants
 
 A covenant is a condition in the facility: a **minimum** (the ratio must be at least the threshold) or a **maximum**

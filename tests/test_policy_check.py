@@ -328,6 +328,7 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
         "security_package": loaded_state["security_package"],
         "guarantees": loaded_state["guarantees"],
         "downside_case": loaded_state["downside_case"],
+        "group_basis": None,
     }]
     assert calls["ground_truth_figures"] == [(
         loaded_state["financials"], loaded_state["ratios"],
@@ -376,6 +377,7 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
         "security_package": [],
         "guarantees": [],
         "downside_case": {},
+        "group_basis": None,
     }
     assert result == {
         "policy_state": policy_state,
@@ -457,3 +459,60 @@ def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_complian
     assert calls["ground_truth_figures"] == []
     assert calls["check_draft_compliance"] == []
 
+
+
+# ---------------------------------------------------------------------------
+# Covenant basis (issue #48): the state's group_basis reaches the engine, and a malformed one is refused.
+# ---------------------------------------------------------------------------
+
+def _group_basis_for_policy_tests():
+    return {
+        "basis": "supplied_consolidated", "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {"document": "Borrower-supplied consolidated accounts", "accounting_basis": "UK GAAP",
+                   "date": "2026-08-31"},
+        "period_end": "2026-03-31", "periods": ["FY-Current"], "figures_basis": "supplied",
+        "perimeter_confirmed": True, "perimeter_confirmed_on": "2026-10-21",
+    }
+
+
+def test_compute_tests_a_covenant_on_its_basis_against_the_states_recorded_group_basis(tmp_path, monkeypatch):
+    from policy_check import compute
+    from state_manager import write_state
+
+    monkeypatch.chdir(tmp_path)
+    write_state("Synthetic Group Ltd", "Group Facility", date_str="2026-10-21",
+                financials_source="analyst-supplied", ratios={"FY-Current": {"dscr": 1.4}},
+                group_basis=_group_basis_for_policy_tests(),
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"},
+                           {"metric": "dscr", "type": "minimum", "threshold": 1.25}])
+
+    results = compute("Synthetic Group Ltd", "Group Facility")["policy_state"]["covenant_results"]
+
+    assert [(r["basis"], r["status"]) for r in results] == [("consolidated", "PASS"), ("borrower", "UNRESOLVABLE")]
+    assert "recorded figures are the consolidated view" in results[1]["reason"]
+
+
+def test_compute_without_a_group_basis_leaves_a_legacy_covenant_exactly_as_before(tmp_path, monkeypatch):
+    from policy_check import compute
+    from state_manager import write_state
+
+    monkeypatch.chdir(tmp_path)
+    write_state("Synthetic Co", "Facility", date_str="2026-10-21", ratios={"FY-Current": {"dscr": 1.4}},
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}])
+
+    result, = compute("Synthetic Co", "Facility")["policy_state"]["covenant_results"]
+
+    assert "basis" not in result and result["status"] == "PASS"
+
+
+def test_compute_refuses_a_malformed_group_basis_naming_the_key(tmp_path, monkeypatch):
+    from policy_check import compute
+    from state_manager import StateShapeError, write_state
+
+    monkeypatch.chdir(tmp_path)
+    write_state("Synthetic Co", "Facility", date_str="2026-10-21", group_basis={"basis": "nonsense"},
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"}])
+
+    with pytest.raises(StateShapeError, match="group_basis"):
+        compute("Synthetic Co", "Facility")

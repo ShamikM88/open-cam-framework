@@ -16,7 +16,7 @@ import sys
 
 from policy_checks import check_draft_compliance, ground_truth_figures
 from policy_engine import evaluate_deal_policy
-from state_manager import read_state
+from state_manager import read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
@@ -51,6 +51,7 @@ def compute(company, proposal, draft_path=None):
     that data exists yet for this deal.
     """
     state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
+    validate_state(state, keys=("group_basis",), path=state_path(company, proposal))
     financials = state.get("financials") or {}
     ratios = state.get("ratios") or {}
     collateral = state.get("collateral") or []
@@ -71,6 +72,7 @@ def compute(company, proposal, draft_path=None):
         "security_package": security_package,
         "guarantees": state.get("guarantees") or [],
         "downside_case": downside_case,
+        "group_basis": state.get("group_basis"),   # tells the engine which figures the covenants are tested on
     })
 
     draft_text = None

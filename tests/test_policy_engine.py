@@ -1566,3 +1566,190 @@ def test_pe_guarantee_cps_avoid_natural_slug_collision_with_an_earlier_numeric_s
         },
     ]
 
+
+
+# ---------------------------------------------------------------------------
+# Covenant basis (issue #48, maintainer decisions of 2026-10-22): a covenant is tested only on its own basis.
+# ---------------------------------------------------------------------------
+
+from policy_engine import COVENANT_BASES, DEFAULT_COVENANT_BASIS, _evaluate_covenant
+
+GROUP_BASIS = {"basis": "supplied_consolidated"}
+BORROWER_ON_CONSOLIDATED = (
+    "the covenant is on the borrower basis but the recorded figures are the consolidated view, and no borrower "
+    "figures are recorded; state the covenant's basis, or record figures for it")
+CONSOLIDATED_ON_BORROWER = (
+    "the covenant is on the consolidated basis but the recorded figures are the borrower view, and no consolidated "
+    "figures are recorded; state the covenant's basis, or record figures for it")
+
+
+def _basis_state(covenants, group_basis=None, ratios=None, **extra):
+    state = {"ratios": ratios or RATIOS, "covenants": covenants, **extra}
+    if group_basis is not None:
+        state["group_basis"] = group_basis
+    return state
+
+
+def _dscr(basis="<absent>", threshold=1.25):
+    covenant = {"metric": "dscr", "type": "minimum", "threshold": threshold}
+    if basis != "<absent>":
+        covenant["basis"] = basis
+    return covenant
+
+
+def test_the_basis_constants_are_the_three_decided_bases_and_the_default_is_borrower():
+    assert COVENANT_BASES == ("borrower", "consolidated", "guarantor_group")
+    assert DEFAULT_COVENANT_BASIS == "borrower"
+
+
+def test_a_covenant_without_a_basis_on_an_ordinary_deal_keeps_exactly_its_earlier_result():
+    for covenant in (_dscr(), _dscr(None)):
+        result = evaluate_deal_policy(_basis_state([covenant]))["covenant_results"][0]
+
+        assert result == {"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.5, "status": "PASS",
+                          "headroom_pct": pytest.approx(0.2), "reason": None}
+        assert list(result) == ["metric", "type", "threshold", "actual", "status", "headroom_pct", "reason"]
+
+
+def test_an_explicit_borrower_basis_on_an_ordinary_deal_is_tested_and_names_its_basis():
+    result = evaluate_deal_policy(_basis_state([_dscr("borrower", threshold=1.6)]))["covenant_results"][0]
+
+    assert (result["basis"], result["status"], result["actual"], result["reason"]) == ("borrower", "FAIL", 1.5, None)
+    assert list(result) == ["metric", "type", "threshold", "basis", "actual", "status", "headroom_pct", "reason"]
+
+
+def test_a_consolidated_covenant_on_an_ordinary_deal_is_unresolvable_with_the_reason_and_no_figures():
+    result = evaluate_deal_policy(_basis_state([_dscr("consolidated")]))["covenant_results"][0]
+
+    assert result == {"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated",
+                      "actual": None, "status": "UNRESOLVABLE", "headroom_pct": None,
+                      "reason": CONSOLIDATED_ON_BORROWER}
+
+
+def test_a_guarantor_group_covenant_is_unresolvable_on_every_deal_because_no_such_figures_are_recorded():
+    ordinary = evaluate_deal_policy(_basis_state([_dscr("guarantor_group")]))["covenant_results"][0]
+    grouped = evaluate_deal_policy(_basis_state([_dscr("guarantor_group")], GROUP_BASIS))["covenant_results"][0]
+
+    assert (ordinary["status"], ordinary["actual"]) == ("UNRESOLVABLE", None)
+    assert ordinary["reason"] == CONSOLIDATED_ON_BORROWER.replace("consolidated basis", "guarantor_group basis") \
+        .replace("no consolidated figures", "no guarantor_group figures")
+    assert (grouped["status"], grouped["actual"]) == ("UNRESOLVABLE", None)
+    assert "guarantor_group basis but the recorded figures are the consolidated view" in grouped["reason"]
+
+
+@pytest.mark.parametrize("basis", ["parent", "", "Borrower", " borrower", 5, ["borrower"], {"b": 1}, True])
+def test_an_unrecognised_basis_is_unresolvable_and_echoed_never_treated_as_borrower(basis):
+    result = evaluate_deal_policy(_basis_state([_dscr(basis)]))["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None and result["headroom_pct"] is None
+    assert result["basis"] == basis
+    assert result["reason"] == (
+        f"unrecognized covenant basis {basis!r} (expected 'borrower', 'consolidated' or 'guarantor_group')")
+
+
+def test_the_basis_is_checked_before_the_other_covenant_faults_so_the_reason_names_the_figures_problem_first():
+    bad = {"metric": "nonsense", "type": "sideways", "threshold": "x", "basis": "consolidated"}
+
+    result = evaluate_deal_policy(_basis_state([bad]))["covenant_results"][0]
+
+    assert result["reason"] == CONSOLIDATED_ON_BORROWER
+
+
+@pytest.mark.parametrize("group_basis", [None, "x", [], 0, False])
+def test_only_a_recorded_group_basis_object_makes_the_recorded_view_consolidated(group_basis):
+    state = _basis_state([_dscr("consolidated")], ratios=RATIOS)
+    state["group_basis"] = group_basis
+
+    result = evaluate_deal_policy(state)["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE" and result["reason"] == CONSOLIDATED_ON_BORROWER
+
+
+def test_on_a_group_basis_deal_a_consolidated_covenant_is_tested_and_a_covenant_without_basis_is_unresolvable():
+    covenants = [_dscr("consolidated"), _dscr(), {"metric": "gross_leverage", "type": "maximum", "threshold": 3.0,
+                                                  "basis": "consolidated"}]
+
+    results = evaluate_deal_policy(_basis_state(covenants, GROUP_BASIS))["covenant_results"]
+
+    assert [r["status"] for r in results] == ["PASS", "UNRESOLVABLE", "FAIL"]
+    assert results[0] == {"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated",
+                          "actual": 1.5, "status": "PASS", "headroom_pct": pytest.approx(0.2), "reason": None}
+    assert results[1] == {"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "borrower",
+                          "actual": None, "status": "UNRESOLVABLE", "headroom_pct": None,
+                          "reason": BORROWER_ON_CONSOLIDATED}
+    assert (results[2]["basis"], results[2]["actual"]) == ("consolidated", 3.2)
+
+
+def test_a_group_basis_deal_with_an_explicit_borrower_covenant_is_unresolvable_too():
+    result = evaluate_deal_policy(_basis_state([_dscr("borrower")], GROUP_BASIS))["covenant_results"][0]
+
+    assert (result["basis"], result["status"], result["reason"]) == ("borrower", "UNRESOLVABLE", BORROWER_ON_CONSOLIDATED)
+
+
+def test_the_evaluator_itself_takes_the_recorded_view_and_defaults_to_borrower():
+    covenant = _dscr("consolidated")
+    ratios = RATIOS["FY-Current"]
+
+    assert _evaluate_covenant(covenant, ratios)["reason"] == CONSOLIDATED_ON_BORROWER
+    assert _evaluate_covenant(covenant, ratios, None, "borrower")["status"] == "UNRESOLVABLE"
+    assert _evaluate_covenant(covenant, ratios, None, "consolidated")["status"] == "PASS"
+    assert _evaluate_covenant(_dscr(), ratios, None, "consolidated")["status"] == "UNRESOLVABLE"
+
+
+def test_forward_results_test_each_covenant_on_its_own_basis_and_keep_their_ids():
+    ratios = {"FY-Current": {"dscr": 1.5}, "FY+1": {"dscr": 1.1}, "FY+2": {"dscr": 1.4}}
+    covenants = [_dscr("consolidated"), _dscr("borrower")]
+
+    forward = evaluate_deal_policy(_basis_state(covenants, GROUP_BASIS, ratios=ratios))["forward_covenant_results"]
+
+    assert [(r["year"], r["basis"], r["status"], r["forward_id"]) for r in forward] == [
+        ("FY+1", "consolidated", "FAIL", "FORWARD-FY-1-DSCR"),
+        ("FY+1", "borrower", "UNRESOLVABLE", "FORWARD-FY-1-DSCR-2"),
+        ("FY+2", "consolidated", "PASS", "FORWARD-FY-2-DSCR"),
+        ("FY+2", "borrower", "UNRESOLVABLE", "FORWARD-FY-2-DSCR-2"),
+    ]
+    assert forward[1]["reason"] == BORROWER_ON_CONSOLIDATED and forward[1]["actual"] is None
+
+
+def test_forward_results_without_any_basis_are_unchanged_and_carry_no_basis_key():
+    ratios = {"FY-Current": {"dscr": 1.5}, "FY+1": {"dscr": 1.1}}
+
+    forward = evaluate_deal_policy(_basis_state([_dscr()], ratios=ratios))["forward_covenant_results"]
+
+    assert forward == [{"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.1, "status": "FAIL",
+                        "headroom_pct": pytest.approx(-0.12), "reason": None, "year": "FY+1",
+                        "forward_id": "FORWARD-FY-1-DSCR"}]
+
+
+def test_a_downside_breach_needs_a_covenant_that_can_be_tested_on_the_recorded_view():
+    base = {"FY-Current": {"dscr": 1.5}, "FY+1": {"dscr": 1.4}}
+    stressed = {"ratios": {"FY+1": {"dscr": 0.9}}, "financials": {}}
+    covenants = [_dscr("consolidated"), _dscr("borrower"), _dscr("guarantor_group")]
+
+    result = evaluate_deal_policy(_basis_state(covenants, GROUP_BASIS, ratios=base, downside_case=stressed))
+
+    assert [(b["year"], b["metric"], b["downside_status"], b["breach_id"])
+            for b in result["downside_covenant_breaches"]] == [("FY+1", "dscr", "FAIL", "DOWNSIDE-FY-1-DSCR")]
+    assert result["downside_covenant_breaches"][0]["reason"] is None
+
+
+def test_an_unavailable_downside_year_is_unresolvable_only_for_covenants_that_pass_the_base_case_on_the_view():
+    base = {"FY-Current": {"dscr": 1.5}, "FY+1": {"dscr": 1.4}}
+    downside = {"unavailable": {"FY+1": "supplied forecast not stressable"}}
+
+    result = evaluate_deal_policy(_basis_state([_dscr("consolidated"), _dscr("borrower")], GROUP_BASIS,
+                                               ratios=base, downside_case=downside))
+
+    assert [(b["year"], b["downside_status"], b["breach_id"]) for b in result["downside_covenant_breaches"]] == [
+        ("FY+1", "UNRESOLVABLE", "DOWNSIDE-FY-1-DSCR")]
+    assert "supplied forecast not stressable" in result["downside_covenant_breaches"][0]["reason"]
+
+
+def test_basis_results_are_deterministic_and_do_not_change_the_other_policy_outputs():
+    state = _basis_state([_dscr("consolidated")], GROUP_BASIS)
+    plain = _basis_state([_dscr("consolidated")])
+    first, second = evaluate_deal_policy(state), evaluate_deal_policy(state)
+
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+    for key in ("security_gaps", "required_conditions_precedent", "required_conditions_subsequent"):
+        assert first[key] == evaluate_deal_policy(plain)[key]

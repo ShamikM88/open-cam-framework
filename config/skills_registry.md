@@ -31,6 +31,7 @@ how it is invoked, why none of them can reach the Maker or the Checker -- is [do
 | `credit-challenge` | skill | analyst | implemented: phase 4 | user | None (aid) | no |
 | `credit-risk` | skill | analyst | implemented: phase 4 | user | None (aid) | no |
 | `annual-review` | skill | analyst | implemented: phase 5 | user | None (aid) | no |
+| `deal-consistency` | skill | analyst | implemented: phase 6 | user | None (aid) | no |
 
 - **Invocation** is what the file's frontmatter says. `user`: `disable-model-invocation: true`, so it runs only when a
   person types it. `user+model`: no restriction; `/review` has to be this, because `/assemble` and `/research` run it

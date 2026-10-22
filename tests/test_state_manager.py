@@ -3047,7 +3047,7 @@ def test_ca409_record_group_basis_refusal_without_confirmation_is_exact_and_byte
     ("company", "proposal", "field", "unsafe"),
     [
         ("Synthetic/Group Ltd", "Synthetic Group Facility", "company", "Synthetic/Group Ltd"),
-        ("Synthetic Group Ltd", "Synthetic/Group:Facility", "proposal", "Synthetic Group:Facility"),
+        ("Synthetic Group Ltd", "Synthetic/Group:Facility", "proposal", "Synthetic/Group:Facility"),
     ],
 )
 def test_ca409_record_group_basis_path_errors_name_the_exact_component_and_preserve_bytes(

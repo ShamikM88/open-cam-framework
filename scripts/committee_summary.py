@@ -76,8 +76,21 @@ def _table(headers, rows):
 
 
 def _covenant_row(result, columns):
-    """A result's values for `columns`; a reason that is absent (None) reads "-", not N/A."""
-    return [(result.get(column) or "-") if column == "reason" else result.get(column) for column in columns]
+    """A result's values for `columns`; absent basis means borrower, and absent reason reads "-", not N/A."""
+    return [
+        (result.get(column) or "-") if column == "reason"
+        else "borrower" if column == "basis" and "basis" not in result
+        else result.get(column)
+        for column in columns
+    ]
+
+
+def _covenant_table(columns, results):
+    """Add basis only for tables whose policy-result rows disclose it."""
+    columns = list(columns)
+    if any("basis" in result for result in results):
+        columns.insert(columns.index("metric") + 1, "basis")
+    return _table(columns, [_covenant_row(result, columns) for result in results])
 
 
 def _ordered_periods(*period_maps):
@@ -200,19 +213,19 @@ def render_markdown(data):
     results = policy["covenant_results"]
     if results:
         lines += ["**Current (FY-Current)**", ""]
-        lines += _table(covenant_columns, [_covenant_row(r, covenant_columns) for r in results]) + [""]
+        lines += _covenant_table(covenant_columns, results) + [""]
     else:
         lines += ["No covenants are recorded.", ""]
     forward = policy["forward_covenant_results"]
     if forward:
         columns = ["year", "forward_id"] + covenant_columns
         lines += ["**Forward years** (disclosure only; they do not decide the policy check)", ""]
-        lines += _table(columns, [_covenant_row(r, columns) for r in forward]) + [""]
+        lines += _covenant_table(columns, forward) + [""]
     breaches = policy["downside_covenant_breaches"]
     if breaches:
         columns = ["year", "metric", "base_actual", "downside_actual", "threshold", "downside_status", "reason"]
         lines += ["**Downside breaches** (base case passes, stressed case does not)", ""]
-        lines += _table(columns, [_covenant_row(r, columns) for r in breaches]) + [""]
+        lines += _covenant_table(columns, breaches) + [""]
     elif isinstance(state.get("downside_case"), dict) and state["downside_case"]:
         lines += ["No downside breach is reported for the recorded downside case.", ""]
     else:

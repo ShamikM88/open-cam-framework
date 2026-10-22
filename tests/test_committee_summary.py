@@ -115,9 +115,22 @@ def test_ratios_and_subtotals_are_printed_exactly_as_recorded_with_n_a_for_null(
 def test_a_covenant_that_passes_now_and_fails_stressed_shows_both_results_with_the_policy_status(deal):
     text = summary_text()
 
-    current = next(line for line in text.splitlines() if line.startswith("| dscr | minimum |"))
+    covenant_section = text.split("## Covenants\n\n", 1)[1].split("\n## Conditions precedent", 1)[0]
+    assert "| metric | type | threshold | actual | status | headroom_pct | reason |" in covenant_section
+    assert "| year | forward_id | metric | type | threshold | actual | status | headroom_pct | reason |" in covenant_section
+    assert "| year | metric | base_actual | downside_actual | threshold | downside_status | reason |" in covenant_section
+    assert all(" | basis | " not in line for line in covenant_section.splitlines() if line.startswith("|"))
+
+    # Real policy-engine breach records currently omit basis; downside disclosure stays deferred
+    # rather than synthesizing basis data in the summary (policy_engine.py is out of scope).
+    _, collected = cs.collect(COMPANY, PROPOSAL)
+    breaches = collected["policy"]["downside_covenant_breaches"]
+    assert breaches
+    assert all("basis" not in row for row in breaches)
+
+    current = next(line for line in covenant_section.splitlines() if line.startswith("| dscr | minimum |"))
     assert "| PASS |" in current
-    breach = next(line for line in text.splitlines() if line.startswith("| FY+1 | dscr |"))
+    breach = next(line for line in covenant_section.splitlines() if line.startswith("| FY+1 | dscr |"))
     assert "FAIL" in breach
     assert "disclosure only" in text and "Downside breaches" in text
 
@@ -480,6 +493,49 @@ def test_a_company_or_proposal_name_with_line_breaks_and_markup_cannot_inject_in
     assert [line for line in text.splitlines() if line.startswith("#")][:2] == [
         text.splitlines()[0], "## Facility and key terms"]
     assert not any(line.startswith("## Recommendation") for line in text.splitlines())
+
+
+def test_covenant_basis_is_shown_only_when_a_row_carries_it_and_word_follows_markdown(tmp_path):
+    """Basis is conditional, a row without it reads borrower, a recorded value is escaped, and Word matches Markdown."""
+    data = {"company": "Synthetic Co", "proposal": "Fleet Loan",
+            "date": DATE, "state": {},
+            "policy": {"covenant_results": [
+                           {"metric": "dscr", "basis": "consolidated", "type": "minimum", "threshold": 1.25,
+                            "actual": None, "status": "UNRESOLVABLE", "headroom_pct": None,
+                            "reason": "covenant basis differs from recorded view"},
+                           {"metric": "gross_leverage", "type": "maximum", "threshold": 4.0,
+                            "actual": 3.0, "status": "PASS", "headroom_pct": 0.25, "reason": None}],
+                       "forward_covenant_results": [
+                           {"year": "FY+1", "forward_id": "FORWARD-FY-1-DSCR", "metric": "dscr",
+                            "basis": "guarantor_group", "type": "minimum", "threshold": 1.25, "actual": 1.4,
+                            "status": "PASS", "headroom_pct": 0.12, "reason": None}],
+                       "downside_covenant_breaches": [
+                           {"year": "FY+1", "metric": "dscr", "basis": "guarantor*<group>", "base_actual": 1.4,
+                            "downside_actual": 0.8, "threshold": 1.25, "downside_status": "FAIL", "reason": None}],
+                       "required_conditions_precedent": [], "required_conditions_subsequent": [],
+                       "security_gaps": []},
+            "manifest_count": 0, "sources_declared": "not_declared", "sources_missing": False}
+
+    text = cs.render_markdown(data)
+
+    assert "| metric | basis | type | threshold | actual | status | headroom_pct | reason |" in text
+    assert "| dscr | consolidated | minimum | 1.25 | N/A | UNRESOLVABLE | N/A | covenant basis differs from recorded view |" in text
+    assert "| gross_leverage | borrower | maximum | 4.0 | 3.0 | PASS | 0.25 | - |" in text
+    assert "| year | forward_id | metric | basis | type | threshold | actual | status | headroom_pct | reason |" in text
+    assert "| FY+1 | FORWARD-FY-1-DSCR | dscr | guarantor_group | minimum | 1.25 | 1.4 | PASS | 0.12 | - |" in text
+    assert "| year | metric | basis | base_actual | downside_actual | threshold | downside_status | reason |" in text
+    assert "| FY+1 | dscr | `guarantor*<group>` | 1.4 | 0.8 | 1.25 | FAIL | - |" in text
+
+    word_path = tmp_path / "committee-summary.docx"
+    cs.export_to_docx(text, str(word_path))
+    document = docx.Document(word_path)
+    assert [cell.text for cell in document.tables[0].rows[0].cells] == [
+        "metric", "basis", "type", "threshold", "actual", "status", "headroom_pct", "reason"]
+    assert [cell.text for cell in document.tables[1].rows[0].cells] == [
+        "year", "forward_id", "metric", "basis", "type", "threshold", "actual", "status", "headroom_pct", "reason"]
+    assert [cell.text for cell in document.tables[2].rows[0].cells] == [
+        "year", "metric", "basis", "base_actual", "downside_actual", "threshold", "downside_status", "reason"]
+    assert document.tables[2].rows[1].cells[2].text == "guarantor*<group>"
 
 
 def test_a_recorded_value_that_looks_like_html_is_shown_literally_as_a_code_span(tmp_path, monkeypatch):

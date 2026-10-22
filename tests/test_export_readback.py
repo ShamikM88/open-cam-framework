@@ -722,8 +722,8 @@ def test_a_changed_page_margin_header_or_footer_is_reported_as_a_section_differe
 def test_the_limits_name_what_is_still_not_compared(deal):
     limits = " ".join(verify()["limits"])
 
-    for phrase in ("cached formula results", "data validations and conditional formats", "comments, footnotes",
-                   "text boxes", "file properties"):
+    for phrase in ("cached formula results", "not by colour or font", "images in a workbook",
+                   "rules inside data validations", "comments, footnotes", "text boxes", "file properties"):
         assert phrase in limits, phrase
 
 
@@ -734,3 +734,40 @@ def test_an_added_section_is_reported_as_a_section_count_difference(deal):
 
     assert {"artifact": "document", "location": "section count", "kind": "sections", "expected": 1, "actual": 2} \
         in findings
+
+
+def test_a_deleted_moved_or_repointed_chart_is_reported(deal):
+    def delete_one(workbook):
+        sheet = workbook["Financial Spreading"]
+        sheet._charts.remove(sorted(sheet._charts, key=lambda chart: chart.anchor._from.row)[0])
+
+    edit_workbook(delete_one)
+    finding, = verify()["findings"]
+    assert finding["kind"] == "charts" and len(finding["expected"]) == len(finding["actual"]) + 1
+
+    reexport()
+
+    def repoint(workbook):
+        chart = workbook["Financial Spreading"]._charts[0]
+        chart.series[0].val.numRef.f = "'Financial Spreading'!$B$9:$G$9"
+
+    edit_workbook(repoint)
+    finding, = verify()["findings"]
+    assert finding["kind"] == "charts" and "$B$9:$G$9" in json.dumps(finding["actual"])
+
+    reexport()
+
+    def move(workbook):
+        workbook["Financial Spreading"]._charts[0].anchor._from.row += 3
+
+    edit_workbook(move)
+    assert [f["kind"] for f in verify()["findings"]] == ["charts"]
+
+
+def test_a_chart_part_without_a_range_reads_as_none():
+    from types import SimpleNamespace
+
+    assert export_readback._reference(None) is None
+    assert export_readback._reference(SimpleNamespace(numRef=None, strRef=None)) is None
+    assert export_readback._reference(SimpleNamespace(numRef=None, strRef=SimpleNamespace(f="A1:B1"))) == "A1:B1"
+    assert export_readback._reference(SimpleNamespace(v="a literal name")) is None

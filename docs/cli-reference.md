@@ -218,9 +218,10 @@ selection `deal_export.py` uses) and the expected document from the approved Mar
 - **Workbook:** sheet names, order and visibility; defined names; every cell's value (formulas as text, numbers within
   1e-9, so an overwritten formula or an edited input is found) and its number format, font (name, size, colour,
   bold, italic, underline, strike), fill, borders and alignment; row and column visibility, row heights and column
-  widths; merged cells, freeze panes, sheet protection, and how many data validations and conditional formats a
-  sheet has. Cached formula results are not evaluated, charts are not compared, and a sheet whose used range is
-  larger than 1,000,000 positions (one stray cell in the far corner does that) is refused rather than compared.
+  widths; merged cells, freeze panes, sheet protection; each chart's type, position and the cell ranges it plots;
+  and how many data validations and conditional formats a sheet has. Cached formula results are not evaluated, and a
+  sheet whose used range is larger than 1,000,000 positions (one stray cell in the far corner does that) is refused
+  rather than compared.
 - **Document:** the body blocks in order: each paragraph's style, alignment and spacing, every run's text, bold,
   italic, underline, strike, font, size, colour and highlight, hyperlink targets, embedded image hashes and alt
   text; each table's style and, per cell, the same paragraph detail; and each section's page size, orientation,

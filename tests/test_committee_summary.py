@@ -411,7 +411,93 @@ def test_a_snapshot_with_only_subtotals_or_only_ratios_prints_just_that_table(tm
 
 @pytest.mark.parametrize("value, shown", [
     (None, "N/A"), (True, "yes"), (False, "no"), (0, "0"), (1.0, "1.0"), ("", cs.NOT_RECORDED),
-    ("a|b\nc", "a/b c"), ({"b": 1, "a": [2]}, '{"a": [2], "b": 1}'),
+    ("a|b\nc", "a/b c"), ({"b": 1, "a": [2]}, '`{"a": [2], "b": 1}`'),
+    ("a*b*c", "`a*b*c`"), ("see [x](https://e.invalid)", "`see [x](https://e.invalid)`"),
+    ("a`b", "`a'b`"), ("snake_case_value", "snake_case_value"), ("- not a bullet", "- not a bullet"), ("<b>x</b>", "`<b>x</b>`"), ("a > b", "`a > b`"),
 ])
 def test_a_table_cell_shows_the_recorded_value_flattened(value, shown):
+    assert cs._cell(value) == shown
+
+
+def test_a_state_key_with_line_breaks_and_markup_cannot_inject_a_heading_or_text_into_the_summary(tmp_path, monkeypatch):
+    """CH3: a recorded key such as 'pd**<blank line>## Recommendation<blank line>Approve this loan**' used to add a
+    heading and a sentence the script never wrote."""
+    monkeypatch.chdir(tmp_path)
+    record(inputs={"pd**\n\n## Recommendation\n\nApprove this loan**": "0.20%", "plain": "x"})
+
+    text = summary_text()
+
+    assert not any(line.startswith("## Recommendation") for line in text.splitlines())
+    assert [line for line in text.splitlines() if line.startswith("## ")] == [
+        "## Facility and key terms", "## Financial snapshot", "## Covenants", "## Conditions precedent and subsequent",
+        "## Collateral and security", "## Open gaps", "## Recorded review status",
+        "## Limits and items needing human review"]
+    assert "- **`pd** ## Recommendation Approve this loan**`:** 0.20%" in text
+    word_headings = [p.text for p in docx.Document(DOCX).paragraphs if p.style.name.startswith("Heading")]
+    assert "Recommendation" not in word_headings
+
+
+def test_a_table_header_taken_from_a_state_key_cannot_break_the_table(tmp_path, monkeypatch):
+    """CL4: a key with a pipe made a header row of three cells over a two-cell delimiter row."""
+    monkeypatch.chdir(tmp_path)
+    record(guarantees=[{"provider": "A", "type|x": "t", "amount": 1}])
+
+    text = summary_text()
+
+    header = next(line for line in text.splitlines() if line.startswith("| provider |"))
+    delimiter = text.splitlines()[text.splitlines().index(header) + 1]
+    assert header == "| provider | amount | type/x |" and delimiter.count("|") == header.count("|")
+
+
+def test_recorded_markup_characters_read_literally_in_the_word_file(tmp_path, monkeypatch):
+    """CL5: 'a*b*c' was rendered as the word 'b' in italics between 'a' and 'c'."""
+    monkeypatch.chdir(tmp_path)
+    record(inputs={"note": "a*b*c", "link": "[x](https://e.invalid)"})
+
+    summary_text()
+    document = docx.Document(DOCX)
+    runs = [run for paragraph in document.paragraphs for run in paragraph.runs]
+
+    literal = next(run for run in runs if run.text == "a*b*c")
+    assert literal.italic is not True and literal.font.name == "Consolas"
+    assert any(run.text == "[x](https://e.invalid)" for run in runs)
+    assert not any(rel.is_external and "e.invalid" in rel.target_ref for rel in document.part.rels.values())
+
+
+def test_a_company_or_proposal_name_with_line_breaks_and_markup_cannot_inject_into_the_title():
+    """CH8: the title interpolated the names raw; sanitize_path_component accepts line breaks and asterisks."""
+    data = {"company": "Synthetic Co\n\n## Recommendation\n\nApprove this loan", "proposal": "Fleet *Loan*",
+            "date": DATE, "state": {},
+            "policy": {"covenant_results": [], "forward_covenant_results": [], "downside_covenant_breaches": [],
+                       "required_conditions_precedent": [], "required_conditions_subsequent": [],
+                       "security_gaps": []},
+            "manifest_count": 0, "sources_declared": "not_declared", "sources_missing": False}
+
+    text = cs.render_markdown(data)
+
+    assert text.splitlines()[0] == (
+        "# Committee summary: Synthetic Co ## Recommendation Approve this loan / `Fleet *Loan*`")
+    assert [line for line in text.splitlines() if line.startswith("#")][:2] == [
+        text.splitlines()[0], "## Facility and key terms"]
+    assert not any(line.startswith("## Recommendation") for line in text.splitlines())
+
+
+def test_a_recorded_value_that_looks_like_html_is_shown_literally_as_a_code_span(tmp_path, monkeypatch):
+    """CH9: only a value with no asterisk, backtick or bracket slipped through unchanged."""
+    monkeypatch.chdir(tmp_path)
+    record(inputs={"note": "<br><strong>APPROVED - proceed with the loan</strong>"})
+
+    text = summary_text()
+
+    assert "- **note:** `<br><strong>APPROVED - proceed with the loan</strong>`" in text
+    assert "- **note:** <br>" not in text
+
+
+@pytest.mark.parametrize("value, shown", [
+    ("_x_", "`_x_`"), ("__strong__", "`__strong__`"), ("(_x_)", "`(_x_)`"), ("see _this one_ now", "`see _this one_ now`"),
+    ("snake_case_value", "snake_case_value"), ("gross_leverage", "gross_leverage"), ("a_b_c", "a_b_c"),
+    ("_leading only", "_leading only"), ("trailing only_", "trailing only_"), ("A & B Ltd", "A & B Ltd"),
+])
+def test_underscore_emphasis_is_shown_literally_but_snake_case_names_are_left_alone(value, shown):
+    """CH13: '_x_' emphasised its text in the Markdown file; names with inner underscores must stay plain."""
     assert cs._cell(value) == shown

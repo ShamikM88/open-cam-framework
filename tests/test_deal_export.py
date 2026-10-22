@@ -1071,7 +1071,6 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
                                            "Synthetic Group Ltd_Synthetic Group Facility_Spreading.xlsx"))
 
 
-<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # Issue #182 mutation survivors (2026-10-21): deal_export boundaries and main()
 # ---------------------------------------------------------------------------
@@ -1324,8 +1323,8 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
         ((state,), {"keys": ("group_basis",), "path": expected_state_path})
     ]
     assert events == [
-        "read_state", "validate_state", "financial_data", "downside_financial_data",
-        "collateral_data", "forecast_columns", "docx_writer", "xlsx_writer",
+        "read_state", "validate_state", "forecast_columns", "financial_data",
+        "collateral_data", "downside_financial_data", "docx_writer", "xlsx_writer",
     ]
     expected_docx = expected_folder / "Synthetic Co_Credit Facility_CAM.docx"
     expected_xlsx = expected_folder / "Synthetic Co_Credit Facility_Spreading.xlsx"
@@ -1750,7 +1749,8 @@ def test_an_auto_saved_template_keeps_non_ascii_text_even_where_the_default_enco
 
     saved = tmp_path / "templates" / "local" / "cam" / "brand_new_type_cam.md"
     assert saved.read_text(encoding="utf-8") == draft
-=======
+
+
 def test_workbook_inputs_from_state_selects_one_raw_store_per_period_and_passes_the_rest_through():
     group_basis = {"basis": "supplied_consolidated"}
     state = {
@@ -1794,4 +1794,3 @@ def test_the_workbook_export_receives_exactly_the_shared_inputs(tmp_path, monkey
 
     state = read_state("Synthetic Co", "Synthetic Facility", date_str="2026-01-01", base_dir=base)
     assert seen == workbook_inputs_from_state(state)
->>>>>>> origin/main

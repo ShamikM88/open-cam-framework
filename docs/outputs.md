@@ -118,6 +118,13 @@ figures basis, and analyst perimeter-confirmation state/date. It discloses metad
 no consolidated amounts or new calculations on this sheet. A deal without `group_basis` receives
 no extra sheet, and the existing Financial Spreading and Collateral & Exposure sheets are unchanged.
 
+### Checking an export later
+
+`python scripts/export_readback.py --company ... --proposal ...` regenerates the expected workbook and document from the
+deal's record and approved draft and reports every cell or block that differs from the files in the dated folder, so an
+edit after export, or an export left stale by a later change to the record, is found. See
+[Export read-back](cli-reference.md#export-read-back).
+
 ## The research brief
 
 `/research` exports a standalone `.docx` from a Markdown brief (a short header as a bullet list, the Go/No-Go verdict

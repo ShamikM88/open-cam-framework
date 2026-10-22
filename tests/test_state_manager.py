@@ -2923,7 +2923,7 @@ def test_ca409_group_basis_rejects_impossible_calendar_dates_exactly(field, bad_
 
 def test_ca409_group_basis_accepts_a_real_leap_day_and_all_nonempty_metadata_strings():
     basis = _ca409_survivor_basis()
-    basis["reporting_entity"] = "Synthetic Group Ltd "
+    basis["reporting_entity"] = "Synthetic Group Ltd"
     basis["source"]["document"] = "Synthetic audited group accounts"
     basis["source"]["accounting_basis"] = "Synthetic accounting basis"
     basis["source"]["date"] = "2024-02-29"
@@ -3065,7 +3065,7 @@ def test_ca409_record_group_basis_path_errors_name_the_exact_component_and_prese
 
     expected = (
         f"{field} {unsafe!r} isn't safe to use as a filesystem path component "
-        '(no \\\\ / : * ? " < > | characters, and not "." or "..").'
+        '(no \\ / : * ? " < > | characters, and not "." or "..").'
     )
     assert str(caught.value) == expected
     assert state_path_value.read_bytes() == before

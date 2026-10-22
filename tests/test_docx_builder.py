@@ -886,7 +886,7 @@ def test_408_missing_image_warning_and_placeholder_are_exact(tmp_path, capsys):
 
     assert len(doc.inline_shapes) == 0
     assert [paragraph.text for paragraph in doc.paragraphs] == [
-        f"[Image not embedded: Synthetic chart -- file not found]",
+        "[Image not embedded: Synthetic chart -- file not found]",
         "After.",
     ]
     assert capsys.readouterr().err == (

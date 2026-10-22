@@ -1427,3 +1427,205 @@ def test_408_period_snapshot_represents_every_absent_period_store_as_none():
         "financials": None,
         "ratios": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CL8): behaviours the earlier tests left to survive. Each test below was checked against the mutant it
+# targets with a local mutant runner (the mutated source applied, this file run, the test expected to fail).
+# ---------------------------------------------------------------------------
+
+from decimal import Decimal  # noqa: E402
+
+from review_compare import _MISSING  # noqa: E402
+
+
+def _error_of(callable_, *args, **kwargs):
+    with pytest.raises(rc.ComparisonError) as caught:
+        callable_(*args, **kwargs)
+    return str(caught.value)
+
+
+def test_a_missing_current_state_is_named_current_when_the_prior_is_recorded_rather_than_given(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    message = _error_of(rc.compare_deal, COMPANY, PROPOSAL, CURRENT_DATE)
+
+    assert message == f"current state not found: {state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)}"
+
+
+def test_a_missing_recorded_prior_state_is_named_prior_and_its_path_is_the_recorded_date(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, CURRENT_DATE, state(prior_review_date=PRIOR_DATE))
+
+    message = _error_of(rc.compare_deal, COMPANY, PROPOSAL, CURRENT_DATE)
+
+    assert message == f"prior state not found: {state_path(COMPANY, PROPOSAL, date_str=PRIOR_DATE)}"
+
+
+def test_the_current_state_is_read_from_the_named_date_even_when_a_newer_review_exists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, PRIOR_DATE, state(financials={"FY-Current": {"ebitda": 1}}))
+    write_state(tmp_path, CURRENT_DATE, state(prior_review_date=PRIOR_DATE, financials={"FY-Current": {"ebitda": 2}}))
+    write_state(tmp_path, "2027-10-20", state(prior_review_date=CURRENT_DATE, financials={"FY-Current": {"ebitda": 99}}))
+
+    result = rc.compare_deal(COMPANY, PROPOSAL, CURRENT_DATE)
+
+    change, = [c for c in result["changes"] if c["path"] == "financials.FY-Current.ebitda"]
+    assert (change["prior"], change["current"]) == (1, 2)
+
+
+def test_the_periods_rolled_flag_reaches_the_comparison_from_the_command_line(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, PRIOR_DATE, state(financials={"FY-Current": {"revenue": 100}}))
+    write_state(tmp_path, CURRENT_DATE, state(prior_review_date=PRIOR_DATE, financials={"FY-1": {"revenue": 100}}))
+
+    assert rc.main(["--company", COMPANY, "--proposal", PROPOSAL, "--current-date", CURRENT_DATE]) == 0
+    without = json.loads(capsys.readouterr().out)
+    assert rc.main(["--company", COMPANY, "--proposal", PROPOSAL, "--current-date", CURRENT_DATE,
+                    "--periods-rolled-one-year"]) == 0
+    with_flag = json.loads(capsys.readouterr().out)
+
+    assert "restatement_check" not in without
+    assert with_flag["restatement_check"]
+
+
+def test_numbers_are_read_as_exact_decimals_not_floats(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, PRIOR_DATE, state(), raw_text='{"company": "Synthetic Co", "proposal": "Asset Facility", '
+                '"inputs": {"big": 12345678901234567890.123456789, "n": 10}}')
+
+    prior = rc._read_state(COMPANY, PROPOSAL, PRIOR_DATE, "prior")
+
+    assert prior["inputs"]["big"] == Decimal("12345678901234567890.123456789")
+    assert isinstance(prior["inputs"]["n"], Decimal) and isinstance(prior["inputs"]["big"], Decimal)
+
+
+def test_json_dump_writes_exact_text_with_the_default_two_space_indent_and_a_compact_form():
+    value = {"b": [1, "x"], "a": {"n": Decimal("1.10"), "t": True, "z": None, "u": "Grüße 東京"}, "e": {}, "l": []}
+
+    assert rc._json_dump(value) == (
+        '{\n  "b": [\n    1,\n    "x"\n  ],\n  "a": {\n    "n": 1.10,\n    "t": true,\n    "z": null,\n'
+        '    "u": "Grüße 東京"\n  },\n  "e": {},\n  "l": []\n}')
+    assert rc._json_dump(value, indent=None) == (
+        '{"b":[1,"x"],"a":{"n":1.10,"t":true,"z":null,"u":"Grüße 東京"},"e":{},"l":[]}')
+    assert rc._json_dump(_MISSING) == "null" and rc._json_dump(2.5) == "2.5"
+
+
+@pytest.mark.parametrize("value, message", [
+    (Decimal("NaN"), "cannot serialize a non-finite decimal"),
+    (float("inf"), "cannot serialize a non-finite float"),
+])
+def test_json_dump_refuses_a_non_finite_number(value, message):
+    with pytest.raises(ValueError, match=message):
+        rc._json_dump({"x": [value]})
+
+
+def test_a_state_nested_exactly_to_the_limit_is_accepted_and_one_deeper_is_refused():
+    def nested(levels, leaf="x"):
+        value = leaf
+        for _ in range(levels):
+            value = [value]
+        return value
+
+    assert rc._exceeds_depth(nested(rc.MAX_STATE_DEPTH)) is False
+    assert rc._exceeds_depth(nested(rc.MAX_STATE_DEPTH + 1)) is True
+    assert rc._exceeds_depth({"a": nested(rc.MAX_STATE_DEPTH + 1), "b": 1}) is True   # a scalar sibling is popped first
+    assert rc._exceeds_depth("x") is False and rc._exceeds_depth([]) is False
+
+
+def test_the_first_non_finite_number_is_found_in_sorted_key_order_and_list_order():
+    assert rc._first_nonfinite({"b": float("nan"), "a": Decimal("NaN")}) == "$.a"
+    assert rc._first_nonfinite({"k": [1, float("inf")]}) == "$.k[1]"
+    assert rc._first_nonfinite({"a": Decimal("1"), "b": 2.5}) is None
+
+
+def test_canonical_value_sorts_keys_as_text_even_when_they_are_not_all_text():
+    assert list(rc._canonical_value({2: "x", "10": "y", 1: "z"})) == [1, "10", 2]
+    assert rc._canonical_value({"b": [{"d": 1, "c": 2}], "a": (1, 2)}) == {"a": [1, 2], "b": [{"c": 2, "d": 1}]}
+
+
+def test_deep_equal_compares_exactly_by_type_and_value():
+    assert rc._deep_equal("".join(["a", "b"]), "ab") is True
+    assert rc._deep_equal("ab", "abc") is False and rc._deep_equal(None, "") is False
+    assert rc._deep_equal(True, 1) is False and rc._deep_equal(1, True) is False
+    assert rc._deep_equal(True, False) is False and rc._deep_equal(Decimal("1.0"), 1) is True
+    assert rc._deep_equal([1, 2, 3], [1, 2, 3]) is True and rc._deep_equal([1, 2, 3], [1, 2, 4]) is False
+    assert rc._deep_equal([1, 2], [1, 2, 3]) is False and rc._deep_equal([1, 2, 3], [1, 2]) is False
+    assert rc._deep_equal([1, [2, "x"]], [1, [2, "x"]]) is True and rc._deep_equal([1, [2, "x"]], [1, [2, "y"]]) is False
+    assert rc._deep_equal({"a": 1}, {"a": 1}) is True and rc._deep_equal({"a": 1}, {"a": 2}) is False
+    assert rc._deep_equal({"a": 1}, {"b": 1}) is False and rc._deep_equal({"a": 1}, {"a": 1, "b": 2}) is False
+    assert rc._deep_equal([1], (1,)) is False and rc._deep_equal({"a": 1}, [("a", 1)]) is False
+
+
+def _diffs(path, prior, current):
+    output = []
+    rc._diff_value(path, prior, current, output)
+    return output
+
+
+def test_a_changed_scalar_is_a_value_changed_row_with_both_values_and_an_exact_delta():
+    assert _diffs("x.y", 1, 3) == [
+        {"path": "x.y", "change": "value_changed", "prior": 1, "current": 3, "delta": Decimal("2")}]
+    assert _diffs("x.y", "a", "b") == [{"path": "x.y", "change": "value_changed", "prior": "a", "current": "b"}]
+
+
+def test_a_scalar_that_appears_or_disappears_names_the_direction_and_keeps_the_value():
+    assert _diffs("x", None, 5) == [{"path": "x", "change": "not_recorded_to_value", "prior": None, "current": 5}]
+    assert _diffs("x", 5, _MISSING) == [{"path": "x", "change": "value_to_not_recorded", "prior": 5, "current": None}]
+    assert _diffs("x", None, _MISSING) == []
+
+
+def test_a_list_against_nothing_is_a_value_to_not_recorded_row_not_a_value_changed_one():
+    assert _diffs("notes", [1], None) == [
+        {"path": "notes", "change": "value_to_not_recorded", "prior": [1], "current": None}]
+    assert _diffs("notes", None, [1]) == [
+        {"path": "notes", "change": "not_recorded_to_value", "prior": None, "current": [1]}]
+    assert _diffs("notes", [1], [2]) == [{"path": "notes", "change": "value_changed", "prior": [1], "current": [2]}]
+
+
+def test_an_empty_object_against_nothing_keeps_the_empty_object_in_the_row():
+    assert _diffs("terms", {}, None) == [
+        {"path": "terms", "change": "value_to_not_recorded", "prior": {}, "current": None}]
+    assert _diffs("terms", None, {}) == [
+        {"path": "terms", "change": "not_recorded_to_value", "prior": None, "current": {}}]
+
+
+def test_an_object_that_appears_is_diffed_key_by_key_in_text_order_even_with_mixed_key_types():
+    rows = _diffs("terms", None, {2: "b", "10": "c", 1: "a"})
+
+    assert [row["path"] for row in rows] == ["terms.1", "terms.10", "terms.2"]
+    assert [row["current"] for row in rows] == ["a", "c", "b"]
+    assert all(row["change"] == "not_recorded_to_value" and row["prior"] is None for row in rows)
+
+
+def test_an_empty_stable_list_against_nothing_is_one_row_at_the_list_path():
+    assert _diffs("covenants", [], None) == [
+        {"path": "covenants", "change": "value_to_not_recorded", "prior": [], "current": None}]
+    assert _diffs("covenants", None, []) == [
+        {"path": "covenants", "change": "not_recorded_to_value", "prior": None, "current": []}]
+
+
+def test_the_first_non_finite_number_is_found_even_when_keys_are_not_all_text():
+    assert rc._first_nonfinite({"b": 1, 1: Decimal("NaN")}) == "$.1"
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity"])
+def test_a_state_holding_a_nan_or_infinity_literal_is_refused_naming_its_path(tmp_path, monkeypatch, literal):
+    monkeypatch.chdir(tmp_path)
+    path = write_state(tmp_path, CURRENT_DATE, None,
+                       raw_text='{"company": "Synthetic Co", "proposal": "Asset Facility", "ebitda": ' + literal + '}')
+
+    message = _error_of(rc._read_state, COMPANY, PROPOSAL, CURRENT_DATE, "current")
+
+    assert message == (f"current state contains a non-finite number at $.ebitda: "
+                       f"{state_path(COMPANY, PROPOSAL, date_str=CURRENT_DATE)}")
+    assert path.exists()
+
+
+def test_compare_deal_checks_restatements_only_when_asked(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    write_state(tmp_path, PRIOR_DATE, state(financials={"FY-Current": {"revenue": 100}}))
+    write_state(tmp_path, CURRENT_DATE, state(prior_review_date=PRIOR_DATE, financials={"FY-1": {"revenue": 100}}))
+
+    assert "restatement_check" not in rc.compare_deal(COMPANY, PROPOSAL, CURRENT_DATE)
+    assert rc.compare_deal(COMPANY, PROPOSAL, CURRENT_DATE, periods_rolled_one_year=True)["restatement_check"]

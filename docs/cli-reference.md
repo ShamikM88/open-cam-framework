@@ -224,8 +224,9 @@ selection `deal_export.py` uses) and the expected document from the approved Mar
   rather than compared.
 - **Document:** the body blocks in order: each paragraph's style, alignment and spacing, every run's text, bold,
   italic, underline, strike, font, size, colour, highlight, superscript, subscript and capitals, hyperlink targets
-  with the formatting of the link text, embedded image hashes and alt text; each table's style, direct layout
-  (shading, borders, widths, vertical alignment, spanning) and, per cell, the same paragraph detail; and each
+  with the formatting of the link text, embedded image hashes, sizes and alt text; the definition (font, size, colour,
+  spacing) of every style both documents use; each table's style, direct layout (shading, borders, cell and column
+  widths, vertical alignment, spanning) and, per cell, the same paragraph detail; and each
   section's page size, orientation, margins and its headers and footers (including first-page and even-page ones,
   and whether each is inherited), compared with the same paragraph, table and image detail as the body. Comments,
   footnotes, text boxes, themes and file properties are not compared.

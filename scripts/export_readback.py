@@ -242,9 +242,10 @@ def _paragraph_block(part, paragraph):
         related = part.related_parts.get(blip)
         images.append(hashlib.sha256(related.blob).hexdigest() if related is not None else None)
     alt_texts = list(paragraph._p.xpath(".//wp:docPr/@descr"))
+    extents = [[extent.get("cx"), extent.get("cy")] for extent in paragraph._p.xpath(".//wp:extent")]
     layout = paragraph.paragraph_format
     return {"type": "paragraph", "style": paragraph.style.name, "parts": parts, "image_hashes": images,
-            "image_alt_text": alt_texts,
+            "image_alt_text": alt_texts, "image_extents": extents,
             "layout": [_text_value(paragraph.alignment), _points(layout.left_indent), _points(layout.space_before),
                        _points(layout.space_after), _text_value(layout.line_spacing)]}
 
@@ -252,7 +253,7 @@ def _paragraph_block(part, paragraph):
 # The direct table and cell formatting that changes how a table looks: shading, borders, widths, vertical alignment
 # and spanning. Read from the XML because python-docx does not expose most of it.
 TABLE_LAYOUT_XPATH = ("./w:tblPr/w:tblW | ./w:tblPr/w:jc | ./w:tblPr/w:shd | ./w:tblPr/w:tblLayout | "
-                      "./w:tblPr/w:tblBorders/*")
+                      "./w:tblPr/w:tblBorders/* | ./w:tblGrid/w:gridCol")
 CELL_LAYOUT_XPATH = ("./w:tcPr/w:tcW | ./w:tcPr/w:shd | ./w:tcPr/w:vAlign | ./w:tcPr/w:gridSpan | "
                      "./w:tcPr/w:vMerge | ./w:tcPr/w:tcBorders/*")
 
@@ -302,6 +303,37 @@ def _section_block(section):
             "even_page_footer": _story_signature(section.even_page_footer)}
 
 
+def _style_signature(style):
+    font, layout = style.font, getattr(style, "paragraph_format", None)
+    color = font.color
+    rgb = theme = None
+    if color is not None and color.type is not None:
+        rgb, theme = _text_value(color.rgb), _text_value(color.theme_color)
+    signature = [style.name, _text_value(style.type), style.base_style.name if style.base_style is not None else None,
+                 font.name, _points(font.size), font.bold, font.italic, _text_value(font.underline), rgb, theme]
+    if layout is not None:
+        signature += [_text_value(layout.alignment), _points(layout.left_indent), _points(layout.space_before),
+                      _points(layout.space_after), _text_value(layout.line_spacing)]
+    return signature
+
+
+def _used_style_names(value, found):
+    """Every paragraph and table style name that appears in the compared blocks and sections."""
+    if isinstance(value, dict):
+        if isinstance(value.get("style"), str):
+            found.add(value["style"])
+        for nested in value.values():
+            _used_style_names(nested, found)
+    elif isinstance(value, list):
+        for nested in value:
+            _used_style_names(nested, found)
+    return found
+
+
+def _style_definitions(document, names):
+    return {style.name: _style_signature(style) for style in document.styles if style.name in names}
+
+
 def _document_sections(document):
     return [_section_block(section) for section in document.sections]
 
@@ -322,6 +354,14 @@ def compare_documents(expected_path, actual_path):
         if want != have:
             findings.append(_finding("document", f"block {index + 1}", want["type"], want, have))
     want_sections, have_sections = _document_sections(expected_document), _document_sections(actual_document)
+    # A style used by only one of the two is already a difference in the blocks above; here, a style both use must
+    # still be defined alike (a heading restyled to one-point white text changes no paragraph, only its style).
+    shared = (_used_style_names([expected, want_sections], set()) & _used_style_names([actual, have_sections], set()))
+    want_styles, have_styles = _style_definitions(expected_document, shared), _style_definitions(actual_document, shared)
+    for name in sorted(shared):
+        if want_styles.get(name) != have_styles.get(name):
+            findings.append(_finding("document", f"style {name}", "style", want_styles.get(name),
+                                     have_styles.get(name)))
     if len(want_sections) != len(have_sections):
         findings.append(_finding("document", "section count", "sections", len(want_sections), len(have_sections)))
     for index in range(min(len(want_sections), len(have_sections))):

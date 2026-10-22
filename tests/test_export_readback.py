@@ -865,3 +865,65 @@ def test_a_change_to_direct_table_or_cell_layout_is_reported(deal, name):
     finding, = verify()["findings"]
 
     assert finding["kind"] == "table" and finding["expected"] != finding["actual"]
+
+
+# ---------------------------------------------------------------------------
+# Third-pass review fixes (CH10, CH11, CH12)
+# ---------------------------------------------------------------------------
+
+def test_a_changed_table_column_width_is_reported(deal):
+    """CH10: the grid column widths were not read."""
+    def narrow(document):
+        grid = document.tables[0]._tbl.tblGrid
+        grid.gridCol_lst[0].w = Inches(1)
+
+    edit_document(narrow)
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "table" and finding["expected"]["layout"] != finding["actual"]["layout"]
+
+
+def test_a_restyled_style_definition_is_reported_even_though_no_paragraph_changed(deal):
+    """CH11: only the style's name was compared, so redefining 'List Bullet' as one-point text read as a match."""
+    edit_document(lambda document: setattr(document.styles["List Bullet"].font, "size", Pt(1)))
+
+    finding, = verify()["findings"]
+
+    assert (finding["location"], finding["kind"]) == ("style List Bullet", "style")
+    assert finding["expected"][4] != finding["actual"][4] and finding["actual"][4] == 1.0
+
+
+def test_a_resized_body_image_is_reported(deal):
+    """CH12: an image kept its hash and alt text but could be shrunk to a dot."""
+    edit_document(lambda document: setattr(document.inline_shapes[0], "width", Inches(0.1)))
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph"
+    assert finding["expected"]["image_extents"] != finding["actual"]["image_extents"]
+
+
+def test_a_resized_header_image_is_a_section_difference(tmp_path):
+    original = document_with_header_image(PNG_1X1, tmp_path, "size_one")
+    resized = document_with_header_image(PNG_1X1, tmp_path, "size_two")
+    resized.sections[0].header.paragraphs[0].runs[0].element.xpath(".//wp:extent")[0].set("cx", "12345")
+
+    assert export_readback._document_sections(original) != export_readback._document_sections(resized)
+
+
+def test_a_style_only_one_side_uses_is_left_to_the_block_comparison(deal):
+    edit_document(lambda document: setattr(document.sections[0].footer, "is_linked_to_previous", False))
+
+    kinds = {f["kind"] for f in verify()["findings"]}
+
+    assert "style" not in kinds
+
+
+def test_a_character_style_has_a_signature_without_paragraph_layout():
+    document = docx.Document()
+    character = next(style for style in document.styles if style.type == 2)   # WD_STYLE_TYPE.CHARACTER
+
+    signature = export_readback._style_signature(character)
+
+    assert signature[0] == character.name and len(signature) == 10

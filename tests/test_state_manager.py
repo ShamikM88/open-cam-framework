@@ -3278,7 +3278,7 @@ def test_ca409_record_group_basis_rejects_an_invalid_recorded_source_exactly_wit
 
     assert str(caught.value) == (
         f'Cannot use {state_path_value}: "financials_source" must be "analyst-supplied" or '
-        '\'framework-computed\', found \'unknown-source\'. Fix the file by hand or restore it from a backup; '
+        '"framework-computed", found \'unknown-source\'. Fix the file by hand or restore it from a backup; '
         "the file was not modified."
     )
     assert state_path_value.read_bytes() == before

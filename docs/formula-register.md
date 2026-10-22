@@ -656,8 +656,14 @@ the entry says so and it is listed under [Known differences](#known-differences)
   metric, an unrecognized type (not "minimum"/"maximum"), a missing or non-numeric threshold, or a
   non-numeric actual is UNRESOLVABLE, never silently skipped; a threshold of exactly 0 leaves headroom_pct
   `None` (undefined, not zero) but the status is still decided by direct comparison; a RECORDED value next to a
-  zero/negative denominator is ignored — the ratio is N/A whatever number is stored (issue #169)
-- **State keys:** —
+  zero/negative denominator is ignored — the ratio is N/A whatever number is stored (issue #169). A covenant is
+  tested only on its own `basis` (`borrower`, `consolidated` or `guarantor_group`; absent or null means
+  `borrower`): the engine states which one view the recorded ratios represent (`consolidated` when the state
+  records a `group_basis`, otherwise `borrower`), and a covenant on any other basis, or on a basis that is not one
+  of the three, is UNRESOLVABLE with a one-sentence reason — never tested against the figures that happen to be
+  recorded (issue #48). A result names its `basis` when the covenant stated one or the recorded view is not the
+  borrower's; an ordinary deal's results keep their earlier shape
+- **State keys:** `covenants[].basis`, `group_basis`
 - **Workbook rows:** —
 - **Policy outputs:** `covenant_results`
 - **Implemented in:** `scripts/policy_engine.py` — `_evaluate_covenant()` (called by
@@ -694,7 +700,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Unit and storage:** a list of breach records (year, metric, base_actual, downside_actual, threshold,
   breach_id, downside_status, reason); never mutates the base case
 - **Edge rules:** a breach is only recorded where the base case PASSes — a covenant already failing in the
-  base case is that failure, not a downside breach
+  base case is that failure, not a downside breach; a covenant whose basis is not the recorded view (F-038) is
+  UNRESOLVABLE in the base case, so it is never a downside breach
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `downside_covenant_breaches`
@@ -714,7 +721,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
   go unrecorded
 - **Edge rules:** a year with no projection (absent, null or empty) is not evaluated; state.json carries no
   covenant tenor, so "covered by the projection" is the whole definition — a covenant that really ends earlier
-  is still reported for later projected years
+  is still reported for later projected years; a covenant whose basis is not the recorded view (F-038) is
+  reported UNRESOLVABLE for every projected year, with its `basis`
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `forward_covenant_results`

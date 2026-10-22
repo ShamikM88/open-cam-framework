@@ -1737,8 +1737,8 @@ def test_sb_financial_writer_round_trips_raw_cells_derived_downside_and_formats(
         "Synthetic Co",
         str(output_path),
         financial_data={"FY-Current": {"revenue": 1000, "cost_of_sales": 400}},
-        downside_financial_data={"FY+1": {"revenue": 900}},
-        derived_downside_fields={"FY+1": {"revenue"}},
+        downside_financial_data={"FY+1": {"revenue": 900, "cost_of_sales": 400, "admin_expenses": 100}},
+        derived_downside_fields={"FY+1": {"revenue", "cost_of_sales", "admin_expenses"}},
     )
     workbook = openpyxl.load_workbook(output_path)
     try:
@@ -1751,7 +1751,11 @@ def test_sb_financial_writer_round_trips_raw_cells_derived_downside_and_formats(
         assert ws.cell(row=rows["Revenue"], column=4).value == 1000
         assert ws.cell(row=rows["Cost of Goods Sold"], column=4).value == 400
         assert ws.cell(row=rows["Revenue"], column=8).value == 900
-        assert ws.cell(row=rows["Gross Profit"], column=8).value is None
+        assert ws.cell(row=rows["Cost of Goods Sold"], column=8).value == 400
+        assert ws.cell(row=rows["Admin Expenses"], column=8).value == 100
+        assert ws.cell(row=rows["Gross Profit"], column=8).value == (
+            f"=H{rows['Revenue']}-H{rows['Cost of Goods Sold']}"
+        )
         assert ws.cell(row=rows["EBITDA"], column=8).value is None
         assert ws.cell(row=rows["Gross Profit"], column=4).value == (
             f"=D{rows['Revenue']}-D{rows['Cost of Goods Sold']}"

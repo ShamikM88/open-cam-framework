@@ -1670,3 +1670,57 @@ def test_dx_main_sanitizes_proposal_before_date_discovery_with_an_exact_error(tm
     assert captured.err == ""
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CL6, CL7): the mutants a test can still kill. `required=True` on the three flags was invisible to the
+# older test above because argparse's usage line names every flag, so `missing in err` is true whatever is missing.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("argv, required", [
+    ([], "--company, --proposal, --draft"),
+    (["--proposal", "P", "--draft", "d.md"], "--company"),
+    (["--company", "A", "--draft", "d.md"], "--proposal"),
+    (["--company", "A", "--proposal", "P"], "--draft"),
+])
+def test_cli_names_exactly_the_flags_that_are_missing(capsys, argv, required):
+    with pytest.raises(SystemExit) as caught:
+        main(argv)
+
+    assert caught.value.code == 2
+    assert capsys.readouterr().err.rstrip().endswith(f"error: the following arguments are required: {required}")
+
+
+def test_a_brand_new_deal_is_exported_into_a_folder_dated_year_month_day_by_the_clock(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    import deal_export
+
+    class FrozenDatetime:
+        @staticmethod
+        def now():
+            return datetime(2026, 3, 9, 13, 5, 7)
+
+    monkeypatch.setattr(deal_export, "datetime", FrozenDatetime)
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "corporate_credit_cam.md"))
+
+    folder = export_deal("Synthetic Co", "Synthetic Fleet Loan", "corporate_credit", "# memo\n", base_dir=base)
+
+    assert Path(folder) == tmp_path / "deals" / "Synthetic Co" / "Synthetic Fleet Loan_2026-03-09"
+    assert (Path(folder) / "Synthetic Co_Synthetic Fleet Loan_CAM.docx").is_file()
+
+
+def test_the_workbook_is_built_for_the_sanitised_company_and_written_beside_the_document(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr("deal_export.export_to_xlsx", lambda company, path, **kwargs: seen.update(company=company, path=path))
+    monkeypatch.setattr("deal_export.export_to_docx", lambda text, path: seen.update(docx=path))
+    base = str(tmp_path)
+    _write(os.path.join(base, "templates", "cam", "corporate_credit_cam.md"))
+
+    folder = export_deal("Synthetic Co", "Synthetic Fleet Loan", "corporate_credit", "# memo\n",
+                         date_str="2026-01-05", base_dir=base)
+
+    assert seen["company"] == "Synthetic Co"
+    assert Path(seen["path"]) == Path(folder) / "Synthetic Co_Synthetic Fleet Loan_Spreading.xlsx"
+    assert Path(seen["docx"]) == Path(folder) / "Synthetic Co_Synthetic Fleet Loan_CAM.docx"

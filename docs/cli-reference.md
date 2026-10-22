@@ -220,6 +220,10 @@ same state (`policy_check.compute_from_state()`), never on a different one.
   subsequent; recorded collateral, the security package and the policy check's security gaps; open gaps (a missing
   `spread` step, steps not recorded, `UNRESOLVABLE` counts, saved-source status); the recorded review verdict and
   iteration count, labelled historical; and a fixed limits section.
+- **Recorded text is shown literally:** a value, a key or a table header that holds a pipe, a line break or text that
+  the Word builder reads as markup (`*`, a backtick, `[`, `]`) cannot reshape the document or pass itself off as a
+  heading or emphasis: `|` becomes `/`, line breaks and runs of spaces become one space, and a value with markup
+  characters is shown as a code span (a backtick inside it becomes an apostrophe).
 - **Nothing new is computed or judged:** every figure is a recorded value or a policy-check output, an unrecorded term
   says "not recorded", and there is no verdict, grade or recommendation. The policy check runs without a draft, so
   draft-level audit findings are "not assessed"; `/review` owns them.

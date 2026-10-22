@@ -12,6 +12,7 @@ status: 0 written, 1 unusable input or state (one `error:` line on stderr), 2 a 
 """
 import json
 import os
+import re
 import sys
 import tempfile
 
@@ -41,19 +42,32 @@ LIMITS = (
 )
 
 
+# What the Word builder reads as inline markup: **bold**, *italic*, `code` and [text](url) links.
+INLINE_MARKUP = re.compile(r"[*`\[\]]")
+
+
 def _cell(value):
-    """One table cell: a recorded value as stored (None is N/A), flattened so it cannot break the table."""
+    """A recorded value as stored (None is N/A), on one line, safe to put in a table cell, a bullet or a label.
+
+    Text a record could use to break the layout or to pass itself off as markup is neutralised: `|` becomes `/`,
+    runs of white space and line breaks become one space, and a value containing inline markup characters is shown as a code span so it
+    reads literally (a backtick inside it becomes an apostrophe, because a code span cannot contain one).
+    """
     if value is None:
         return "N/A"
     if isinstance(value, bool):
         return "yes" if value else "no"
     if isinstance(value, (dict, list)):
         value = json.dumps(value, sort_keys=True, ensure_ascii=False)
-    return str(value).replace("|", "/").replace("\r", " ").replace("\n", " ").strip() or NOT_RECORDED
+    text = " ".join(str(value).replace("|", "/").split()) or NOT_RECORDED
+    if INLINE_MARKUP.search(text):
+        text = "`" + text.replace("`", "'") + "`"
+    return text
 
 
 def _table(headers, rows):
-    lines = ["| " + " | ".join(headers) + " |", "| " + " | ".join(":---" for _ in headers) + " |"]
+    lines = ["| " + " | ".join(_cell(header) for header in headers) + " |",
+             "| " + " | ".join(":---" for _ in headers) + " |"]
     lines.extend("| " + " | ".join(_cell(value) for value in row) + " |" for row in rows)
     return lines
 
@@ -155,7 +169,7 @@ def render_markdown(data):
 
     inputs = state.get("inputs") if isinstance(state.get("inputs"), dict) else {}
     lines += ["## Facility and key terms", ""]
-    lines += [f"- **{key}:** {_cell(value)}" for key, value in inputs.items()]
+    lines += [f"- **{_cell(key)}:** {_cell(value)}" for key, value in inputs.items()]
     lines += [f"- **Facility amount, tenor and pricing:** {NOT_RECORDED} in state.json", ""]
     guarantees = state.get("guarantees") if isinstance(state.get("guarantees"), list) else []
     if guarantees:

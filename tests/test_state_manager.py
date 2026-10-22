@@ -2942,3 +2942,118 @@ def test_408_require_later_than_newest_keeps_the_full_refusal_tail(tmp_path):
         "existing state-bearing review (2025-06-01) for this exact company and proposal; "
         "nothing was changed."
     )
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CL10): the survivors a test can still kill. The older cleanup test makes remove and rmdir fail
+# together, which hides each failure flag behind the other; these isolate them.
+# ---------------------------------------------------------------------------
+
+def _folder_that_fails_to_write(tmp_path):
+    target_dir = tmp_path / "deals" / "Synthetic Co" / "Credit Facility_2026-04-15"
+    target_dir.parent.mkdir(parents=True)
+    return target_dir, target_dir / "state.json"
+
+
+def _create_with_disk_full(monkeypatch, target_dir, target_state_path, **patches):
+    def failing_dump(*args, **kwargs):
+        raise OSError("disk full")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(state_manager.json, "dump", failing_dump)
+        for name, replacement in patches.items():
+            patched.setattr(state_manager.os, name, replacement)
+        with pytest.raises(state_manager.StateError) as caught:
+            state_manager._create_review_folder(
+                str(target_dir), str(target_state_path), {"company": "Synthetic Co", "proposal": "Credit Facility"})
+    return str(caught.value)
+
+
+def test_a_clean_failure_says_the_created_folder_was_removed_and_leaves_nothing(tmp_path, monkeypatch):
+    target_dir, target_state_path = _folder_that_fails_to_write(tmp_path)
+
+    message = _create_with_disk_full(monkeypatch, target_dir, target_state_path)
+
+    assert message == ("Could not start the review: disk full; "
+                       "the folder this call created was removed and nothing was changed.")
+    assert not target_dir.exists()
+
+
+def test_a_leftover_that_cannot_be_removed_is_reported_even_when_the_folder_removal_is_pretended_to_work(
+    tmp_path, monkeypatch,
+):
+    target_dir, target_state_path = _folder_that_fails_to_write(tmp_path)
+
+    def refused(*args, **kwargs):
+        raise OSError("remove refused")
+
+    message = _create_with_disk_full(monkeypatch, target_dir, target_state_path, remove=refused,
+                                     rmdir=lambda *args, **kwargs: None)
+
+    assert message == (f"Could not start the review: disk full; the new folder {target_dir} "
+                       "could not be removed and should be deleted by hand.")
+
+
+def test_a_folder_that_cannot_be_removed_is_reported_even_when_every_leftover_file_was_removed(tmp_path, monkeypatch):
+    target_dir, target_state_path = _folder_that_fails_to_write(tmp_path)
+
+    def refused(*args, **kwargs):
+        raise OSError("rmdir refused")
+
+    message = _create_with_disk_full(monkeypatch, target_dir, target_state_path, rmdir=refused)
+
+    assert message == (f"Could not start the review: disk full; the new folder {target_dir} "
+                       "could not be removed and should be deleted by hand.")
+    assert list(target_dir.iterdir()) == []
+
+
+def test_review_candidates_use_the_given_base_dir_for_the_known_company_check(tmp_path, monkeypatch):
+    base, elsewhere = tmp_path / "base", tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    write_state("Synthetic Co", "Credit Facility", date_str="2026-01-01", base_dir=str(base), marker=1)
+    monkeypatch.chdir(elsewhere)
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-05-01", base_dir=str(base))
+
+    assert [c["date"] for c in report["candidates"]] == ["2026-01-01"]
+
+
+def test_a_candidate_whose_state_vanishes_is_left_out_and_the_older_ones_are_still_offered(tmp_path, monkeypatch):
+    for date_str in ("2026-01-01", "2026-02-01", "2026-03-01"):
+        write_state("Synthetic Co", "Credit Facility", date_str=date_str, base_dir=str(tmp_path), marker=date_str)
+    real_read_state = state_manager.read_state
+
+    def vanishing_middle(company, proposal, date_str=None, **kwargs):
+        return None if date_str == "2026-02-01" else real_read_state(company, proposal, date_str=date_str, **kwargs)
+
+    monkeypatch.setattr(state_manager, "read_state", vanishing_middle)
+
+    report = state_manager.get_review_candidates(
+        "Synthetic Co", "Credit Facility", date_str="2026-05-01", base_dir=str(tmp_path))
+
+    assert [c["date"] for c in report["candidates"]] == ["2026-03-01", "2026-01-01"]
+    assert report["default_prior_date"] == "2026-03-01" and report["skipped"] == []
+
+
+def test_start_review_takes_its_lock_on_the_proposal_start_file_in_the_company_folder(tmp_path, monkeypatch):
+    write_state("Synthetic Co", "Credit Facility", date_str="2026-01-01", base_dir=str(tmp_path), marker=1)
+    taken = []
+
+    class RecordingLock:
+        def __init__(self, path, timeout=None):
+            taken.append((path, timeout))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(state_manager, "_FileLock", RecordingLock)
+
+    state_manager.start_review("Synthetic Co", "Credit Facility", date_str="2026-05-01", no_prior=True,
+                               base_dir=str(tmp_path))
+
+    assert taken == [(os.path.join(str(tmp_path), "deals", "Synthetic Co", "Credit Facility.start"),
+                      state_manager.LOCK_TIMEOUT_SECONDS)]

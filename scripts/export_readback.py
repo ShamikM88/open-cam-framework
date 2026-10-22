@@ -225,20 +225,22 @@ def _run_signature(run):
     if color is not None and color.type is not None:
         rgb, theme = _text_value(color.rgb), _text_value(color.theme_color)
     return ["run", run.text, bool(run.bold), bool(run.italic), _text_value(font.underline), bool(font.strike),
-            font.name, _points(font.size), rgb, theme, _text_value(font.highlight_color)]
+            font.name, _points(font.size), rgb, theme, _text_value(font.highlight_color),
+            _text_value(font.superscript), _text_value(font.subscript), bool(font.all_caps), bool(font.small_caps),
+            bool(font.hidden)]
 
 
-def _paragraph_block(document, paragraph):
+def _paragraph_block(part, paragraph):
     parts = []
     for item in paragraph.iter_inner_content():
         if isinstance(item, Hyperlink):
-            parts.append(["link", item.url, item.text])
+            parts.append(["link", item.url, [_run_signature(run) for run in item.runs]])
         else:
             parts.append(_run_signature(item))
     images = []
     for blip in paragraph._p.xpath(".//a:blip/@r:embed"):
-        part = document.part.related_parts.get(blip)
-        images.append(hashlib.sha256(part.blob).hexdigest() if part is not None else None)
+        related = part.related_parts.get(blip)
+        images.append(hashlib.sha256(related.blob).hexdigest() if related is not None else None)
     alt_texts = list(paragraph._p.xpath(".//wp:docPr/@descr"))
     layout = paragraph.paragraph_format
     return {"type": "paragraph", "style": paragraph.style.name, "parts": parts, "image_hashes": images,
@@ -247,12 +249,57 @@ def _paragraph_block(document, paragraph):
                        _points(layout.space_after), _text_value(layout.line_spacing)]}
 
 
+# The direct table and cell formatting that changes how a table looks: shading, borders, widths, vertical alignment
+# and spanning. Read from the XML because python-docx does not expose most of it.
+TABLE_LAYOUT_XPATH = ("./w:tblPr/w:tblW | ./w:tblPr/w:jc | ./w:tblPr/w:shd | ./w:tblPr/w:tblLayout | "
+                      "./w:tblPr/w:tblBorders/*")
+CELL_LAYOUT_XPATH = ("./w:tcPr/w:tcW | ./w:tcPr/w:shd | ./w:tcPr/w:vAlign | ./w:tcPr/w:gridSpan | "
+                     "./w:tcPr/w:vMerge | ./w:tcPr/w:tcBorders/*")
+
+
+def _layout_properties(element, xpath):
+    return [[node.tag.rsplit("}", 1)[-1], sorted((key.rsplit("}", 1)[-1], value) for key, value in node.attrib.items())]
+            for node in element.xpath(xpath)]
+
+
+def _table_block(part, table):
+    return {"type": "table", "style": table.style.name if table.style is not None else None,
+            "layout": _layout_properties(table._tbl, TABLE_LAYOUT_XPATH),
+            "rows": [[{"layout": _layout_properties(cell._tc, CELL_LAYOUT_XPATH),
+                       "paragraphs": [_paragraph_block(part, paragraph) for paragraph in cell.paragraphs]}
+                      for cell in row.cells] for row in table.rows]}
+
+
+def _blocks(element, parent, part):
+    """The paragraphs and tables directly under `element` (the body, a header or a footer), in order."""
+    blocks = []
+    for child in element.iterchildren():
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag == "p":
+            blocks.append(_paragraph_block(part, Paragraph(child, parent)))
+        elif tag == "tbl":
+            blocks.append(_table_block(part, Table(child, parent)))
+    return blocks
+
+
+def _story_signature(story):
+    """A header or footer: whether it is inherited from the previous section, and otherwise its own content."""
+    if story.is_linked_to_previous:
+        return {"linked": True}
+    return {"linked": False, "blocks": _blocks(story._element, story, story.part)}
+
+
 def _section_block(section):
     return {"type": "section", "page": [_points(section.page_width), _points(section.page_height),
                                         _text_value(section.orientation)],
             "margins": [_points(section.left_margin), _points(section.right_margin), _points(section.top_margin),
                         _points(section.bottom_margin)],
-            "header": [p.text for p in section.header.paragraphs], "footer": [p.text for p in section.footer.paragraphs]}
+            "different_first_page": bool(section.different_first_page_header_footer),
+            "header": _story_signature(section.header), "footer": _story_signature(section.footer),
+            "first_page_header": _story_signature(section.first_page_header),
+            "first_page_footer": _story_signature(section.first_page_footer),
+            "even_page_header": _story_signature(section.even_page_header),
+            "even_page_footer": _story_signature(section.even_page_footer)}
 
 
 def _document_sections(document):
@@ -260,17 +307,7 @@ def _document_sections(document):
 
 
 def _document_blocks(document):
-    blocks = []
-    for child in document.element.body.iterchildren():
-        tag = child.tag.rsplit("}", 1)[-1]
-        if tag == "p":
-            blocks.append(_paragraph_block(document, Paragraph(child, document)))
-        elif tag == "tbl":
-            table = Table(child, document)
-            blocks.append({"type": "table", "style": table.style.name if table.style is not None else None,
-                           "rows": [[[_paragraph_block(document, paragraph) for paragraph in cell.paragraphs]
-                                     for cell in row.cells] for row in table.rows]})
-    return blocks
+    return _blocks(document.element.body, document, document.part)
 
 
 def compare_documents(expected_path, actual_path):

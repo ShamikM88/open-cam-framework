@@ -223,9 +223,12 @@ selection `deal_export.py` uses) and the expected document from the approved Mar
   sheet whose used range is larger than 1,000,000 positions (one stray cell in the far corner does that) is refused
   rather than compared.
 - **Document:** the body blocks in order: each paragraph's style, alignment and spacing, every run's text, bold,
-  italic, underline, strike, font, size, colour and highlight, hyperlink targets, embedded image hashes and alt
-  text; each table's style and, per cell, the same paragraph detail; and each section's page size, orientation,
-  margins, header and footer text. Comments, footnotes, text boxes, themes and file properties are not compared.
+  italic, underline, strike, font, size, colour, highlight, superscript, subscript and capitals, hyperlink targets
+  with the formatting of the link text, embedded image hashes and alt text; each table's style, direct layout
+  (shading, borders, widths, vertical alignment, spanning) and, per cell, the same paragraph detail; and each
+  section's page size, orientation, margins and its headers and footers (including first-page and even-page ones,
+  and whether each is inherited), compared with the same paragraph, table and image detail as the body. Comments,
+  footnotes, text boxes, themes and file properties are not compared.
 - **Output:** one JSON object on stdout: `status` (`match` or `mismatch`), `selected_folder`, the two artifacts' paths
   and counts, `mismatch_count`, up to 200 `findings` (each `artifact`, `location`, `kind`, `expected`, `actual`;
   `truncated` is `true` when there were more) and `limits`. Exit `0` on a match and `1` on a mismatch.

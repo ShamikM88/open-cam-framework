@@ -272,7 +272,7 @@ def test_value_equality_rules(expected, actual, equal):
 
 def cell_texts(row):
     """The plain text of each cell of a table row as the verifier records it (a list of paragraph blocks per cell)."""
-    return ["".join(part[1] for block in cell for part in block["parts"]) for cell in row]
+    return ["".join(part[1] for block in cell["paragraphs"] for part in block["parts"]) for cell in row]
 
 
 def paragraph_with(document, text):
@@ -716,7 +716,10 @@ def test_a_changed_page_margin_header_or_footer_is_reported_as_a_section_differe
 
     edit_document(edit_footer)
     finding, = verify()["findings"]
-    assert finding["location"] == "section 1" and finding["actual"]["footer"] == ["Edited footer"]
+    assert finding["location"] == "section 1" and finding["expected"]["footer"] == {"linked": True}
+    footer_blocks = finding["actual"]["footer"]["blocks"]
+    assert finding["actual"]["footer"]["linked"] is False
+    assert "Edited footer" in json.dumps(footer_blocks)
 
 
 def test_the_limits_name_what_is_still_not_compared(deal):
@@ -771,3 +774,94 @@ def test_a_chart_part_without_a_range_reads_as_none():
     assert export_readback._reference(SimpleNamespace(numRef=None, strRef=None)) is None
     assert export_readback._reference(SimpleNamespace(numRef=None, strRef=SimpleNamespace(f="A1:B1"))) == "A1:B1"
     assert export_readback._reference(SimpleNamespace(v="a literal name")) is None
+
+
+# ---------------------------------------------------------------------------
+# Second-pass review fixes (CH5, CH6, CH7): header and footer content, superscript and hyperlink formatting, and
+# direct table layout
+# ---------------------------------------------------------------------------
+
+from docx.enum.table import WD_ALIGN_VERTICAL  # noqa: E402
+from docx.oxml import parse_xml  # noqa: E402
+from docx.oxml.ns import nsdecls  # noqa: E402
+
+
+def document_with_header_image(png_bytes, tmp_path, name):
+    picture = tmp_path / f"{name}.png"
+    picture.write_bytes(png_bytes)
+    document = docx.Document()
+    header = document.sections[0].header
+    header.is_linked_to_previous = False
+    header.paragraphs[0].add_run().add_picture(str(picture))
+    return document
+
+
+def test_a_swapped_header_image_is_a_section_difference(tmp_path):
+    """CH5: header and footer content used to be read as text only, so a different logo read as a match."""
+    original = document_with_header_image(PNG_1X1, tmp_path, "one")
+    swapped = document_with_header_image(OTHER_PNG, tmp_path, "two")
+
+    assert export_readback._document_sections(original) != export_readback._document_sections(swapped)
+    header = export_readback._document_sections(original)[0]["header"]
+    assert header["linked"] is False and header["blocks"][0]["image_hashes"][0] is not None
+
+
+def test_a_header_table_or_linked_status_is_part_of_the_section_signature(tmp_path):
+    plain, with_table = docx.Document(), docx.Document()
+    story = with_table.sections[0].footer
+    story.is_linked_to_previous = False
+    story.add_table(1, 1, 5000).cell(0, 0).text = "Total"
+
+    assert export_readback._document_sections(plain)[0]["footer"] == {"linked": True}
+    assert "Total" in json.dumps(export_readback._document_sections(with_table)[0]["footer"])
+
+
+def test_a_run_changed_to_superscript_is_reported(deal):
+    """CH6: superscript and subscript were not part of the run signature."""
+    edit_document(lambda document: setattr(first_bullet_run(document).font, "superscript", True))
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph" and finding["expected"]["parts"] != finding["actual"]["parts"]
+
+
+def test_a_hyperlink_whose_visible_formatting_changed_is_reported(deal):
+    """CH6: a hyperlink kept only its target and text, so white one-point link text read as a match."""
+    def hide(document):
+        paragraph = paragraph_with(document, "synthetic link")
+        link = next(item for item in paragraph.iter_inner_content() if hasattr(item, "url"))
+        link.runs[0].font.size = Pt(1)
+        link.runs[0].font.color.rgb = RGBColor(255, 255, 255)
+
+    edit_document(hide)
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "paragraph"
+    assert "https://example.invalid/page" in json.dumps(finding["actual"]["parts"])
+    assert finding["expected"]["parts"] != finding["actual"]["parts"]
+
+
+def shade_cell(document):
+    cell = document.tables[0].cell(1, 1)
+    cell._tc.get_or_add_tcPr().append(parse_xml(f'<w:shd {nsdecls("w")} w:val="clear" w:fill="FFFF00"/>'))
+
+
+TABLE_EDITS = {
+    "shading": shade_cell,
+    "width": lambda document: setattr(document.tables[0].cell(1, 1), "width", Inches(2)),
+    "vertical alignment": lambda document: setattr(document.tables[0].cell(1, 1), "vertical_alignment",
+                                                   WD_ALIGN_VERTICAL.CENTER),
+    "table borders": lambda document: document.tables[0]._tbl.tblPr.append(parse_xml(
+        f'<w:tblBorders {nsdecls("w")}><w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/></w:tblBorders>')),
+}
+
+
+@pytest.mark.parametrize("name", sorted(TABLE_EDITS))
+def test_a_change_to_direct_table_or_cell_layout_is_reported(deal, name):
+    """CH7: shading, borders, widths and alignment applied directly were invisible to the comparison."""
+    edit_document(TABLE_EDITS[name])
+
+    finding, = verify()["findings"]
+
+    assert finding["kind"] == "table" and finding["expected"] != finding["actual"]

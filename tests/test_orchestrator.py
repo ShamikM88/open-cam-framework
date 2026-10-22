@@ -2656,13 +2656,25 @@ def test_run_pipeline_refuses_an_entity_keyed_input_before_any_model_call_or_wri
     assert not (project_root / "deals").exists()
 
 
+def _recomputed_group_basis():
+    """A valid group_basis whose figures the framework recomputes (so it agrees with a framework-computed deal)."""
+    return {
+        "basis": "supplied_consolidated", "reporting_entity": "Synthetic Group Ltd",
+        "entities_covered": ["Synthetic Group Ltd", "Synthetic Group OpCo"],
+        "source": {"document": "Borrower-supplied consolidated accounts", "accounting_basis": "UK GAAP",
+                   "date": "2026-08-31"},
+        "period_end": "2026-03-31", "periods": ["FY-Current"], "figures_basis": "recomputed",
+        "perimeter_confirmed": True, "perimeter_confirmed_on": "2026-10-21",
+    }
+
+
 def test_run_pipeline_hands_the_states_group_basis_to_the_policy_engine(project_root, monkeypatch):
     import orchestrator
 
     seen = []
     real = orchestrator.evaluate_deal_policy
     monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
-    group_basis = {"basis": "supplied_consolidated"}
+    group_basis = _recomputed_group_basis()
     write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
                 group_basis=group_basis,
                 covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"}])
@@ -2688,3 +2700,30 @@ def test_run_pipeline_passes_no_group_basis_for_an_ordinary_deal(project_root, m
                  client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1)
 
     assert seen and all(call["group_basis"] is None for call in seen)
+
+
+def test_run_pipeline_refuses_a_malformed_group_basis_before_any_model_call_or_write(project_root):
+    """CH4: a group_basis that is an object but incomplete used to be believed, making a consolidated covenant PASS."""
+    from state_manager import StateShapeError
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
+                group_basis={"basis": "supplied_consolidated"}, ratios={"FY-Current": {"dscr": 1.4}},
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"}])
+    client = MockClient([])
+    before = (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes()
+
+    with pytest.raises(StateShapeError, match="group_basis"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    assert client.call_count == 0
+    assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before
+
+
+def test_run_pipeline_refuses_a_group_basis_that_contradicts_the_financials_source(project_root):
+    from state_manager import StateShapeError
+    group_basis = dict(_recomputed_group_basis(), figures_basis="supplied")
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
+                financials_source="framework-computed", group_basis=group_basis)
+
+    with pytest.raises(StateShapeError, match="financials_source"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     client=MockClient([]))

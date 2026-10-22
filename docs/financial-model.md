@@ -142,8 +142,9 @@ accounts), the consolidated group's. A covenant on a different basis than the re
 reason that says so, and so is a covenant whose basis is not one of the three: the engine never tests it against the
 figures that happen to be recorded. Example: a deal that records consolidated group accounts and a covenant on the
 borrower's own DSCR (the default, because the covenant states no basis) is UNRESOLVABLE until the covenant states its
-basis or borrower figures are recorded. Nothing is refused; the engine computes, reports the result, and the
-interactive steps ask the analyst to confirm any UNRESOLVABLE result (decision of 2026-10-22 on #48).
+basis or borrower figures are recorded. Nothing is refused; the engine computes and reports the result. The
+decided next step, delivered by a separate change and not yet in the commands, is that the interactive steps will
+stop and ask the analyst to confirm any UNRESOLVABLE result (decision of 2026-10-22 on #48).
 
 ## Covenants
 

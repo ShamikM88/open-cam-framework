@@ -36,6 +36,8 @@ from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
     StateError,
+    state_path,
+    validate_state,
     write_state,
     append_review_trail,
     read_state,
@@ -542,6 +544,9 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                 file=sys.stderr,
             )
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
+    # The policy engine reads a recorded group_basis as "these figures are the consolidated group's"; a malformed or
+    # inconsistent record must stop the run here, as it does in policy_check and the exporter, not be believed.
+    validate_state(existing_state, keys=("group_basis",), path=state_path(company, proposal, date_str=date_str))
     steps_completed = list(existing_state.get("steps_completed") or [])
 
     if multi_period_financials and existing_state.get("financials_source") == "analyst-supplied":

@@ -641,13 +641,25 @@ def test_an_empty_api_key_counts_as_no_key(project_root, monkeypatch, capsys):
 
 
 def test_with_an_api_key_the_real_path_is_taken_not_the_mock(project_root, monkeypatch, capsys):
+    import anthropic
+
     _sample_pdf(project_root)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     client = MockClient(["REAL STYLE GUIDE", "REAL TEMPLATE"])
-    monkeypatch.setattr(calibrate, "client", client)
+    constructions = []
+
+    def fake_anthropic(**kwargs):
+        constructions.append(kwargs)
+        return client
+
+    monkeypatch.setattr(calibrate, "client", None)
+    monkeypatch.setattr(anthropic, "Anthropic", fake_anthropic)
 
     run_calibration("asset_finance", mock=False)
 
+    assert constructions == [{"api_key": "test-key"}]
+    assert calibrate.client is client
+    assert calibrate._get_client() is client  # a second lookup reuses the cached client
     assert AUTO_MOCK_NOTICE not in capsys.readouterr().out
     assert len(client.calls) == 2
     style_guide = (project_root / "config" / "style_guide.md").read_text(encoding="utf-8")

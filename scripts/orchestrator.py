@@ -4,8 +4,6 @@ import os
 import sys
 import argparse
 
-from anthropic import Anthropic
-
 from deal_export import export_deal
 from policy_checks import (
     FENCED_JSON_RE,
@@ -169,6 +167,8 @@ def _has_credentials(client):
 
 
 def _default_client():
+    from anthropic import Anthropic
+
     # `or None`: an empty ANTHROPIC_API_KEY is "not set", so the SDK may still use a token or profile.
     client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY") or None)
     if not _has_credentials(client):

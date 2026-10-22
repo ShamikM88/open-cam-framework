@@ -42,8 +42,9 @@ LIMITS = (
 )
 
 
-# What the Word builder reads as inline markup: **bold**, *italic*, `code` and [text](url) links.
-INLINE_MARKUP = re.compile(r"[*`\[\]]")
+# What the Word builder reads as inline markup (**bold**, *italic*, `code`, [text](url) links), and the angle
+# brackets a Markdown renderer would read as an HTML tag in the .md file.
+INLINE_MARKUP = re.compile(r"[*`\[\]<>]")
 
 
 def _cell(value):
@@ -140,7 +141,7 @@ def render_markdown(data):
     """The summary as Markdown, from the data `collect()` gathered. Pure: no file or state access."""
     state, policy = data["state"], data["policy"]
     steps = state.get("steps_completed") if isinstance(state.get("steps_completed"), list) else []
-    lines = [f"# Committee summary: {data['company']} / {data['proposal']}", ""]
+    lines = [f"# Committee summary: {_cell(data['company'])} / {_cell(data['proposal'])}", ""]
 
     source = state.get("financials_source")
     basis = _cell(source) if source else f"{NOT_RECORDED} (read as framework-computed)"

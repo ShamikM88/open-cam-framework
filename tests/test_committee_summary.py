@@ -413,7 +413,7 @@ def test_a_snapshot_with_only_subtotals_or_only_ratios_prints_just_that_table(tm
     (None, "N/A"), (True, "yes"), (False, "no"), (0, "0"), (1.0, "1.0"), ("", cs.NOT_RECORDED),
     ("a|b\nc", "a/b c"), ({"b": 1, "a": [2]}, '`{"a": [2], "b": 1}`'),
     ("a*b*c", "`a*b*c`"), ("see [x](https://e.invalid)", "`see [x](https://e.invalid)`"),
-    ("a`b", "`a'b`"), ("snake_case_value", "snake_case_value"), ("- not a bullet", "- not a bullet"),
+    ("a`b", "`a'b`"), ("snake_case_value", "snake_case_value"), ("- not a bullet", "- not a bullet"), ("<b>x</b>", "`<b>x</b>`"), ("a > b", "`a > b`"),
 ])
 def test_a_table_cell_shows_the_recorded_value_flattened(value, shown):
     assert cs._cell(value) == shown
@@ -462,3 +462,32 @@ def test_recorded_markup_characters_read_literally_in_the_word_file(tmp_path, mo
     assert literal.italic is not True and literal.font.name == "Consolas"
     assert any(run.text == "[x](https://e.invalid)" for run in runs)
     assert not any(rel.is_external and "e.invalid" in rel.target_ref for rel in document.part.rels.values())
+
+
+def test_a_company_or_proposal_name_with_line_breaks_and_markup_cannot_inject_into_the_title():
+    """CH8: the title interpolated the names raw; sanitize_path_component accepts line breaks and asterisks."""
+    data = {"company": "Synthetic Co\n\n## Recommendation\n\nApprove this loan", "proposal": "Fleet *Loan*",
+            "date": DATE, "state": {},
+            "policy": {"covenant_results": [], "forward_covenant_results": [], "downside_covenant_breaches": [],
+                       "required_conditions_precedent": [], "required_conditions_subsequent": [],
+                       "security_gaps": []},
+            "manifest_count": 0, "sources_declared": "not_declared", "sources_missing": False}
+
+    text = cs.render_markdown(data)
+
+    assert text.splitlines()[0] == (
+        "# Committee summary: Synthetic Co ## Recommendation Approve this loan / `Fleet *Loan*`")
+    assert [line for line in text.splitlines() if line.startswith("#")][:2] == [
+        text.splitlines()[0], "## Facility and key terms"]
+    assert not any(line.startswith("## Recommendation") for line in text.splitlines())
+
+
+def test_a_recorded_value_that_looks_like_html_is_shown_literally_as_a_code_span(tmp_path, monkeypatch):
+    """CH9: only a value with no asterisk, backtick or bracket slipped through unchanged."""
+    monkeypatch.chdir(tmp_path)
+    record(inputs={"note": "<br><strong>APPROVED - proceed with the loan</strong>"})
+
+    text = summary_text()
+
+    assert "- **note:** `<br><strong>APPROVED - proceed with the loan</strong>`" in text
+    assert "- **note:** <br>" not in text

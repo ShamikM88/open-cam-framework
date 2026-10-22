@@ -659,6 +659,7 @@ def test_with_an_api_key_the_real_path_is_taken_not_the_mock(project_root, monke
 
     assert constructions == [{"api_key": "test-key"}]
     assert calibrate.client is client
+    assert calibrate._get_client() is client  # a second lookup reuses the cached client
     assert AUTO_MOCK_NOTICE not in capsys.readouterr().out
     assert len(client.calls) == 2
     style_guide = (project_root / "config" / "style_guide.md").read_text(encoding="utf-8")

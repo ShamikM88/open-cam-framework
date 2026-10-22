@@ -130,7 +130,9 @@ edit after export, or an export left stale by a later change to the record, is f
 `python scripts/committee_summary.py` writes a short `<Company>_<Proposal>_Committee_Summary.md` and `.docx` beside the
 CAM from the deal's recorded state: key recorded terms, financial snapshot, covenant results, conditions, security and
 open gaps. It quotes recorded values and the deterministic policy check only, and it is a meeting aid, not a credit
-decision or a replacement for the CAM. See [Committee summary](cli-reference.md#committee-summary).
+decision or a replacement for the CAM. A current, forward or downside-breach covenant table shows a `basis` column only
+when at least one result row carries that key; missing row keys display as `borrower` in such a table, while tables
+with no basis key retain their legacy layout. See [Committee summary](cli-reference.md#committee-summary).
 
 ## The research brief
 

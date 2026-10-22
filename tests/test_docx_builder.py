@@ -686,7 +686,7 @@ def test_408_split_row_does_not_index_past_a_terminal_backslash():
 
 
 def test_408_closing_fence_can_be_the_line_immediately_after_opening():
-    assert docx_builder._find_closing_fence([```, ```], 0) == 1
+    assert docx_builder._find_closing_fence(["```", "```"], 0) == 1
 
 
 def test_408_empty_list_is_not_a_table_separator_row():

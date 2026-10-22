@@ -1480,3 +1480,426 @@ def test_evaluate_downside_case_still_ignores_historical_periods_and_accepts_no_
     )
     assert list(result["financials"]) == ["FY+1"]
     assert evaluate_downside_case(None, {}) == {"financials": {}, "ratios": {}}
+
+# ---------------------------------------------------------------------------
+# Issue #219: targeted mutation-survivor assertions for spreading_builder.
+# The fixtures here are synthetic, and the exported workbooks are read back
+# from the saved XLSX rather than relying only on the in-memory writer state.
+# ---------------------------------------------------------------------------
+
+def test_sb_stress_shocks_apply_each_assumption_to_its_exact_raw_figure():
+    revenue = apply_stress_shocks(
+        {"revenue": 1000, "admin_expenses": 100, "interest_paid": 30},
+        {"revenue_haircut_pct": 10},
+    )
+    assert revenue["revenue"] == 900
+    assert revenue["admin_expenses"] == 100
+    assert revenue["interest_paid"] == 30
+
+    opex = apply_stress_shocks(
+        {"revenue": 1000, "admin_expenses": 100, "cost_of_sales": 400, "interest_paid": 30},
+        {"opex_increase_pct": 5},
+    )
+    assert opex["admin_expenses"] == 105
+    assert opex["cost_of_sales"] == 400
+    assert opex["revenue"] == 1000
+    assert opex["interest_paid"] == 30
+
+    interest = apply_stress_shocks(
+        {
+            "interest_paid": 30,
+            "current_debt": 15,
+            "overdraft": 5,
+            "long_term_debt": 300,
+            "loan_notes": 25,
+        },
+        {"interest_rate_bump_bps": 200},
+    )
+    assert interest["interest_paid"] == 36.9
+    assert interest["current_debt"] == 15
+    assert interest["overdraft"] == 5
+    assert interest["long_term_debt"] == 300
+    assert interest["loan_notes"] == 25
+
+
+@pytest.mark.parametrize(
+    "assumption",
+    ["revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps"],
+)
+def test_sb_apply_stress_shocks_refuses_each_non_finite_assumption_with_exact_text(assumption):
+    with pytest.raises(ValueError) as caught:
+        apply_stress_shocks({}, {assumption: float("nan")})
+
+    assert str(caught.value) == f"non-finite numeric value at stress assumptions['{assumption}']: nan"
+
+
+@pytest.mark.parametrize(
+    "assumption",
+    ["revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps"],
+)
+def test_sb_evaluate_downside_case_refuses_each_non_finite_assumption_with_exact_text(assumption):
+    with pytest.raises(ValueError) as caught:
+        evaluate_downside_case({"FY+1": {"revenue": 100}}, {assumption: float("nan")})
+
+    assert str(caught.value) == f"non-finite numeric value at stress assumptions['{assumption}']: nan"
+
+
+def test_sb_stress_defaults_for_missing_raw_figures_are_exact_zeroes():
+    assert apply_stress_shocks(
+        {},
+        {"revenue_haircut_pct": 10, "opex_increase_pct": 5},
+    ) == {"revenue": 0, "admin_expenses": 0, "interest_paid": 0}
+
+
+def test_sb_interest_rate_bump_defaults_every_missing_debt_component_to_zero():
+    assert apply_stress_shocks({}, {"interest_rate_bump_bps": 10000}) == {
+        "revenue": 0,
+        "admin_expenses": 0,
+        "interest_paid": 0,
+    }
+
+
+def test_sb_apply_stress_shocks_refusal_for_non_finite_base_and_overflow_is_exact():
+    with pytest.raises(ValueError) as raw_error:
+        apply_stress_shocks({"revenue": float("nan")}, {})
+    assert str(raw_error.value) == "non-finite numeric value at financial inputs['revenue']: nan"
+
+    with pytest.raises(ValueError) as shocked_error:
+        apply_stress_shocks(
+            {"revenue": 1.7e308},
+            {"revenue_haircut_pct": -1.7e308},
+        )
+    assert str(shocked_error.value) == "non-finite numeric value at stressed financial inputs['revenue']: inf"
+
+
+def test_sb_evaluate_downside_case_refusal_for_non_finite_financial_input_is_exact():
+    with pytest.raises(ValueError) as caught:
+        evaluate_downside_case({"FY+1": {"revenue": float("nan")}}, {})
+
+    assert str(caught.value) == "non-finite numeric value at financial inputs['FY+1']['revenue']: nan"
+
+
+def test_sb_evaluate_financial_model_exactly_calculates_the_registered_subtotals():
+    from spreading_builder import _ratio
+
+    raw = {
+        "revenue": 1000,
+        "cost_of_sales": 400,
+        "admin_expenses": 100,
+        "depreciation": 50,
+        "amortisation": 20,
+        "other_income": 10,
+        "interest_paid": 30,
+        "interest_received": 4,
+        "exceptional_costs": 7,
+        "capex": 40,
+        "tax_paid": 25,
+        "cash": 80,
+        "trade_debtors": 20,
+        "stock": 30,
+        "other_current_assets": 10,
+        "tangible_assets": 200,
+        "intangible_assets": 30,
+        "other_fixed_assets": 40,
+        "trade_creditors": 10,
+        "current_debt": 15,
+        "overdraft": 5,
+        "other_current_liabilities": 2,
+        "long_term_debt": 300,
+        "loan_notes": 25,
+        "other_long_term_liabilities": 8,
+        "provisions": 12,
+        "share_capital": 100,
+        "retained_profit": 70,
+    }
+    result = evaluate_financial_model({"FY-Current": raw})
+    financials = result["financials"]["FY-Current"]
+
+    assert set(financials) == {
+        "raw", "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit",
+        "fcf", "current_assets", "current_liabilities", "total_assets", "total_liabilities",
+        "total_equity", "total_debt", "tangible_net_worth",
+    }
+    assert financials["raw"] == raw
+    assert financials["gross_profit"] == 600
+    assert financials["operating_profit"] == 440
+    assert financials["ebitda"] == 510
+    assert financials["profit_before_tax"] == 407
+    assert financials["net_profit"] == 382
+    assert financials["fcf"] == 419
+    assert financials["current_assets"] == 140
+    assert financials["current_liabilities"] == 32
+    assert financials["total_assets"] == 410
+    assert financials["total_liabilities"] == 377
+    assert financials["total_equity"] == 170
+    assert financials["total_debt"] == 345
+    assert financials["tangible_net_worth"] == 140
+    assert _ratio("{Gross Profit}", "{Revenue}") == (
+        '=IFERROR(IF(({Gross Profit})>0,({Gross Profit})/({Revenue}),"N/A"),"N/A")'
+    )
+
+
+def test_sb_evaluate_financial_model_accepts_a_positive_denominator_below_one():
+    result = evaluate_financial_model({
+        "FY-Current": {
+            "revenue": 100,
+            "cost_of_sales": 20,
+            "interest_paid": 0.5,
+        },
+    })
+
+    assert result["ratios"]["FY-Current"]["ebit_interest_cover"] == 160
+
+
+def test_sb_evaluate_financial_model_raw_input_refusal_text_is_exact():
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model({"FY-Current": {"revenue": "not-a-number"}})
+
+    assert str(caught.value) == (
+        "financial inputs: period 'FY-Current', field 'revenue' must be a finite JSON number or null; "
+        "found 'not-a-number'"
+    )
+
+
+def test_sb_evaluate_financial_model_finite_input_refusal_text_is_exact():
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model({"FY-Current": {"revenue": float("nan")}})
+
+    assert str(caught.value) == "non-finite numeric value at financial inputs['FY-Current']['revenue']: nan"
+
+
+def test_sb_evaluate_financial_model_computed_result_refusal_text_is_exact():
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model({
+            "FY-Current": {"revenue": 1.7e308, "cost_of_sales": -1.7e308},
+        })
+
+    assert str(caught.value) == (
+        "non-finite numeric value at computed financial results['financials']['FY-Current']['gross_profit']: inf"
+    )
+
+
+def test_sb_collateral_writer_round_trips_exact_asset_cells_formulas_formats_and_sheet_order(tmp_path):
+    output_path = tmp_path / "synthetic-collateral.xlsx"
+    assets = [
+        {
+            "asset_class": "Synthetic Equipment",
+            "exposure": 1000,
+            "number_of_units": 4,
+            "cap_value": 500,
+            "non_recovery": 20,
+            "costs": 10,
+            "collateral_value": 470,
+            "perfection_status": "Registered",
+        },
+        {
+            "asset_class": "Synthetic Vehicle",
+            "exposure": 600,
+            "number_of_units": 2,
+            "cap_value": 350,
+            "non_recovery": 15,
+            "costs": 5,
+            "collateral_value": 330,
+            "perfection_status": "Pending",
+        },
+    ]
+    export_to_xlsx("Synthetic Co", str(output_path), collateral_data=assets)
+    workbook = openpyxl.load_workbook(output_path)
+    try:
+        assert workbook.sheetnames == ["Financial Spreading", "Collateral & Exposure"]
+        ws = workbook["Collateral & Exposure"]
+        assert [cell.value for cell in ws[1]] == COLLATERAL_HEADERS
+        assert [ws.cell(row=2, column=column).value for column in range(1, 10)] == [
+            "Synthetic Equipment", 1000, 4, 500, 20, 10, 470,
+            '=IFERROR(IF(B2>0,G2/B2,"N/A"),"N/A")', "Registered",
+        ]
+        assert [ws.cell(row=3, column=column).value for column in range(1, 10)] == [
+            "Synthetic Vehicle", 600, 2, 350, 15, 5, 330,
+            '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")', "Pending",
+        ]
+        assert [ws.cell(row=4, column=column).value for column in range(1, 10)] == [
+            "Total", "=SUM(B2:B3)", "=SUM(C2:C3)", "=SUM(D2:D3)", "=SUM(E2:E3)",
+            "=SUM(F2:F3)", "=SUM(G2:G3)", '=IFERROR(IF(B4>0,G4/B4,"N/A"),"N/A")', None,
+        ]
+        assert [ws.cell(row=2, column=column).number_format for column in range(2, 9)] == [
+            "General", "General", "General", "General", "General", "General", "General",
+        ]
+        assert [ws.column_dimensions[column].width for column in "ABCDEFGHI"] == [
+            22, 16, 16, 16, 16, 16, 16, 16, 16,
+        ]
+    finally:
+        workbook.close()
+
+
+def test_sb_financial_writer_round_trips_raw_cells_derived_downside_and_formats(tmp_path):
+    output_path = tmp_path / "synthetic-derived-downside.xlsx"
+    export_to_xlsx(
+        "Synthetic Co",
+        str(output_path),
+        financial_data={"FY-Current": {"revenue": 1000, "cost_of_sales": 400}},
+        downside_financial_data={"FY+1": {"revenue": 900}},
+        derived_downside_fields={"FY+1": {"revenue"}},
+    )
+    workbook = openpyxl.load_workbook(output_path)
+    try:
+        assert workbook.sheetnames == ["Financial Spreading", "Collateral & Exposure"]
+        ws = workbook["Financial Spreading"]
+        assert ws["A1"].value == "Metric"
+        assert ws["D1"].value == "FY-Current"
+        assert ws["H1"].value == "FY+1 (Downside)"
+        rows = {ws.cell(row=row, column=1).value: row for row in range(1, ws.max_row + 1)}
+        assert ws.cell(row=rows["Revenue"], column=4).value == 1000
+        assert ws.cell(row=rows["Cost of Goods Sold"], column=4).value == 400
+        assert ws.cell(row=rows["Revenue"], column=8).value == 900
+        assert ws.cell(row=rows["Gross Profit"], column=8).value is None
+        assert ws.cell(row=rows["EBITDA"], column=8).value is None
+        assert ws.cell(row=rows["Gross Profit"], column=4).value == (
+            f"=D{rows['Revenue']}-D{rows['Cost of Goods Sold']}"
+        )
+        assert ws.cell(row=rows["Gross Profit"], column=4).number_format == "General"
+        assert [ws.column_dimensions[column].width for column in ("A", "B", "H", "J")] == [
+            34, 14, 14, 14,
+        ]
+    finally:
+        workbook.close()
+
+
+def test_sb_financial_writer_leaves_an_unavailable_downside_formula_blank(tmp_path):
+    output_path = tmp_path / "synthetic-unavailable-downside.xlsx"
+    export_to_xlsx(
+        "Synthetic Co",
+        str(output_path),
+        financial_data={"FY+1": {"revenue": 900, "cost_of_sales": 300}},
+        blank_downside_periods={"FY+1"},
+    )
+    workbook = openpyxl.load_workbook(output_path)
+    try:
+        ws = workbook["Financial Spreading"]
+        assert ws["H1"].value == "FY+1 (Downside, unavailable)"
+        rows = {ws.cell(row=row, column=1).value: row for row in range(1, ws.max_row + 1)}
+        assert ws.cell(row=rows["Gross Profit"], column=8).value is None
+        assert ws.cell(row=rows["EBITDA"], column=8).value is None
+    finally:
+        workbook.close()
+
+
+def test_sb_financial_writer_does_not_replace_a_blank_raw_cell_with_an_empty_string(monkeypatch):
+    import spreading_builder
+
+    real_write_charts = spreading_builder._write_charts
+    monkeypatch.setattr(spreading_builder, "_write_charts", lambda *args, **kwargs: None)
+    try:
+        workbook = openpyxl.Workbook()
+        row_of, _ordered = spreading_builder._row_layout(spreading_builder.SECTIONS)
+        spreading_builder._write_financial_spreading(workbook, row_of)
+        ws = workbook.active
+        assert ws.title == "Financial Spreading"
+        assert ws.cell(row=row_of["Revenue"], column=2).value is None
+        workbook.close()
+    finally:
+        monkeypatch.setattr(spreading_builder, "_write_charts", real_write_charts)
+
+
+def test_sb_formula_reference_parser_and_resolver_preserve_the_col_placeholder():
+    from spreading_builder import _referenced_labels, _resolve_formula
+
+    template = "={col}+{Revenue}-{Cost of Goods Sold}+{col}"
+    assert _referenced_labels(template) == ["Revenue", "Cost of Goods Sold"]
+    assert _resolve_formula(
+        template,
+        {"Revenue": 3, "Cost of Goods Sold": 4},
+        "J",
+    ) == "=J+J3-J4+J"
+
+
+def test_sb_supported_rows_propagates_all_raw_dependencies_recursively():
+    from spreading_builder import supported_rows
+
+    sections = [
+        ("Synthetic", [
+            ("Synthetic Gross Profit", "={Revenue}-{Cost of Goods Sold}"),
+            ("Synthetic EBITDA", "={Synthetic Gross Profit}-{Admin Expenses}"),
+            ("Synthetic FCF", "={Synthetic EBITDA}-{Capital Expenditure}"),
+        ]),
+    ]
+    assert supported_rows(
+        {"revenue", "cost_of_sales", "admin_expenses"},
+        sections=sections,
+    ) == {"Synthetic Gross Profit", "Synthetic EBITDA"}
+    assert supported_rows(
+        {"revenue", "cost_of_sales", "admin_expenses", "capex"},
+        sections=sections,
+    ) == {"Synthetic Gross Profit", "Synthetic EBITDA", "Synthetic FCF"}
+
+
+def test_sb_supported_rows_does_not_treat_a_reference_cycle_as_supported():
+    from spreading_builder import supported_rows
+
+    sections = [("Synthetic", [("Synthetic Circular", "={Synthetic Circular}")])]
+    assert supported_rows(set(), sections=sections) == set()
+
+
+def test_sb_formula_or_supplied_blanks_unsupported_derived_downside_rows():
+    from spreading_builder import _formula_or_supplied, _row_layout
+
+    row_of, _ordered = _row_layout(SECTIONS)
+    result = _formula_or_supplied(
+        "Gross Profit",
+        "={Revenue}-{Cost of Goods Sold}",
+        row_of,
+        "H",
+        None,
+        None,
+        None,
+        {"FY+1": {"Revenue"}},
+    )
+    assert result is None
+
+
+def test_sb_sum_or_none_returns_exact_sum_only_when_every_figure_is_present():
+    from spreading_builder import _sum_or_none
+
+    assert _sum_or_none(12, 8, 0.5) == 20.5
+    assert _sum_or_none(12, None, 8) is None
+    assert _sum_or_none(None, 12, 8) is None
+
+
+def test_sb_subtotal_reader_rejects_missing_non_numeric_and_boolean_values():
+    from spreading_builder import _subtotal_figure
+
+    assert _subtotal_figure({"ebitda": 42}, "ebitda") == 42
+    assert _subtotal_figure({}, "ebitda") is None
+    assert _subtotal_figure({"ebitda": "n/m"}, "ebitda") is None
+    assert _subtotal_figure({"ebitda": True}, "ebitda") is None
+
+
+def test_sb_undefined_ratio_continues_past_an_unreadable_denominator():
+    from spreading_builder import describe_undefined_ratio
+
+    assert describe_undefined_ratio(
+        "working_capital_cycle_days",
+        {"raw": {"revenue": "n/m", "cost_of_sales": 0}},
+    ) == "working capital cycle not defined: cost of sales is zero"
+
+
+def test_sb_validate_row_formulas_uses_exact_unknown_and_forward_reference_errors():
+    unknown = [("Synthetic", [("Synthetic Gross Profit", "={Missing Metric}")])]
+    with pytest.raises(ValueError) as unknown_error:
+        validate_row_formulas(unknown)
+    assert str(unknown_error.value) == (
+        "spreading_builder: formula for 'Synthetic Gross Profit' (row 3) references unknown label "
+        "'Missing Metric' -- no row with that label exists in the given sections."
+    )
+
+    forward = [("Synthetic", [
+        ("Synthetic Revenue", None),
+        ("Synthetic Gross Profit", "={Synthetic EBITDA}"),
+        ("Synthetic EBITDA", "={Synthetic Revenue}"),
+    ])]
+    with pytest.raises(ValueError) as forward_error:
+        validate_row_formulas(forward)
+    assert str(forward_error.value) == (
+        "spreading_builder: formula for 'Synthetic Gross Profit' (row 4) references "
+        "'Synthetic EBITDA' (row 5), which is not an already-written row (must be < 4). "
+        "A row was likely inserted, removed, or reordered in SECTIONS without updating this formula's dependency."
+    )

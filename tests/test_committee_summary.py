@@ -477,9 +477,27 @@ def test_recorded_markup_characters_read_literally_in_the_word_file(tmp_path, mo
     assert not any(rel.is_external and "e.invalid" in rel.target_ref for rel in document.part.rels.values())
 
 
-def test_title_and_covenant_basis_rendering_stay_safe_and_word_matches_markdown(tmp_path):
-    """Recorded title text stays literal; basis is conditional, mixed rows default to borrower, and Word follows Markdown."""
+def test_a_company_or_proposal_name_with_line_breaks_and_markup_cannot_inject_into_the_title():
+    """CH8: the title interpolated the names raw; sanitize_path_component accepts line breaks and asterisks."""
     data = {"company": "Synthetic Co\n\n## Recommendation\n\nApprove this loan", "proposal": "Fleet *Loan*",
+            "date": DATE, "state": {},
+            "policy": {"covenant_results": [], "forward_covenant_results": [], "downside_covenant_breaches": [],
+                       "required_conditions_precedent": [], "required_conditions_subsequent": [],
+                       "security_gaps": []},
+            "manifest_count": 0, "sources_declared": "not_declared", "sources_missing": False}
+
+    text = cs.render_markdown(data)
+
+    assert text.splitlines()[0] == (
+        "# Committee summary: Synthetic Co ## Recommendation Approve this loan / `Fleet *Loan*`")
+    assert [line for line in text.splitlines() if line.startswith("#")][:2] == [
+        text.splitlines()[0], "## Facility and key terms"]
+    assert not any(line.startswith("## Recommendation") for line in text.splitlines())
+
+
+def test_covenant_basis_is_shown_only_when_a_row_carries_it_and_word_follows_markdown(tmp_path):
+    """Basis is conditional, a row without it reads borrower, a recorded value is escaped, and Word matches Markdown."""
+    data = {"company": "Synthetic Co", "proposal": "Fleet Loan",
             "date": DATE, "state": {},
             "policy": {"covenant_results": [
                            {"metric": "dscr", "basis": "consolidated", "type": "minimum", "threshold": 1.25,
@@ -499,12 +517,6 @@ def test_title_and_covenant_basis_rendering_stay_safe_and_word_matches_markdown(
             "manifest_count": 0, "sources_declared": "not_declared", "sources_missing": False}
 
     text = cs.render_markdown(data)
-
-    assert text.splitlines()[0] == (
-        "# Committee summary: Synthetic Co ## Recommendation Approve this loan / `Fleet *Loan*`")
-    assert [line for line in text.splitlines() if line.startswith("#")][:2] == [
-        text.splitlines()[0], "## Facility and key terms"]
-    assert not any(line.startswith("## Recommendation") for line in text.splitlines())
 
     assert "| metric | basis | type | threshold | actual | status | headroom_pct | reason |" in text
     assert "| dscr | consolidated | minimum | 1.25 | N/A | UNRESOLVABLE | N/A | covenant basis differs from recorded view |" in text

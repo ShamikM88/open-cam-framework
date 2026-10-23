@@ -1119,6 +1119,10 @@ def test_408_chart_signature_keeps_references_and_chart_properties():
         "barChart", 2, 3, "stacked", "bar",
         [["Sheet!$A$1", "Sheet!$B$1", "Sheet!$C$1"]],
     ]
+    chart_without_optional_attributes = SimpleNamespace(
+        tagname="pieChart", anchor=SimpleNamespace(_from=SimpleNamespace(row=0, col=0)), series=[]
+    )
+    assert export_readback._chart_signature(chart_without_optional_attributes)[3:5] == [None, None]
 
 
 def test_408_sheet_charts_are_sorted_only_by_anchor_row_and_column(monkeypatch):
@@ -1224,7 +1228,8 @@ def test_408_run_signature_pins_font_flags_and_optional_colour_fields():
 
     font = SimpleNamespace(
         underline="single", strike=True, name="Synthetic Font", size=SimpleNamespace(pt=11.0),
-        color=None, highlight_color="yellow", superscript=True, subscript=False,
+        color=SimpleNamespace(type=None, rgb=None, theme_color=None), highlight_color="yellow",
+        superscript=True, subscript=False,
         all_caps=True, small_caps=False, hidden=True,
     )
     run = SimpleNamespace(text="Synthetic run", font=font, bold=True, italic=False)
@@ -1388,7 +1393,7 @@ def test_408_style_signature_keeps_base_style_font_colour_and_paragraph_layout()
     style.font.size = Pt(17)
     style.font.bold = True
     style.font.italic = True
-    style.font.underline = "single"
+    style.font.underline = True
     style.font.color.rgb = RGBColor(1, 2, 3)
     style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     style.paragraph_format.left_indent = Pt(6)
@@ -1573,7 +1578,6 @@ def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_bo
     monkeypatch.setattr(builtins, "open", recording_open)
     monkeypatch.setattr(tempfile, "TemporaryDirectory", recording_temp_directory)
     monkeypatch.setattr(export_readback, "MAX_FINDINGS", 3)
-    monkeypatch.setattr(export_readback.os.path, "isfile", lambda path: True)
 
     report = export_readback.verify_deal(
         "Synthetic Co", "Synthetic Fleet Loan", date_str=DATE, base_dir=base_dir

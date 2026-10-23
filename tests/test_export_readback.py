@@ -1251,14 +1251,20 @@ def test_408_run_signature_pins_font_flags_and_optional_colour_fields():
     font.superscript = False
     font.subscript = True
     run.bold = False
+    run.italic = True
+    font.small_caps = True
     signature = export_readback._run_signature(run)
-    assert signature[2:4] == [False, False]
+    assert signature[2:4] == [False, True]
     assert signature[8:10] == ["00AA11", "theme-value"]
-    assert signature[11:16] == ["False", "True", True, False, True]
+    assert signature[11:16] == ["False", "True", True, True, True]
 
     font.color = SimpleNamespace(type=None, rgb=None, theme_color=None)
     signature = export_readback._run_signature(run)
     assert signature[8:10] == [None, None]
+
+    # A font with no colour object at all is tolerated: the guard must test for None before reading `type`.
+    font.color = None
+    assert export_readback._run_signature(run)[8:10] == [None, None]
 
 
 def test_408_paragraph_block_pins_hyperlinks_image_extents_and_layout(tmp_path):
@@ -1341,16 +1347,24 @@ def test_408_table_block_keeps_style_nested_layout_and_picture_relationship(tmp_
     assert export_readback._table_block(document.part, no_style)["style"] is None
 
 
-def test_408_blocks_keep_paragraph_and_table_order_and_tag_types():
-    """Mutants #6/#7/#9/#10 in _blocks: body children are identified and emitted in document order."""
+def test_408_blocks_keep_paragraph_and_table_order_and_give_tables_the_part(tmp_path):
+    """Mutant #28 in _blocks: a table block receives the part, so a picture in a cell resolves; order is kept.
+
+    (Mutants #6/#7/#9/#10 of _blocks are named equivalents for well-formed tags: see the PR table.)"""
     document = docx.Document()
     document.add_paragraph("before")
-    document.add_table(rows=1, cols=1).cell(0, 0).text = "inside table"
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    cell.text = "inside table"
+    picture_path = tmp_path / "cell-picture.png"
+    picture_path.write_bytes(PNG_1X1)
+    cell.add_paragraph().add_run().add_picture(str(picture_path))
     document.add_paragraph("after")
     blocks = export_readback._document_blocks(document)
     assert [block["type"] for block in blocks] == ["paragraph", "table", "paragraph"]
     assert blocks[0]["parts"][0][1] == "before"
-    assert blocks[1]["rows"][0][0]["paragraphs"][0]["parts"][0][1] == "inside table"
+    cell_paragraphs = blocks[1]["rows"][0][0]["paragraphs"]
+    assert cell_paragraphs[0]["parts"][0][1] == "inside table"
+    assert cell_paragraphs[1]["image_hashes"] == [export_readback.hashlib.sha256(PNG_1X1).hexdigest()]
     assert blocks[2]["parts"][0][1] == "after"
 
 
@@ -1422,6 +1436,27 @@ def test_408_style_signature_keeps_base_style_font_colour_and_paragraph_layout()
     assert export_readback._style_signature(style) == expected
     plain_style = document.styles["Normal"]
     assert export_readback._style_signature(plain_style)[8:10] == [None, None]
+
+
+def test_408_style_signature_reads_a_theme_colour_and_tolerates_a_style_with_no_colour_object():
+    """Mutants #11/#16: the theme colour is recorded, and a font whose colour is None is not dereferenced."""
+    from types import SimpleNamespace
+    from docx.enum.dml import MSO_THEME_COLOR
+
+    document = docx.Document()
+    style = document.styles["Heading 2"]
+    style.font.color.theme_color = MSO_THEME_COLOR.ACCENT_1
+    signature = export_readback._style_signature(style)
+    assert signature[8:10] == [export_readback._text_value(style.font.color.rgb),
+                               export_readback._text_value(MSO_THEME_COLOR.ACCENT_1)]
+    assert signature[9] == str(MSO_THEME_COLOR.ACCENT_1)
+
+    no_colour = SimpleNamespace(
+        name="Synthetic style", type="paragraph", base_style=None, paragraph_format=None,
+        font=SimpleNamespace(name=None, size=None, bold=None, italic=None, underline=None, color=None),
+    )
+    assert export_readback._style_signature(no_colour) == [
+        "Synthetic style", "paragraph", None, None, None, None, None, None, None, None]
 
 
 def test_408_used_style_names_recurses_into_nested_dicts_and_lists():
@@ -1665,16 +1700,6 @@ def test_408_main_help_required_flags_date_forwarding_and_json_shape(capsys, mon
     ]) == 0
     assert calls == [("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE})]
     assert capsys.readouterr().out == '{\n  "status": "match"\n}\n'
-
-
-def test_408_named_equivalent_text_and_path_spelling_cases():
-    """Explicit aliases/redundancies that have no distinct observable behavior are recorded here."""
-    # rsplit with one split and rsplit with no maxsplit both return the same final component.
-    assert "{urn:synthetic}tag".rsplit("}", 1)[-1] == "{urn:synthetic}tag".rsplit("}")[-1]
-    # UTF-8 codec names are case-insensitive aliases.
-    import codecs
-
-    assert codecs.lookup("utf-8").name == codecs.lookup("UTF-8").name == "utf-8"
 
 
 def test_408_main_serializes_non_json_report_values_with_default_str(capsys, monkeypatch):

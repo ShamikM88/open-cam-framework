@@ -16,6 +16,7 @@ from policy_engine import (
     STANDARD_CONDITIONS_SUBSEQUENT,
     _evaluate_downside_covenants,
     _evaluate_forward_covenants,
+    _period_dict,
     evaluate_deal_policy,
 )
 
@@ -480,6 +481,14 @@ def test_guarantee_cp_preserves_a_legitimate_zero_amount():
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
     assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for 0."
 
+    missing_provider = evaluate_deal_policy({"guarantees": [{"amount": 0}]})
+    assert [
+        cp for cp in missing_provider["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
+    ] == [{
+        "cp_id": "GUARANTEE-E3B0C44298FC",
+        "text": "Execution of Guarantee by  for 0.",
+    }]
+
 
 def test_guarantee_cp_treats_blank_string_amount_as_missing():
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": "   "}]}
@@ -555,6 +564,26 @@ def test_guarantee_cps_avoid_cross_collision_between_suffixed_and_naturally_uniq
     assert len(cp_ids) == 3
     assert len(set(cp_ids)) == 3
 
+    repeated = evaluate_deal_policy({"guarantees": [
+        {"provider": "Repeated Synthetic Provider", "amount": amount} for amount in (10, 20, 30, 40)
+    ]})
+    assert [
+        cp["cp_id"] for cp in repeated["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
+    ] == [
+        "GUARANTEE-REPEATED-SYNTHETIC-PROVIDER",
+        "GUARANTEE-REPEATED-SYNTHETIC-PROVIDER-2",
+        "GUARANTEE-REPEATED-SYNTHETIC-PROVIDER-3",
+        "GUARANTEE-REPEATED-SYNTHETIC-PROVIDER-4",
+    ]
+    assert [
+        cs["cs_id"] for cs in repeated["required_conditions_subsequent"] if cs["cs_id"].startswith("CS-GUARANTEE-")
+    ] == [
+        "CS-GUARANTEE-REPEATED-SYNTHETIC-PROVIDER",
+        "CS-GUARANTEE-REPEATED-SYNTHETIC-PROVIDER-2",
+        "CS-GUARANTEE-REPEATED-SYNTHETIC-PROVIDER-3",
+        "CS-GUARANTEE-REPEATED-SYNTHETIC-PROVIDER-4",
+    ]
+
 
 def test_guarantee_id_of_zero_is_honored_not_treated_as_missing():
     """A falsy-but-real guarantee_id (0) must be used as given, the same
@@ -597,6 +626,12 @@ def test_slugify_normalizes_special_characters_deterministically():
     matching = [cp_id for cp_id in cp_ids if cp_id.startswith("GUARANTEE-")]
     assert matching == ["GUARANTEE-ACME-SONS-LTD"]
 
+    single_character_slug = evaluate_deal_policy({"guarantees": [{"provider": "X"}]})
+    assert [
+        cp["cp_id"] for cp in single_character_slug["required_conditions_precedent"]
+        if cp["cp_id"].startswith("GUARANTEE-")
+    ] == ["GUARANTEE-X"]
+
 
 def test_slugify_falls_back_to_a_stable_hash_for_symbol_only_input():
     """An asset_id with no alphanumeric characters at all must not collapse
@@ -615,6 +650,16 @@ def test_slugify_falls_back_to_a_stable_hash_for_symbol_only_input():
     # Stability: the same symbol-only input always slugifies to the same id.
     again = evaluate_deal_policy(state)
     assert _cp_ids(result) == _cp_ids(again)
+
+    # Pin the digest's input, case and exact twelve-character width, not only uniqueness.
+    symbol_hashes = evaluate_deal_policy({
+        "collateral": [{"asset_id": "!!!"}, {"asset_id": "???"}],
+        "security_package": [],
+    })
+    assert [
+        cp["cp_id"] for cp in symbol_hashes["required_conditions_precedent"]
+        if cp["cp_id"].startswith("SEC-MAPPING-")
+    ] == ["SEC-MAPPING-E84C538E7FE2", "SEC-MAPPING-A03B221C6C6E"]
 
 
 # ---------------------------------------------------------------------------
@@ -836,6 +881,14 @@ def test_guarantee_cs_gets_distinct_ids_for_two_guarantees_from_the_same_provide
     assert len(guarantee_cs_ids) == 2
     assert len(set(guarantee_cs_ids)) == 2
 
+    missing_provider = evaluate_deal_policy({"guarantees": [{"amount": 0}]})
+    assert [
+        cs for cs in missing_provider["required_conditions_subsequent"] if cs["cs_id"].startswith("CS-GUARANTEE-")
+    ] == [{
+        "cs_id": "CS-GUARANTEE-E3B0C44298FC",
+        "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor .",
+    }]
+
 
 def test_cs_id_generation_is_stable_across_repeated_calls_with_the_same_input():
     state = {
@@ -984,6 +1037,26 @@ def test_an_unavailable_downside_is_an_unresolvable_breach_for_every_covenant_th
          "breach_id": "DOWNSIDE-FY-2-DSCR", "downside_status": "UNRESOLVABLE",
          "reason": "downside analysis unavailable for FY+2: no downside scenario was supplied for this year"}]
 
+    # The recorded view must reach the unavailable-year pass as well as the ordinary covenant and forward paths.
+    consolidated = evaluate_deal_policy({
+        "group_basis": GROUP_BASIS,
+        "ratios": {"FY-Current": {"dscr": 2.0}, "FY+1": {"dscr": 2.0}},
+        "covenants": [{
+            "metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated",
+        }],
+        "downside_case": {"unavailable": {"FY+1": "no scenario was supplied for this year"}},
+    })
+    assert consolidated["downside_covenant_breaches"] == [{
+        "year": "FY+1",
+        "metric": "dscr",
+        "base_actual": 2.0,
+        "downside_actual": None,
+        "threshold": 1.25,
+        "breach_id": "DOWNSIDE-FY-1-DSCR",
+        "downside_status": "UNRESOLVABLE",
+        "reason": "downside analysis unavailable for FY+1: no scenario was supplied for this year",
+    }]
+
 
 @pytest.mark.parametrize("label, base, unavailable", [
     ("the base case already fails", {"FY+2": {"gross_leverage": 4.0}}, {"FY+2": "x"}),
@@ -996,6 +1069,11 @@ def test_an_unavailable_downside_is_an_unresolvable_breach_for_every_covenant_th
 ])
 def test_an_unavailable_downside_adds_no_breach_where_there_is_nothing_to_survive(label, base, unavailable):
     assert _evaluate_downside_covenants([LEVERAGE_MAX], base, {}, unavailable=unavailable) == []
+
+    # A truthy non-mapping is malformed base data, not a usable ratio map; skip it before metric lookup.
+    assert _evaluate_downside_covenants(
+        [DSCR_MIN], {"FY+1": "dscr"}, {}, unavailable={"FY+1": "no ratio object"}
+    ) == []
 
 
 def test_a_year_with_a_derived_downside_is_not_also_reported_as_unavailable():
@@ -1060,6 +1138,16 @@ def test_a_recorded_denominator_that_makes_a_ratio_meaningless_overrides_a_store
     assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
     assert result["reason"] == "gross leverage not meaningful: EBITDA is negative (the recorded value 2.0 is ignored)"
 
+    # The ignored-value suffix is only accurate for a numeric stored ratio.
+    nonnumeric_state = {
+        **state,
+        "ratios": {"FY-Current": {"gross_leverage": "n/m"}},
+    }
+    (nonnumeric,) = evaluate_deal_policy(nonnumeric_state)["covenant_results"]
+    assert (nonnumeric["status"], nonnumeric["actual"], nonnumeric["headroom_pct"], nonnumeric["reason"]) == (
+        "UNRESOLVABLE", None, None, "gross leverage not meaningful: EBITDA is negative",
+    )
+
 
 def test_the_forward_record_lists_each_projected_year_then_each_covenant_with_a_stable_id():
     """Disclosure only: one entry per projected year and covenant, in year order then covenant order, each the covenant
@@ -1075,6 +1163,9 @@ def test_the_forward_record_lists_each_projected_year_then_each_covenant_with_a_
         ("FY+3", "gross_leverage", "FAIL", "FORWARD-FY-3-GROSS-LEVERAGE"),
         ("FY+3", "dscr", "FAIL", "FORWARD-FY-3-DSCR"),
         ("FY+3", "gross_leverage", "FAIL", "FORWARD-FY-3-GROSS-LEVERAGE-2")]
+
+    assert _period_dict({"FY+1": ["not", "a", "period", "object"]}, "FY+1") is None
+    assert _period_dict({"FY+1": {"ebitda": 400}}, "FY+1") == {"ebitda": 400}
 
 
 @pytest.mark.parametrize("ratios", [None, {}, {"FY+1": None}, {"FY+1": [1]}, {"FY+1": {}}])
@@ -1191,6 +1282,21 @@ def test_pe_percent_ratio_actual_at_absolute_ten_is_not_flagged_as_percent(actua
     assert result["status"] == expected_status
     assert result["reason"] is None
 
+    just_over_ten = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gearing": 10.5}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 1}],
+    })["covenant_results"][0]
+    assert just_over_ten == {
+        "metric": "gearing",
+        "type": "maximum",
+        "threshold": 1,
+        "actual": None,
+        "status": "UNRESOLVABLE",
+        "headroom_pct": None,
+        "reason": "gearing actual ratio 10.5 looks like a percent; percent-type ratios and their covenant "
+                  "thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing.",
+    }
+
 
 @pytest.mark.parametrize("threshold, covenant_type, expected_status", [
     (-10, "minimum", "PASS"),
@@ -1208,6 +1314,21 @@ def test_pe_percent_ratio_threshold_at_absolute_ten_is_not_flagged_as_percent(
     assert result["status"] == expected_status
     assert result["reason"] is None
 
+    just_over_ten = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gearing": 0}},
+        "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 10.5}],
+    })["covenant_results"][0]
+    assert just_over_ten == {
+        "metric": "gearing",
+        "type": "maximum",
+        "threshold": 10.5,
+        "actual": None,
+        "status": "UNRESOLVABLE",
+        "headroom_pct": None,
+        "reason": "gearing covenant threshold 10.5 looks like a percent; percent-type ratios and their covenant "
+                  "thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing.",
+    }
+
 
 @pytest.mark.parametrize("ebitda, reason", [
     (0, "gross leverage not defined: EBITDA is zero"),
@@ -1224,6 +1345,39 @@ def test_pe_nonpositive_ebitda_makes_a_recorded_gross_leverage_unresolvable(ebit
     assert result["actual"] is None
     assert result["headroom_pct"] is None
     assert result["reason"] == f"{reason} (the recorded value 2.0 is ignored)"
+
+    # The same negative denominator must keep both forward disclosure and downside comparison from
+    # treating the stored ratio as a base-case PASS.
+    forward_and_stress = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gross_leverage": 2.0}, "FY+1": {"gross_leverage": 2.0}},
+        "financials": {"FY-Current": {"ebitda": 400}, "FY+1": {"ebitda": -10}},
+        "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+        "downside_case": {
+            "ratios": {"FY+1": {"gross_leverage": 5.0}},
+            "financials": {"FY+1": {"ebitda": 400}},
+        },
+    })
+    assert forward_and_stress["downside_covenant_breaches"] == []
+    assert forward_and_stress["forward_covenant_results"] == [{
+        "metric": "gross_leverage",
+        "type": "maximum",
+        "threshold": 3.5,
+        "actual": None,
+        "status": "UNRESOLVABLE",
+        "headroom_pct": None,
+        "reason": "gross leverage not meaningful: EBITDA is negative (the recorded value 2.0 is ignored)",
+        "year": "FY+1",
+        "forward_id": "FORWARD-FY-1-GROSS-LEVERAGE",
+    }]
+
+    # An unavailable stress also must not become a breach when the base ratio is untestable.
+    unavailable_stress = evaluate_deal_policy({
+        "ratios": {"FY-Current": {"gross_leverage": 2.0}, "FY+1": {"gross_leverage": 2.0}},
+        "financials": {"FY-Current": {"ebitda": 400}, "FY+1": {"ebitda": -10}},
+        "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}],
+        "downside_case": {"unavailable": {"FY+1": "no scenario was supplied"}},
+    })
+    assert unavailable_stress["downside_covenant_breaches"] == []
 
 
 def test_pe_security_failure_outputs_both_gaps_and_conditions_in_perfection_then_priority_order():
@@ -1309,6 +1463,21 @@ def test_pe_security_reconfirmation_condition_ids_avoid_natural_slug_collisions_
                     "the security charge over asset AST-1-2.",
         },
     ]
+
+    pending_before_perfected = evaluate_deal_policy({
+        "security_package": [
+            {"secures_asset_id": "AST-PENDING", "perfection_status": "Pending", "ranking": "First"},
+            {"secures_asset_id": "AST-READY", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    })
+    assert [
+        cs for cs in pending_before_perfected["required_conditions_subsequent"]
+        if cs["cs_id"].startswith("CS-SEC-REPERFECT-")
+    ] == [{
+        "cs_id": "CS-SEC-REPERFECT-AST-READY",
+        "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of the security charge "
+                "over asset AST-READY.",
+    }]
 
 
 @pytest.mark.parametrize(("guarantee", "expected_id"), [
@@ -1436,6 +1605,12 @@ def test_pe_composed_standing_conditions_have_the_exact_contract_text_and_order(
 def test_pe_policy_entry_rejects_non_finite_numbers_in_each_financial_input_store(state_key):
     with pytest.raises(ValueError, match="non-finite numeric value"):
         evaluate_deal_policy({state_key: {"synthetic-period": {"synthetic-line": float("inf")}}})
+
+    with pytest.raises(ValueError) as exc_info:
+        evaluate_deal_policy({"ratios": {"FY-Current": {"dscr": float("inf")}}})
+    assert exc_info.value.args == (
+        "non-finite numeric value at policy state['ratios']['FY-Current']['dscr']: inf",
+    )
 
 def test_pe_percent_unit_error_lists_actual_before_threshold_and_keeps_exact_guidance():
     result = evaluate_deal_policy({

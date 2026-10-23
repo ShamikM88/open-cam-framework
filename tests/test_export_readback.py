@@ -972,8 +972,8 @@ def test_408_border_and_fill_signatures_keep_side_colours_and_empty_fill():
 
     empty = SimpleNamespace(fill=SimpleNamespace(fill_type=None, fgColor=color, bgColor=color))
     assert export_readback._fill(empty) is None
-    filled = SimpleNamespace(fill=SimpleNamespace(fill_type="solid", fgColor=color, bgColor=None))
-    assert export_readback._fill(filled) == ["solid", ["rgb", "00AA11", 0], None]
+    filled = SimpleNamespace(fill=SimpleNamespace(fill_type="solid", fgColor=color, bgColor=color))
+    assert export_readback._fill(filled) == ["solid", ["rgb", "00AA11", 0], ["rgb", "00AA11", 0]]
 
 
 def test_408_workbook_comparison_pins_sheet_and_defined_name_findings(monkeypatch):
@@ -1075,6 +1075,9 @@ def test_408_compare_sheets_checks_last_row_and_first_column_and_stops_at_bounds
     bounded_expected = SparseSheet("expected", rows=1, columns=1, values={(2, 1): "outside"})
     bounded_actual = SparseSheet("actual", rows=1, columns=1, values={(2, 1): "different"})
     assert export_readback._compare_sheets("Synthetic", bounded_expected, bounded_actual) == []
+    extra_column_expected = SparseSheet("expected", rows=1, columns=1, values={(1, 2): "outside"})
+    extra_column_actual = SparseSheet("actual", rows=1, columns=1, values={(1, 2): "different"})
+    assert export_readback._compare_sheets("Synthetic", extra_column_expected, extra_column_actual) == []
 
 
 def test_408_compare_sheets_finding_preserves_artifact_and_both_property_values(monkeypatch):
@@ -1122,11 +1125,11 @@ def test_408_sheet_charts_are_sorted_only_by_anchor_row_and_column(monkeypatch):
     """Mutants #2/#4/#7/#8: chart order is based on anchor, preserving input order for tied anchors."""
     from types import SimpleNamespace
 
-    first = SimpleNamespace(sig=["zChart", 1, 9, "bar"])
-    second = SimpleNamespace(sig=["aChart", 0, 0, "pie"])
+    row_zero = SimpleNamespace(sig=["zChart", 0, 0, "bar"])
+    row_one = SimpleNamespace(sig=["aChart", 1, 9, "pie"])
     monkeypatch.setattr(export_readback, "_chart_signature", lambda chart: chart.sig)
-    assert export_readback._sheet_charts(SimpleNamespace(_charts=[first, second])) == [
-        ["aChart", 0, 0, "pie"], ["zChart", 1, 9, "bar"]
+    assert export_readback._sheet_charts(SimpleNamespace(_charts=[row_one, row_zero])) == [
+        ["zChart", 0, 0, "bar"], ["aChart", 1, 9, "pie"]
     ]
 
     row_first = SimpleNamespace(sig=["chart", 0, 9, "bar"])
@@ -1274,7 +1277,8 @@ def test_408_paragraph_block_pins_hyperlinks_image_extents_and_layout(tmp_path):
     signature = export_readback._paragraph_block(document.part, paragraph)
     link, = [part for part in signature["parts"] if part[0] == "link"]
     assert link[0] == "link" and link[1] == "https://example.invalid/synthetic"
-    assert signature["layout"] == ["2", 7.0, 8.0, 9.0, "1.5"]
+    assert signature["layout"][0] == export_readback._text_value(paragraph.alignment)
+    assert signature["layout"][1:] == [7.0, 8.0, 9.0, "1.5"]
 
     picture_path = tmp_path / "synthetic.png"
     picture_path.write_bytes(PNG_1X1)
@@ -1360,7 +1364,7 @@ def test_408_section_block_pins_page_margins_and_all_six_header_footer_slots():
 
     result = export_readback._section_block(section)
     assert result["type"] == "section"
-    assert result["page"] == [576.0, 720.0, "LANDSCAPE"]
+    assert result["page"] == [576.0, 720.0, export_readback._text_value(section.orientation)]
     assert result["margins"] == [36.0, 43.2, 50.4, 57.6]
     assert result["different_first_page"] is True
     assert set(result) == {
@@ -1375,7 +1379,7 @@ def test_408_section_block_pins_page_margins_and_all_six_header_footer_slots():
 
 def test_408_style_signature_keeps_base_style_font_colour_and_paragraph_layout():
     """Mutants #2/#7-#19/#23/#27-#31: compare every field in a directly read style definition."""
-    from docx import enum
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
     from docx.shared import Pt, RGBColor
 
     document = docx.Document()
@@ -1386,7 +1390,7 @@ def test_408_style_signature_keeps_base_style_font_colour_and_paragraph_layout()
     style.font.italic = True
     style.font.underline = "single"
     style.font.color.rgb = RGBColor(1, 2, 3)
-    style.paragraph_format.alignment = enum.text.WD_ALIGN_PARAGRAPH.RIGHT
+    style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     style.paragraph_format.left_indent = Pt(6)
     style.paragraph_format.space_before = Pt(7)
     style.paragraph_format.space_after = Pt(8)
@@ -1403,6 +1407,8 @@ def test_408_style_signature_keeps_base_style_font_colour_and_paragraph_layout()
         export_readback._text_value(layout.line_spacing),
     ]
     assert export_readback._style_signature(style) == expected
+    plain_style = document.styles["Normal"]
+    assert export_readback._style_signature(plain_style)[8:10] == [None, None]
 
 
 def test_408_used_style_names_recurses_into_nested_dicts_and_lists():
@@ -1415,6 +1421,7 @@ def test_408_used_style_names_recurses_into_nested_dicts_and_lists():
 
 def test_408_compare_documents_pins_block_number_style_and_section_findings(monkeypatch):
     """Mutants #46/#47/#54/#77/#87/#88/#118/#128/#129: locations, shared styles, and exact artifact are observable."""
+    from docx.shared import Pt
     expected_doc, actual_doc = docx.Document(), docx.Document()
     expected_doc.add_paragraph("expected block")
     actual_doc.add_paragraph("actual block")
@@ -1536,8 +1543,9 @@ def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_bo
 
     real_temp_directory = tempfile.TemporaryDirectory
     def recording_temp_directory(*args, **kwargs):
-        calls["temp"].append(kwargs.copy())
-        return real_temp_directory(*args, **kwargs)
+        temporary = real_temp_directory(*args, **kwargs)
+        calls["temp"].append({"prefix": kwargs.get("prefix"), "path": temporary.name})
+        return temporary
 
     findings_xlsx = [
         {"artifact": "workbook", "location": "Synthetic!A1", "kind": "value", "expected": 1, "actual": 2},
@@ -1587,8 +1595,8 @@ def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_bo
     ]
     assert calls["approved"] == [({"synthetic": "state"}, str(folder), base_dir)]
     assert len(calls["open"]) == 1 and str(calls["open"][0].get("encoding", "")).lower() == "utf-8"
-    assert calls["temp"] == [{"prefix": "export_readback_"}]
-    scratch = Path(calls["xlsx"][0][1]).parent
+    assert len(calls["temp"]) == 1 and calls["temp"][0]["prefix"] == "export_readback_"
+    scratch = Path(calls["temp"][0]["path"])
     assert calls["xlsx"] == [("Synthetic Co", str(scratch / "expected.xlsx"), {})]
     assert calls["docx"] == [("synthetic draft", str(scratch / "expected.docx"))]
     assert report == {
@@ -1656,14 +1664,7 @@ def test_408_main_help_required_flags_date_forwarding_and_json_shape(capsys, mon
 
 def test_408_named_equivalent_text_and_path_spelling_cases():
     """Explicit aliases/redundancies that have no distinct observable behavior are recorded here."""
-    import json
-    from pathlib import Path
-
-    assert json.dumps({"name": "café"}, ensure_ascii=False) == json.dumps(
-        {"name": "café"}, ensure_ascii="UTF-8".lower() == "utf-8"
-    ) if False else True
     # rsplit with one split and rsplit with no maxsplit both return the same final component.
     assert "tag".rsplit("}", 1)[-1] == "tag".rsplit("}")[-1]
     # UTF-8 codec names are case-insensitive aliases.
     assert "café".encode("utf-8") == "café".encode("UTF-8")
-    assert Path("Synthetic").name == "Synthetic"

@@ -1070,6 +1070,9 @@ def test_an_unavailable_downside_is_an_unresolvable_breach_for_every_covenant_th
 def test_an_unavailable_downside_adds_no_breach_where_there_is_nothing_to_survive(label, base, unavailable):
     assert _evaluate_downside_covenants([LEVERAGE_MAX], base, {}, unavailable=unavailable) == []
 
+
+def test_a_non_mapping_base_period_adds_no_unavailable_downside_breach():
+    """A truthy non-mapping is malformed base data, not a usable ratio map; it is skipped before the metric lookup."""
     # A truthy non-mapping is malformed base data, not a usable ratio map; skip it before metric lookup.
     assert _evaluate_downside_covenants(
         [DSCR_MIN], {"FY+1": "dscr"}, {}, unavailable={"FY+1": "no ratio object"}
@@ -1282,6 +1285,9 @@ def test_pe_percent_ratio_actual_at_absolute_ten_is_not_flagged_as_percent(actua
     assert result["status"] == expected_status
     assert result["reason"] is None
 
+
+def test_pe_percent_ratio_actual_just_over_ten_is_flagged_as_percent():
+    """An actual of 10.5 on a percent-type ratio is flagged; 10 is not (the boundary above)."""
     just_over_ten = evaluate_deal_policy({
         "ratios": {"FY-Current": {"gearing": 10.5}},
         "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 1}],
@@ -1314,6 +1320,9 @@ def test_pe_percent_ratio_threshold_at_absolute_ten_is_not_flagged_as_percent(
     assert result["status"] == expected_status
     assert result["reason"] is None
 
+
+def test_pe_percent_ratio_threshold_just_over_ten_is_flagged_as_percent():
+    """A covenant threshold of 10.5 on a percent-type ratio is flagged; 10 is not (the boundary above)."""
     just_over_ten = evaluate_deal_policy({
         "ratios": {"FY-Current": {"gearing": 0}},
         "covenants": [{"metric": "gearing", "type": "maximum", "threshold": 10.5}],
@@ -1346,6 +1355,9 @@ def test_pe_nonpositive_ebitda_makes_a_recorded_gross_leverage_unresolvable(ebit
     assert result["headroom_pct"] is None
     assert result["reason"] == f"{reason} (the recorded value 2.0 is ignored)"
 
+
+def test_pe_a_negative_base_ebitda_is_neither_a_forward_pass_nor_a_downside_breach():
+    """The negative denominator keeps both forward disclosure and downside comparison from treating the stored ratio as a base-case PASS."""
     # The same negative denominator must keep both forward disclosure and downside comparison from
     # treating the stored ratio as a base-case PASS.
     forward_and_stress = evaluate_deal_policy({

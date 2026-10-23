@@ -1661,6 +1661,6 @@ def test_408_main_help_required_flags_date_forwarding_and_json_shape(capsys, mon
 def test_408_named_equivalent_text_and_path_spelling_cases():
     """Explicit aliases/redundancies that have no distinct observable behavior are recorded here."""
     # rsplit with one split and rsplit with no maxsplit both return the same final component.
-    assert "tag".rsplit("}", 1)[-1] == "tag".rsplit("}")[-1]
+    assert "{urn:synthetic}tag".rsplit("}", 1)[-1] == "{urn:synthetic}tag".rsplit("}")[-1]
     # UTF-8 codec names are case-insensitive aliases.
     assert "café".encode("utf-8") == "café".encode("UTF-8")

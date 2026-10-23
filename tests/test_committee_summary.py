@@ -557,3 +557,254 @@ def test_a_recorded_value_that_looks_like_html_is_shown_literally_as_a_code_span
 def test_underscore_emphasis_is_shown_literally_but_snake_case_names_are_left_alone(value, shown):
     """CH13: '_x_' emphasised its text in the Markdown file; names with inner underscores must stay plain."""
     assert cs._cell(value) == shown
+
+
+# ---------------------------------------------------------------------------
+# #408 mutation-survivor slice: fast helper contracts and exact CLI surface
+# ---------------------------------------------------------------------------
+
+def test_408_cell_json_keeps_unicode_and_sorted_keys():
+    """Mutants #16/#18: dict/list cells must preserve Unicode instead of JSON-escaping it."""
+    assert cs._cell({"z": "last", "name": "café"}) == '{"name": "café", "z": "last"}'
+
+
+def test_408_table_delimiter_has_exact_pipes_spacing_and_alignment():
+    """Mutants #11/#13/#14/#15: every header needs one correctly formed separator cell."""
+    assert cs._table(["alpha", "beta"], [[1, 2]]) == [
+        "| alpha | beta |",
+        "| :--- | :--- |",
+        "| 1 | 2 |",
+    ]
+
+
+def test_408_scalar_rows_exclude_skipped_and_nested_values_and_mark_missing_values():
+    """Mutants #6/#7/#20/#22: only distinct non-skipped scalar names become rows; absent values stay recorded-missing."""
+    rows = cs._scalar_rows(
+        {
+            "FY-Current": {
+                "revenue": 100,
+                "omit_this": 7,
+                "nested": {"value": 1},
+                "array": [1, 2],
+            },
+            "FY+1": {"revenue": 110, "new_metric": 3},
+        },
+        ["FY-Current", "FY+1"],
+        skip=("omit_this",),
+    )
+    assert rows == [
+        ["revenue", 100, 110],
+        ["new_metric", cs.NOT_RECORDED, 3],
+    ]
+
+
+def test_408_records_table_marks_a_missing_preferred_cell_as_not_recorded():
+    """Mutants #14/#16: a missing value in a real column must not become None or an empty cell."""
+    assert cs._records_table(
+        [{"metric": "dscr", "threshold": 1.2}, {"metric": "leverage"}],
+        ["metric", "threshold"],
+    ) == [
+        "| metric | threshold |",
+        "| :--- | :--- |",
+        "| dscr | 1.2 |",
+        f"| leverage | {cs.NOT_RECORDED} |",
+    ]
+
+
+def test_408_collect_passes_names_date_base_dir_state_keys_and_path_to_readers(tmp_path, monkeypatch):
+    """Pin every call boundary in collect without exporting either report file."""
+    from pathlib import Path
+
+    state_file = tmp_path / "Synthetic Co" / f"Synthetic Fleet Loan_{DATE}" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text("{}", encoding="utf-8")
+    base_dir = str(tmp_path)
+    calls = {"sanitize": [], "dates": [], "state_path": [], "read_state": [],
+             "validate_state": [], "manifest": [], "find_deal": []}
+
+    def sanitize(value, field_name):
+        calls["sanitize"].append((value, field_name))
+        return value
+
+    def validate_date(value, field_name):
+        calls["dates"].append((value, field_name))
+
+    def path_for(company, proposal, **kwargs):
+        calls["state_path"].append((company, proposal, kwargs.copy()))
+        return str(state_file)
+
+    def read_state(company, proposal, **kwargs):
+        calls["read_state"].append((company, proposal, kwargs.copy()))
+        return {"synthetic": "record"}
+
+    def validate_state(state, **kwargs):
+        calls["validate_state"].append((state, kwargs.copy()))
+
+    def read_manifest(company, proposal, **kwargs):
+        calls["manifest"].append((company, proposal, kwargs.copy()))
+        return []
+
+    def find_deal(company, proposal, **kwargs):
+        calls["find_deal"].append((company, proposal, kwargs.copy()))
+        return {"record_found": True, "date": DATE}
+
+    monkeypatch.setattr(cs, "sanitize_path_component", sanitize)
+    monkeypatch.setattr(cs, "validate_iso_date_str", validate_date)
+    monkeypatch.setattr(cs, "state_path", path_for)
+    monkeypatch.setattr(cs, "read_state", read_state)
+    monkeypatch.setattr(cs, "validate_state", validate_state)
+    monkeypatch.setattr(cs, "read_manifest", read_manifest)
+    monkeypatch.setattr(cs, "find_deal", find_deal)
+    monkeypatch.setattr(cs, "compute_from_state", lambda state: {"policy_state": {"from": state["synthetic"]}})
+    monkeypatch.setattr(cs, "sources_declared", lambda state: "not_declared")
+    monkeypatch.setattr(cs, "missing_saved_sources", lambda state, manifest: False)
+
+    folder, data = cs.collect("Synthetic Co", "Synthetic Fleet Loan", date_str=DATE, base_dir=base_dir)
+
+    assert folder == str(state_file.parent)
+    assert data["date"] == DATE and data["policy"] == {"from": "record"}
+    assert calls["sanitize"][:2] == [("Synthetic Co", "company"), ("Synthetic Fleet Loan", "proposal")]
+    assert calls["dates"] == [(DATE, "--date-str")]
+    assert calls["state_path"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+    ]
+    assert calls["read_state"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir,
+                                                   "keys": cs.STATE_KEYS_READ})
+    ]
+    assert calls["validate_state"] == [
+        ({"synthetic": "record"}, {"keys": ("group_basis",), "path": str(state_file)})
+    ]
+    assert calls["manifest"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir})
+    ]
+
+    # The implicit-date branch must use find_deal's returned date, and the same base directory for every read.
+    calls.update({"state_path": [], "read_state": [], "validate_state": [], "manifest": [], "find_deal": []})
+    folder, data = cs.collect("Synthetic Co", "Synthetic Fleet Loan", base_dir=base_dir)
+    assert data["date"] == DATE and folder == str(state_file.parent)
+    assert calls["find_deal"] == [("Synthetic Co", "Synthetic Fleet Loan", {"base_dir": base_dir})]
+    assert calls["state_path"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+    ]
+    assert calls["read_state"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir,
+                                                   "keys": cs.STATE_KEYS_READ})
+    ]
+    assert calls["manifest"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir})
+    ]
+
+
+def test_408_atomic_replace_uses_a_same_directory_uniquely_named_temp_file(tmp_path, monkeypatch):
+    """Mutants #2-#12: preserve destination directory and the chosen prefix/suffix."""
+    import tempfile
+
+    real_mkstemp = tempfile.mkstemp
+    recorded = {}
+
+    def recording_mkstemp(*args, **kwargs):
+        recorded.update(kwargs)
+        return real_mkstemp(*args, **kwargs)
+
+    monkeypatch.setattr(cs.tempfile, "mkstemp", recording_mkstemp)
+    target = tmp_path / "summary.md"
+
+    def write(path):
+        from pathlib import Path
+        Path(path).write_text("synthetic payload", encoding="utf-8")
+
+    cs._replace_atomically(str(target), write)
+
+    assert target.read_text(encoding="utf-8") == "synthetic payload"
+    assert recorded == {"dir": str(tmp_path), "prefix": ".committee_summary_", "suffix": ".tmp"}
+    assert [p.name for p in tmp_path.iterdir()] == ["summary.md"]
+
+
+def test_408_generate_keeps_utf8_lf_write_base_dir_and_policy_scope(tmp_path, monkeypatch):
+    """Mutants in generate: exact collection kwargs, open encoding/newline, and report key/value."""
+    import builtins
+
+    data = {
+        "company": "Synthetic Co", "proposal": "Synthetic Fleet Loan", "date": DATE, "state": {},
+        "policy": {}, "manifest_count": 0, "sources_declared": "not_declared", "sources_missing": False,
+    }
+    collect_calls = []
+    temp_writes = []
+    open_calls = []
+    real_open = builtins.open
+
+    def collect(company, proposal, **kwargs):
+        collect_calls.append((company, proposal, kwargs.copy()))
+        return str(tmp_path), data
+
+    def replace(path, write):
+        temp = tmp_path / f"synthetic-{len(temp_writes)}.tmp"
+        temp_writes.append((path, write))
+        write(str(temp))
+
+    def recording_open(*args, **kwargs):
+        open_calls.append(kwargs.copy())
+        return real_open(*args, **kwargs)
+
+    monkeypatch.setattr(cs, "collect", collect)
+    monkeypatch.setattr(cs, "render_markdown", lambda data: "## Synthetic section\n")
+    monkeypatch.setattr(cs, "_replace_atomically", replace)
+    monkeypatch.setattr(cs, "export_to_docx", lambda markdown, path: None)
+    monkeypatch.setattr(builtins, "open", recording_open)
+
+    report = cs.generate("Synthetic Co", "Synthetic Fleet Loan", date_str=DATE, base_dir=str(tmp_path))
+
+    assert collect_calls == [("Synthetic Co", "Synthetic Fleet Loan",
+                              {"date_str": DATE, "base_dir": str(tmp_path)})]
+    assert open_calls == [{"encoding": "utf-8", "newline": "\n"}]
+    assert report == {
+        "status": "written",
+        "selected_folder": str(tmp_path),
+        "markdown_path": str(tmp_path / "Synthetic Co_Synthetic Fleet Loan_Committee_Summary.md"),
+        "docx_path": str(tmp_path / "Synthetic Co_Synthetic Fleet Loan_Committee_Summary.docx"),
+        "included_sections": ["Synthetic section"],
+        "policy_scope": "deal-structural checks on the recorded state; draft-level findings not assessed",
+    }
+
+
+def test_408_main_help_and_required_proposal_are_exact(capsys, monkeypatch):
+    """Pin description/date help, and make --proposal genuinely required."""
+    expected_description = (
+        "Write a short committee summary (Markdown and Word) for one deal from its recorded state and "
+        "the deterministic policy check. Quotes recorded values only; makes no credit decision. Has no "
+        "Anthropic dependency."
+    )
+    with pytest.raises(SystemExit) as help_exit:
+        cs.main(["--help"])
+    assert help_exit.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert expected_description in help_text
+    assert ("YYYY-MM-DD suffix of the deal's dated folder. Defaults to the deal's newest dated folder that has a "
+            "state.json.") in help_text
+
+    with pytest.raises(SystemExit) as required_exit:
+        cs.main(["--company", "Synthetic Co"])
+    assert required_exit.value.code == 2
+    assert "the following arguments are required: --proposal" in capsys.readouterr().err
+
+
+def test_408_main_passes_date_str_and_prints_two_space_json(capsys, monkeypatch):
+    """Mutants #43/#46/#50/#52/#53: forward the selected date and preserve JSON indentation."""
+    calls = []
+    monkeypatch.setattr(cs, "generate", lambda company, proposal, **kwargs: (
+        calls.append((company, proposal, kwargs.copy())) or {"status": "written"}
+    ))
+    cs.main(["--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan", "--date-str", DATE])
+    assert calls == [("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE})]
+    assert capsys.readouterr().out == '{\n  "status": "written"\n}\n'
+
+
+def test_408_omitting_explicit_ensure_ascii_false_keeps_the_same_unicode_json():
+    """Named equivalent for _cell #13: ensure_ascii=None is falsy just like False in json.dumps."""
+    import json
+
+    assert json.dumps({"name": "café"}, sort_keys=True, ensure_ascii=None) == json.dumps(
+        {"name": "café"}, sort_keys=True, ensure_ascii=False
+    )

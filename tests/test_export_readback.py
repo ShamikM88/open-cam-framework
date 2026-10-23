@@ -1010,9 +1010,17 @@ def test_408_workbook_comparison_continues_after_a_missing_expected_sheet(monkey
     """Mutant #46: skipping a sheet absent from the actual workbook must not stop later sheet comparisons."""
     from types import SimpleNamespace
 
-    empty = SimpleNamespace(items=lambda: [])
-    expected = SimpleNamespace(sheetnames=["Removed", "Retained"], defined_names=empty)
-    actual = SimpleNamespace(sheetnames=["Retained"], defined_names=empty)
+    class Book:
+        defined_names = SimpleNamespace(items=lambda: [])
+
+        def __init__(self, sheetnames):
+            self.sheetnames = sheetnames
+
+        def __getitem__(self, name):
+            return name
+
+    expected = Book(["Removed", "Retained"])
+    actual = Book(["Retained"])
     compared = []
     monkeypatch.setattr(export_readback, "_load_workbook",
                         lambda path: expected if path == "expected" else actual)
@@ -1173,7 +1181,7 @@ def test_408_sheet_layout_comparison_reports_every_layout_difference(monkeypatch
     want.merge_cells("A1:B1")
     have.merge_cells("B1:C1")
     want.freeze_panes, have.freeze_panes = "B2", "C3"
-    want.data_validations.add(DataValidation(type="whole", operator="greaterThan", formula1="0"))
+    want.add_data_validation(DataValidation(type="whole", operator="greaterThan", formula1="0"))
     want.conditional_formatting.add("A1", CellIsRule(operator="greaterThan", formula=["0"]))
     want.defined_names.add(DefinedName("SyntheticLocal", attr_text="'want'!$A$1"))
     have.defined_names.add(DefinedName("SyntheticLocal", attr_text="'have'!$A$1"))
@@ -1495,7 +1503,8 @@ def test_408_approved_draft_error_and_base_dir_resolution_are_exact(tmp_path, mo
     working.mkdir()
     monkeypatch.chdir(working)
     recorded = f"deals/Synthetic Co/Synthetic Fleet Loan_{DATE}/draft.md"
-    assert export_readback._approved_draft({"approved_draft_path": recorded}, str(folder), str(tmp_path)) == str(draft)
+    resolved = export_readback._approved_draft({"approved_draft_path": recorded}, str(folder), str(tmp_path))
+    assert Path(resolved) == draft
 
 
 def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_boundary(tmp_path, monkeypatch):
@@ -1675,9 +1684,9 @@ def test_408_main_serializes_non_json_report_values_with_default_str(capsys, mon
     monkeypatch.setattr(
         export_readback,
         "verify_deal",
-        lambda company, proposal, **kwargs: {"when": datetime.datetime(2026, 1, 2, 3, 4)},
+        lambda company, proposal, **kwargs: {"status": "match", "when": datetime.datetime(2026, 1, 2, 3, 4)},
     )
     assert export_readback.main([
         "--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan"
     ]) == 0
-    assert capsys.readouterr().out == '{\n  "when": "2026-01-02 03:04:00"\n}\n'
+    assert capsys.readouterr().out == '{\n  "status": "match",\n  "when": "2026-01-02 03:04:00"\n}\n'

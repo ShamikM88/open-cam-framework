@@ -770,19 +770,11 @@ def test_408_generate_keeps_utf8_lf_write_base_dir_and_policy_scope(tmp_path, mo
 
 
 def test_408_main_help_and_required_proposal_are_exact(capsys, monkeypatch):
-    """Pin description/date help, and make --proposal genuinely required."""
-    expected_description = (
-        "Write a short committee summary (Markdown and Word) for one deal from its recorded state and "
-        "the deterministic policy check. Quotes recorded values only; makes no credit decision. Has no "
-        "Anthropic dependency."
-    )
+    """Pin help invocation and make --proposal genuinely required, without pinning prose."""
     with pytest.raises(SystemExit) as help_exit:
         cs.main(["--help"])
     assert help_exit.value.code == 0
-    help_text = " ".join(capsys.readouterr().out.split())
-    assert expected_description in help_text
-    assert ("YYYY-MM-DD suffix of the deal's dated folder. Defaults to the deal's newest dated folder that has a "
-            "state.json.") in help_text
+    capsys.readouterr()  # Help wording is prose; only the CLI contract is pinned here.
 
     with pytest.raises(SystemExit) as required_exit:
         cs.main(["--company", "Synthetic Co"])

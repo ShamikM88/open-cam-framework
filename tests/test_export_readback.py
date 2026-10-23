@@ -1667,6 +1667,7 @@ def test_408_named_equivalent_text_and_path_spelling_cases():
 
     assert codecs.lookup("utf-8").name == codecs.lookup("UTF-8").name == "utf-8"
 
+
 def test_408_main_serializes_non_json_report_values_with_default_str(capsys, monkeypatch):
     """Mutant #51: the CLI serializes date-like finding values via default=str."""
     import datetime

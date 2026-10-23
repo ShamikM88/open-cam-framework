@@ -1663,7 +1663,9 @@ def test_408_named_equivalent_text_and_path_spelling_cases():
     # rsplit with one split and rsplit with no maxsplit both return the same final component.
     assert "{urn:synthetic}tag".rsplit("}", 1)[-1] == "{urn:synthetic}tag".rsplit("}")[-1]
     # UTF-8 codec names are case-insensitive aliases.
-    assert "café".encode("utf-8") == "café".encode("UTF-8")
+    import codecs
+
+    assert codecs.lookup("utf-8").name == codecs.lookup("UTF-8").name == "utf-8"
 
 def test_408_main_serializes_non_json_report_values_with_default_str(capsys, monkeypatch):
     """Mutant #51: the CLI serializes date-like finding values via default=str."""

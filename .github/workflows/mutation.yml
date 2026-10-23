@@ -4,10 +4,31 @@ name: Mutation testing
 # governance module at a time and checks that some test then fails; a mutant that survives is a line nothing
 # really tests. It takes far too long to gate a pull request, and the numbers are advisory: the first full run is
 # diagnostic, thresholds are decided from it afterwards, and no result here blocks a merge.
+#
+# Three modes (issue #435; a full run takes about 102 minutes, so most runs are cheaper):
+#   incremental  the weekly default. mutmut keeps a verdict per mutant in mutants/ and, for a function whose source is
+#                unchanged, keeps it; the directory is restored from the Actions cache, so only new or changed
+#                functions are tested, plus a retest of every recorded survivor so that new tests are credited.
+#   full         every mutant from scratch: the first Monday of each month (the schedule), or the `full` input. A
+#                cached run cannot see a killed mutant become alive after a test is weakened; this run does.
+#   filtered     the `mutants` input: mutmut name globs such as `export_readback.*`, retested even if they already
+#                have a verdict. Quick, authoritative check of one module on a pull request branch (run the workflow
+#                from that branch).
 on:
   schedule:
     - cron: "17 3 * * 1"      # Mondays 03:17 UTC
   workflow_dispatch:
+    inputs:
+      mutants:
+        description: "Space-separated mutmut name globs to retest, e.g. export_readback.* (empty: the default run)"
+        required: false
+        default: ""
+        type: string
+      full:
+        description: "Run every mutant from scratch, ignoring the cache"
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -49,20 +70,82 @@ jobs:
         # (see [tool.mutmut] in pyproject.toml). src is git-ignored.
         run: ln -s scripts src
 
+      - name: Decide the run mode
+        # The inputs reach the shell only through env, never interpolated into the script, and the name globs are
+        # checked against a strict character set before anything uses them.
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          MUTANTS: ${{ inputs.mutants }}
+          FULL: ${{ inputs.full }}
+        run: |
+          set -eu
+          mode=incremental
+          if [ -n "${MUTANTS:-}" ]; then
+            if ! printf '%s' "$MUTANTS" | grep -Eq '^[A-Za-z0-9_.*? ]+$'; then
+              echo "::error::the mutants input may contain only letters, digits, underscore, dot, asterisk, question mark and spaces"
+              exit 1
+            fi
+            mode=filtered
+          elif [ "${FULL:-false}" = "true" ]; then
+            mode=full
+          elif [ "$EVENT" = "schedule" ] && [ "$(date -u +%d)" -le 7 ]; then
+            mode=full     # the first Monday of the month
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the mutation results
+        # A full run starts from nothing. Caches are scoped to the branch (a run from a pull request branch can read
+        # the default branch's cache but never writes to it). The key changes with the dependencies and
+        # pyproject.toml (mutation scope and test selection), so a change to either starts a fresh full run.
+        id: restore
+        if: steps.mode.outputs.mode != 'full'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: mutants
+          key: mutants-${{ runner.os }}-${{ hashFiles('requirements-dev.txt', 'requirements-mutation.txt', 'constraints.txt', 'pyproject.toml') }}-${{ github.run_id }}
+          restore-keys: |
+            mutants-${{ runner.os }}-${{ hashFiles('requirements-dev.txt', 'requirements-mutation.txt', 'constraints.txt', 'pyproject.toml') }}-
+
       - name: Run mutmut
         # What to mutate and which tests to run: [tool.mutmut] in pyproject.toml. A failing exit status here does
         # not stop the report steps below; the final step fails the job only if mutmut produced no result at all.
         id: mutmut
         continue-on-error: true
         timeout-minutes: 110   # a step timeout (below the job's 120), so the report steps below still run when mutmut hangs
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          MUTANTS: ${{ inputs.mutants }}
+          RESTORED: ${{ steps.restore.outputs.cache-matched-key }}
         run: |
           set -o pipefail
-          mutmut run 2>&1 | tee mutmut-run.log
+          case "$MODE" in
+            full)
+              rm -rf mutants
+              mutmut run 2>&1 | tee mutmut-run.log
+              ;;
+            filtered)
+              read -r -a globs <<< "$MUTANTS"
+              mutmut run "${globs[@]}" 2>&1 | tee mutmut-run.log
+              ;;
+            *)
+              # New or changed functions first, then every recorded survivor again: a test added since the last run
+              # may now kill it. Without a restored cache this is simply a full run.
+              mutmut run 2>&1 | tee mutmut-run.log
+              if [ -n "${RESTORED:-}" ]; then
+                mutmut results | awk '/: survived/ { sub(/:$/, "", $1); print $1 }' > survivors.txt
+                if [ -s survivors.txt ]; then
+                  mutmut run $(cat survivors.txt) 2>&1 | tee -a mutmut-run.log
+                fi
+              fi
+              ;;
+          esac
 
       - name: Collect results
         if: always()
         env:
           MUTMUT_OUTCOME: ${{ steps.mutmut.outcome }}
+          MODE: ${{ steps.mode.outputs.mode }}
         run: |
           mutmut export-cicd-stats || true
           mutmut results > mutation-survivors.txt || true
@@ -71,7 +154,8 @@ jobs:
           import json, os, pathlib
           path = pathlib.Path("mutants/mutmut-cicd-stats.json")
           print("## Mutation testing (diagnostic, not a merge gate)")
-          print(f"mutmut step outcome: **{os.environ.get('MUTMUT_OUTCOME', 'unknown')}**")
+          print(f"run mode: **{os.environ.get('MODE', 'unknown')}**; "
+                f"mutmut step outcome: **{os.environ.get('MUTMUT_OUTCOME', 'unknown')}**")
           if not path.exists():
               print("mutmut produced no statistics; see the run log artifact.")
           else:
@@ -87,6 +171,13 @@ jobs:
           if ! python scripts/mutation_report.py mutation-all.txt --json mutation-report.json >> "$GITHUB_STEP_SUMMARY"; then
             echo "The per-module report could not be produced; see mutation-all.txt." >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Save the mutation results
+        if: always() && steps.mode.outputs.mode != 'filtered'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: mutants
+          key: mutants-${{ runner.os }}-${{ hashFiles('requirements-dev.txt', 'requirements-mutation.txt', 'constraints.txt', 'pyproject.toml') }}-${{ github.run_id }}
 
       - name: Record the resolved mutation dependency versions
         if: always()

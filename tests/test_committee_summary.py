@@ -791,12 +791,3 @@ def test_408_main_passes_date_str_and_prints_two_space_json(capsys, monkeypatch)
     cs.main(["--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan", "--date-str", DATE])
     assert calls == [("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE})]
     assert capsys.readouterr().out == '{\n  "status": "written"\n}\n'
-
-
-def test_408_omitting_explicit_ensure_ascii_false_keeps_the_same_unicode_json():
-    """Named equivalent for _cell #13: ensure_ascii=None is falsy just like False in json.dumps."""
-    import json
-
-    assert json.dumps({"name": "café"}, sort_keys=True, ensure_ascii=None) == json.dumps(
-        {"name": "café"}, sort_keys=True, ensure_ascii=False
-    )

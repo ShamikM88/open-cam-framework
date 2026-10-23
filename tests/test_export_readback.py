@@ -1664,3 +1664,18 @@ def test_408_named_equivalent_text_and_path_spelling_cases():
     assert "{urn:synthetic}tag".rsplit("}", 1)[-1] == "{urn:synthetic}tag".rsplit("}")[-1]
     # UTF-8 codec names are case-insensitive aliases.
     assert "café".encode("utf-8") == "café".encode("UTF-8")
+
+def test_408_main_serializes_non_json_report_values_with_default_str(capsys, monkeypatch):
+    """Mutant #51: the CLI serializes date-like finding values via default=str."""
+    import datetime
+
+    monkeypatch.setattr(
+        export_readback,
+        "verify_deal",
+        lambda company, proposal, **kwargs: {"when": datetime.datetime(2026, 1, 2, 3, 4)},
+    )
+    assert export_readback.main([
+        "--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan"
+    ]) == 0
+    assert capsys.readouterr().out == '{\\n  "when": "2026-01-02 03:04:00"\\n}\\n'
+\n

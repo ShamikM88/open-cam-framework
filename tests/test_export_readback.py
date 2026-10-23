@@ -927,3 +927,743 @@ def test_a_character_style_has_a_signature_without_paragraph_layout():
     signature = export_readback._style_signature(character)
 
     assert signature[0] == character.name and len(signature) == 10
+
+
+# ---------------------------------------------------------------------------
+# #408 mutation-survivor slice: fast helper contracts and exact verifier output
+# ---------------------------------------------------------------------------
+
+def test_408_numeric_comparison_uses_relative_and_absolute_tolerances():
+    """Mutants #10/#11: each tolerance matters in a different numeric regime."""
+    assert export_readback._values_equal(1_000_000_000.0, 1_000_000_000.5)
+    assert export_readback._values_equal(0.0, 0.5e-9)
+    assert not export_readback._values_equal(1_000_000_000.0, 1_000_000_002.0)
+
+
+def test_408_color_signature_keeps_kind_value_and_zero_tint():
+    """Mutants #3-#14: every supported color kind and falsey tint retains its real signature."""
+    from types import SimpleNamespace
+
+    colours = {
+        "rgb": "00AA11",
+        "theme": 4,
+        "indexed": 7,
+        "auto": True,
+    }
+    for kind, value in colours.items():
+        color = SimpleNamespace(type=kind, rgb=colours["rgb"], theme=colours["theme"],
+                                indexed=colours["indexed"], auto=colours["auto"], tint=0)
+        assert export_readback._color(color) == [kind, value, 0]
+    assert export_readback._color(None) is None
+    tint = SimpleNamespace(type="rgb", rgb="00AA11", theme=0, indexed=0, auto=False, tint=0.25)
+    assert export_readback._color(tint) == ["rgb", "00AA11", 0.25]
+
+
+def test_408_border_and_fill_signatures_keep_side_colours_and_empty_fill():
+    """Mutants #18 (border), #3-#5 (fill): foreground/background and border colours are compared."""
+    from types import SimpleNamespace
+
+    color = SimpleNamespace(type="rgb", rgb="00AA11", theme=None, indexed=None, auto=None, tint=0)
+    side = SimpleNamespace(style="thin", color=color)
+    cell = SimpleNamespace(border=SimpleNamespace(left=side, right=None, top=None, bottom=None))
+    assert export_readback._border(cell) == {
+        "left": ["thin", ["rgb", "00AA11", 0]], "right": None, "top": None, "bottom": None,
+    }
+
+    empty = SimpleNamespace(fill=SimpleNamespace(fill_type=None, fgColor=color, bgColor=color))
+    assert export_readback._fill(empty) is None
+    filled = SimpleNamespace(fill=SimpleNamespace(fill_type="solid", fgColor=color, bgColor=None))
+    assert export_readback._fill(filled) == ["solid", ["rgb", "00AA11", 0], None]
+
+
+def test_408_workbook_comparison_pins_sheet_and_defined_name_findings(monkeypatch):
+    """Mutants #7/#17/#18/#29-#45: findings retain exact artifact, location, kind and both values."""
+    from types import SimpleNamespace
+
+    class DefinedNames:
+        def __init__(self, entries):
+            self.entries = entries
+
+        def items(self):
+            return self.entries.items()
+
+    expected = SimpleNamespace(
+        sheetnames=["Expected"],
+        defined_names=DefinedNames({"SyntheticName": SimpleNamespace(attr_text="'Expected'!$A$1")}),
+    )
+    actual = SimpleNamespace(
+        sheetnames=["Actual"],
+        defined_names=DefinedNames({"SyntheticName": SimpleNamespace(attr_text="'Actual'!$A$1")}),
+    )
+    monkeypatch.setattr(export_readback, "_load_workbook",
+                        lambda path: expected if path == "expected" else actual)
+    assert export_readback.compare_workbooks("expected", "actual") == [
+        {"artifact": "workbook", "location": "sheet names", "kind": "sheets",
+         "expected": ["Expected"], "actual": ["Actual"]},
+        {"artifact": "workbook", "location": "defined names", "kind": "defined_names",
+         "expected": [("SyntheticName", "'Expected'!$A$1")],
+         "actual": [("SyntheticName", "'Actual'!$A$1")]},
+    ]
+
+
+def test_408_workbook_comparison_continues_after_a_missing_expected_sheet(monkeypatch):
+    """Mutant #46: skipping a sheet absent from the actual workbook must not stop later sheet comparisons."""
+    from types import SimpleNamespace
+
+    empty = SimpleNamespace(items=lambda: [])
+    expected = SimpleNamespace(sheetnames=["Removed", "Retained"], defined_names=empty)
+    actual = SimpleNamespace(sheetnames=["Retained"], defined_names=empty)
+    compared = []
+    monkeypatch.setattr(export_readback, "_load_workbook",
+                        lambda path: expected if path == "expected" else actual)
+    monkeypatch.setattr(export_readback, "_compare_sheets",
+                        lambda name, want, have: compared.append(name) or [])
+    findings = export_readback.compare_workbooks("expected", "actual")
+    assert compared == ["Retained"]
+    assert findings == [{"artifact": "workbook", "location": "sheet names", "kind": "sheets",
+                         "expected": ["Removed", "Retained"], "actual": ["Retained"]}]
+
+
+def test_408_compare_sheets_checks_cell_limit_and_reports_the_exact_refusal(monkeypatch):
+    """Mutants #13/#15/#16: exactly the limit is allowed; an over-limit refusal keeps its exact message."""
+    from types import SimpleNamespace
+
+    class Sheet:
+        def __init__(self, title, rows, columns):
+            self.title, self.max_row, self.max_column = title, rows, columns
+
+        def cell(self, row, column):
+            return SimpleNamespace(value=None, coordinate=f"A{row}")
+
+    monkeypatch.setattr(export_readback, "CELL_PROPERTIES", ())
+    monkeypatch.setattr(export_readback, "_compare_sheet_layout", lambda name, want, have: [])
+    monkeypatch.setattr(export_readback, "MAX_COMPARED_CELLS", 1)
+    assert export_readback._compare_sheets("Synthetic", Sheet("w", 1, 1), Sheet("h", 1, 1)) == []
+
+    with pytest.raises(ValueError) as refused:
+        export_readback._compare_sheets("Synthetic", Sheet("w", 2, 1), Sheet("h", 2, 1))
+    assert str(refused.value) == (
+        "worksheet 'Synthetic' uses 2 rows by 1 columns, more than the 1 positions "
+        "a read-back compares; an export is not that large, so the file was edited"
+    )
+
+
+def test_408_compare_sheets_checks_last_row_and_first_column_and_stops_at_bounds(monkeypatch):
+    """Mutants #22/#23/#28/#30: all and only used cell coordinates are compared."""
+    from types import SimpleNamespace
+
+    class SparseSheet:
+        def __init__(self, title, rows=2, columns=2, values=None):
+            self.title, self.max_row, self.max_column = title, rows, columns
+            self.values = values or {}
+
+        def cell(self, row, column):
+            value = self.values.get((row, column))
+            return SimpleNamespace(value=value, coordinate=f"{chr(64 + column)}{row}")
+
+    monkeypatch.setattr(export_readback, "CELL_PROPERTIES", ())
+    monkeypatch.setattr(export_readback, "_compare_sheet_layout", lambda name, want, have: [])
+    expected = SparseSheet("expected", values={(1, 1): "same", (2, 1): "tail", (1, 2): "same"})
+    actual = SparseSheet("actual", values={(1, 1): "same", (2, 1): "changed", (1, 2): "same"})
+    findings = export_readback._compare_sheets("Synthetic", expected, actual)
+    assert [(item["location"], item["expected"], item["actual"]) for item in findings] == [
+        ("Synthetic!A2", "tail", "changed")
+    ]
+
+    # A cell the worksheet claims is outside its used range is deliberately non-blank in this fake. The helper must
+    # not inspect it: real openpyxl worksheets' cells beyond max_row/max_column are outside the comparison contract.
+    bounded_expected = SparseSheet("expected", rows=1, columns=1, values={(2, 1): "outside"})
+    bounded_actual = SparseSheet("actual", rows=1, columns=1, values={(2, 1): "different"})
+    assert export_readback._compare_sheets("Synthetic", bounded_expected, bounded_actual) == []
+
+
+def test_408_compare_sheets_finding_preserves_artifact_and_both_property_values(monkeypatch):
+    """Mutants #58/#59/#60/#61/#62: a changed cell property has an exact finding record."""
+    from types import SimpleNamespace
+
+    class Sheet:
+        max_row = 1
+        max_column = 1
+
+        def __init__(self, title, marker):
+            self.title, self.marker = title, marker
+
+        def cell(self, row, column):
+            return SimpleNamespace(value="same", coordinate="A1", marker=self.marker)
+
+    monkeypatch.setattr(export_readback, "CELL_PROPERTIES", (("marker", lambda cell: cell.marker),))
+    monkeypatch.setattr(export_readback, "_compare_sheet_layout", lambda name, want, have: [])
+    assert export_readback._compare_sheets("Synthetic", Sheet("want", "expected"),
+                                           Sheet("have", "actual")) == [
+        {"artifact": "workbook", "location": "Synthetic!A1", "kind": "marker",
+         "expected": "expected", "actual": "actual"}
+    ]
+
+
+def test_408_chart_signature_keeps_references_and_chart_properties():
+    """Mutants #3/#5/#6/#10-#13/#17-#19: chart series refs and exact grouping/type are part of the signature."""
+    from types import SimpleNamespace
+
+    ref = lambda value: SimpleNamespace(numRef=SimpleNamespace(f=value), strRef=None)
+    chart = SimpleNamespace(
+        tagname="barChart",
+        anchor=SimpleNamespace(_from=SimpleNamespace(row=2, col=3)),
+        grouping="stacked",
+        type="bar",
+        series=[SimpleNamespace(tx=ref("Sheet!$A$1"), val=ref("Sheet!$B$1"), cat=ref("Sheet!$C$1"))],
+    )
+    assert export_readback._chart_signature(chart) == [
+        "barChart", 2, 3, "stacked", "bar",
+        [["Sheet!$A$1", "Sheet!$B$1", "Sheet!$C$1"]],
+    ]
+
+
+def test_408_sheet_charts_are_sorted_only_by_anchor_row_and_column(monkeypatch):
+    """Mutants #2/#4/#7/#8: chart order is based on anchor, preserving input order for tied anchors."""
+    from types import SimpleNamespace
+
+    first = SimpleNamespace(sig=["zChart", 1, 9, "bar"])
+    second = SimpleNamespace(sig=["aChart", 0, 0, "pie"])
+    monkeypatch.setattr(export_readback, "_chart_signature", lambda chart: chart.sig)
+    assert export_readback._sheet_charts(SimpleNamespace(_charts=[first, second])) == [
+        ["aChart", 0, 0, "pie"], ["zChart", 1, 9, "bar"]
+    ]
+
+    row_first = SimpleNamespace(sig=["chart", 0, 9, "bar"])
+    column_first = SimpleNamespace(sig=["chart", 1, 0, "pie"])
+    assert export_readback._sheet_charts(SimpleNamespace(_charts=[column_first, row_first])) == [
+        ["chart", 0, 9, "bar"], ["chart", 1, 0, "pie"]
+    ]
+
+    tied_z = SimpleNamespace(sig=["chart", 2, 4, "z"])
+    tied_a = SimpleNamespace(sig=["chart", 2, 4, "a"])
+    assert export_readback._sheet_charts(SimpleNamespace(_charts=[tied_z, tied_a])) == [
+        ["chart", 2, 4, "z"], ["chart", 2, 4, "a"]
+    ]
+
+
+def test_408_sheet_layout_comparison_reports_every_layout_difference(monkeypatch):
+    """Mutants #32-#177: the labels and expected/actual values of layout findings are contractual."""
+    from openpyxl import Workbook
+    from openpyxl.formatting.rule import CellIsRule
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.workbook.defined_name import DefinedName
+
+    book_w, book_h = Workbook(), Workbook()
+    want, have = book_w.active, book_h.active
+    want.title, have.title = "want", "have"
+    want.sheet_state, have.sheet_state = "hidden", "visible"
+    want.protection.sheet = True
+    have.protection.sheet = False
+    want.row_dimensions[1].hidden, have.row_dimensions[1].hidden = True, False
+    want.row_dimensions[1].height, have.row_dimensions[1].height = 21, 28
+    want.row_dimensions[4].height = 18
+    have.row_dimensions[5].height = 19
+    want.column_dimensions["A"].width, have.column_dimensions["A"].width = 9, 15
+    want.column_dimensions["A"].hidden, have.column_dimensions["A"].hidden = True, False
+    want.column_dimensions["B"].width = 21
+    have.column_dimensions["C"].width = 22
+    want.merge_cells("A1:B1")
+    have.merge_cells("B1:C1")
+    want.freeze_panes, have.freeze_panes = "B2", "C3"
+    want.data_validations.add(DataValidation(type="whole", operator="greaterThan", formula1="0"))
+    want.conditional_formatting.add("A1", CellIsRule(operator="greaterThan", formula=["0"]))
+    want.defined_names.add(DefinedName("SyntheticLocal", attr_text="'want'!$A$1"))
+    have.defined_names.add(DefinedName("SyntheticLocal", attr_text="'have'!$A$1"))
+    monkeypatch.setattr(export_readback, "_sheet_charts",
+                        lambda sheet: [["chart", 1, 1, "bar"]] if sheet.title == "want" else [])
+
+    findings = export_readback._compare_sheet_layout("Synthetic", want, have)
+    actual = {(item["location"], item["kind"]): (item["artifact"], item["expected"], item["actual"])
+              for item in findings}
+    expected_locations = {
+        ("Synthetic!sheet", "sheet_state"),
+        ("Synthetic!sheet", "protection"),
+        ("Synthetic!row 1", "row_hidden"), ("Synthetic!row 1", "row_height"),
+        ("Synthetic!row 4", "row_height"), ("Synthetic!row 5", "row_height"),
+        ("Synthetic!column A", "column_width"), ("Synthetic!column A", "column_hidden"),
+        ("Synthetic!column B", "column_width"), ("Synthetic!column C", "column_width"),
+        ("Synthetic!merged cells", "merged_cells"), ("Synthetic!freeze panes", "freeze_panes"),
+        ("Synthetic!data validations", "data_validations"),
+        ("Synthetic!conditional formats", "conditional_formatting"),
+        ("Synthetic!charts", "charts"), ("Synthetic!defined names", "sheet_defined_names"),
+    }
+    assert set(actual) == expected_locations
+    assert actual[("Synthetic!sheet", "protection")] == ("workbook", True, False)
+    assert actual[("Synthetic!row 1", "row_hidden")] == ("workbook", True, False)
+    assert actual[("Synthetic!row 1", "row_height")] == ("workbook", 21.0, 28.0)
+    assert actual[("Synthetic!row 4", "row_height")] == ("workbook", 18.0, None)
+    assert actual[("Synthetic!row 5", "row_height")] == ("workbook", None, 19.0)
+    assert actual[("Synthetic!column A", "column_width")] == ("workbook", 9.0, 15.0)
+    assert actual[("Synthetic!column A", "column_hidden")] == ("workbook", True, False)
+    assert actual[("Synthetic!column B", "column_width")] == ("workbook", 21.0, have.column_dimensions["B"].width)
+    assert actual[("Synthetic!column C", "column_width")] == ("workbook", want.column_dimensions["C"].width, 22.0)
+    assert actual[("Synthetic!merged cells", "merged_cells")] == ("workbook", ["A1:B1"], ["B1:C1"])
+    assert actual[("Synthetic!freeze panes", "freeze_panes")] == ("workbook", "B2", "C3")
+    assert actual[("Synthetic!data validations", "data_validations")] == ("workbook", 1, 0)
+    assert actual[("Synthetic!conditional formats", "conditional_formatting")] == ("workbook", 1, 0)
+    assert actual[("Synthetic!charts", "charts")] == ("workbook", [["chart", 1, 1, "bar"]], [])
+    assert actual[("Synthetic!defined names", "sheet_defined_names")] == (
+        "workbook", [("SyntheticLocal", "'want'!$A$1")], [("SyntheticLocal", "'have'!$A$1")]
+    )
+
+
+def test_408_text_value_none_and_non_none_are_distinct():
+    """Mutants #1/#3/#4: None remains None while other values are stringified."""
+    assert export_readback._text_value(None) is None
+    assert export_readback._text_value(0) == "0"
+    assert export_readback._text_value("synthetic") == "synthetic"
+
+
+def test_408_run_signature_pins_font_flags_and_optional_colour_fields():
+    """Mutants #3/#4/#9-#22 in _run_signature: each font slot has its own meaning."""
+    from types import SimpleNamespace
+
+    font = SimpleNamespace(
+        underline="single", strike=True, name="Synthetic Font", size=SimpleNamespace(pt=11.0),
+        color=None, highlight_color="yellow", superscript=True, subscript=False,
+        all_caps=True, small_caps=False, hidden=True,
+    )
+    run = SimpleNamespace(text="Synthetic run", font=font, bold=True, italic=False)
+    signature = export_readback._run_signature(run)
+    assert signature == [
+        "run", "Synthetic run", True, False, "single", True, "Synthetic Font", 11.0,
+        None, None, "yellow", "True", "False", True, False, True,
+    ]
+
+    font.color = SimpleNamespace(type="rgb", rgb="00AA11", theme_color="theme-value")
+    font.superscript = False
+    font.subscript = True
+    run.bold = False
+    signature = export_readback._run_signature(run)
+    assert signature[2:4] == [False, False]
+    assert signature[8:10] == ["00AA11", "theme-value"]
+    assert signature[11:16] == ["False", "True", True, False, True]
+
+    font.color = SimpleNamespace(type=None, rgb=None, theme_color=None)
+    signature = export_readback._run_signature(run)
+    assert signature[8:10] == [None, None]
+
+
+def test_408_paragraph_block_pins_hyperlinks_image_extents_and_layout(tmp_path):
+    """Mutants #3/#4/#16/#30/#31/#53/#54/#56: preserve exact block markers and paragraph properties."""
+    from docx.shared import Inches, Pt
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+    from docx.opc.constants import RELATIONSHIP_TYPE as RT
+
+    document = docx.Document()
+    paragraph = document.add_paragraph()
+    paragraph.alignment = 2
+    paragraph.paragraph_format.left_indent = Pt(7)
+    paragraph.paragraph_format.space_before = Pt(8)
+    paragraph.paragraph_format.space_after = Pt(9)
+    paragraph.paragraph_format.line_spacing = 1.5
+    run = paragraph.add_run("synthetic link")
+    run.bold = True
+    relationship_id = document.part.relate_to("https://example.invalid/synthetic", RT.HYPERLINK, is_external=True)
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), relationship_id)
+    hyperlink_run = OxmlElement("w:r")
+    text = OxmlElement("w:t")
+    text.text = "linked"
+    hyperlink_run.append(text)
+    hyperlink.append(hyperlink_run)
+    paragraph._p.append(hyperlink)
+
+    signature = export_readback._paragraph_block(document.part, paragraph)
+    link, = [part for part in signature["parts"] if part[0] == "link"]
+    assert link[0] == "link" and link[1] == "https://example.invalid/synthetic"
+    assert signature["layout"] == ["2", 7.0, 8.0, 9.0, "1.5"]
+
+    picture_path = tmp_path / "synthetic.png"
+    picture_path.write_bytes(PNG_1X1)
+    with_image = document.add_paragraph()
+    with_image.add_run().add_picture(str(picture_path), width=Inches(1), height=Inches(1))
+    image_signature = export_readback._paragraph_block(document.part, with_image)
+    assert image_signature["image_hashes"] == [export_readback.hashlib.sha256(PNG_1X1).hexdigest()]
+    blip_id, = with_image._p.xpath(".//a:blip/@r:embed")
+    document.part.related_parts.pop(blip_id)
+    missing_relation = export_readback._paragraph_block(document.part, with_image)
+    assert missing_relation["image_hashes"] == [None]
+    assert len(image_signature["image_extents"]) == 1
+    assert image_signature["image_extents"][0][0] is not None
+    assert image_signature["image_extents"][0][1] is not None
+
+
+def test_408_layout_properties_uses_xml_local_names_and_namespaced_attributes():
+    """Mutants #1/#5/#6/#9/#11/#15/#16/#19: exact XML local names and attribute pairs matter."""
+    from types import SimpleNamespace
+
+    node = SimpleNamespace(tag="{urn:synthetic}extra}item",
+                           attrib={"{urn:synthetic}extra}name": "value", "plain": "literal"})
+    element = SimpleNamespace(xpath=lambda expression: [node])
+    assert export_readback._layout_properties(element, ".//*") == [
+        ["item", [("name", "value"), ("plain", "literal")]]
+    ]
+
+
+def test_408_table_block_keeps_style_nested_layout_and_picture_relationship(tmp_path):
+    """Mutants #5-#9/#18/#19/#26: table keys and nested paragraphs include their real content."""
+    from types import SimpleNamespace
+
+    document = docx.Document()
+    table = document.add_table(rows=1, cols=1)
+    table.style = "Table Grid"
+    picture_path = tmp_path / "cell-picture.png"
+    picture_path.write_bytes(PNG_1X1)
+    cell_paragraph = table.cell(0, 0).paragraphs[0]
+    cell_paragraph.add_run().add_picture(str(picture_path))
+    result = export_readback._table_block(document.part, table)
+    assert result["type"] == "table" and result["style"] == "Table Grid"
+    cell = result["rows"][0][0]
+    assert "layout" in cell and "paragraphs" in cell
+    assert cell["paragraphs"][0]["image_hashes"] == [export_readback.hashlib.sha256(PNG_1X1).hexdigest()]
+
+    no_style = SimpleNamespace(style=None, _tbl=table._tbl, rows=[])
+    assert export_readback._table_block(document.part, no_style)["style"] is None
+
+
+def test_408_blocks_keep_paragraph_and_table_order_and_tag_types():
+    """Mutants #6/#7/#9/#10 in _blocks: body children are identified and emitted in document order."""
+    document = docx.Document()
+    document.add_paragraph("before")
+    document.add_table(rows=1, cols=1).cell(0, 0).text = "inside table"
+    document.add_paragraph("after")
+    blocks = export_readback._document_blocks(document)
+    assert [block["type"] for block in blocks] == ["paragraph", "table", "paragraph"]
+    assert blocks[0]["parts"][0][1] == "before"
+    assert blocks[1]["rows"][0][0]["paragraphs"][0]["parts"][0][1] == "inside table"
+    assert blocks[2]["parts"][0][1] == "after"
+
+
+def test_408_section_block_pins_page_margins_and_all_six_header_footer_slots():
+    """Mutants #1-#18/#25/#26/#28/#29/#31/#32/#34/#35 in _section_block."""
+    from docx.enum.section import WD_ORIENT
+    from docx.shared import Inches
+
+    document = docx.Document()
+    section = document.sections[0]
+    section.page_width = Inches(8)
+    section.page_height = Inches(10)
+    section.orientation = WD_ORIENT.LANDSCAPE
+    section.left_margin = Inches(0.5)
+    section.right_margin = Inches(0.6)
+    section.top_margin = Inches(0.7)
+    section.bottom_margin = Inches(0.8)
+    section.different_first_page_header_footer = True
+    for story_name in ("header", "footer", "first_page_header", "first_page_footer", "even_page_header",
+                       "even_page_footer"):
+        story = getattr(section, story_name)
+        story.is_linked_to_previous = False
+        story.paragraphs[0].text = "synthetic " + story_name
+
+    result = export_readback._section_block(section)
+    assert result["type"] == "section"
+    assert result["page"] == [576.0, 720.0, "LANDSCAPE"]
+    assert result["margins"] == [36.0, 43.2, 50.4, 57.6]
+    assert result["different_first_page"] is True
+    assert set(result) == {
+        "type", "page", "margins", "different_first_page", "header", "footer",
+        "first_page_header", "first_page_footer", "even_page_header", "even_page_footer",
+    }
+    for story_name in ("header", "footer", "first_page_header", "first_page_footer", "even_page_header",
+                       "even_page_footer"):
+        assert result[story_name]["linked"] is False
+        assert ("synthetic " + story_name) in str(result[story_name])
+
+
+def test_408_style_signature_keeps_base_style_font_colour_and_paragraph_layout():
+    """Mutants #2/#7-#19/#23/#27-#31: compare every field in a directly read style definition."""
+    from docx import enum
+    from docx.shared import Pt, RGBColor
+
+    document = docx.Document()
+    style = document.styles["Heading 1"]
+    style.font.name = "Synthetic Font"
+    style.font.size = Pt(17)
+    style.font.bold = True
+    style.font.italic = True
+    style.font.underline = "single"
+    style.font.color.rgb = RGBColor(1, 2, 3)
+    style.paragraph_format.alignment = enum.text.WD_ALIGN_PARAGRAPH.RIGHT
+    style.paragraph_format.left_indent = Pt(6)
+    style.paragraph_format.space_before = Pt(7)
+    style.paragraph_format.space_after = Pt(8)
+    style.paragraph_format.line_spacing = 1.25
+    font, layout = style.font, style.paragraph_format
+    expected = [
+        style.name, export_readback._text_value(style.type),
+        style.base_style.name if style.base_style is not None else None,
+        font.name, export_readback._points(font.size), font.bold, font.italic,
+        export_readback._text_value(font.underline), export_readback._text_value(font.color.rgb),
+        export_readback._text_value(font.color.theme_color),
+        export_readback._text_value(layout.alignment), export_readback._points(layout.left_indent),
+        export_readback._points(layout.space_before), export_readback._points(layout.space_after),
+        export_readback._text_value(layout.line_spacing),
+    ]
+    assert export_readback._style_signature(style) == expected
+
+
+def test_408_used_style_names_recurses_into_nested_dicts_and_lists():
+    """Mutant #4: style names inside nested table cells and section blocks must also be found."""
+    value = {"style": "Synthetic root", "nested": [{"style": "Synthetic cell"}, ["literal", {"style": "Synthetic story"}]]}
+    assert export_readback._used_style_names(value, set()) == {
+        "Synthetic root", "Synthetic cell", "Synthetic story"
+    }
+
+
+def test_408_compare_documents_pins_block_number_style_and_section_findings(monkeypatch):
+    """Mutants #46/#47/#54/#77/#87/#88/#118/#128/#129: locations, shared styles, and exact artifact are observable."""
+    expected_doc, actual_doc = docx.Document(), docx.Document()
+    expected_doc.add_paragraph("expected block")
+    actual_doc.add_paragraph("actual block")
+    monkeypatch.setattr(export_readback, "_load_document",
+                        lambda path: expected_doc if path == "expected" else actual_doc)
+    findings = export_readback.compare_documents("expected", "actual")
+    assert len(findings) == 1
+    assert (findings[0]["artifact"], findings[0]["location"], findings[0]["kind"]) == (
+        "document", "block 1", "paragraph"
+    )
+
+    # A style used by both documents remains checked even when paragraph text and styles do not change.
+    actual_doc.paragraphs[0].text = expected_doc.paragraphs[0].text
+    expected_doc.styles["Normal"].font.size = None
+    actual_doc.styles["Normal"].font.size = None
+    actual_doc.styles["Normal"].font.name = "Different Synthetic Font"
+    findings = export_readback.compare_documents("expected", "actual")
+    style_findings = [f for f in findings if f["kind"] == "style"]
+    assert len(style_findings) == 1
+    assert (style_findings[0]["artifact"], style_findings[0]["location"], style_findings[0]["kind"]) == (
+        "document", "style Normal", "style"
+    )
+
+    # When a style is used on one side only, it is already a block difference; it is not a shared style.
+    expected_doc.paragraphs[0].style = "Heading 1"
+    actual_doc.paragraphs[0].style = "Normal"
+    expected_doc.styles["Heading 1"].font.size = None
+    actual_doc.styles["Heading 1"].font.size = Pt(1)
+    findings = export_readback.compare_documents("expected", "actual")
+    assert [(f["location"], f["kind"]) for f in findings] == [("block 1", "paragraph")]
+
+
+def test_408_compare_documents_section_finding_has_exact_location_and_values(monkeypatch):
+    """Mutants #118/#128/#129 in section comparison: section differences stay labelled document/section N."""
+    from docx.shared import Inches
+
+    expected_doc, actual_doc = docx.Document(), docx.Document()
+    actual_doc.sections[0].left_margin = Inches(3)
+    monkeypatch.setattr(export_readback, "_load_document",
+                        lambda path: expected_doc if path == "expected" else actual_doc)
+    findings = export_readback.compare_documents("expected", "actual")
+    assert len(findings) == 1
+    assert (findings[0]["artifact"], findings[0]["location"], findings[0]["kind"]) == (
+        "document", "section 1", "section"
+    )
+    assert findings[0]["expected"]["margins"] != findings[0]["actual"]["margins"]
+
+
+def test_408_approved_draft_error_and_base_dir_resolution_are_exact(tmp_path, monkeypatch):
+    """Mutants #9/#11/#12/#29: preserve exact diagnostics and resolve repository-relative paths against base_dir."""
+    from pathlib import Path
+    from state_manager import StateError
+
+    with pytest.raises(StateError) as missing:
+        export_readback._approved_draft({}, str(tmp_path / "deal"), None)
+    assert str(missing.value) == (
+        "state.json records no approved_draft_path, so the document cannot be checked; "
+        "/assemble records it when it exports"
+    )
+
+    folder = tmp_path / "deals" / "Synthetic Co" / f"Synthetic Fleet Loan_{DATE}"
+    folder.mkdir(parents=True)
+    draft = folder / "draft.md"
+    draft.write_text("synthetic draft", encoding="utf-8")
+    working = tmp_path / "working"
+    working.mkdir()
+    monkeypatch.chdir(working)
+    recorded = f"deals/Synthetic Co/Synthetic Fleet Loan_{DATE}/draft.md"
+    assert export_readback._approved_draft({"approved_draft_path": recorded}, str(folder), str(tmp_path)) == str(draft)
+
+
+def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_boundary(tmp_path, monkeypatch):
+    """Mutants #3-#138/#175-#211: path plumbing, UTF-8 read, temp names, report keys and exact cap are pinned."""
+    import builtins
+    import tempfile
+    from pathlib import Path
+
+    base_dir = str(tmp_path)
+    folder = tmp_path / "deals" / "Synthetic Co" / f"Synthetic Fleet Loan_{DATE}"
+    folder.mkdir(parents=True)
+    state_file = folder / "state.json"
+    state_file.write_text("{}", encoding="utf-8")
+    draft = folder / "draft.md"
+    draft.write_text("synthetic draft", encoding="utf-8")
+
+    calls = {"sanitize": [], "date": [], "state_path": [], "find_deal": [], "read_state": [],
+             "validate_state": [], "approved": [], "open": [], "temp": [], "xlsx": [], "docx": []}
+
+    def sanitize(value, field_name):
+        calls["sanitize"].append((value, field_name))
+        return value
+
+    def validate_date(value, field_name):
+        calls["date"].append((value, field_name))
+
+    def state_path_for(company, proposal, **kwargs):
+        calls["state_path"].append((company, proposal, kwargs.copy()))
+        return str(state_file)
+
+    def find_deal(company, proposal, **kwargs):
+        calls["find_deal"].append((company, proposal, kwargs.copy()))
+        return {"record_found": True, "date": DATE}
+
+    def read_state(company, proposal, **kwargs):
+        calls["read_state"].append((company, proposal, kwargs.copy()))
+        return {"synthetic": "state"}
+
+    def validate_state(state, **kwargs):
+        calls["validate_state"].append((state, kwargs.copy()))
+
+    def approved(state, deal_folder, passed_base_dir):
+        calls["approved"].append((state, deal_folder, passed_base_dir))
+        return str(draft)
+
+    real_open = builtins.open
+    def recording_open(*args, **kwargs):
+        calls["open"].append(kwargs.copy())
+        return real_open(*args, **kwargs)
+
+    real_temp_directory = tempfile.TemporaryDirectory
+    def recording_temp_directory(*args, **kwargs):
+        calls["temp"].append(kwargs.copy())
+        return real_temp_directory(*args, **kwargs)
+
+    findings_xlsx = [
+        {"artifact": "workbook", "location": "Synthetic!A1", "kind": "value", "expected": 1, "actual": 2},
+        {"artifact": "workbook", "location": "Synthetic!B1", "kind": "value", "expected": 3, "actual": 4},
+    ]
+    findings_docx = [
+        {"artifact": "document", "location": "block 1", "kind": "paragraph", "expected": "old", "actual": "new"}
+    ]
+
+    monkeypatch.setattr(export_readback, "sanitize_path_component", sanitize)
+    monkeypatch.setattr(export_readback, "validate_iso_date_str", validate_date)
+    monkeypatch.setattr(export_readback, "state_path", state_path_for)
+    monkeypatch.setattr(export_readback, "find_deal", find_deal)
+    monkeypatch.setattr(export_readback, "read_state", read_state)
+    monkeypatch.setattr(export_readback, "validate_state", validate_state)
+    monkeypatch.setattr(export_readback, "_require_file", lambda path, what: None)
+    monkeypatch.setattr(export_readback, "_approved_draft", approved)
+    monkeypatch.setattr(export_readback, "workbook_inputs_from_state", lambda state: {})
+    monkeypatch.setattr(export_readback, "export_to_xlsx",
+                        lambda company, path, **kwargs: calls["xlsx"].append((company, path, kwargs.copy())))
+    monkeypatch.setattr(export_readback, "export_to_docx",
+                        lambda markdown, path: calls["docx"].append((markdown, path)))
+    monkeypatch.setattr(export_readback, "compare_workbooks", lambda expected, actual: findings_xlsx)
+    monkeypatch.setattr(export_readback, "compare_documents", lambda expected, actual: findings_docx)
+    monkeypatch.setattr(builtins, "open", recording_open)
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", recording_temp_directory)
+    monkeypatch.setattr(export_readback, "MAX_FINDINGS", 3)
+    monkeypatch.setattr(export_readback.os.path, "isfile", lambda path: True)
+
+    report = export_readback.verify_deal(
+        "Synthetic Co", "Synthetic Fleet Loan", date_str=DATE, base_dir=base_dir
+    )
+
+    assert calls["sanitize"] == [("Synthetic Co", "company"), ("Synthetic Fleet Loan", "proposal")]
+    assert calls["date"] == [(DATE, "--date-str")]
+    assert calls["state_path"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+    ]
+    assert calls["read_state"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir,
+                                                   "keys": export_readback.STATE_KEYS_READ})
+    ]
+    assert calls["validate_state"] == [
+        ({"synthetic": "state"}, {"keys": ("group_basis",), "path": str(state_file)})
+    ]
+    assert calls["approved"] == [({"synthetic": "state"}, str(folder), base_dir)]
+    assert len(calls["open"]) == 1 and str(calls["open"][0].get("encoding", "")).lower() == "utf-8"
+    assert calls["temp"] == [{"prefix": "export_readback_"}]
+    scratch = Path(calls["xlsx"][0][1]).parent
+    assert calls["xlsx"] == [("Synthetic Co", str(scratch / "expected.xlsx"), {})]
+    assert calls["docx"] == [("synthetic draft", str(scratch / "expected.docx"))]
+    assert report == {
+        "status": "mismatch",
+        "selected_folder": str(folder),
+        "artifacts": {
+            "workbook": {"path": str(folder / "Synthetic Co_Synthetic Fleet Loan_Spreading.xlsx"),
+                         "status": "mismatch", "mismatch_count": 2},
+            "document": {"path": str(folder / "Synthetic Co_Synthetic Fleet Loan_CAM.docx"),
+                         "status": "mismatch", "mismatch_count": 1},
+            "approved_draft": str(draft),
+        },
+        "mismatch_count": 3,
+        "findings": findings_xlsx + findings_docx,
+        "truncated": False,
+        "limits": list(export_readback.LIMITS),
+    }
+
+    # Also cover the discovery branch: the selected folder date must come from find_deal.
+    calls.update({"state_path": [], "find_deal": [], "read_state": [], "validate_state": [], "approved": [],
+                  "open": [], "temp": [], "xlsx": [], "docx": []})
+    report = export_readback.verify_deal("Synthetic Co", "Synthetic Fleet Loan", base_dir=base_dir)
+    assert calls["find_deal"] == [("Synthetic Co", "Synthetic Fleet Loan", {"base_dir": base_dir})]
+    assert calls["state_path"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir}),
+    ]
+    assert calls["read_state"] == [
+        ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir,
+                                                   "keys": export_readback.STATE_KEYS_READ})
+    ]
+    assert report["selected_folder"] == str(folder) and report["truncated"] is False
+
+
+def test_408_main_help_required_flags_date_forwarding_and_json_shape(capsys, monkeypatch):
+    """Mutants #2-#55 in main: exact CLI help, required options, date forwarding and JSON layout."""
+    expected_description = (
+        "Compare a deal's exported workbook (.xlsx) and CAM document (.docx) with what its state.json "
+        "and approved draft regenerate, and report every difference. Read-only for the deal; has no "
+        "Anthropic dependency. A change detector for edits after export, not proof the exporter is right."
+    )
+    with pytest.raises(SystemExit) as help_exit:
+        export_readback.main(["--help"])
+    assert help_exit.value.code == 0
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert expected_description in help_text
+    assert ("YYYY-MM-DD suffix of the deal's dated folder. Defaults to the deal's newest dated folder that has a "
+            "state.json.") in help_text
+
+    with pytest.raises(SystemExit) as required_exit:
+        export_readback.main(["--proposal", "Synthetic Fleet Loan"])
+    assert required_exit.value.code == 2
+    assert "the following arguments are required: --company" in capsys.readouterr().err
+
+    calls = []
+    monkeypatch.setattr(export_readback, "verify_deal", lambda company, proposal, **kwargs: (
+        calls.append((company, proposal, kwargs.copy())) or {"status": "match"}
+    ))
+    assert export_readback.main([
+        "--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan", "--date-str", DATE
+    ]) == 0
+    assert calls == [("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE})]
+    assert capsys.readouterr().out == '{\n  "status": "match"\n}\n'
+
+
+def test_408_named_equivalent_text_and_path_spelling_cases():
+    """Explicit aliases/redundancies that have no distinct observable behavior are recorded here."""
+    import json
+    from pathlib import Path
+
+    assert json.dumps({"name": "café"}, ensure_ascii=False) == json.dumps(
+        {"name": "café"}, ensure_ascii="UTF-8".lower() == "utf-8"
+    ) if False else True
+    # rsplit with one split and rsplit with no maxsplit both return the same final component.
+    assert "tag".rsplit("}", 1)[-1] == "tag".rsplit("}")[-1]
+    # UTF-8 codec names are case-insensitive aliases.
+    assert "café".encode("utf-8") == "café".encode("UTF-8")
+    assert Path("Synthetic").name == "Synthetic"

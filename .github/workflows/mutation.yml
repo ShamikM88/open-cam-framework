@@ -19,7 +19,7 @@ jobs:
   mutation:
     name: mutation
     runs-on: ubuntu-latest      # mutmut forks; it does not run on Windows
-    timeout-minutes: 120        # a full run took 10 to 20 minutes; a hung run is stopped well before the 360-minute limit
+    timeout-minutes: 120        # a full run took about 32 minutes with nine modules in scope and is estimated at about 90 with eleven; a hung run is stopped well before the 360-minute limit
     permissions:
       contents: read
 
@@ -54,7 +54,7 @@ jobs:
         # not stop the report steps below; the final step fails the job only if mutmut produced no result at all.
         id: mutmut
         continue-on-error: true
-        timeout-minutes: 90    # a step timeout, so the report steps below still run when mutmut hangs
+        timeout-minutes: 110   # a step timeout (below the job's 120), so the report steps below still run when mutmut hangs
         run: |
           set -o pipefail
           mutmut run 2>&1 | tee mutmut-run.log

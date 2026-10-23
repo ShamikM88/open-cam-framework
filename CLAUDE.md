@@ -523,9 +523,10 @@ must meet; the full description of each (what it checks, how it is tested, why) 
 - **Pytest.** `filterwarnings = ["error"]`, `--disable-socket` (no test opens a network connection) and a
   120-second per-test timeout. Install `requirements-dev.txt` before running `pytest`, or pytest rejects the
   options.
-- **Coverage.** Line + branch over `scripts/`. CI enforces a 95% overall floor, a 97% floor on each of nine
+- **Coverage.** Line + branch over `scripts/`. CI enforces a 95% overall floor, a 97% floor on each of eleven
   governance modules (`policy_engine`, `policy_checks`, `policy_check`, `spreading_builder`, `spreading_check`,
-  `state_manager`, `deal_export`, `docx_builder`, `review_compare`) and 95% on the lines a pull request changes, 98% where it changes one
+  `state_manager`, `deal_export`, `docx_builder`, `review_compare`, `export_readback`, `committee_summary`) and 95%
+  on the lines a pull request changes, 98% where it changes one
   of those modules (`diff-cover ... --config-file pyproject.toml` and `--config-file diff_cover_critical.toml`; without
   `--config-file` the floor is silently 0).
   `# pragma: no cover` needs a reason on the same line; code that only runs on Windows needs one. Lowering a floor
@@ -553,7 +554,7 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   cannot be exploited here> -- revisit by: YYYY-MM-DD` (a test fails on an ignore without one). Never
   `continue-on-error`, `|| true`, or dropping a requirements file from the audit.
 - **Mutation testing** (`.github/workflows/mutation.yml`, `[tool.mutmut]` in `pyproject.toml`): weekly and on
-  demand only, never on a pull request, never a required check, and it never fails over a score. The nine
+  demand only, never on a pull request, never a required check, and it never fails over a score. The eleven
   governance modules have a diagnostic target of 75% (`[tool.opencam.mutation] target_critical`); survivors are
   triaged into issues. `calibrate.py` is in scope as a supporting module. Changing the scope keeps `only_mutate`
   equal to the critical modules plus the named supporting list (a test pins it).

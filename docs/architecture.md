@@ -217,7 +217,7 @@ open-cam-framework/
 │   ├── textio.py                The repo's one text-reading policy: strict UTF-8 for shipped files, UTF-8-then-cp1252-with-warning for user-owned legacy files, never character substitution -- see issue #137 (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)
 │   ├── run_evals.py             CLI for the local live-model evaluation harness (explicit invocation only: --validate/--list/--dry-run make zero model calls; --live spends real API calls under a hard cap; --export-baseline/--compare) -- with eval_cases.py (dataset schema/validation), eval_oracles.py (deterministic oracles), eval_report.py (results + review pack), eval_budget.py (hard call cap), eval_runner.py (the isolated live runner), eval_baseline.py (baseline export/compare); see "Execution scripts" in `CLAUDE.md` and issue #151
 │   ├── check_test_count.py      Parses pytest's own "N passed" summary line and compares it against badges/test-count.json (`--write` updates the file by hand) -- CI's code-enforced guard against that count going stale (no anthropic dependency; see "Execution scripts" in `CLAUDE.md`)
-│   ├── check_coverage.py        Checks coverage.py's JSON report against the floors in pyproject.toml -- overall plus a higher per-module floor for the nine governance modules; CI's code-enforced coverage gate (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
+│   ├── check_coverage.py        Checks coverage.py's JSON report against the floors in pyproject.toml -- overall plus a higher per-module floor for the eleven governance modules; CI's code-enforced coverage gate (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
 │   ├── mutation_report.py       Per-module mutation score + completeness report from `mutmut results --all true`, run by the weekly mutation workflow -- diagnostic only, never fails over a score (no anthropic dependency; see "Testing and static analysis" in `CLAUDE.md`)
 │   ├── check_model_freshness.py  Reports newer/deprecated/unknown configured Claude model IDs from installed SDK metadata; weekly/manual diagnostic, never auto-upgrades (no API call)
 │   ├── docx_builder.py          Markdown -> .docx export helper
@@ -235,12 +235,12 @@ open-cam-framework/
 ├── deals/                       Generated output, one subfolder per `[Company]/[Proposal]_[Date]`; a state-bearing deal folder holds `state.json` and `sources/` (see "Source material persistence" in `CLAUDE.md`), while an explicit `deal_export --date-str` may create an output-only folder ignored by state discovery. A company may also hold `_conventions.json` and `_learnings.md` one level up from its dated proposal folders (see "Persisted conventions" in `CLAUDE.md`)
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
-├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the nine governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`
+├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the eleven governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`
 ├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" in `CLAUDE.md`
 ├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
-├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the nine governance modules (diagnostic report, never a merge gate)
+├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eleven governance modules (diagnostic report, never a merge gate)
 ├── .github/workflows/model-freshness.yml  Weekly + manual diagnostic of SDK model/deprecation metadata; updates one tech-debt issue, never a required check
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`
 ├── .github/workflows/ci-parallelism-benchmark.yml  Manual-only timing of the suite with 1, 2 and 4 workers, for re-choosing CI's worker counts (never a gate; see the operations runbook)

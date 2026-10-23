@@ -1677,5 +1677,4 @@ def test_408_main_serializes_non_json_report_values_with_default_str(capsys, mon
     assert export_readback.main([
         "--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan"
     ]) == 0
-    assert capsys.readouterr().out == '{\\n  "when": "2026-01-02 03:04:00"\\n}\\n'
-\n
+    assert capsys.readouterr().out == '{\n  "when": "2026-01-02 03:04:00"\n}\n'

@@ -110,7 +110,16 @@ def test_project_settings_register_exactly_one_pretooluse_guard_with_both_shell_
     assert all(1 <= hook["timeout"] <= 15 for hook in hooks)
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="the Bash handler needs bash")
+def _bash():
+    """The bash the Bash handler runs under: on Windows Git for Windows' bash, never the WSL launcher that sits first on PATH."""
+    if os.name != "nt":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    candidate = Path(git).resolve().parents[1] / "bin" / "bash.exe" if git else None
+    return str(candidate) if candidate is not None and candidate.exists() else None
+
+
+@pytest.mark.skipif(_bash() is None, reason="the Bash handler needs bash")
 @pytest.mark.parametrize("python3_works", [False, True])
 def test_the_bash_handler_runs_whichever_python_can_actually_run(python3_works, tmp_path):
     """A Windows machine can have a `python3` on PATH that is the Microsoft Store stub: `command -v` finds it, then it
@@ -131,7 +140,7 @@ def test_the_bash_handler_runs_whichever_python_can_actually_run(python3_works, 
     environment = {**os.environ, "PATH": str(stubs) + os.pathsep + os.environ["PATH"],
                    "CLAUDE_PROJECT_DIR": str(REPO_ROOT)}
     result = subprocess.run(
-        ["bash", "-c", command], input=json.dumps(_payload("git status", repo)), env=environment,
+        [_bash(), "-c", command], input=json.dumps(_payload("git status", repo)), env=environment,
         capture_output=True, text=True, encoding="utf-8", timeout=30,
     )
     assert result.returncode == 0, result.stderr

@@ -421,7 +421,8 @@ REFERENCE_TARGETS = {
 EXPECTED_SUBJECTS = {
     "Guideline": {1: "grounding", 5: "structured output", 7: "depth & materiality",
                   9: "analyst-supplied spreading disclosure", 10: "institutional credit policy",
-                  11: "persisted deal learnings", 12: "parent/ubo support analysis"},
+                  11: "persisted deal learnings", 12: "parent/ubo support analysis",
+                  13: "analytical judgement and voice"},
     "Audit Checklist item": {4: "calibrated credit policy"},
 }
 SCANNED_FILES = ("CLAUDE.md", "README.md", "docs/*.md", ".claude/commands/*.md", ".claude/skills/*/SKILL.md",

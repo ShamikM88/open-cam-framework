@@ -347,21 +347,21 @@ def _nested_shell(tokens, shell):
 
 
 def _git_commit_target(tokens, current):
-    """Return the targeted directory for a syntactically direct git commit command, if any."""
+    """Return (is_commit, targeted directory) for a direct Git commit command."""
     if not tokens:
-        return None
+        return False, None
     index = 0
     while index < len(tokens) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[index]):
         index += 1
     if index >= len(tokens) or Path(tokens[index]).name.casefold() not in {"git", "git.exe"}:
-        return None
+        return False, None
     index += 1
     target = current
     while index < len(tokens):
         token = tokens[index]
         if token == "-C":
             if index + 1 >= len(tokens):
-                return None
+                return True, None
             target = _path_from_argument(tokens[index + 1], current)
             index += 2
             continue
@@ -371,8 +371,8 @@ def _git_commit_target(tokens, current):
         if token.startswith("-"):
             index += 1
             continue
-        return target if token.casefold() == "commit" else None
-    return None
+        return (token.casefold() == "commit"), (target if token.casefold() == "commit" else None)
+    return False, None
 
 
 def _classify_repository(path):
@@ -406,7 +406,11 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
     command = _strip_powershell_here_strings(command) if shell == "PowerShell" else _strip_bash_heredocs(command)
     current = initial_cwd
     pending_ask = None
-    for segment in _split_commands(command, shell):
+    try:
+        segments = _split_commands(command, shell)
+    except ValueError:
+        return "ask", "Cannot parse the shell command confidently; confirm the commit target manually."
+    for segment in segments:
         try:
             tokens = _tokens(segment, shell)
         except ValueError:
@@ -430,8 +434,8 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
             if result and result[0] == "ask":
                 pending_ask = pending_ask or result
             continue
-        target = _git_commit_target(tokens, current)
-        if target is None:
+        is_commit, target = _git_commit_target(tokens, current)
+        if not is_commit:
             continue
         result = _classify_repository(target)
         if result and result[0] == "deny":

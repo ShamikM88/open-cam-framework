@@ -745,7 +745,7 @@ def test_408_generate_keeps_utf8_lf_write_base_dir_and_policy_scope(tmp_path, mo
         write(str(temp))
 
     def recording_open(*args, **kwargs):
-        open_calls.append(kwargs.copy())
+        open_calls.append((args, kwargs.copy()))
         return real_open(*args, **kwargs)
 
     monkeypatch.setattr(cs, "collect", collect)
@@ -758,7 +758,10 @@ def test_408_generate_keeps_utf8_lf_write_base_dir_and_policy_scope(tmp_path, mo
 
     assert collect_calls == [("Synthetic Co", "Synthetic Fleet Loan",
                               {"date_str": DATE, "base_dir": str(tmp_path)})]
-    assert open_calls == [{"encoding": "utf-8", "newline": "\n"}]
+    # Only the write to the temporary file is pinned; any other open() on this path is none of this test's business.
+    temp_path = str(tmp_path / "synthetic-0.tmp")
+    writes = [call for call in open_calls if call[0] and call[0][0] == temp_path]
+    assert writes == [((temp_path, "w"), {"encoding": "utf-8", "newline": "\n"})]
     assert report == {
         "status": "written",
         "selected_folder": str(tmp_path),

@@ -40,6 +40,23 @@ The full table, including flags, settings and security controls, is in the [docu
    An AI agent working on the repository also records its work as a `CLAIM`, `STATUS` and `OUTCOME` on issue #245, with the detail on the issue or pull request ([Agent ledger](agent-ledger.md)).
 6. **Merge through the ruleset.** `main` takes changes through a pull request with the `test`, `test-windows` and `runtime-smoke` checks passing and the branch up to date; the maintainer merges. Do not push to `main`.
 
+## Mergeability rubric
+
+Use this as a review aid. The classifications below point to existing repository rules; they do not add new requirements.
+
+| Review item | Classification | Existing rule to check |
+|---|---|---|
+| All required checks (`test`, `test-windows`, `runtime-smoke`) pass and the branch is up to date. | **Blocker** | [CLAUDE.md — Testing and static analysis](../CLAUDE.md#testing-and-static-analysis); [Making a change](#making-a-change) |
+| No coverage floor, security audit, workflow safeguard or other gate was weakened without the review already required for that change. | **Blocker** | [Security review](#security-review); [`tests/test_ci_workflow.py`](../tests/test_ci_workflow.py) |
+| A prompt or command edit follows the deliberate-change, own-issue/PR and authorization rules; guarded numbered references and evaluation context are handled. | **Blocker** | [CLAUDE.md — Editing the agent prompts and commands](../CLAUDE.md#editing-the-agent-prompts-and-commands); [Changing an agent prompt](#changing-an-agent-prompt); [`tests/test_prompt_consistency.py`](../tests/test_prompt_consistency.py) |
+| A formula change updates its formula-register entry and affected documented/synthetic example outputs in the same PR. | **Blocker** | [Formula register conventions](formula-register.md#conventions-used-by-every-entry); [`tests/test_formula_register.py`](../tests/test_formula_register.py); [`tests/test_docs_examples.py`](../tests/test_docs_examples.py) |
+| The PR template's **Documentation changes** section is completed explicitly, including “none” and why where appropriate. | **Blocker** | [PR template — Documentation changes](../.github/pull_request_template.md#documentation-changes); [CLAUDE.md — Git workflow](../CLAUDE.md#git-workflow) |
+| The AI-assistance disclosure is accurate, names the model actually used, distinguishes contribution types, and remains the final PR-template section. | **Blocker** | [PR template — AI assistance disclosure](../.github/pull_request_template.md#ai-assistance-disclosure); [CLAUDE.md — Git workflow](../CLAUDE.md#git-workflow) |
+| No real borrower, customer or personal data, or credentials, are added to the public repository. | **Blocker** | [Synthetic data only](#synthetic-data-only); [`tests/test_confidential_paths.py`](../tests/test_confidential_paths.py) |
+| Every confirmed finding, Low included, is fixed or explicitly waived by the maintainer before merge. | **Blocker** | [Agent ledger — Findings](agent-ledger.md#findings) |
+| Validation evidence in the PR body matches the current head (head SHA, run and counts). | **Blocker** | [CLAUDE.md — Git workflow](../CLAUDE.md#git-workflow); [PR template — Validation and evidence](../.github/pull_request_template.md#validation-and-evidence) |
+| Style nits that do not change behavior or clarity, and optional refactors without a demonstrated correctness, security or maintainability need. | **Non-blocker (advisory)** | [Making a change](#making-a-change) |
+
 ## Keeping the documentation in step
 
 - **Put each kind of text in its layer.** A rule Claude Code must obey goes in `CLAUDE.md`; an explanation, example or reference goes in `docs/`; the landing page stays short. `CLAUDE.md` is not a user manual: if you are explaining, you are in the wrong file.

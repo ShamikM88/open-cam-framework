@@ -419,7 +419,7 @@ REFERENCE_TARGETS = {
 }
 # What each referenced number currently is. Lower-case substring of the item's first line.
 EXPECTED_SUBJECTS = {
-    "Guideline": {1: "grounding", 5: "structured output", 7: "depth & materiality",
+    "Guideline": {1: "grounding", 3: "writing style", 5: "structured output", 7: "depth & materiality",
                   9: "analyst-supplied spreading disclosure", 10: "institutional credit policy",
                   11: "persisted deal learnings", 12: "parent/ubo support analysis",
                   13: "analytical judgement and voice"},

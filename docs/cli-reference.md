@@ -11,6 +11,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `calibrate.py` | Derives a style guide and a template from your sample PDFs | Yes, unless `--mock` (automatic without a key) | [Calibrate](#calibrate) |
 | `orchestrator.py` | The whole deal pipeline in one process: draft, audit, checks, export | Yes | [Orchestrator](#orchestrator) |
 | `deal_export.py` | Exports a drafted CAM to `.docx` and `.xlsx` | No | [Export](#export) |
+| `draft_lint.py` | Lints a CAM or research brief for internal framework vocabulary and unfinished scaffolding | No | [Draft lint](#draft-lint) |
 | `committee_summary.py` | Writes a short committee summary (Markdown and Word) from a deal's recorded state and the policy check | No | [Committee summary](#committee-summary) |
 | `export_readback.py` | Compares a deal's exported `.xlsx` and `.docx` with what its record regenerates; read-only | No | [Export read-back](#export-read-back) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
@@ -290,7 +291,7 @@ python scripts/export_readback.py --company "Synthetic Co" --proposal "Synthetic
 
 ## Research export
 
-`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+`scripts/research_export.py --company ... --proposal ... --brief <path>` runs the framework-vocabulary and obvious-placeholder lint on the user-supplied text before resolving its dated output path or creating a folder. It then requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
 
 An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
 
@@ -310,7 +311,7 @@ python scripts/research_export.py --company "Synthetic Co" --proposal "Synthetic
 Done! Research brief exported to deals/Synthetic Co/Synthetic Fleet Loan_2026-10-04/Synthetic Co_Synthetic Fleet Loan_Research_Brief.docx
 ```
 
-`scripts/research_export.py --company ... --proposal ... --brief <path>` validates the brief before resolving its dated output path or creating a folder. It requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
+`scripts/research_export.py --company ... --proposal ... --brief <path>` runs the framework-vocabulary and obvious-placeholder lint on the user-supplied text before resolving its dated output path or creating a folder. It then requires an ATX heading named `Sources` or `References` (case-insensitive, any level, not inside a fenced code block) whose section contains a list item or an `http://`/`https://` URL. The section ends at the next heading of the same or a higher level. A missing or empty section exits with one `error:` line and status 1; nothing is written.
 
 An analyst may explicitly authorise an export without sources. Only then pass `--analyst-override-no-sources "<reason>"`; the reason must contain non-whitespace text. The brief's `.docx` gets a final paragraph such as `Footnote: No sources list is included in this brief. Exported under analyst override on 2026-10-14: analyst-authorised reason.` The reason is not persisted in `state.json`. The slash command must never offer or infer this override. If the brief already has a populated source section, the flag adds no footnote.
 
@@ -402,14 +403,29 @@ of costs, cash outflows and liabilities; a worked example is in
 python scripts/transcription_check.py --transcription "deals/Synthetic Co/Synthetic Fleet Loan_transcription.json"
 ```
 
+## Draft lint
+
+`scripts/draft_lint.py --draft <path> --kind {cam,research-brief} [--template <path>]` checks a saved Markdown draft without a model call or network access. It prints a JSON object containing findings and exits 0 when none are found, 1 when findings or invalid input require rejection, and 2 for command-line usage errors. For a CAM, pass the exact resolved template to check copied guidance comments and unfilled template tokens. The shared CAM compliance path resolves the template from the recorded deal type, preferring a fork's `templates/local/cam/` override. Research briefs have no CAM template, so they use vocabulary and bounded obvious-placeholder checks.
+
+Only the final complete ```` ```json ```` block, with nothing but blank lines after it, is excluded from CAM checks, because it is the structured output and not client-facing narrative; an earlier JSON example, and any prose around it, is still linted. A placeholder is reported in the spelling the draft uses, and a bracketed label followed by a link destination is a link, not a placeholder. A draft with an unterminated HTML comment cannot be linted: the CLI prints one `error:` line and exits 1, while the shared CAM compliance path reports it as a rejection reason (`Draft lint could not run: ...`) so a headless run sends it back for revision rather than stopping. A comment problem in the selected template is not the drafter's to fix and still raises: the headless orchestrator reads and checks the template before its first model call and stops with one `error:` line. A deal type that is not a plain template name (for example `Asset Finance`) has no template to compare with, so only the vocabulary and obvious-placeholder checks run, as they do when no type is known. HTML comments that the DOCX exporter strips are ignored; comments inside complete fenced code blocks remain visible.
+
+Example:
+
+```bash
+python scripts/draft_lint.py --draft "deals/Synthetic Co/Fleet Loan_draft.md" --kind cam --template templates/cam/corporate_credit_cam.md
+```
+
 ## Policy check
 
-`scripts/policy_check.py --company ... --proposal ... [--draft <path>]` prints JSON: `policy_state` (required
+`scripts/policy_check.py --company ... --proposal ... [--draft <path>] [--deal-type <type>]` prints JSON: `policy_state` (required
 conditions precedent and subsequent, covenant results, security gaps, downside breaches, forward covenant results),
 `reasons` (every reason the draft is code-enforced rejected, empty without `--draft` unless the recorded structure
 itself forces one), `compliant`, and `cam_data_present` (false for a deal with no financials, ratios, covenants or
 security recorded, i.e. nothing was actually checked, as for a research-only deal). With `--draft` it audits that
-file's trailing structured JSON block. It exits `0` whether or not `reasons` is empty (an unusable `state.json` is the exception: one `error:` line, exit `1`); the caller decides what a non-empty `reasons` means.
+file's trailing structured JSON block and client-facing prose. The optional `--deal-type` is for legacy state without a
+recorded type; when supplied alongside a recorded type it must match. Otherwise the recorded type selects the shipped
+CAM template or local override for Rule B. It exits `0` whether or not `reasons` is empty (an unusable `state.json` is
+the exception: one `error:` line, exit `1`); the caller decides what a non-empty `reasons` means.
 
 ```bash
 python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \

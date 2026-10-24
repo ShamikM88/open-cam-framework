@@ -406,6 +406,24 @@ def test_a_release_refuses_a_state_whose_record_is_not_a_list_and_changes_nothin
     assert state_file.read_bytes() == before and not list(state_file.parent.glob("*.docx"))
 
 
+def test_research_export_rejects_framework_vocabulary_before_creating_output(tmp_path):
+    brief = VALID_BRIEF.replace("GO -- synthetic example.", "GO -- this framework approves the opportunity.")
+    with pytest.raises(ValueError, match="Rule A: forbidden framework vocabulary.*this framework"):
+        export_research_brief(
+            "Synthetic Co", "Fleet Loan", brief, date_str="2026-10-24", base_dir=str(tmp_path),
+        )
+    assert not (tmp_path / "deals").exists()
+
+
+def test_research_export_rejects_unfilled_placeholder_before_creating_output(tmp_path):
+    brief = VALID_BRIEF.replace("GO -- synthetic example.", "GO -- subject to [Amount].")
+    with pytest.raises(ValueError, match="Rule B: unfilled template placeholder.*Amount"):
+        export_research_brief(
+            "Synthetic Co", "Fleet Loan", brief, date_str="2026-10-24", base_dir=str(tmp_path),
+        )
+    assert not (tmp_path / "deals").exists()
+
+
 def test_an_unterminated_html_comment_is_rejected_before_creating_any_output(tmp_path):
     brief = VALID_BRIEF + "\n<!-- never closed\n"
     with pytest.raises(ValueError, match="Unterminated HTML comment"):

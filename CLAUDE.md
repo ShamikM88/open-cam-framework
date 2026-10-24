@@ -438,7 +438,8 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   progress resolves the dated folder itself (`state_manager.resolve_date_str()`); `export_deal()` reads and
   validates state **before** it creates a folder or auto-saves a template, and never writes into the git-tracked
   `templates/cam/`. Full behaviour: [CLI reference](docs/cli-reference.md#export).
-- **`scripts/research_export.py`** (no `anthropic` dependency) -- requires a populated `Sources`/`References` section before creating output; `--analyst-override-no-sources` is used only after explicit analyst authorisation, must have a reason, and adds a final DOCX footnote without writing the reason to `state.json`. Full behaviour: [CLI reference](docs/cli-reference.md#research-export).
+- **`scripts/research_export.py`** (no `anthropic` dependency) -- runs the research-brief vocabulary/placeholder lint on user-supplied text before adding exporter-owned status/footnote disclosures or creating output, then requires a populated `Sources`/`References` section; `--analyst-override-no-sources` is used only after explicit analyst authorisation, must have a reason, and adds a final DOCX footnote without writing the reason to `state.json`. Full behaviour: [CLI reference](docs/cli-reference.md#research-export).
+- **`scripts/draft_lint.py`** (no `anthropic` dependency) -- deterministic vocabulary/scaffolding lint shared by CAM policy checks and research-brief export. It excludes the CAM trailing structured JSON, ignores HTML comments the exporter strips, and checks copied guidance and placeholders against the selected template (including local overrides). Wiring into `/review --research-brief` remains a separate follow-up; no command or skill is changed here. Full behaviour: [CLI reference](docs/cli-reference.md#draft-lint).
 - **`scripts/state_manager.py`** (no `anthropic` dependency) -- `write_state()` shallow-merges and keeps
   `company`/`proposal`/`date` in sync; **`write_state()` and `append_review_trail()` never downgrade a state**
   (a newer or malformed `schema_version` raises `SchemaVersionError` and leaves the file unchanged); each consumer
@@ -449,7 +450,7 @@ runnable without the SDK, so a slash command's Bash step and the tests can use i
   artifacts, per step; `--check-sources` is a deal-level floor (at least one saved source), not a 1:1 match.
   Full behaviour: [data model](docs/data-model.md#source-manifest).
 - **`scripts/policy_engine.py`, `policy_checks.py`, `policy_check.py`, `spreading_check.py`** (no `anthropic`
-  dependency) -- the deterministic governance core, which both interfaces share. **A ratio whose denominator is
+  dependency) -- the deterministic governance core, which both interfaces share. `policy_checks.py` applies the draft lint using the recorded deal type so Rule B sees the exact resolved template and any local override. **A ratio whose denominator is
   zero or negative is N/A (`None`); a covenant on an N/A ratio is UNRESOLVABLE for minimum and maximum alike,
   never PASS and never a false FAIL, with a `reason`.** Forward-year covenant results
   (`forward_covenant_results`) are **disclosure only**: no code-enforced reason reads them, so a forward FAIL or

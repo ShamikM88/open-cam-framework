@@ -1,5 +1,6 @@
 import struct
 import zlib
+from pathlib import Path
 
 import pytest
 import docx
@@ -912,3 +913,63 @@ def test_408_exact_width_image_is_not_visibly_changed_at_scaling_boundary(
     max_width = section.page_width - section.left_margin - section.right_margin
     assert doc.inline_shapes[0].width == max_width
     assert doc.inline_shapes[0]._inline.docPr.get("descr") == "Boundary width"
+
+
+# ---------------------------------------------------------------------------
+# Issue #439: HTML comments in CAM guidance are not client-facing content.
+# ---------------------------------------------------------------------------
+
+def test_html_comments_are_removed_from_export_and_surrounding_text_survives(tmp_path):
+    markdown = (
+        "Before <!-- one-line secret --> after.\n\n"
+        "Left <!-- multi-line secret\n"
+        "second secret line\n"
+        "third secret line --> right.\n\n"
+        "<!-- standalone secret -->\n"
+        "Visible text.\n"
+    )
+    doc = _build(tmp_path, markdown)
+    exported = "\n".join(paragraph.text for paragraph in doc.paragraphs)
+    flattened = " ".join(exported.split())
+
+    assert "secret" not in exported
+    assert "<!--" not in exported
+    assert "Before after." in flattened
+    assert "Left right." in flattened
+    assert "Visible text." in flattened
+
+
+def test_html_comment_inside_fenced_code_block_is_preserved_as_code(tmp_path):
+    markdown = "```\n<!-- this is an example, not a comment to strip -->\n```\n"
+    doc = _build(tmp_path, markdown)
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == [
+        "<!-- this is an example, not a comment to strip -->",
+    ]
+
+
+def test_unterminated_html_comment_refuses_export_without_writing_docx(tmp_path):
+    output = tmp_path / "unterminated.docx"
+
+    with pytest.raises(ValueError, match="Unterminated HTML comment"):
+        export_to_docx("Visible text.\n<!-- comment never closes\nsecret text", str(output))
+
+    assert not output.exists()
+
+
+def test_shipped_cam_guidance_uses_html_comments_and_blank_human_signature():
+    root = Path(__file__).resolve().parents[1]
+    expected_guidance_counts = {
+        "asset_finance_cam.md": 9,
+        "corporate_credit_cam.md": 5,
+    }
+    signature = "**Credit Analyst:** ________ **Date:** ________"
+    signature_guidance = "<!-- Guidance: The drafter never fills this line. -->"
+
+    for name, expected_count in expected_guidance_counts.items():
+        lines = (root / "templates" / "cam" / name).read_text(encoding="utf-8").splitlines()
+        guidance = [line for line in lines if line.startswith("<!-- Guidance: ") and line.endswith(" -->")]
+        assert len(guidance) == expected_count + 1, name
+        assert signature in lines, name
+        signature_index = lines.index(signature)
+        assert lines[signature_index + 1] == signature_guidance, name

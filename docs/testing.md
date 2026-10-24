@@ -252,7 +252,9 @@ on every checkout; no `pull_request_target`; CI never passes `--write` or `--upd
 issue #146): mutmut changes one line of a governance module at a time and checks that a test then fails;
 a surviving mutant is a line that coverage counts as executed but nothing really asserts on. It runs
 **weekly (Mondays) and on demand only -- never on a pull request or push**, on Ubuntu (mutmut forks, so
-not Windows). **Scope:** the eleven `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
+not Windows). The weekly run is incremental (cached verdicts, new or changed functions and the survivors
+retested; a full run on the first Monday of each month), and a manual run can take mutmut name globs to
+retest one module quickly -- see [operations](operations.md) and issue #435. **Scope:** the eleven `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
 chunker/merge helpers, as a *supporting* module -- scored and reported, but not governance-critical and so not in
 the coverage floors); a test pins `only_mutate` to exactly those and the supporting list. The result is a
 downloadable `mutation-report` artifact (survivors, **every mutant with its status** in `mutation-all.txt`, the

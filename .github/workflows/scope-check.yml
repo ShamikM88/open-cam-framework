@@ -1,0 +1,57 @@
+name: PR scope check (advisory)
+
+on:
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened, edited]
+
+permissions: {}
+
+jobs:
+  scope-check:
+    name: scope-check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Collect changed-file list
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git diff --name-only --no-renames -z "$BASE_SHA...$GITHUB_SHA" > changed-files.nul
+
+      - name: Extract the PR body as data
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          with Path(os.environ["GITHUB_EVENT_PATH"]).open("r", encoding="utf-8") as source:
+              event = json.load(source)
+          pr = event.get("pull_request")
+          body = pr.get("body") if isinstance(pr, dict) else ""
+          if not isinstance(body, str):
+              body = ""
+          Path("scope-body.md").write_text(body, encoding="utf-8")
+          PY
+
+      - name: Report declared scope
+        run: >-
+          python scripts/pr_scope_check.py
+          --changed-files changed-files.nul
+          --scope-body scope-body.md
+          --summary-file "$GITHUB_STEP_SUMMARY"

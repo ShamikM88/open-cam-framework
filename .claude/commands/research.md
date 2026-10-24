@@ -113,10 +113,13 @@ saved for this step and why (e.g. every source was unsaveable) rather than silen
 
 ## Review and export the brief
 
-Assemble a standalone Markdown document combining the Go/No-Go screen and the company/sector
-research above into one readable brief (your own structure is fine — this isn't the CAM
-template; a short header with company/proposal/date, then the Go/No-Go verdict and rationale,
-then the company/sector sections reads naturally).
+Assemble a standalone Markdown document combining the Go/No-Go screen and company/sector research into one readable brief. Use a short header with company, proposal, date and facility, then the following sections in this order.
+
+**Required opening — Go/No-Go.** The first substantive section after the header must be “## Go/No-Go” and should fit on one page. State GO, CONDITIONAL GO or NO-GO and the action that follows from it. Name the three decisive facts, each with its figure and source, then list no more than five proposed conditions in descending order of importance. If fewer than three decisive facts are supported or no conditions are needed, say so rather than inventing them. Passing legal identity, charges and bureau checks is not by itself a credit Go when the commercial evidence points the other way.
+
+**Length.** Aim for about 1,500 words for the brief. Go longer only when group structure or the evidence genuinely requires it, and say briefly why. This is guidance, not an export-time word limit; do not cut a material risk or omit a necessary source just to hit the target.
+
+**Review-status disclosure — exporter-owned.** Never write a “Review status”, “Not approved” or manual-release disclosure in the draft. Only scripts/research_export.py inserts the full dated paragraph immediately after the title when the analyst explicitly chooses the disclosed manual-review release. Never invent the release reason or infer consent.
 
 **Formatting for `scripts/docx_builder.py`'s export:** a single newline is a soft wrap, not a
 paragraph break — consecutive plain lines join into one continuous paragraph in the exported

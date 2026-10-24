@@ -103,6 +103,8 @@ worked examples are in [Workflows](workflows.md).
 - **Inputs:** everything `/triage` and `/commercial` ask for.
 - **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
   template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
+- **Brief shape:** the first substantive section is `## Go/No-Go`, on about one page, with the verdict/action, three decisive facts each supported by a figure and source, and no more than five priority-ordered proposed conditions. Aim for about 1,500 words; this is guidance, not an export limit.
+- **Review-status disclosure:** the drafter must not write its own review-status or manual-release paragraph. The exporter adds the full dated disclosure immediately after the title only after an explicit analyst-authorised manual-review release; the session must not invent a release reason or infer consent.
 - **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
   `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later. If the analyst
   defines a term in the step, it is checkpointed immediately in `analyst_terms` in `state.json`.

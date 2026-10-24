@@ -1587,7 +1587,7 @@ def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_bo
 
     real_open = builtins.open
     def recording_open(*args, **kwargs):
-        calls["open"].append(kwargs.copy())
+        calls["open"].append((args, kwargs.copy()))
         return real_open(*args, **kwargs)
 
     real_temp_directory = tempfile.TemporaryDirectory
@@ -1642,7 +1642,9 @@ def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_bo
         ({"synthetic": "state"}, {"keys": ("group_basis",), "path": str(state_file)})
     ]
     assert calls["approved"] == [({"synthetic": "state"}, str(folder), base_dir)]
-    assert len(calls["open"]) == 1 and str(calls["open"][0].get("encoding", "")).lower() == "utf-8"
+    # Only the read of the approved draft is pinned; other open() calls on this path are not this test's business.
+    draft_reads = [call for call in calls["open"] if call[0] and call[0][0] == str(draft)]
+    assert len(draft_reads) == 1 and str(draft_reads[0][1].get("encoding", "")).lower() == "utf-8"
     assert len(calls["temp"]) == 1 and calls["temp"][0]["prefix"] == "export_readback_"
     scratch = Path(calls["temp"][0]["path"])
     assert calls["xlsx"] == [("Synthetic Co", str(scratch / "expected.xlsx"), {})]

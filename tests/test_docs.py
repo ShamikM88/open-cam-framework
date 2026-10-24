@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-DOC_FILES = ("README.md", "CLAUDE.md", "evals/README.md", "templates/README.md", "config/skills_registry.md")
+DOC_FILES = ("README.md", "CLAUDE.md", "evals/README.md", "templates/README.md", "config/skills_registry.md", ".github/pull_request_template.md")
 
 # Headings (and bold labels) that code comments, commands or the registry cite by name. Renaming one means updating
 # those citations too; this list is the reminder, so it is deliberately written out literally.
@@ -208,3 +208,8 @@ def test_a_heading_with_inline_code_keeps_its_code_text_in_the_anchor():
     """GitHub keeps the text of inline code in a heading's anchor (it only drops the backticks)."""
     text = "## `orchestrator.py` ends in a traceback\n\n### What `config/settings.json` controls\n"
     assert heading_slugs(text) == {"orchestratorpy-ends-in-a-traceback", "what-configsettingsjson-controls"}
+
+
+def test_pull_request_template_links_to_mergeability_rubric():
+    template = (REPO / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
+    assert "[mergeability rubric](../docs/contributing.md#mergeability-rubric)" in template

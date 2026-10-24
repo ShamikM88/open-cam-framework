@@ -2735,3 +2735,48 @@ def test_run_pipeline_refuses_a_group_basis_that_contradicts_the_financials_sour
     with pytest.raises(StateShapeError, match="financials_source"):
         run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                      client=MockClient([]))
+
+
+def test_run_pipeline_refuses_a_template_the_lint_cannot_read_before_any_model_call(project_root):
+    """A broken template is the maintainer's to fix; it must not burn a Maker and a Checker call first."""
+    from draft_lint import TemplateContentError
+
+    (project_root / "templates" / "cam" / "corporate_credit_cam.md").write_text(
+        "<!-- Guidance: never closed\n", encoding="utf-8",
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    with pytest.raises(TemplateContentError, match="Unterminated HTML comment in template"):
+        _run_once(client)
+
+    assert client.call_count == 0
+
+
+def test_the_cli_reports_an_unreadable_template_as_one_error_line_and_makes_no_model_call(
+    project_root, monkeypatch,
+):
+    import runpy
+
+    import anthropic
+
+    (project_root / "templates" / "cam" / "corporate_credit_cam.md").write_text(
+        "<!-- Guidance: never closed\n", encoding="utf-8",
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+    client.default_headers = {"x-api-key": "synthetic"}
+    monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: client)
+    monkeypatch.setattr(sys, "argv", ["orchestrator.py", "--company", "Acme Corp", "--proposal", "Fleet Loan"])
+    scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "scripts")
+
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_path(os.path.join(scripts_dir, "orchestrator.py"), run_name="__main__")
+
+    message = str(exit_info.value.code)
+    assert message == "error: Unterminated HTML comment in template." and client.call_count == 0
+
+
+def test_a_deal_type_with_a_space_still_runs_the_pipeline_without_a_template(project_root):
+    """Before the lint was wired in, "Asset Finance" had no template and the run went ahead; it still must."""
+    client = MockClient([_compliant_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "Asset Finance", client=client)
+    assert client.call_count == 2

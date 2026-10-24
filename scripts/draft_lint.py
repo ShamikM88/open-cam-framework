@@ -13,6 +13,10 @@ class DraftContentError(ValueError):
     """The draft itself cannot be linted (for example an unterminated HTML comment)."""
 
 
+class TemplateContentError(ValueError):
+    """The CAM template cannot be read for linting; the drafter cannot fix it."""
+
+
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(\x60{3,}|~{3,})(.*)$")
 JSON_INFO_RE = re.compile(r"json[ \t]*", re.IGNORECASE)
 GUIDANCE_COMMENT_RE = re.compile(r"<!--\s*Guidance:\s*(.*?)\s*-->", re.IGNORECASE | re.DOTALL)
@@ -100,7 +104,7 @@ def _trailing_json_start(text):
 
 def _visible_text_and_lines(text, *, exclude_trailing_json=False, subject="draft"):
     """Strip HTML comments the DOCX exporter removes and preserve source line numbers."""
-    error_type = DraftContentError if subject == "draft" else ValueError
+    error_type = DraftContentError if subject == "draft" else TemplateContentError
     if not isinstance(text, str):
         raise error_type(f"{subject.capitalize()} content must be text.")
     excluded = _trailing_json_start(text) if exclude_trailing_json else None
@@ -236,7 +240,7 @@ def lint_draft(draft_text, *, document_kind, template_text=None):
     if document_kind not in {"cam", "research-brief"}:
         raise ValueError("document_kind must be 'cam' or 'research-brief'.")
     if template_text is not None and not isinstance(template_text, str):
-        raise ValueError("Template content must be text.")
+        raise TemplateContentError("Template content must be text.")
 
     visible, source_lines = _visible_text_and_lines(
         draft_text, exclude_trailing_json=(document_kind == "cam"),

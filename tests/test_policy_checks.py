@@ -972,9 +972,11 @@ def test_check_draft_compliance_lints_the_selected_cam_template(tmp_path, monkey
 
 
 @pytest.mark.parametrize("deal_type", ["../escape", "corporate credit", "1leading_digit", 7])
-def test_check_draft_compliance_refuses_a_deal_type_that_is_not_a_template_name(deal_type):
-    with pytest.raises(ValueError, match="Invalid deal_type"):
-        check_draft_compliance("# Synthetic CAM\n", _policy_state(), {}, deal_type=deal_type)
+def test_a_deal_type_that_is_not_a_template_name_has_no_template_but_the_audit_still_runs(deal_type):
+    """Deal types such as "Asset Finance" worked before the lint was wired in; they must not fail the audit."""
+    reasons = check_draft_compliance("# Synthetic CAM\n\nThis framework approves it.\n", _policy_state(required_cps=[]),
+                                     {}, deal_type=deal_type)
+    assert any("forbidden framework vocabulary" in reason for reason in reasons)
 
 
 def test_check_draft_compliance_turns_an_unterminated_comment_into_a_rejection_reason():

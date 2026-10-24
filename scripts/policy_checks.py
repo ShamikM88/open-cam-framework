@@ -435,9 +435,9 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
         )
 
         template_text = None
-        if deal_type:
-            if not isinstance(deal_type, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", deal_type):
-                raise ValueError("Invalid deal_type for draft lint template resolution.")
+        # A deal type that is not a plain template name (for example "Asset Finance") has no shipped or local
+        # template to compare with: Rule A and the obvious-placeholder check still run, as they do with no type.
+        if isinstance(deal_type, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", deal_type):
             template_path = cam_template_path(deal_type)
             if template_path:
                 with open(template_path, encoding="utf-8") as template_file:

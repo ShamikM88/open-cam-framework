@@ -5,6 +5,7 @@ import sys
 import argparse
 
 from deal_export import export_deal
+from draft_lint import TemplateContentError, lint_draft
 from policy_checks import (
     FENCED_JSON_RE,
     REQUIRED_RISK_TAXONOMY,
@@ -624,9 +625,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     if template_path:
         # Shipped (templates/cam/) or calibrate.py/deal_export-written (templates/local/cam/):
         # both are always UTF-8, so strict -- same policy as the prompts above (issue #137).
+        template_text = read_text(template_path)
+        # Refuse a template the draft lint cannot read now, before any model call, rather than after two of them.
+        lint_draft("", document_kind="cam", template_text=template_text)
         template_section = (
             "\nFollow this exact CAM template structure, filling in every "
-            f"placeholder with grounded, sourced content:\n{read_text(template_path)}\n"
+            f"placeholder with grounded, sourced content:\n{template_text}\n"
         )
 
     # Never blindly overwrite prior checkpoints; only update supplied data and add steps.
@@ -908,5 +912,5 @@ if __name__ == "__main__":
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
     except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
-            FinancialInputError, StressAssumptionsError) as exc:
+            FinancialInputError, StressAssumptionsError, TemplateContentError) as exc:
         sys.exit(f"error: {exc}")

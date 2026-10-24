@@ -27,6 +27,17 @@ The last two rows are **settings on GitHub, not files in the repository**. No te
 
 A green check is evidence for the layer that produced it and nothing else. For example, a passing code-scanning check on a pull request does not prove an alert elsewhere in the code is closed; confirm an alert's state on `main` after the merge ([operations](operations.md#diagnose-a-red-ci-run)).
 
+## Repository-shipped Claude Code commit guard
+
+`.claude/settings.json` registers one `PreToolUse` hook group for both Bash and PowerShell shell-tool calls. It runs the standard-library-only guard at `.claude/hooks/deny_main_commit.py`, which reads the hook's JSON input from stdin and inspects commands as text. It uses fixed local Git commands only; it does not run the supplied shell command, fetch a remote, or access the network.
+
+The guard scopes itself to checkouts whose `origin` is this repository. It denies a `git commit` on `main` or `master` and directs the user to commit on a feature branch in a worktree. Commits on feature branches, different repositories and forks with a different `origin` are outside its scope. When a real commit command is found but the repository or branch cannot be resolved, it asks for a permission decision rather than silently allowing it. An unexpected error inside the guard returns a deny decision.
+
+The setting has a Bash handler that uses `python3` when available and falls back to `python`, plus a PowerShell handler that uses `python`. Both use `onFailure: "block"` so a missing interpreter/script, timeout or invalid hook output does not silently fail open. Claude Code's current [hook reference](https://code.claude.com/docs/en/hooks#block-the-action-when-a-hook-fails) says this setting requires version 2.1.295 or later. A runtime old enough not to support it should be upgraded before relying on this hook.
+
+**Security trade-off:** project hook settings execute repository-controlled local code with the user's permissions. In interactive sessions, settings hooks run after the workspace has been trusted. In `-p` or SDK sessions, Claude Code does not show the trust dialog and treats the folder as trusted, so a repository-provided hook can run without that interactive checkpoint ([workspace trust](https://code.claude.com/docs/en/hooks#workspace-trust)). Review changes to both `.claude/settings.json` and `.claude/hooks/deny_main_commit.py` before running the repository, and keep the guard small, local-only and covered by offline tests. `.github/CODEOWNERS` names `@ShamikM88` for these paths, but that requirement only protects them if the maintainer's external repository ruleset requires code-owner review; this PR does not change that ruleset.
+
+The hook covers Claude Code's matching shell tool calls, not commits made directly through Git, an unrelated IDE or another tool. It is not a substitute for the GitHub rule that protects pushes and merges to `main`. After this guard is merged, the maintainer should remove the commit rule from their own user-level hook while retaining the separate merge-approval prompt; that cleanup is a manual step.
 ## What crosses a boundary
 
 | Data or content | Stays local | Leaves the machine | Notes |

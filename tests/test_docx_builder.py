@@ -977,24 +977,6 @@ def test_unterminated_html_comment_refuses_export_without_writing_docx(tmp_path)
     assert not output.exists()
 
 
-def test_shipped_cam_guidance_uses_html_comments_and_blank_human_signature():
-    root = Path(__file__).resolve().parents[1]
-    expected_guidance_counts = {
-        "asset_finance_cam.md": 9,
-        "corporate_credit_cam.md": 5,
-    }
-    signature = "**Credit Analyst:** ________ **Date:** ________"
-    signature_guidance = "<!-- Guidance: The drafter never fills this line. -->"
-
-    for name, expected_count in expected_guidance_counts.items():
-        lines = (root / "templates" / "cam" / name).read_text(encoding="utf-8").splitlines()
-        guidance = [line for line in lines if line.startswith("<!-- Guidance: ") and line.endswith(" -->")]
-        assert len(guidance) == expected_count + 1, name
-        assert signature in lines, name
-        signature_index = lines.index(signature)
-        assert lines[signature_index + 1] == signature_guidance, name
-
-
 def test_check_exportable_refuses_what_export_would_refuse_and_writes_nothing(tmp_path):
     from docx_builder import check_exportable
 

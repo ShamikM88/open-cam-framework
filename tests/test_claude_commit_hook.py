@@ -1,6 +1,7 @@
 """Offline contract tests for the project-level Claude Code main-branch guard (#445)."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -99,13 +100,51 @@ def test_project_settings_register_exactly_one_pretooluse_guard_with_both_shell_
     assert set(by_shell) == {"Bash(*)", "PowerShell(*)"}
     assert all(hook["type"] == "command" for hook in hooks)
     bash_command = by_shell["Bash(*)"]["command"]
-    assert "command -v python3" in bash_command and "else python " in bash_command
+    assert "python3 -c" in bash_command and "else python " in bash_command
+    assert "command -v python3" not in bash_command  # finding a python3 is not the same as being able to run it
     assert "${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py" in bash_command
     assert by_shell["Bash(*)"].get("args", []) == []
     assert by_shell["PowerShell(*)"]["command"] == "python"
     assert by_shell["PowerShell(*)"]["args"] == ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py"]
     assert all(hook["onFailure"] == "block" for hook in hooks)
     assert all(1 <= hook["timeout"] <= 15 for hook in hooks)
+
+
+def _bash():
+    """The bash the Bash handler runs under: on Windows Git for Windows' bash, never the WSL launcher that sits first on PATH."""
+    if os.name != "nt":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    candidate = Path(git).resolve().parents[1] / "bin" / "bash.exe" if git else None
+    return str(candidate) if candidate is not None and candidate.exists() else None
+
+
+@pytest.mark.skipif(_bash() is None, reason="the Bash handler needs bash")
+@pytest.mark.parametrize("python3_works", [False, True])
+def test_the_bash_handler_runs_whichever_python_can_actually_run(python3_works, tmp_path):
+    """A Windows machine can have a `python3` on PATH that is the Microsoft Store stub: `command -v` finds it, then it
+    exits with 'Python was not found'. The handler must fall back to `python` instead of failing, because a failing
+    handler blocks every Bash command (`onFailure: "block"`)."""
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    python = Path(sys.executable).as_posix()
+    (stubs / "python").write_text(f'#!/bin/sh\nexec "{python}" "$@"\n', encoding="utf-8", newline="\n")
+    if python3_works:
+        (stubs / "python3").write_text(f'#!/bin/sh\nexec "{python}" "$@"\n', encoding="utf-8", newline="\n")
+    else:
+        (stubs / "python3").write_text("#!/bin/sh\necho 'Python was not found' >&2\nexit 9\n", encoding="utf-8", newline="\n")
+    for stub in stubs.iterdir():
+        stub.chmod(0o755)
+    command = json.loads(SETTINGS.read_text(encoding="utf-8"))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    repo = _repo(tmp_path / "canonical", branch="feat/synthetic")
+    environment = {**os.environ, "PATH": str(stubs) + os.pathsep + os.environ["PATH"],
+                   "CLAUDE_PROJECT_DIR": str(REPO_ROOT)}
+    result = subprocess.run(
+        [_bash(), "-c", command], input=json.dumps(_payload("git status", repo)), env=environment,
+        capture_output=True, text=True, encoding="utf-8", timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""  # a harmless command on a feature branch: no decision, nothing blocked
 
 
 @pytest.mark.parametrize("branch", ["main", "master"])

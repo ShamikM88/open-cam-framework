@@ -14,7 +14,7 @@ bandit==1.9.4
 boolean.py==5.0
 cachecontrol==0.14.4
 certifi==2026.10.19
-chardet==7.6.0
+chardet==7.7.0
 charset-normalizer==3.5.2
 click==8.5.0
 coverage==7.16.2

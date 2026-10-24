@@ -37,6 +37,7 @@ include traceable acceptance criteria, design trade-offs, docs, and assurance ev
 <!-- Known limitations, rollback/recovery concerns, unresolved review points, and separately tracked follow-ups. Use "None known" only after checking. -->
 
 ## Review checklist
+- [ ] Before requesting review, apply the [mergeability rubric](../docs/contributing.md#mergeability-rubric).
 - [ ] Branch is based on current `main`; the reported results correspond to the current PR head.
 - [ ] Issue goals / acceptance criteria are addressed or explicitly deferred with reasons.
 - [ ] Documentation changes are listed above, including an explicit reason when no documentation changed.

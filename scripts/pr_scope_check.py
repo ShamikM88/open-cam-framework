@@ -3,7 +3,7 @@ import argparse
 import re
 import sys
 import unicodedata
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 SCOPE_HEADING = re.compile(r"^##\s+Declared file scope\s*$")
@@ -113,7 +113,7 @@ def _matches_normalized(path, pattern):
     pattern_parts = tuple(pattern.split("/"))
     component_regexes = tuple(None if part == "**" else _component_regex(part) for part in pattern_parts)
 
-    @lru_cache(maxsize=None)
+    @cache
     def visit(path_index, pattern_index):
         if pattern_index == len(pattern_parts):
             return path_index == len(path_parts)

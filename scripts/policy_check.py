@@ -20,7 +20,7 @@ from state_manager import read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
-                   "downside_case", "financials_source", "deal_type")
+                   "downside_case", "financials_source")
 
 
 def compute(company, proposal, draft_path=None, deal_type=None):

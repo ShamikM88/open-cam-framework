@@ -51,7 +51,7 @@ include traceable acceptance criteria, design trade-offs, docs, and assurance ev
      Put one repository-relative path or glob per bullet, wrapped in one pair of backticks.
      Leave this section empty when you are not declaring file scope.
      Examples:
-     - `scripts/example.py`
+     - `scripts/check_test_count.py`
      - `docs/**/*.md`
 -->
  

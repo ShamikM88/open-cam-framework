@@ -42,7 +42,7 @@ def test_protected_paths_are_reported_with_and_without_declaration(checker):
     report = checker.build_report(files, scope)
     assert "PROTECTED_DECLARED: 6" in report
     assert "PROTECTED_UNDECLARED: 1" in report
-    assert "PROTECTED_DECLARED agents/underwriter_agent.md" in report
+    assert r"PROTECTED_DECLARED agents/underwriter\\_agent.md" in report
     assert "PROTECTED_UNDECLARED .github/workflows/ci.yml" in report
     assert "OUT_OF_SCOPE ordinary: 0" in report
 
@@ -202,7 +202,7 @@ def test_summary_file_receives_the_same_report_as_stdout(checker, tmp_path, caps
 def test_large_diff_reports_exact_counts_and_caps_paths_at_one_hundred(checker):
     paths = [f"docs/file-{index:03d}.md" for index in range(105)]
     report = checker.build_report(paths, ["docs/**/*.md"])
-    rows = [line for line in report.splitlines() if line.startswith("IN_SCOPE ")]
+    rows = [line for line in report.splitlines() if line.startswith("IN_SCOPE docs/file-")]
     assert len(rows) == 100
     assert "IN_SCOPE ordinary: 105" in report
     assert "5 more paths omitted" in report

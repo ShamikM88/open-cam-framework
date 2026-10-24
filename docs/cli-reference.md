@@ -635,7 +635,7 @@ normalized to slashes; repeated separators, leading `./` and internal `.` compon
 Absolute, UNC and drive-prefixed paths, any `..` component, control characters, duplicate changed paths,
 and invalid UTF-8 are refused. Matching is case-sensitive: `*`, `?` and character classes match within
 one path component; `**` is supported as a whole component and matches zero or more components
-(`tests/**/*.py` matches both `tests/test_one.py` and `tests/unit/test_one.py`). A trailing slash pattern
+(`tests/**/*.py` matches Python files directly under `tests/` and in nested subdirectories). A trailing slash pattern
 matches files below that directory.
 
 Protected paths are always reported, even if declared: `agents/*.md`, `.github/workflows/**`,

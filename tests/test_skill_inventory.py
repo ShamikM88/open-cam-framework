@@ -407,7 +407,7 @@ def local_import_closure(sources, entries):
     return seen
 
 
-def claude_path_constants(source):
+def claude_path_constants(source, allowed_literals=()):
     """(line, text) of each string constant in code that is a path into `.claude/` or the folder name itself: it
     contains `.claude` and no whitespace (an f-string's literal pieces count). Docstrings and comments are not code,
     and a sentence that merely mentions `.claude/commands/...` (it has spaces) is prose, not a path."""
@@ -418,14 +418,20 @@ def claude_path_constants(source):
                   and isinstance(node.body[0].value, ast.Constant) and isinstance(node.body[0].value.value, str)}
     return [(node.lineno, node.value) for node in ast.walk(tree)
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
-            and ".claude" in node.value and not any(ch.isspace() for ch in node.value)]
+            and ".claude" in node.value and not any(ch.isspace() for ch in node.value)
+            and node.value not in allowed_literals]
 
 
-def claude_folder_problems(sources, entries=None):
+def claude_folder_problems(sources, entries=None, allowed_literals=None):
     """{module: constants} for the modules that build a `.claude` path: all of `sources`, or only the closure of
     `entries`."""
     scope = local_import_closure(sources, entries) if entries is not None else set(sources)
-    return {name: found for name in sorted(scope) if (found := claude_path_constants(sources[name]))}
+    allowed = allowed_literals or {}
+    return {
+        name: found
+        for name in sorted(scope)
+        if (found := claude_path_constants(sources[name], allowed.get(name, ())))
+    }
 
 
 def test_no_production_script_and_so_no_helper_of_a_headless_entry_point_builds_a_path_into_the_claude_folder():
@@ -440,8 +446,22 @@ def test_no_production_script_and_so_no_helper_of_a_headless_entry_point_builds_
     closure = local_import_closure(sources, HEADLESS_ENTRY_POINTS)
     assert {"state_manager", "spreading_builder", "policy_engine", "textio"} <= closure, "the closure walk reads real code"
     assert closure <= set(sources)
-    assert claude_folder_problems(sources) == {}
-    assert claude_folder_problems(sources, HEADLESS_ENTRY_POINTS) == {}
+    # This one exact literal declares the scope-checker protection rule; it does not build a path into .claude.
+    allowed_scope_globs = {"pr_scope_check": {".claude/**"}}
+    assert claude_folder_problems(sources, allowed_literals=allowed_scope_globs) == {}
+    assert claude_folder_problems(sources, HEADLESS_ENTRY_POINTS, allowed_literals=allowed_scope_globs) == {}
+
+
+
+def test_the_claude_folder_guard_only_allows_the_declared_scope_glob_literal():
+    sources = {"pr_scope_check": 'PROTECTED = ".claude/**"\\n'}
+    allowed = {"pr_scope_check": {".claude/**"}}
+    assert claude_folder_problems(sources, allowed_literals=allowed) == {}
+
+    sources["pr_scope_check"] += 'ROOT = ".claude/skills"\\n'
+    assert claude_folder_problems(sources, allowed_literals=allowed) == {
+        "pr_scope_check": [(2, ".claude/skills")]
+    }
 
 
 def test_the_claude_folder_check_catches_a_helper_an_entry_point_imports_and_ignores_prose():

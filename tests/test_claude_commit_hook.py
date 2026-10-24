@@ -197,3 +197,125 @@ def test_hook_errors_return_a_deny_decision_instead_of_failing_open(tmp_path):
     decision = _decision(result)
     assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "error" in decision["hookSpecificOutput"]["permissionDecisionReason"].casefold()
+
+
+# A commit on main must be recognised however the command is dressed up (review findings CG452-1 to CG452-4 and the
+# bypasses found beside them). The command text is built from pieces so this file never contains a bare commit line.
+_COMMIT = "git " + "commit -m synthetic"
+
+
+@pytest.mark.parametrize("template", [
+    "command {commit}",
+    "builtin {commit}",
+    "env GIT_OPTIONAL_LOCKS=0 {commit}",
+    "env -i {commit}",
+    "time {commit}",
+    "nohup {commit}",
+    "GIT_AUTHOR_NAME=Synthetic {commit}",
+    "\\{commit}",
+    "if true; then {commit}; fi",
+    "for i in 1; do {commit}; done",
+    "while true; do {commit}; break; done",
+    "{{ {commit}; }}",
+    "! {commit}",
+    "printf '%s' \"$({commit})\"",
+    "echo `{commit}`",
+    "echo \"`{commit}`\"",
+    "echo $(bash -c '{commit}')",
+    "eval '{commit}'",
+    "bash -c '{commit}'",
+    "git -c alias.zz=commit zz -m synthetic",
+])
+def test_wrapped_or_nested_commit_on_main_is_denied(template, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_denied(_invoke(template.format(commit=_COMMIT), repo))
+
+
+@pytest.mark.parametrize("template", [
+    "sudo {commit}",
+    "exec {commit}",
+    "echo synthetic | xargs {commit}",
+    "timeout 5 {commit}",
+])
+def test_commit_behind_an_argument_taking_wrapper_asks_instead_of_allowing(template, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_asks(_invoke(template.format(commit=_COMMIT), repo))
+
+
+def test_commit_through_a_configured_git_alias_is_denied(tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _git(repo, "config", "alias.ci", "commit")
+    _git(repo, "config", "alias.save", "ci")
+    _assert_denied(_invoke("git ci -m synthetic", repo))
+    _assert_denied(_invoke("git save -m synthetic", repo))
+
+
+def test_shell_alias_cannot_be_read_so_it_asks(tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _git(repo, "config", "alias.sh", "!echo synthetic")
+    _assert_asks(_invoke("git sh", repo))
+
+
+def test_alias_that_is_not_a_commit_is_left_alone(tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _git(repo, "config", "alias.st", "status")
+    assert _decision(_invoke("git st", repo)) is None
+
+
+@pytest.mark.parametrize("template", [
+    "git --git-dir={path}/.git --work-tree={path} commit -m synthetic",
+    "git --git-dir {path}/.git --work-tree {path} commit -m synthetic",
+    "git --git-dir={path}/.git commit -m synthetic",
+    "GIT_DIR={path}/.git GIT_WORK_TREE={path} git commit -m synthetic",
+    "GIT_WORK_TREE={path} git commit -m synthetic",
+    "export GIT_DIR={path}/.git; git commit -m synthetic",
+    "export GIT_WORK_TREE={path} GIT_DIR={path}/.git && git commit -m synthetic",
+])
+def test_repository_selectors_pointing_at_main_are_followed_from_a_fork(template, tmp_path):
+    canonical = _repo(tmp_path / "canonical")
+    fork = _repo(tmp_path / "fork", origin="https://github.com/someoneelse/open-cam-framework.git")
+    _assert_denied(_invoke(template.format(path=_bash_path(canonical)), fork))
+
+
+def test_powershell_environment_selectors_pointing_at_main_are_followed(tmp_path):
+    canonical = _repo(tmp_path / "canonical")
+    fork = _repo(tmp_path / "fork", origin="https://github.com/someoneelse/open-cam-framework.git")
+    path = _bash_path(canonical)
+    command = f"$env:GIT_DIR='{path}/.git'; $env:GIT_WORK_TREE='{path}'; {_COMMIT}"
+    _assert_denied(_invoke(command, fork, tool_name="PowerShell"))
+
+
+def test_repository_selector_that_cannot_be_resolved_asks(tmp_path):
+    fork = _repo(tmp_path / "fork", origin="https://github.com/someoneelse/open-cam-framework.git")
+    _assert_asks(_invoke("GIT_DIR=/elsewhere/not-dot-git " + _COMMIT, fork))
+
+
+@pytest.mark.parametrize(("tool", "template"), [
+    ("PowerShell", "& {commit}"),
+    ("PowerShell", "git.exe commit -m synthetic"),
+    ("PowerShell", "Write-Output \"$({commit})\""),
+    ("PowerShell", "iex '{commit}'"),
+])
+def test_powershell_forms_of_a_commit_on_main_are_denied(tool, template, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_denied(_invoke(template.format(commit=_COMMIT), repo, tool_name=tool))
+
+
+@pytest.mark.parametrize("command", [
+    "echo '$(" + _COMMIT + ")'",
+    "echo 'text with `" + _COMMIT + "` inside single quotes'",
+    "git log --grep=commit",
+    "git commit-tree HEAD^{tree} -m synthetic",
+    "git status",
+    "git show HEAD",
+])
+def test_commands_that_only_mention_or_resemble_a_commit_are_not_blocked(command, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    assert _decision(_invoke(command, repo)) is None
+
+
+def test_commit_in_a_fork_through_alias_or_selector_defaults_stays_unaffected(tmp_path):
+    fork = _repo(tmp_path / "fork", origin="https://github.com/someoneelse/open-cam-framework.git")
+    _git(fork, "config", "alias.ci", "commit")
+    assert _decision(_invoke("git ci -m synthetic", fork)) is None
+    assert _decision(_invoke("command " + _COMMIT, fork)) is None

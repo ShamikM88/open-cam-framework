@@ -17,6 +17,20 @@ _CANONICAL_REPO = "shamikm88/open-cam-framework"
 _GIT_TIMEOUT_SECONDS = 2
 _MAX_NESTED_SHELLS = 5
 
+_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+_GIT_SELECTORS = {"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR"}
+_POWERSHELL_ENV = re.compile(r"\$env:(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.+)", re.IGNORECASE | re.DOTALL)
+_GIT_NAMES = {"git", "git.exe"}
+_SHELL_NAMES = {"bash", "sh", "zsh", "dash", "powershell", "powershell.exe", "pwsh", "pwsh.exe", "cmd", "cmd.exe"}
+# Words that only change how the next command runs and take no argument of their own.
+_KEYWORDS = {"if", "then", "else", "elif", "while", "until", "do", "!", "{", "}", "command", "builtin", "time", "nohup", "coproc"}
+# Wrappers whose own arguments vary too much to parse: the command they run is found by looking for the first git
+# or shell word, and a denial reached that way is downgraded to a question.
+_WRAPPERS = {
+    "sudo", "doas", "xargs", "nice", "timeout", "stdbuf", "setsid", "ionice", "exec", "find", "parallel",
+    "su", "runuser", "chroot", "flock",
+}
+
 
 def _git_env():
     """Remove Git's repository/index override variables before inspecting the named checkout."""
@@ -330,6 +344,8 @@ def _nested_shell(tokens, shell):
     if not tokens:
         return None
     executable = Path(tokens[0]).name.casefold()
+    if executable == "eval" or (shell == "PowerShell" and executable in {"iex", "invoke-expression"}):
+        return (" ".join(tokens[1:]), shell) if len(tokens) > 1 else None
     flags = {"bash": {"-c"}, "sh": {"-c"}, "zsh": {"-c"}, "dash": {"-c"}}
     if executable in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}:
         flags[executable] = {"-command", "-c"}
@@ -345,33 +361,213 @@ def _nested_shell(tokens, shell):
     return None
 
 
-def _git_commit_target(tokens, current):
-    """Return (is_commit, targeted directory) for a direct Git commit command."""
-    if not tokens:
-        return False, None
+def _strip_prefixes(tokens):
+    """Drop leading control keywords, wrappers and variable assignments in front of the real command.
+
+    Returns (remaining tokens, assignments, heuristic). `heuristic` is True when a wrapper such as sudo or xargs was
+    skipped by searching for the first git or shell word, so what follows is a best guess and a denial reached from
+    it becomes a question for the person instead.
+    """
+    assignments = []
     index = 0
-    while index < len(tokens) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[index]):
-        index += 1
-    if index >= len(tokens) or Path(tokens[index]).name.casefold() not in {"git", "git.exe"}:
-        return False, None
-    index += 1
-    target = current
     while index < len(tokens):
         token = tokens[index]
-        if token == "-C":  # noqa: S105 -- Git directory option, not a credential
-            if index + 1 >= len(tokens):
-                return True, None
-            target = _path_from_argument(tokens[index + 1], current)
-            index += 2
-            continue
-        if token in {"-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}:
-            index += 2
-            continue
-        if token.startswith("-"):
+        name = Path(token).name.casefold()
+        if _ASSIGNMENT.fullmatch(token):
+            assignments.append(token)
             index += 1
-            continue
-        return (token.casefold() == "commit"), (target if token.casefold() == "commit" else None)
-    return False, None
+        elif token in _KEYWORDS or name in _KEYWORDS:
+            index += 1
+            while index < len(tokens) and tokens[index].startswith("-"):
+                index += 1
+        elif name == "env":
+            index += 1
+            while index < len(tokens) and (tokens[index].startswith("-") or _ASSIGNMENT.fullmatch(tokens[index])):
+                if _ASSIGNMENT.fullmatch(tokens[index]):
+                    assignments.append(tokens[index])
+                elif tokens[index] in {"-u", "-C", "-S", "--unset", "--chdir", "--split-string"}:
+                    index += 1
+                index += 1
+        elif name in _WRAPPERS:
+            for later in range(index + 1, len(tokens)):
+                word = Path(tokens[later]).name.casefold()
+                if word in _GIT_NAMES or word in _SHELL_NAMES or word == "eval":
+                    return tokens[later:], assignments, True
+            return [], assignments, True
+        else:
+            break
+    return tokens[index:], assignments, False
+
+
+def _assignment_pairs(assignments):
+    pairs = {}
+    for item in assignments:
+        name, _, value = item.partition("=")
+        pairs[name] = value
+    return pairs
+
+
+def _environment_target(variables, current):
+    """The directory GIT_WORK_TREE / GIT_DIR select, or None when it cannot be told."""
+    values = {name.upper(): value for name, value in variables.items()}
+    if values.get("GIT_WORK_TREE"):
+        return _path_from_argument(values["GIT_WORK_TREE"], current)
+    git_dir = values.get("GIT_DIR")
+    if git_dir:
+        resolved = _path_from_argument(git_dir, current)
+        if resolved is not None and resolved.name == ".git":
+            return resolved.parent
+    return None
+
+
+def _alias_is_commit(subcommand, aliases, target):
+    """Does this Git subcommand name expand to `commit`? True or False; None for a shell alias, which can do anything.
+
+    Aliases are read from the command line (`-c alias.x=...`) and from the target repository's Git configuration. They
+    are only read, never run.
+    """
+    name = subcommand.casefold()
+    seen = set()
+    for _ in range(3):
+        if name in seen:
+            return False
+        seen.add(name)
+        value = aliases.get(name)
+        if value is None and target is not None and target.is_dir():
+            looked = _run_git(target, "config", "--get", f"alias.{name}")
+            value = looked.stdout.strip() if looked.returncode == 0 else None
+        if not value:
+            return False
+        value = value.strip()
+        if value.startswith("!"):
+            return None
+        words = value.split()
+        if not words:
+            return False
+        name = words[0].casefold()
+        if name == "commit":
+            return True
+    return False
+
+
+def _git_commit_target(remaining, assignments, heuristic, current, env=None):
+    """Return (is_commit, targeted directory, certain) for a Git command that may create a commit.
+
+    `remaining` is the command with wrappers and assignments already removed. `certain` is False when the answer is a
+    best guess (a wrapper was searched, or a shell alias could not be read), so a denial should become a question.
+    """
+    if not remaining or Path(remaining[0]).name.casefold() not in _GIT_NAMES:
+        return False, None, True
+    variables = dict(env or {})
+    variables.update(_assignment_pairs(assignments))
+    args = remaining[1:]
+    target = current
+    git_dir = work_tree = None
+    aliases = {}
+    environment_unknown = False
+    for name in variables:
+        if name.upper() in _GIT_SELECTORS:
+            environment_unknown = True
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        value = args[index + 1] if index + 1 < len(args) else None
+        if arg == "-C":  # noqa: S105 -- Git directory option, not a credential
+            if value is None:
+                return True, None, False
+            target = _path_from_argument(value, current)
+            index += 2
+        elif arg == "-c":
+            if value and value.casefold().startswith("alias.") and "=" in value:
+                key, _, body = value.partition("=")
+                aliases[key[len("alias."):].casefold()] = body
+            index += 2
+        elif arg.startswith("--git-dir=") or arg.startswith("--work-tree="):
+            option, _, path = arg.partition("=")
+            resolved = _path_from_argument(path, current)
+            if option == "--git-dir":
+                git_dir = (resolved,)
+            else:
+                work_tree = (resolved,)
+            index += 1
+        elif arg in {"--git-dir", "--work-tree"}:
+            resolved = _path_from_argument(value, current) if value is not None else None
+            if arg == "--git-dir":
+                git_dir = (resolved,)
+            else:
+                work_tree = (resolved,)
+            index += 2
+        elif arg in {"--namespace", "--config-env"}:
+            index += 2
+        elif arg.startswith("-"):
+            index += 1
+        else:
+            break
+    else:
+        return False, None, True
+    if work_tree is not None:
+        target = work_tree[0]
+    elif git_dir is not None:
+        target = git_dir[0].parent if git_dir[0] is not None and git_dir[0].name == ".git" else None
+    if environment_unknown and work_tree is None and git_dir is None:
+        target = _environment_target(variables, current)
+    subcommand = args[index]
+    if subcommand.casefold() == "commit":
+        return True, target, not heuristic
+    verdict = _alias_is_commit(subcommand, aliases, target)
+    if verdict is False:
+        return False, None, True
+    return True, target, verdict is True and not heuristic
+
+
+def _substitutions(segment, shell):
+    """The command text inside every $(...) and, in Bash, `...` that the shell would run, quotes respected.
+
+    Text in single quotes is literal and skipped. Text in double quotes is not: $(...) there still runs.
+    """
+    bodies = []
+    quote = None
+    index = 0
+    length = len(segment)
+    while index < length:
+        char = segment[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            index += 1
+        elif (char == "\\" and shell == "Bash") or (shell == "PowerShell" and ord(char) == 96):
+            index += 2
+        elif char == "'" and quote is None:
+            quote = "'"
+            index += 1
+        elif char == '"':
+            quote = None if quote == '"' else '"'
+            index += 1
+        elif char == "$" and segment.startswith("$(", index):
+            depth, cursor, inner = 1, index + 2, None
+            while cursor < length and depth:
+                inner_char = segment[cursor]
+                if inner:
+                    if inner_char == inner:
+                        inner = None
+                    elif inner_char == "\\" and inner == '"':
+                        cursor += 1
+                elif inner_char in {"'", '"'}:
+                    inner = inner_char
+                elif inner_char == "(":
+                    depth += 1
+                elif inner_char == ")":
+                    depth -= 1
+                cursor += 1
+            bodies.append(segment[index + 2:cursor - 1] if depth == 0 else segment[index + 2:])
+            index = cursor
+        elif char == "`" and shell == "Bash":
+            end = segment.find("`", index + 1)
+            bodies.append(segment[index + 1:end] if end != -1 else segment[index + 1:])
+            index = end + 1 if end != -1 else length
+        else:
+            index += 1
+    return bodies
 
 
 def _classify_repository(path):
@@ -405,11 +601,18 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
     command = _strip_powershell_here_strings(command) if shell == "PowerShell" else _strip_bash_heredocs(command)
     current = initial_cwd
     pending_ask = None
+    env = {}
     try:
         segments = _split_commands(command, shell)
     except ValueError:
         return "ask", "Cannot parse the shell command confidently; confirm the commit target manually."
     for segment in segments:
+        for body in _substitutions(segment, shell):
+            result = _inspect_command(body, shell, current, depth + 1)
+            if result and result[0] == "deny":
+                return result
+            if result and result[0] == "ask":
+                pending_ask = pending_ask or result
         try:
             tokens = _tokens(segment, shell)
         except ValueError:
@@ -420,23 +623,41 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
             continue
         if not tokens:
             continue
+        powershell_set = _POWERSHELL_ENV.fullmatch(segment.strip()) if shell == "PowerShell" else None
+        if powershell_set:
+            env[powershell_set.group("name")] = powershell_set.group("value").strip().strip("'\"")
+            continue
         changed, updated_cwd = _change_directory(tokens, current, shell)
         if changed:
             current = updated_cwd
             continue
-        nested = _nested_shell(tokens, shell)
+        remaining, assignments, heuristic = _strip_prefixes(tokens)
+        nested = _nested_shell(remaining, shell)
         if nested is not None:
             nested_command, nested_shell_type = nested
             result = _inspect_command(nested_command, nested_shell_type, current, depth + 1)
             if result and result[0] == "deny":
-                return result
+                return result if not heuristic else (
+                    "ask", "A wrapped shell command may run `git commit` on main/master; confirm it before it runs.")
             if result and result[0] == "ask":
                 pending_ask = pending_ask or result
             continue
-        is_commit, target = _git_commit_target(tokens, current)
+        if not remaining:
+            env.update(_assignment_pairs(assignments))
+            continue
+        if Path(remaining[0]).name.casefold() in {"export", "declare", "typeset", "set"}:
+            env.update(_assignment_pairs([word for word in remaining[1:] if _ASSIGNMENT.fullmatch(word)]))
+            continue
+        is_commit, target, certain = _git_commit_target(remaining, assignments, heuristic, current, env)
         if not is_commit:
             continue
         result = _classify_repository(target)
+        if result and result[0] == "deny" and not certain:
+            result = (
+                "ask",
+                "This command may run `git commit` on main/master through a wrapper, alias or repository selector "
+                "that cannot be fully resolved; confirm it before it runs.",
+            )
         if result and result[0] == "deny":
             return result
         if result and result[0] == "ask":

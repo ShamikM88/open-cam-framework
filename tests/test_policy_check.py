@@ -318,7 +318,7 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
     assert (read_company, read_proposal) == ("Synthetic Co", "Synthetic Facility")
     assert set(read_keys) == {
         "financials", "ratios", "collateral", "covenants",
-        "security_package", "guarantees", "downside_case", "financials_source",
+        "security_package", "guarantees", "downside_case", "financials_source", "deal_type",
     }
     assert calls["evaluate_deal_policy"] == [{
         "financials": loaded_state["financials"],
@@ -390,7 +390,7 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
     assert (read_company, read_proposal) == ("Synthetic Co", "Synthetic Facility")
     assert set(read_keys) == {
         "financials", "ratios", "collateral", "covenants",
-        "security_package", "guarantees", "downside_case", "financials_source",
+        "security_package", "guarantees", "downside_case", "financials_source", "deal_type",
     }
     assert calls["evaluate_deal_policy"] == [empty_policy_input]
     assert calls["ground_truth_figures"] == [({}, {}, [], {})]
@@ -532,3 +532,30 @@ def test_compute_from_state_gives_the_same_answer_as_compute_for_the_same_state(
     assert compute_from_state({}) == {
         "policy_state": compute_from_state({})["policy_state"], "reasons": [], "compliant": True,
         "cam_data_present": False}
+
+
+def test_compute_uses_recorded_deal_type_and_local_template_override(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    shipped_dir = tmp_path / "templates" / "cam"
+    local_dir = tmp_path / "templates" / "local" / "cam"
+    shipped_dir.mkdir(parents=True)
+    local_dir.mkdir(parents=True)
+    (shipped_dir / "corporate_credit_cam.md").write_text(
+        "<!-- Guidance: Shipped guidance must not be the selected template. -->\n",
+        encoding="utf-8",
+    )
+    (local_dir / "corporate_credit_cam.md").write_text(
+        "<!-- Guidance: Local override guidance must not appear in the draft. -->\n",
+        encoding="utf-8",
+    )
+    write_state("Acme Corp", "Fleet Loan", deal_type="corporate_credit")
+    draft_path = tmp_path / "draft.md"
+    draft_path.write_text(
+        _compliant_draft(body="# Draft CAM\n\nLocal override guidance must not appear in the draft."),
+        encoding="utf-8",
+    )
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+
+    assert any("Local override guidance must not appear in the draft" in reason for reason in result["reasons"])
+    assert not any("Shipped guidance must not be the selected template" in reason for reason in result["reasons"])

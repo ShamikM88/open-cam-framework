@@ -2482,9 +2482,9 @@ def test_draft_lint_cli_checks_a_cam_against_the_template_it_is_given(cli):
 
 def test_pr_scope_check_cli_runs_valid_input_and_treats_hostile_body_as_data(cli, tmp_path):
     changed = tmp_path / "changed-files.nul"
-    changed.write_bytes(b"docs/contributing.md\\0README.md\\0")
+    changed.write_bytes(b"docs/contributing.md\0README.md\0")
     body = tmp_path / "scope-body.md"
-    body.write_text("## Declared file scope\\n- `docs/**/*.md`\\n", encoding="utf-8")
+    body.write_text("## Declared file scope\n- `docs/**/*.md`\n", encoding="utf-8")
 
     result = cli("pr_scope_check", "--changed-files", changed, "--scope-body", body)
     assert result.returncode == 0, result.stderr
@@ -2493,7 +2493,7 @@ def test_pr_scope_check_cli_runs_valid_input_and_treats_hostile_body_as_data(cli
 
     marker = tmp_path / "must-not-be-created"
     body.write_text(
-        "## Declared file scope\\n$(touch " + str(marker) + ")\\n",
+        "## Declared file scope\n$(touch " + str(marker) + ")\n",
         encoding="utf-8",
     )
     malformed = cli("pr_scope_check", "--changed-files", changed, "--scope-body", body)

@@ -519,8 +519,8 @@ def test_scope_check_is_documented_as_a_separate_advisory_workflow():
     assert ".github/workflows/scope-check.yml" in testing
     assert "scope-check" in testing and "not a required check" in testing
     assert "PR's own merge commit" in testing and "reviewer aid" in testing
-    assert "not a gate or proof" in testing
+    assert "not a gate or a proof" in testing
     assert "PR's own merge commit" in contributing and "reviewer aid" in contributing
-    assert "not a gate or proof" in contributing
+    assert "not a gate or a proof" in contributing
     assert "scope-check.yml" in claude and "not a required check" in claude
     assert "pr_scope_check.py" in cli and "#pr-scope-check" in cli

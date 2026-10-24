@@ -166,7 +166,7 @@ def test_nul_changed_file_list_accepts_spaces_and_escaped_punctuation(checker, t
     report = checker.build_report(["docs/a file [draft].md", "README.md"], ["docs/*.md"])
     assert "IN_SCOPE ordinary: 1" in report
     assert "OUT_OF_SCOPE ordinary: 1" in report
-    assert "docs/a file \\[draft\\]\.md" not in report or "docs/a file \\[draft\\].md" in report
+    assert r"docs/a file \[draft\].md" in report
 
 
 def test_missing_input_and_invalid_utf8_return_two(checker, tmp_path, capsys):

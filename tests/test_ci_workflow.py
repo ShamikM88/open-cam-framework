@@ -807,8 +807,8 @@ def test_scope_workflow_matches_the_maintainer_authorised_yaml_verbatim():
 
 def test_scope_workflow_is_pull_request_only_and_includes_body_edits():
     text = scope_workflow_text()
-    triggers = text.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
-    assert re.search(r"^  pull_request:\\n", triggers, re.M)
+    triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert re.search(r"^  pull_request:\n", triggers, re.M)
     assert "types: [opened, synchronize, reopened, edited]" in triggers
     assert not re.search(r"^  (push|workflow_dispatch|workflow_run|pull_request_target):", triggers, re.M)
     assert "pull_request_target" not in text and "workflow_run" not in text
@@ -816,7 +816,7 @@ def test_scope_workflow_is_pull_request_only_and_includes_body_edits():
 
 def test_scope_workflow_uses_read_only_permissions_pinned_actions_and_safe_inputs():
     text = scope_workflow_text()
-    assert re.search(r"^permissions:\\s*\\{\\}\\s*$", text, re.M)
+    assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M)
     jobs = split_jobs(text)
     assert set(jobs) == {"scope-check"}
     assert job_permissions(jobs["scope-check"]) == {"contents": "read"}

@@ -145,7 +145,6 @@ def export_research_brief(
         brief_markdown = brief_markdown.rstrip() + "\n\n" + footnote
 
     # Validate the content before resolving paths or creating any output directory.
-    check_exportable(brief_markdown)
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
     if date_str:
@@ -174,6 +173,8 @@ def export_research_brief(
             f"at the analyst's request on {release_date}: {release_reason}."
         )
         brief_markdown = _insert_after_first_heading(brief_markdown, status)
+    # The text that will be rendered, including any exporter-added disclosure, must be exportable before the first write.
+    check_exportable(brief_markdown)
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
     os.makedirs(output_dir, exist_ok=True)

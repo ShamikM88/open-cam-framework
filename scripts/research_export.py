@@ -8,7 +8,8 @@ import re
 import sys
 from datetime import date
 
-from docx_builder import export_to_docx
+from docx_builder import check_exportable, export_to_docx
+from draft_lint import lint_draft
 from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
 
@@ -134,6 +135,9 @@ def export_research_brief(
     """
     override_reason = _normalise_override_reason(analyst_override_no_sources)
     release_reason = _normalise_release_reason(analyst_release_unapproved)
+    findings = lint_draft(brief_markdown, document_kind="research-brief")
+    if findings:
+        raise ValueError("Draft lint rejected research brief: " + "; ".join(finding["message"] for finding in findings))
     has_sources = _has_populated_sources_section(brief_markdown)
     if not has_sources:
         if override_reason is None:
@@ -173,6 +177,8 @@ def export_research_brief(
             f"at the analyst's request on {release_date}: {release_reason}."
         )
         brief_markdown = _insert_after_first_heading(brief_markdown, status)
+    # The text that will be rendered, including any exporter-added disclosure, must be exportable before the first write.
+    check_exportable(brief_markdown)
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
     os.makedirs(output_dir, exist_ok=True)

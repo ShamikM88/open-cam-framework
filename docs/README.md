@@ -23,6 +23,7 @@ Claude Code follows when it works in this repository.
 | Judge how far a generated memo can be trusted, and on what evidence | [AI assurance](ai-assurance.md) |
 | Understand the local live-model evaluation harness | [Evaluation](evaluation.md) |
 | Change the repository: rules, sources of truth, what must stay green | [Contributing](contributing.md) |
+| Record or read what an AI agent is doing on the repository: claims, status, outcomes, review findings | [Agent ledger](agent-ledger.md) |
 | Maintain it: verify, diagnose CI, triage mutation survivors, handle advisories, check readiness | [Operations runbook](operations.md) |
 | Fix an error message or a surprising result | [Troubleshooting](troubleshooting.md) |
 | Know why something is the way it is | [Design decisions](decisions.md) |
@@ -59,6 +60,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [ai-assurance.md](ai-assurance.md) | What code guarantees, what the tests show, what the prompts only expect, what live evaluation has not shown, what stays with a person |
 | [evaluation.md](evaluation.md) | The evaluation harness: what it can and cannot show, reading a result, baselines, cost and safety, how its runner works |
 | [contributing.md](contributing.md) | Sources of truth, keeping documentation aligned, synthetic data, confidentiality, testing expectations, state compatibility, snapshots, security review, prompt-change boundaries, pull-request sequencing |
+| [agent-ledger.md](agent-ledger.md) | How AI agents record their work on issue #245: the CLAIM, STATUS and OUTCOME entries, evidence marks, finding ids, independent review, and what an entry never contains |
 | [operations.md](operations.md) | The maintainer runbook: full-suite verification, the badge, diagnosing CI, coverage and mutation reports, dependencies and advisories, documentation upkeep, live-evaluation boundaries, a readiness checklist |
 | [troubleshooting.md](troubleshooting.md) | Error messages, rejection reasons and surprising results, with fixes |
 | [decisions.md](decisions.md) | The durable design decisions, each with context, choice, rationale and consequences |

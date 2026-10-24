@@ -339,6 +339,53 @@ def _sanitize_xml_invalid_characters(text):
     return "".join(safe)
 
 
+def _strip_html_comments(markdown_text):
+    """Remove HTML comments from client-facing Markdown, but not inside fences.
+
+    Preserve surrounding prose while deleting the full comment span, including
+    line breaks inside a multi-line comment. A comment that never closes is an
+    export error rather than content to leak or a reason to discard the tail.
+    Fenced blocks are copied byte-for-byte when the renderer recognises a real
+    closing fence; this keeps literal HTML examples in code intact.
+    """
+    lines = markdown_text.splitlines(keepends=True)
+    output = []
+    in_comment = False
+    index = 0
+
+    while index < len(lines):
+        line = lines[index]
+        if not in_comment and FENCE_RE.match(line):
+            close_idx = _find_closing_fence(lines, index)
+            if close_idx is not None:
+                output.extend(lines[index:close_idx + 1])
+                index = close_idx + 1
+                continue
+
+        position = 0
+        while position < len(line):
+            if in_comment:
+                close = line.find("-->", position)
+                if close < 0:
+                    position = len(line)
+                    continue
+                in_comment = False
+                position = close + 3
+                continue
+
+            opening = line.find("<!--", position)
+            if opening < 0:
+                output.append(line[position:])
+                break
+            output.append(line[position:opening])
+            in_comment = True
+            position = opening + 4
+        index += 1
+
+    if in_comment:
+        raise ValueError("Unterminated HTML comment; refusing DOCX export.")
+    return "".join(output)
+
 def export_to_docx(markdown_text, output_path):
     """Render `markdown_text` as a .docx at `output_path`.
 
@@ -355,6 +402,7 @@ def export_to_docx(markdown_text, output_path):
     meant to read as distinct lines/fields.
     """
     markdown_text = _sanitize_xml_invalid_characters(markdown_text)
+    markdown_text = _strip_html_comments(markdown_text)
     doc = docx.Document()
     lines = markdown_text.split("\n")
     i, n = 0, len(lines)

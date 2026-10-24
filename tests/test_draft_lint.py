@@ -132,3 +132,23 @@ def test_an_earlier_json_example_does_not_hide_prose_before_the_real_trailing_bl
 def test_a_json_block_that_is_not_last_is_linted_as_ordinary_text():
     draft = "# Synthetic CAM\n\n```json\n{\"note\": \"state.json\"}\n```\n\nClosing remark.\n"
     assert [item["rule"] for item in lint_draft(draft, document_kind="cam")] == ["A"]
+
+
+def test_an_unclosed_fence_is_not_treated_as_code_and_edge_whitespace_is_ignored():
+    draft = "   \n```python\nThis framework is mentioned after an unclosed fence.   \n"
+    findings = lint_draft(draft, document_kind="research-brief")
+    assert [(item["rule"], item["line"]) for item in findings] == [("A", 3)]
+
+
+def test_template_guidance_inside_a_complete_fence_is_not_a_rule():
+    template = "```\n<!-- Guidance: Quoted example only. -->\n```\n\n<!-- Guidance: Real instruction. -->\n"
+    draft = "Quoted example only.\n\nReal instruction.\n"
+    findings = lint_draft(draft, document_kind="cam", template_text=template)
+    assert [item["match"] for item in findings] == ["Real instruction."]
+
+
+def test_non_text_draft_or_template_is_refused():
+    with pytest.raises(ValueError, match="Draft content must be text"):
+        lint_draft(b"bytes", document_kind="research-brief")
+    with pytest.raises(ValueError, match="Template content must be text"):
+        lint_draft("text", document_kind="cam", template_text=b"bytes")

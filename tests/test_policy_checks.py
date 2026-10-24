@@ -969,3 +969,9 @@ def test_check_draft_compliance_lints_the_selected_cam_template(tmp_path, monkey
         draft, _policy_state(), {}, deal_type="corporate_credit",
     )
     assert any("copied template guidance" in reason for reason in reasons)
+
+
+@pytest.mark.parametrize("deal_type", ["../escape", "corporate credit", "1leading_digit", 7])
+def test_check_draft_compliance_refuses_a_deal_type_that_is_not_a_template_name(deal_type):
+    with pytest.raises(ValueError, match="Invalid deal_type"):
+        check_draft_compliance("# Synthetic CAM\n", _policy_state(), {}, deal_type=deal_type)

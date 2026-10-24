@@ -36,7 +36,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export",, "draft_lint",
     "export_readback", "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
@@ -289,7 +289,7 @@ def test_research_export_help_documents_the_analyst_override_flag(cli):
 
 def test_research_export_writes_the_brief_docx(cli):
     brief = cli.workdir / "brief.md"
-    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes [placeholder].\n\n## Sources\n\n- Synthetic registry: https://example.invalid/registry\n", encoding="utf-8")
+    brief.write_text("# Research brief\n\n- **Verdict:** Go\n\nSector notes on synthetic market conditions.\n\n## Sources\n\n- Synthetic registry: https://example.invalid/registry\n", encoding="utf-8")
     result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
     assert result.returncode == 0, result.stderr
     assert "Research brief exported to" in result.stdout
@@ -2408,3 +2408,41 @@ def test_committee_summary_refuses_a_missing_deal_with_one_error_line_and_writes
     assert result.returncode == 1 and result.stdout == ""
     assert result.stderr == "error: no existing state.json for company 'Synthetic Co' and proposal 'No Such Deal'\n"
     assert not (cli.workdir / "deals").exists()
+
+
+def test_draft_lint_cli_help_and_unknown_flag(cli):
+    help_result = cli("draft_lint", "--help")
+    assert help_result.returncode == 0, help_result.stderr
+    assert "--draft" in help_result.stdout and "--kind" in help_result.stdout
+
+    bad = cli("draft_lint", "--made-up")
+    assert bad.returncode == 2
+    assert "usage:" in bad.stderr and "unrecognized arguments" in bad.stderr
+
+
+def test_draft_lint_cli_clean_and_failing_inputs(cli):
+    clean = cli.workdir / "clean.md"
+    clean.write_text(
+        "# Synthetic Research Brief\n\nSee [Smith 2026] and [registry](https://example.invalid).\n",
+        encoding="utf-8",
+    )
+    passed = cli("draft_lint", "--draft", clean, "--kind", "research-brief")
+    assert passed.returncode == 0, passed.stderr
+    assert json.loads(passed.stdout) == {"findings": []}
+
+    failing = cli.workdir / "failing.md"
+    failing.write_text("# Synthetic Research Brief\n\nThis framework refers to [Amount].\n", encoding="utf-8")
+    rejected = cli("draft_lint", "--draft", failing, "--kind", "research-brief")
+    assert rejected.returncode == 1
+    result = json.loads(rejected.stdout)
+    assert any(item["line"] == 3 and item["rule"] == "A" for item in result["findings"])
+    assert any(item["rule"] == "B_UNFILLED_PLACEHOLDER" for item in result["findings"])
+
+
+def test_draft_lint_cli_reports_missing_file_with_one_error_line_and_no_stdout(cli):
+    result = cli("draft_lint", "--draft", "missing.md", "--kind", "cam")
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert len(result.stderr.splitlines()) == 1
+    assert "Traceback" not in result.stderr

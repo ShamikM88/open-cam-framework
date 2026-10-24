@@ -182,7 +182,7 @@ committed. Delete a file there to fall back to the shipped default for that deal
 **Keep drafter-only guidance out of exports:** in a calibrated local override, wrap each instruction
 that is only for the drafter in an HTML comment, for example `<!-- Guidance: ... -->`, rather than
 leaving it as italic Markdown. The DOCX exporter removes single-line and multi-line HTML comments;
-an unterminated comment refuses export. Leave the analyst signature field blank for the human signer.
+an unterminated comment refuses export, before any output folder is created or a new template is saved. Comments are removed everywhere except inside fenced code blocks, so a comment marker written inside an inline code span is removed too. Leave the analyst signature field blank for the human signer.
 
 ### Financial spreading workbook
 

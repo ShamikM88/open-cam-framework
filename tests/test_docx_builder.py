@@ -993,3 +993,12 @@ def test_shipped_cam_guidance_uses_html_comments_and_blank_human_signature():
         assert signature in lines, name
         signature_index = lines.index(signature)
         assert lines[signature_index + 1] == signature_guidance, name
+
+
+def test_check_exportable_refuses_what_export_would_refuse_and_writes_nothing(tmp_path):
+    from docx_builder import check_exportable
+
+    check_exportable("# Title\n\n<!-- closed -->\n\nBody.\n")
+    with pytest.raises(ValueError, match="Unterminated HTML comment"):
+        check_exportable("# Title\n\n<!-- never closed\n")
+    assert list(tmp_path.iterdir()) == []

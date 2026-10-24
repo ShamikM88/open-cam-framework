@@ -9,6 +9,10 @@ import re
 import sys
 
 
+class DraftContentError(ValueError):
+    """The draft itself cannot be linted (for example an unterminated HTML comment)."""
+
+
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(\x60{3,}|~{3,})(.*)$")
 JSON_INFO_RE = re.compile(r"json[ \t]*", re.IGNORECASE)
 GUIDANCE_COMMENT_RE = re.compile(r"<!--\s*Guidance:\s*(.*?)\s*-->", re.IGNORECASE | re.DOTALL)
@@ -94,10 +98,11 @@ def _trailing_json_start(text):
     return sum(len(line) for line in lines[:opening])
 
 
-def _visible_text_and_lines(text, *, exclude_trailing_json=False):
+def _visible_text_and_lines(text, *, exclude_trailing_json=False, subject="draft"):
     """Strip HTML comments the DOCX exporter removes and preserve source line numbers."""
+    error_type = DraftContentError if subject == "draft" else ValueError
     if not isinstance(text, str):
-        raise ValueError("Draft content must be text.")
+        raise error_type(f"{subject.capitalize()} content must be text.")
     excluded = _trailing_json_start(text) if exclude_trailing_json else None
     limited_text = text if excluded is None else text[:excluded]
     lines = limited_text.splitlines(keepends=True)
@@ -136,7 +141,7 @@ def _visible_text_and_lines(text, *, exclude_trailing_json=False):
             position = opening + 4
 
     if in_comment:
-        raise ValueError("Unterminated HTML comment in draft.")
+        raise error_type(f"Unterminated HTML comment in {subject}.")
     return "".join(visible), source_lines
 
 
@@ -205,7 +210,7 @@ def _template_guidance(template_text):
 
 
 def _template_placeholders(template_text):
-    visible, _source_lines = _visible_text_and_lines(template_text)
+    visible, _source_lines = _visible_text_and_lines(template_text, subject="template")
     tokens = {}
     for match in TEMPLATE_PLACEHOLDER_RE.finditer(visible):
         token = match.group(0)

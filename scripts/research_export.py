@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import date
 
-from docx_builder import export_to_docx
+from docx_builder import check_exportable, export_to_docx
 from draft_lint import lint_draft
 from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
@@ -149,6 +149,7 @@ def export_research_brief(
         brief_markdown = brief_markdown.rstrip() + "\n\n" + footnote
 
     # Validate the content before resolving paths or creating any output directory.
+    check_exportable(brief_markdown)
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
     if date_str:

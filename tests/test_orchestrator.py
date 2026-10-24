@@ -707,6 +707,14 @@ def test_apply_deterministic_policy_checks_does_not_crash_on_malformed_risk_cate
     assert "Missing or malformed Risk Category" in notes
 
 
+def test_apply_deterministic_policy_checks_rejects_a_draft_lint_cannot_read_instead_of_crashing():
+    verdict, notes = _apply_deterministic_policy_checks(
+        "APPROVED", None, "# Draft\n\n<!-- never closed\n", _policy_state(required_cps=[]), {},
+    )
+    assert verdict == "REJECTED"
+    assert "Draft lint could not run: Unterminated HTML comment in draft." in notes
+
+
 def test_parse_underwriter_output_ignores_unrelated_earlier_json_blocks():
     draft = (
         "# Draft CAM\n"

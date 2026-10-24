@@ -18,7 +18,7 @@ import math
 import re
 import sys
 
-from draft_lint import lint_draft
+from draft_lint import DraftContentError, lint_draft
 from template_resolver import cam_template_path
 
 # Canonical risk categories the Underwriter's structured output must cover
@@ -442,7 +442,12 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
             if template_path:
                 with open(template_path, encoding="utf-8") as template_file:
                     template_text = template_file.read()
-        findings = lint_draft(draft_text, document_kind="cam", template_text=template_text)
-        reasons.extend(finding["message"] for finding in findings)
+        try:
+            findings = lint_draft(draft_text, document_kind="cam", template_text=template_text)
+        except DraftContentError as exc:
+            # A malformed draft is something the Maker can fix, so it is a rejection reason, not a crash.
+            reasons.append(f"Draft lint could not run: {exc} Close or remove the comment and resubmit the draft.")
+        else:
+            reasons.extend(finding["message"] for finding in findings)
 
     return reasons

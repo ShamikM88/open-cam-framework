@@ -152,3 +152,13 @@ def test_non_text_draft_or_template_is_refused():
         lint_draft(b"bytes", document_kind="research-brief")
     with pytest.raises(ValueError, match="Template content must be text"):
         lint_draft("text", document_kind="cam", template_text=b"bytes")
+
+
+def test_a_draft_problem_is_a_draft_content_error_and_a_template_problem_is_not():
+    from draft_lint import DraftContentError
+
+    with pytest.raises(DraftContentError, match="Unterminated HTML comment in draft"):
+        lint_draft("<!-- never closed", document_kind="cam")
+    with pytest.raises(ValueError, match="Unterminated HTML comment in template") as raised:
+        lint_draft("Clean draft", document_kind="cam", template_text="<!-- never closed")
+    assert not isinstance(raised.value, DraftContentError)

@@ -386,6 +386,15 @@ def _strip_html_comments(markdown_text):
         raise ValueError("Unterminated HTML comment; refusing DOCX export.")
     return "".join(output)
 
+
+def check_exportable(markdown_text):
+    """Raise ValueError if `export_to_docx` would refuse this Markdown; write and return nothing.
+
+    An exporter calls this before it creates a folder or saves a template, so a refusal leaves no side effect.
+    """
+    _strip_html_comments(_sanitize_xml_invalid_characters(markdown_text))
+
+
 def export_to_docx(markdown_text, output_path):
     """Render `markdown_text` as a .docx at `output_path`.
 

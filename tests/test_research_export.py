@@ -422,3 +422,10 @@ def test_research_export_rejects_unfilled_placeholder_before_creating_output(tmp
             "Synthetic Co", "Fleet Loan", brief, date_str="2026-10-24", base_dir=str(tmp_path),
         )
     assert not (tmp_path / "deals").exists()
+
+
+def test_an_unterminated_html_comment_is_rejected_before_creating_any_output(tmp_path):
+    brief = VALID_BRIEF + "\n<!-- never closed\n"
+    with pytest.raises(ValueError, match="Unterminated HTML comment"):
+        export_research_brief("Synthetic Co", "Fleet Loan", brief, date_str="2026-10-24", base_dir=str(tmp_path))
+    assert not (tmp_path / "deals").exists()

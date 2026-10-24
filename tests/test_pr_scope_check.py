@@ -223,3 +223,88 @@ def test_main_block_only_configures_stdio_when_run_as_a_script():
     assert 'if __name__ == "__main__":\n    from textio import configure_stdio\n    configure_stdio()' in source
     assert "import anthropic" not in source
     assert "urllib" not in source and "requests" not in source
+
+
+# Added in review (CL461-1): the branches the first test pass left uncovered, so the changed-line gate is met.
+def test_question_mark_and_negated_classes_match_exactly_one_character(checker):
+    assert checker.matches_glob("src/a1.py", "src/a?.py")
+    assert not checker.matches_glob("src/a12.py", "src/a?.py")
+    assert checker.matches_glob("src/xb", "src/x[!a]")
+    assert not checker.matches_glob("src/xa", "src/x[!a]")
+    assert checker.matches_glob("src/xb", "src/x[^^a]")
+    assert not checker.matches_glob("src/x^", "src/x[^^a]")
+
+
+@pytest.mark.parametrize("pattern", ["x[]", "x[[a]", "x[!]", "x[z-a]", "a**b", "."])
+def test_malformed_or_empty_patterns_are_refused(checker, pattern):
+    with pytest.raises(checker.ScopeInputError):
+        checker.normalize_path(pattern, pattern=True)
+
+
+@pytest.mark.parametrize("path", ["docs/", ".", "./", ""])
+def test_directory_and_empty_entries_are_refused_in_the_changed_file_list(checker, path):
+    with pytest.raises(checker.ScopeInputError):
+        checker.normalize_path(path)
+
+
+def test_a_heading_inside_an_html_comment_is_not_a_scope_section(checker):
+    body = (
+        "<!-- an example\n## Declared file scope\n- `ignored/*.md`\n-->\n"
+        "<!-- one-line note -->\n"
+        "## Declared file scope\n- `docs/*.md`\n"
+    )
+    assert checker.parse_scope_body(body) == ["docs/*.md"]
+
+
+def test_comments_and_blank_lines_inside_the_section_are_ignored(checker):
+    body = "## Declared file scope\n\n<!--\nexample:\n- `ignored`\n-->\n\n<!-- note -->\n- `docs/*.md`\n"
+    assert checker.parse_scope_body(body) == ["docs/*.md"]
+
+
+@pytest.mark.parametrize("body", [
+    "## Declared file scope\n<!--\nexample\n--> - `docs/*.md`\n",
+    "## Declared file scope\n<!-- note --> - `docs/*.md`\n",
+    "## Declared file scope\n<!-- never closed\n- `docs/*.md`\n",
+    "## Declared file scope\n- `docs/*.md` <!-- widen -->\n",
+    "## Declared file scope\n- `docs/*.md` -->\n",
+])
+def test_comment_markers_that_leave_the_scope_ambiguous_are_malformed(checker, body):
+    with pytest.raises(checker.ScopeInputError):
+        checker.parse_scope_body(body)
+
+
+@pytest.mark.parametrize("body", [None, 7, "## Declared file scope\n- `docs/*.md`\x07\n"])
+def test_a_non_text_or_control_character_body_is_malformed(checker, body):
+    with pytest.raises(checker.ScopeInputError):
+        checker.parse_scope_body(body)
+
+
+def test_an_empty_changed_file_list_is_valid_and_reports_zero_files(checker, tmp_path):
+    changed = tmp_path / "changed-files.nul"
+    changed.write_bytes(b"")
+    assert checker.read_changed_files(changed) == []
+    report = checker.build_report([], ["docs/*.md"])
+    assert "Changed files: 0" in report and "Scope patterns: 1" in report
+
+
+def test_ampersands_are_escaped_in_displayed_paths(checker):
+    report = checker.build_report(["docs/a&b.md"], ["docs/*.md"])
+    assert "IN_SCOPE docs/a&amp;b.md" in report
+
+
+def test_build_report_refuses_a_duplicated_path(checker):
+    with pytest.raises(checker.ScopeInputError):
+        checker.build_report(["docs/a.md", "docs/./a.md"], [])
+
+
+def test_the_report_is_appended_on_a_new_line_to_a_summary_that_already_has_text(checker, tmp_path, capsys):
+    changed = tmp_path / "changed-files.nul"
+    changed.write_bytes(b"docs/a.md\0")
+    body = tmp_path / "scope-body.md"
+    body.write_text("## Declared file scope\n- `docs/*.md`\n", encoding="utf-8")
+    summary = tmp_path / "summary.md"
+    summary.write_text("earlier step output\n", encoding="utf-8")
+    code = checker.main(["--changed-files", str(changed), "--scope-body", str(body), "--summary-file", str(summary)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert summary.read_text(encoding="utf-8") == "earlier step output\n\n" + captured.out

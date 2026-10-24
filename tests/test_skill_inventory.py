@@ -452,7 +452,6 @@ def test_no_production_script_and_so_no_helper_of_a_headless_entry_point_builds_
     assert claude_folder_problems(sources, HEADLESS_ENTRY_POINTS, allowed_literals=allowed_scope_globs) == {}
 
 
-
 def test_the_claude_folder_guard_only_allows_the_declared_scope_glob_literal():
     sources = {"pr_scope_check": 'PROTECTED = ".claude/**"' + chr(10)}
     allowed = {"pr_scope_check": {".claude/**"}}

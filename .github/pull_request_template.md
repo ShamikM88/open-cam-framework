@@ -46,6 +46,15 @@ include traceable acceptance criteria, design trade-offs, docs, and assurance ev
 - [ ] Known limitations and follow-ups are stated.
 - [ ] For agent-authored work, the `CLAIM` and `OUTCOME` on issue #245 are linked or named ([Agent ledger](../docs/agent-ledger.md)); otherwise write "not applicable".
 
+## Declared file scope
+<!-- Optional. This advisory check compares changed paths against this list.
+     Put one repository-relative path or glob per bullet, wrapped in one pair of backticks.
+     Leave this section empty when you are not declaring file scope.
+     Examples:
+     - `scripts/example.py`
+     - `docs/**/*.md`
+-->
+ 
 ## AI assistance disclosure
 <!-- REQUIRED and must remain the final section. Identify each AI product/tool and exact model/version known to have contributed (for a Claude Code session, the model the session itself reports). If not exposed or verified, say so; never guess. A tool's own attribution footer (for example Claude Code's "Generated with Claude Code" line) may follow this section, but does not replace it. Distinguish implementation/authorship from planning, documentation, or review. If no AI contributed, say "None". -->
 - **Assistant(s) and model(s):** [e.g. ChatGPT (GPT-6), Claude Code (exact model if known), or None]

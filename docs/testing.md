@@ -246,6 +246,14 @@ them current); `permissions: {}` at the top and `contents: read` per job (the tw
 `persist-credentials: false`
 on every checkout; no `pull_request_target`; CI never passes `--write` or `--update-snapshots`.
 
+
+A separate `.github/workflows/scope-check.yml` workflow runs the `scope-check` job on `pull_request`
+opens, updates, reopens and body edits. It compares changed paths with the optional `## Declared file scope`
+section in the PR body and writes an advisory report, including protected-path findings, to the job summary.
+This job is **not a required check** and is not a fifth job in `ci.yml`: the existing four-job `ci.yml` and
+the required names `test`, `test-windows` and `runtime-smoke` are unchanged. In a `pull_request` run,
+the script comes from the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
+
 ### Mutation testing
 
 **Mutation testing** (`.github/workflows/mutation.yml`, configuration `[tool.mutmut]` in `pyproject.toml`,

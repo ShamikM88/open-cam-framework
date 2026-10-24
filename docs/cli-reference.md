@@ -27,6 +27,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `pii_scan.py` | Scans a template for likely-real data | No | [PII scan](#pii-scan) |
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
 | `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/`, and publishes it to the wiki with `--publish` | No | [Wiki publish](#wiki-publish) |
+| `pr_scope_check.py` | Compares changed paths with the PR's declared file scope; advisory only | No | [PR scope check](#pr-scope-check) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
 Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic and makes no
@@ -606,6 +607,55 @@ python scripts/pii_scan.py templates/local/cam/asset_finance_cam.md
   unreadable file.
 
 Their rules and the reasoning are in [Testing](testing.md).
+
+
+## PR scope check
+
+`scripts/pr_scope_check.py` is a standard-library-only, deterministic CLI. It makes no network request
+and does not call a model. The separate `.github/workflows/scope-check.yml` workflow reads the PR body
+as data, collects the changed file names with Git, and appends this report to the job summary. It is
+advisory only, **not a required check**.
+
+The script accepts these flags (also shown by `--help`):
+
+| Flag | Meaning |
+|---|---|
+| `--changed-files PATH` | Required UTF-8, NUL-delimited changed-file list, as produced by `git diff --name-only --no-renames -z`. An empty list is valid. |
+| `--scope-body PATH` | Required UTF-8 Markdown body extracted from the GitHub event JSON. The script never fetches the PR or executes body text. |
+| `--summary-file PATH` | Optional Markdown file to append the same report to; the report is also printed to standard output. |
+
+In the body, a single `## Declared file scope` section may contain one repo-relative path or glob per
+bullet, written exactly as `- `path/or/glob``. Blank lines and full-line HTML comments are ignored.
+Duplicate sections, unexpected nonblank text, malformed patterns and unsafe paths are errors. If the
+section is missing or has no patterns, the report includes `SCOPE NOT DECLARED` and the command exits
+`0`, so legacy PRs and an intentionally empty scope remain warning-only.
+
+Paths and patterns use forward slashes for comparison on every operating system. Backslashes are
+normalized to slashes; repeated separators, leading `./` and internal `.` components are collapsed.
+Absolute, UNC and drive-prefixed paths, any `..` component, control characters, duplicate changed paths,
+and invalid UTF-8 are refused. Matching is case-sensitive: `*`, `?` and character classes match within
+one path component; `**` is supported as a whole component and matches zero or more components
+(`tests/**/*.py` matches both `tests/test_one.py` and `tests/unit/test_one.py`). A trailing slash pattern
+matches files below that directory.
+
+Protected paths are always reported, even if declared: `agents/*.md`, `.github/workflows/**`,
+`pyproject.toml`, `config/**`, `badges/test-count.json`, `.claude/**` and
+`diff_cover_critical.toml`. Each changed path appears in exactly one category:
+`IN_SCOPE`, `OUT_OF_SCOPE`, `PROTECTED_DECLARED` or `PROTECTED_UNDECLARED`. A protected file that
+is not declared is listed as `PROTECTED_UNDECLARED`, not counted again as an ordinary out-of-scope file.
+Only declarations that are exactly `*`, `**` or `**/*` produce the additional `BROAD_SCOPE` advisory;
+it never changes the exit status. Counts are exact, rows are sorted deterministically, and at most 100
+path rows are shown before a deterministic omitted-row count.
+
+Exit `0` means the input is valid, regardless of scope mismatches or a missing/empty scope. Exit `2`
+means a CLI, file, encoding, body or path/pattern input error. The status is deliberately advisory: the
+report does not prove that declared scope is correct, that every relevant file was declared, or that a
+change is safe to merge.
+
+```bash
+python scripts/pr_scope_check.py --changed-files changed-files.nul --scope-body scope-body.md
+python scripts/pr_scope_check.py --changed-files changed-files.nul --scope-body scope-body.md --summary-file summary.md
+```
 
 ## Model freshness check
 

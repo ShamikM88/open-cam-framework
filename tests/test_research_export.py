@@ -429,3 +429,21 @@ def test_an_unterminated_html_comment_is_rejected_before_creating_any_output(tmp
     with pytest.raises(ValueError, match="Unterminated HTML comment"):
         export_research_brief("Synthetic Co", "Fleet Loan", brief, date_str="2026-10-24", base_dir=str(tmp_path))
     assert not (tmp_path / "deals").exists()
+
+
+def test_an_unterminated_comment_in_the_release_reason_is_refused_before_anything_is_written(tmp_path, monkeypatch):
+    """The disclosure paragraph carries the analyst's reason, so it is part of the text that must be exportable."""
+    def no_directory_may_be_created(*args, **kwargs):
+        raise AssertionError("the output directory was created before the text was validated")
+
+    _state_with_trail(tmp_path, [{"iteration": 1, "verdict": "REJECTED", "notes": "synthetic finding"}])
+    state_file = tmp_path / "deals" / "Acme Co" / "Synthetic Lease_2026-10-14" / "state.json"
+    before = state_file.read_bytes()
+    monkeypatch.setattr(research_export.os, "makedirs", no_directory_may_be_created)
+    with pytest.raises(ValueError, match="Unterminated HTML comment"):
+        export_research_brief(
+            "Acme Co", "Synthetic Lease", VALID_BRIEF, date_str="2026-10-14", base_dir=str(tmp_path),
+            analyst_release_unapproved="needs a look <!-- never closed",
+        )
+    assert state_file.read_bytes() == before
+    assert not list(state_file.parent.glob("*.docx"))

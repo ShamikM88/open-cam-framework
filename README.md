@@ -154,7 +154,7 @@ git clone https://github.com/ShamikM88/open-cam-framework.git
 cd open-cam-framework
 python -m venv venv
 source venv/bin/activate        # on Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -c constraints.txt -r requirements.txt
 mkdir -p "deals/Synthetic Co"   # on Windows PowerShell: New-Item -ItemType Directory -Force "deals/Synthetic Co"
 cp docs/examples/synthetic_co/financials_input.json "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
@@ -164,8 +164,8 @@ python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic
 (On Windows PowerShell, use `Copy-Item` in place of `cp`.) The output is JSON. For the synthetic company's current year
 it shows EBITDA 1000, DSCR 2.0 and gross leverage 2.0, with `financials_source` set to `framework-computed`: every
 figure comes from code and none from a model. The [financial model](docs/financial-model.md#worked-example) derives each
-one. The `deals/` folder is git-ignored. To run the test suite instead, `pip install -r requirements-dev.txt` and run
-`pytest -q`; it makes no model calls and needs no key.
+one. The `deals/` folder is git-ignored. To run the test suite instead, `pip install -c constraints.txt -r requirements-dev.txt` and run
+`pytest -q`; it makes no model calls and needs no key. `constraints.txt` is the reviewed dependency set the CI uses: without it `pip` takes the newest releases, and the suite is only known to pass on the pinned ones.
 
 ### Option A: Claude Code slash commands (recommended, no separate API key)
 
@@ -216,7 +216,7 @@ For automation, CI, or running outside an interactive Claude Code session.
    ```bash
    python -m venv venv
    venv\Scripts\activate   # on Windows; use `source venv/bin/activate` on macOS/Linux
-   pip install -r requirements.txt
+   pip install -c constraints.txt -r requirements.txt
    ```
 2. **Set your API key:**
    ```bash
@@ -248,7 +248,7 @@ For automation, CI, or running outside an interactive Claude Code session.
 ## Running tests
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -c constraints.txt -r requirements-dev.txt
 pytest
 ```
 

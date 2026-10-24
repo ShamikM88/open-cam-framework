@@ -419,9 +419,10 @@ REFERENCE_TARGETS = {
 }
 # What each referenced number currently is. Lower-case substring of the item's first line.
 EXPECTED_SUBJECTS = {
-    "Guideline": {1: "grounding", 5: "structured output", 7: "depth & materiality",
+    "Guideline": {1: "grounding", 3: "writing style", 5: "structured output", 7: "depth & materiality",
                   9: "analyst-supplied spreading disclosure", 10: "institutional credit policy",
-                  11: "persisted deal learnings", 12: "parent/ubo support analysis"},
+                  11: "persisted deal learnings", 12: "parent/ubo support analysis",
+                  13: "analytical judgement and voice"},
     "Audit Checklist item": {4: "calibrated credit policy"},
 }
 SCANNED_FILES = ("CLAUDE.md", "README.md", "docs/*.md", ".claude/commands/*.md", ".claude/skills/*/SKILL.md",
@@ -594,8 +595,8 @@ def test_a_reference_wrapped_over_a_line_break_is_found_and_reported_where_it_st
 
 
 def test_a_reference_wrapped_inside_a_code_comment_or_block_quote_is_found():
-    comment = "    # qualitative audit (Audit\n    # Checklist item 5), not something\n    # per Guideline\n    # 9 only"
-    assert [(n, k, num) for n, k, num, _ in find_references(comment)] == [(1, "Audit Checklist item", 5), (3, "Guideline", 9)]
+    comment = "    # qualitative audit (Audit\n    # Checklist item 8), not something\n    # per Guideline\n    # 9 only"
+    assert [(n, k, num) for n, k, num, _ in find_references(comment)] == [(1, "Audit Checklist item", 8), (3, "Guideline", 9)]
     assert [(k, num) for _, k, num, _ in find_references("> see Guideline\n> 12 for details")] == [("Guideline", 12)]
 
 

@@ -636,6 +636,44 @@ def test_the_mutation_workflow_produces_the_per_module_report_without_ever_faili
     assert "mutation-all.txt" in upload and "mutation-report.json" in upload
 
 
+def test_the_mutation_workflow_takes_a_name_filter_and_a_full_flag_that_never_reach_a_script_directly():
+    """Issue #435: manual runs may retest chosen modules; the inputs go through env and a strict character check."""
+    text = MUTATION_WORKFLOW.read_text(encoding="utf-8")
+    dispatch = text.split("  workflow_dispatch:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert re.search(r"^      mutants:\n(?:        .*\n)*?        type: string", dispatch, re.M)
+    assert re.search(r"^      full:\n(?:        .*\n)*?        type: boolean", dispatch, re.M)
+    for line in text.splitlines():
+        if "inputs." in line and "${{" in line:
+            assert re.fullmatch(r"\s+(MUTANTS|FULL): \$\{\{ inputs\.(mutants|full) \}\}", line), line
+    body = split_jobs(text)["mutation"]
+    mode = next(s for s in body.split("\n      - name: ") if s.startswith("Decide the run mode"))
+    assert "grep -Eq '^[A-Za-z0-9_.*? ]+$'" in mode and "exit 1" in mode
+    assert "date -u +%d" in mode and '"$EVENT" = "schedule"' in mode and "-le 7" in mode   # first Monday: a full run
+    run_step = next(s for s in body.split("\n      - name: ") if s.startswith("Run mutmut"))
+    assert 'read -r -a globs <<< "$MUTANTS"' in run_step and 'mutmut run "${globs[@]}"' in run_step
+
+
+def test_the_mutation_workflow_reuses_verdicts_between_runs_and_retests_the_survivors():
+    """Issue #435: restore before the run, save after the report, never save a filtered run, rerun survivors."""
+    body = split_jobs(MUTATION_WORKFLOW.read_text(encoding="utf-8"))["mutation"]
+    steps = body.split("\n      - name: ")
+    names = [step.split("\n", 1)[0] for step in steps[1:]]
+    order = ["Decide the run mode", "Restore the mutation results", "Run mutmut", "Collect results",
+             "Save the mutation results"]
+    assert [names.index(name) for name in order] == sorted(names.index(name) for name in order)
+    restore = steps[1 + names.index("Restore the mutation results")]
+    save = steps[1 + names.index("Save the mutation results")]
+    assert "actions/cache/restore@" in restore and "actions/cache/save@" in save
+    assert "steps.mode.outputs.mode != 'full'" in restore              # a full run starts from nothing
+    assert "if: always() && steps.mode.outputs.mode != 'filtered'" in save
+    key = "hashFiles('requirements-dev.txt', 'requirements-mutation.txt', 'constraints.txt', 'pyproject.toml')"
+    assert key in restore and key in save and "github.run_id" in save
+    run_step = steps[1 + names.index("Run mutmut")]
+    assert "rm -rf mutants" in run_step.split("full)", 1)[1].split(";;", 1)[0]
+    survivors = run_step.split("RESTORED:-", 1)[1]
+    assert "mutmut results | awk" in survivors and "mutmut run $(cat survivors.txt)" in survivors
+
+
 def test_the_mutation_job_is_not_one_of_the_required_checks():
     required = set(REQUIRED_JOBS)
     assert "mutation" not in required

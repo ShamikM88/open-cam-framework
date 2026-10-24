@@ -532,3 +532,63 @@ def test_compute_from_state_gives_the_same_answer_as_compute_for_the_same_state(
     assert compute_from_state({}) == {
         "policy_state": compute_from_state({})["policy_state"], "reasons": [], "compliant": True,
         "cam_data_present": False}
+
+
+def test_compute_uses_recorded_deal_type_and_local_template_override(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    shipped_dir = tmp_path / "templates" / "cam"
+    local_dir = tmp_path / "templates" / "local" / "cam"
+    shipped_dir.mkdir(parents=True)
+    local_dir.mkdir(parents=True)
+    (shipped_dir / "corporate_credit_cam.md").write_text(
+        "<!-- Guidance: Shipped guidance must not be the selected template. -->\n",
+        encoding="utf-8",
+    )
+    (local_dir / "corporate_credit_cam.md").write_text(
+        "<!-- Guidance: Local override guidance must not appear in the draft. -->\n",
+        encoding="utf-8",
+    )
+    write_state("Acme Corp", "Fleet Loan", deal_type="corporate_credit")
+    draft_path = tmp_path / "draft.md"
+    draft = _compliant_draft().replace(
+        "# Draft CAM\n\n", "# Draft CAM\n\nLocal override guidance must not appear in the draft.\n\n", 1,
+    )
+    draft_path.write_text(draft, encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+
+    assert any("Local override guidance must not appear in the draft" in reason for reason in result["reasons"])
+    assert not any("Shipped guidance must not be the selected template" in reason for reason in result["reasons"])
+
+
+def _local_template_workspace(tmp_path, monkeypatch, guidance="Supplied type guidance must not appear in the draft."):
+    monkeypatch.chdir(tmp_path)
+    shipped_dir = tmp_path / "templates" / "cam"
+    shipped_dir.mkdir(parents=True)
+    (shipped_dir / "corporate_credit_cam.md").write_text(f"<!-- Guidance: {guidance} -->\n", encoding="utf-8")
+    draft_path = tmp_path / "draft.md"
+    draft = _compliant_draft().replace("# Draft CAM\n\n", f"# Draft CAM\n\n{guidance}\n\n", 1)
+    draft_path.write_text(draft, encoding="utf-8")
+    return draft_path
+
+
+def test_compute_uses_a_supplied_deal_type_when_the_state_records_none(tmp_path, monkeypatch):
+    draft_path = _local_template_workspace(tmp_path, monkeypatch)
+    write_state("Acme Corp", "Fleet Loan")
+
+    without = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
+    supplied = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path), deal_type="corporate_credit")
+
+    assert not any("Supplied type guidance" in reason for reason in without["reasons"])
+    assert any("Supplied type guidance must not appear in the draft" in reason for reason in supplied["reasons"])
+
+
+def test_compute_refuses_a_deal_type_that_conflicts_with_the_recorded_one(tmp_path, monkeypatch):
+    draft_path = _local_template_workspace(tmp_path, monkeypatch)
+    write_state("Acme Corp", "Fleet Loan", deal_type="corporate_credit")
+
+    with pytest.raises(ValueError, match="does not match the deal's recorded deal_type"):
+        compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path), deal_type="asset_finance")
+    # The same type in a different case is not a conflict.
+    result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path), deal_type="CORPORATE_CREDIT")
+    assert any("Supplied type guidance" in reason for reason in result["reasons"])

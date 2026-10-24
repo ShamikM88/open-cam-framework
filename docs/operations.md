@@ -64,7 +64,13 @@ CI keeps `coverage.xml`, `coverage.json`, `pytest_output.txt` and `pip freeze` f
 
 **Purpose.** Mutation testing changes one line of a governance module at a time and checks that a test fails. A **survivor** is a change no test noticed: a line that coverage counts as run but nothing asserts on. It is the best available sign of where the suite is weak.
 
-The workflow (`.github/workflows/mutation.yml`) runs weekly and on demand from the Actions tab, on Ubuntu only, never on a pull request, and never fails over a score. Download the `mutation-report` artifact and read the job summary:
+The workflow (`.github/workflows/mutation.yml`) runs weekly and on demand from the Actions tab, on Ubuntu only, never on a pull request, and never fails over a score. A full run takes about 102 minutes (issue #435), so it has three modes, named in the job summary:
+
+- **incremental** (the weekly default): the `mutants/` directory is restored from the Actions cache and mutmut keeps the verdict of every function whose source is unchanged. It tests new or changed functions, then retests every recorded survivor, so a test added since the last run is credited. A change to the dependencies or to `pyproject.toml` changes the cache key and starts a fresh full run.
+- **full**: every mutant from scratch. It is the first Monday of each month, or the `full` input of a manual run. A cached run cannot see a killed mutant become alive after a test is weakened; the monthly full run can.
+- **filtered**: the `mutants` input, space-separated mutmut name globs such as `export_readback.*`. Those mutants are retested even if they already have a verdict. Start the workflow from a pull request's branch to check one module in about a tenth of a full run; a filtered run never saves to the cache. The globs may contain only letters, digits, underscore, dot, asterisk, question mark and spaces.
+
+A cache entry that is not used for seven days is evicted by GitHub; the next weekly run then falls back to a full run (about 102 minutes against the 110-minute step timeout). The margin is thin: the entry is saved when a run ends and next used when the following Monday's run starts, seven days after the previous start, so it is idle for about seven days minus the length of a run. A run that is delayed or queued for longer than that margin finds no cache. Download the `mutation-report` artifact and read the job summary:
 
 - **The per-module table** gives `(killed + timed out) / (mutants - skipped)` for each module. A mutant no test reaches counts against its module. The eleven governance modules have a diagnostic target of 75% (`[tool.opencam.mutation] target_critical`); the report marks each met or below and never gates on it.
 - **Completeness warnings** (a configured module with no mutants, a module whose mutants mostly have no test, mutants never checked) mean the *run* is suspect before the score is.

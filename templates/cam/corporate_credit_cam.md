@@ -27,7 +27,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | | | | | | [Detail, or "N/A"] |
 
-*Note the source and date of any external rating referenced (rating agency, upgrade/downgrade history) and how it maps to internal grading. Where no external rating or in-house model is available, the PD grade is a user-supplied input and must be labelled as such.*
+<!-- Guidance: Note the source and date of any external rating referenced (rating agency, upgrade/downgrade history) and how it maps to internal grading. Where no external rating or in-house model is available, the PD grade is a user-supplied input and must be labelled as such. -->
 
 ## 3. Facility Terms & Conditions
 
@@ -50,7 +50,8 @@
 - [Key rationale point]
 - [Key rationale point]
 
-**Credit Analyst:** [Name] **Date:** [Date]
+**Credit Analyst:** ________ **Date:** ________
+<!-- Guidance: The drafter never fills this line. -->
 
 ---
 
@@ -74,9 +75,9 @@
 - [Parent company, ownership %, group structure]
 - [Brief history relevant to credit assessment]
 
-*Ground every statement in a verifiable source (company website, Companies House / equivalent registry, audited accounts, rating agency report). Never state a fact you cannot trace to a source.*
+<!-- Guidance: Ground every statement in a verifiable source (company website, Companies House / equivalent registry, audited accounts, rating agency report). Never state a fact you cannot trace to a source. -->
 
-*For an ownership chain with more than one hop, render it as a tree alongside the narrative (see `agents/underwriter_agent.md`'s Guideline 12), e.g.:*
+<!-- Guidance: For an ownership chain with more than one hop, render it as a tree alongside the narrative (see `agents/underwriter_agent.md`'s Guideline 12), e.g.: -->
 ```
 [Borrower] (UK)
 └── [Immediate Parent] (UK) — 100%
@@ -96,7 +97,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | [Low/Moderate/High] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] |
 
-*Optional -- include when the borrower's competitive position is material to this facility (see `agents/underwriter_agent.md`'s Guideline 7); every point must trace to a fact already cited elsewhere in this CAM:*
+<!-- Guidance: Optional -- include when the borrower's competitive position is material to this facility (see `agents/underwriter_agent.md`'s Guideline 7); every point must trace to a fact already cited elsewhere in this CAM: -->
 
 | Strengths | Weaknesses | Opportunities | Threats |
 | :--- | :--- | :--- | :--- |
@@ -148,4 +149,4 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 | [Risk] | [Mitigant — must be a concrete, enforceable policy condition, not a vague reassurance] |
 
 ---
-*Every fact, figure and rating in this document must be traceable to a verified, credible source (audited financial statements, a recognized credit bureau or rating agency, company filings, or other primary documentation supplied by the user). Where no external score or system integration is available, the PD grade is a user-supplied input and must be labelled as such.*
+<!-- Guidance: Every fact, figure and rating in this document must be traceable to a verified, credible source (audited financial statements, a recognized credit bureau or rating agency, company filings, or other primary documentation supplied by the user). Where no external score or system integration is available, the PD grade is a user-supplied input and must be labelled as such. -->

@@ -954,3 +954,41 @@ def test_collateral_cover_pct_returns_na_when_finite_asset_exposures_overflow_th
 def test_collateral_cover_pct_returns_na_when_percentage_overflows_to_infinity():
     collateral = [{"exposure": 1e-308, "collateral_value": 1e308}]
     assert compute_collateral_cover_pct(collateral) is None
+
+
+def test_check_draft_compliance_lints_the_selected_cam_template(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    template_dir = tmp_path / "templates" / "cam"
+    template_dir.mkdir(parents=True)
+    (template_dir / "corporate_credit_cam.md").write_text(
+        "# Synthetic CAM template\n\n<!-- Guidance: Keep each synthetic claim tied to reliable evidence. -->\n",
+        encoding="utf-8",
+    )
+    draft = "# Synthetic CAM\n\nKeep each synthetic claim tied to reliable evidence.\n"
+    reasons = check_draft_compliance(
+        draft, _policy_state(), {}, deal_type="corporate_credit",
+    )
+    assert any("copied template guidance" in reason for reason in reasons)
+
+
+@pytest.mark.parametrize("deal_type", ["../escape", "corporate credit", "1leading_digit", 7])
+def test_a_deal_type_that_is_not_a_template_name_has_no_template_but_the_audit_still_runs(deal_type):
+    """Deal types such as "Asset Finance" worked before the lint was wired in; they must not fail the audit."""
+    reasons = check_draft_compliance("# Synthetic CAM\n\nThis framework approves it.\n", _policy_state(required_cps=[]),
+                                     {}, deal_type=deal_type)
+    assert any("forbidden framework vocabulary" in reason for reason in reasons)
+
+
+def test_check_draft_compliance_turns_an_unterminated_comment_into_a_rejection_reason():
+    draft = "# Synthetic CAM\n\n<!-- never closed\n"
+    reasons = check_draft_compliance(draft, _policy_state(required_cps=[], required_css=[]), {})
+    assert any("Draft lint could not run: Unterminated HTML comment in draft." in reason for reason in reasons)
+
+
+def test_check_draft_compliance_still_raises_for_a_template_that_cannot_be_read(tmp_path, monkeypatch):
+    """A broken template is not something the drafter can fix, so it must not become a rejection reason."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "templates" / "cam").mkdir(parents=True)
+    (tmp_path / "templates" / "cam" / "corporate_credit_cam.md").write_text("<!-- never closed\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unterminated HTML comment in template"):
+        check_draft_compliance("# Synthetic CAM\n", _policy_state(), {}, deal_type="corporate_credit")

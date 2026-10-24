@@ -230,7 +230,7 @@ def parse_verdict(response_text):
 
 
 def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures,
-                                        financials_source=None, credit_policy_present=None):
+                                        financials_source=None, credit_policy_present=None, deal_type=None):
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
     verdict: covenant/security/CP/taxonomy/narrative-accuracy/analyst-
     supplied-disclosure/credit-policy-consideration compliance is checked
@@ -245,9 +245,11 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
     re-prompts the Underwriter through the exact same revision path as a
     Reviewer-originated one.
     """
+    lint_options = {"deal_type": deal_type} if deal_type is not None else {}
     reasons = check_draft_compliance(draft_text, policy_state, ground_truth_figures,
                                       financials_source=financials_source,
-                                      credit_policy_present=credit_policy_present)
+                                      credit_policy_present=credit_policy_present,
+                                      **lint_options)
 
     if not reasons:
         return verdict, notes
@@ -812,6 +814,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             verdict, notes, draft, policy_state, ground_truth_figures,
             financials_source=financials_source,
             credit_policy_present=credit_policy_present,
+            deal_type=deal_type,
         )
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,

@@ -1794,3 +1794,15 @@ def test_the_workbook_export_receives_exactly_the_shared_inputs(tmp_path, monkey
 
     state = read_state("Synthetic Co", "Synthetic Facility", date_str="2026-01-01", base_dir=base)
     assert seen == workbook_inputs_from_state(state)
+
+
+def test_an_unexportable_draft_creates_no_folder_and_saves_no_template(tmp_path):
+    """An unterminated HTML comment is refused before the folder is created or the draft is saved as a template."""
+    base = str(tmp_path)
+    draft = "# Synthetic CAM\n\n<!-- Guidance: never closed\n\nBody.\n"
+
+    with pytest.raises(ValueError, match="Unterminated HTML comment"):
+        export_deal("Acme Corp", "Fleet Loan", "brand_new_type", draft, date_str="2026-01-15", base_dir=base)
+
+    assert not (tmp_path / "deals").exists()
+    assert not (tmp_path / "templates").exists()

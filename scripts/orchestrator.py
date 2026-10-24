@@ -5,6 +5,7 @@ import sys
 import argparse
 
 from deal_export import export_deal
+from draft_lint import TemplateContentError, lint_draft
 from policy_checks import (
     FENCED_JSON_RE,
     REQUIRED_RISK_TAXONOMY,
@@ -230,7 +231,7 @@ def parse_verdict(response_text):
 
 
 def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures,
-                                        financials_source=None, credit_policy_present=None):
+                                        financials_source=None, credit_policy_present=None, deal_type=None):
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
     verdict: covenant/security/CP/taxonomy/narrative-accuracy/analyst-
     supplied-disclosure/credit-policy-consideration compliance is checked
@@ -245,9 +246,11 @@ def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state,
     re-prompts the Underwriter through the exact same revision path as a
     Reviewer-originated one.
     """
+    lint_options = {"deal_type": deal_type} if deal_type is not None else {}
     reasons = check_draft_compliance(draft_text, policy_state, ground_truth_figures,
                                       financials_source=financials_source,
-                                      credit_policy_present=credit_policy_present)
+                                      credit_policy_present=credit_policy_present,
+                                      **lint_options)
 
     if not reasons:
         return verdict, notes
@@ -622,9 +625,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     if template_path:
         # Shipped (templates/cam/) or calibrate.py/deal_export-written (templates/local/cam/):
         # both are always UTF-8, so strict -- same policy as the prompts above (issue #137).
+        template_text = read_text(template_path)
+        # Refuse a template the draft lint cannot read now, before any model call, rather than after two of them.
+        lint_draft("", document_kind="cam", template_text=template_text)
         template_section = (
             "\nFollow this exact CAM template structure, filling in every "
-            f"placeholder with grounded, sourced content:\n{read_text(template_path)}\n"
+            f"placeholder with grounded, sourced content:\n{template_text}\n"
         )
 
     # Never blindly overwrite prior checkpoints; only update supplied data and add steps.
@@ -812,6 +818,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             verdict, notes, draft, policy_state, ground_truth_figures,
             financials_source=financials_source,
             credit_policy_present=credit_policy_present,
+            deal_type=deal_type,
         )
         steps_completed = _add_step(steps_completed, "audit")
         append_review_trail(company, proposal, verdict=verdict, notes=notes,
@@ -905,5 +912,5 @@ if __name__ == "__main__":
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
     except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
-            FinancialInputError, StressAssumptionsError) as exc:
+            FinancialInputError, StressAssumptionsError, TemplateContentError) as exc:
         sys.exit(f"error: {exc}")

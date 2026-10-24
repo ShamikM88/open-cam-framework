@@ -1,5 +1,10 @@
 # OpenCAM Framework
 
+[![CI](https://github.com/ShamikM88/open-cam-framework/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShamikM88/open-cam-framework/actions/workflows/ci.yml)
+
+> **Status:** a working framework, built and tested on synthetic data only. It drafts and audits credit memos for a
+> person to review. It is not credit advice, and nothing it produces is approved for use in a real lending decision.
+
 An open-source, agentic credit underwriting framework. It turns a folder of borrower
 information into a drafted Credit Assessment Memorandum (CAM) — using a **Maker-Checker**
 pair of LLM agents (an Underwriter that drafts, and a Risk Reviewer that audits) — and exports
@@ -138,6 +143,30 @@ pre-baked numbers. Details: [outputs and templates](docs/outputs.md).
 
 ## Getting started
 
+### Try it first: no account, no key, no model
+
+The deterministic core runs on its own. This computes a synthetic company's ratios from its raw line items, the same
+step `/spread` runs inside a deal. It needs Python 3.11 or later and nothing else: no Claude Code login and no
+`ANTHROPIC_API_KEY`.
+
+```bash
+git clone https://github.com/ShamikM88/open-cam-framework.git
+cd open-cam-framework
+python -m venv venv
+source venv/bin/activate        # on Windows: venv\Scripts\activate
+pip install -c constraints.txt -r requirements.txt
+mkdir -p "deals/Synthetic Co"   # on Windows PowerShell: New-Item -ItemType Directory -Force "deals/Synthetic Co"
+cp docs/examples/synthetic_co/financials_input.json "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+(On Windows PowerShell, use `Copy-Item` in place of `cp`.) The output is JSON. For the synthetic company's current year
+it shows EBITDA 1000, DSCR 2.0 and gross leverage 2.0, with `financials_source` set to `framework-computed`: every
+figure comes from code and none from a model. The [financial model](docs/financial-model.md#worked-example) derives each
+one. The `deals/` folder is git-ignored. To run the test suite instead, `pip install -c constraints.txt -r requirements-dev.txt` and run
+`pytest -q`; it makes no model calls and needs no key. `constraints.txt` is the reviewed dependency set the CI uses: without it `pip` takes the newest releases, and the suite is only known to pass on the pinned ones.
+
 ### Option A: Claude Code slash commands (recommended, no separate API key)
 
 Open this repo in Claude Code (or the desktop app's Code tab) — the commands under
@@ -187,7 +216,7 @@ For automation, CI, or running outside an interactive Claude Code session.
    ```bash
    python -m venv venv
    venv\Scripts\activate   # on Windows; use `source venv/bin/activate` on macOS/Linux
-   pip install -r requirements.txt
+   pip install -c constraints.txt -r requirements.txt
    ```
 2. **Set your API key:**
    ```bash
@@ -219,7 +248,7 @@ For automation, CI, or running outside an interactive Claude Code session.
 ## Running tests
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -c constraints.txt -r requirements-dev.txt
 pytest
 ```
 

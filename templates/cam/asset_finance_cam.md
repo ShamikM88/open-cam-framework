@@ -34,7 +34,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | | | | | | | [Detail, or "N/A"] |
 
-*Note the source and date of any external rating referenced (e.g. rating agency, upgrade/downgrade history) and how it maps to internal grading.*
+<!-- Guidance: Note the source and date of any external rating referenced (e.g. rating agency, upgrade/downgrade history) and how it maps to internal grading. -->
 
 ## 4. Facility Conditions — Drawdown Terms, Other Conditions & Additional Security
 
@@ -61,7 +61,8 @@
 - [Key rationale point]
 - [Key rationale point]
 
-**Credit Analyst:** [Name] **Date:** [Date]
+**Credit Analyst:** ________ **Date:** ________
+<!-- Guidance: The drafter never fills this line. -->
 
 ---
 
@@ -85,9 +86,9 @@
 - [Parent company, ownership %, group structure]
 - [Brief history relevant to credit assessment]
 
-*Ground every statement in a verifiable source (company website, Companies House / equivalent registry, audited accounts, rating agency report). Never state a fact you cannot trace to a source.*
+<!-- Guidance: Ground every statement in a verifiable source (company website, Companies House / equivalent registry, audited accounts, rating agency report). Never state a fact you cannot trace to a source. -->
 
-*For an ownership chain with more than one hop, render it as a tree alongside the narrative (see `agents/underwriter_agent.md`'s Guideline 12), e.g.:*
+<!-- Guidance: For an ownership chain with more than one hop, render it as a tree alongside the narrative (see `agents/underwriter_agent.md`'s Guideline 12), e.g.: -->
 ```
 [Borrower] (UK)
 └── [Immediate Parent] (UK) — 100%
@@ -107,7 +108,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | [Low/Moderate/High] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] | [Low/Moderate/High + trend] |
 
-*Optional -- include when the borrower's competitive position is material to this facility (see `agents/underwriter_agent.md`'s Guideline 7); every point must trace to a fact already cited elsewhere in this CAM:*
+<!-- Guidance: Optional -- include when the borrower's competitive position is material to this facility (see `agents/underwriter_agent.md`'s Guideline 7); every point must trace to a fact already cited elsewhere in this CAM: -->
 
 | Strengths | Weaknesses | Opportunities | Threats |
 | :--- | :--- | :--- | :--- |
@@ -152,7 +153,7 @@
 
 Full line-by-line figures live in the accompanying spreading workbook (see `scripts/spreading_builder.py`). The summary table below is a floor, not a ceiling — for anything beyond a small/immaterial facility, this section should also cover: the full income statement (every P&L line, not just EBITDA/DSCR), the debt structure and funding sources (what kind of debt, who holds it, how the balance sheet is actually funded), dividend/distribution history with payout ratios, and working-capital component detail (stock/debtor/creditor days individually, not just the net cycle number) — expand with additional sub-tables/sub-sections as the deal size and complexity warrant.
 
-*When this facility has more than one borrower/obligor (e.g. two related entities co-borrowing under one group facility), repeat this entire section — table, commentary, and the two sections below it (Ultimate Parent and Credit Bureau / Legal Charges) — once per borrower, each under its own sub-heading naming that borrower. Never merge two borrowers' figures into one table.*
+<!-- Guidance: When this facility has more than one borrower/obligor (e.g. two related entities co-borrowing under one group facility), repeat this entire section — table, commentary, and the two sections below it (Ultimate Parent and Credit Bureau / Legal Charges) — once per borrower, each under its own sub-heading naming that borrower. Never merge two borrowers' figures into one table. -->
 
 | Metric | FY-2 | FY-1 | FY-Current |
 | :--- | ---: | ---: | ---: |
@@ -169,7 +170,7 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 
 ## 14. Ultimate Parent — Consolidated Key Figures & Credit Analysis
 
-*Include this section whenever the borrower's own repayment capacity leans on group/parent support (see Guideline 12: Parent/UBO Support Analysis in `agents/underwriter_agent.md`) — i.e. whenever section 7's Group Structure names a parent the borrower is financially reliant on, not only when the borrower is itself a subsidiary of a listed group. Omit entirely when the borrower stands genuinely independent of any parent.*
+<!-- Guidance: Include this section whenever the borrower's own repayment capacity leans on group/parent support (see Guideline 12: Parent/UBO Support Analysis in `agents/underwriter_agent.md`) — i.e. whenever section 7's Group Structure names a parent the borrower is financially reliant on, not only when the borrower is itself a subsidiary of a listed group. Omit entirely when the borrower stands genuinely independent of any parent. -->
 
 | Performance Highlight | FY-Current | FY-1 | Change |
 | :--- | ---: | ---: | ---: |
@@ -187,7 +188,7 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 
 ## 15. Credit Bureau / Legal Charges
 
-*When this facility has more than one borrower, repeat this section once per borrower, each under its own sub-heading.*
+<!-- Guidance: When this facility has more than one borrower, repeat this section once per borrower, each under its own sub-heading. -->
 
 - **Registered charges / mortgages:** [Detail, or "None identified"]
 - **Credit bureau summary (e.g. CAIS-equivalent):** [Score, active accounts, delinquencies, judgments, days-beyond-terms vs. industry average. This framework has no live bureau integration -- a bureau score (e.g. Experian) is normally a user-supplied input, so ask the user for it before finalizing this document rather than writing "N/A"/"Not provided" unasked. If the user confirms none is available or applicable, that's a valid, citable answer.]
@@ -203,7 +204,7 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 
 ## 17. PD Rating Commentary
 
-*When this facility has more than one borrower, repeat the per-borrower block once per borrower.*
+<!-- Guidance: When this facility has more than one borrower, repeat the per-borrower block once per borrower. -->
 
 **[Borrower Name]**
 - New PD Rating: [Grade] ([%])
@@ -223,4 +224,4 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 | [Risk] | [Mitigant — must be a concrete, enforceable policy condition, not a vague reassurance] |
 
 ---
-*Every fact, figure and rating in this document must be traceable to a verified, credible source (audited financial statements, a recognized credit bureau or rating agency, company filings, or other primary documentation supplied by the user). Where no external score or system integration is available (e.g. no live rating agency feed), the PD/LGD grade is a user-supplied input and must be labelled as such.*
+<!-- Guidance: Every fact, figure and rating in this document must be traceable to a verified, credible source (audited financial statements, a recognized credit bureau or rating agency, company filings, or other primary documentation supplied by the user). Where no external score or system integration is available (e.g. no live rating agency feed), the PD/LGD grade is a user-supplied input and must be labelled as such. -->

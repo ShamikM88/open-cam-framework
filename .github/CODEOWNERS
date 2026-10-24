@@ -1,0 +1,4 @@
+# The hook settings execute repository-controlled code; require maintainer review when CODEOWNERS
+# review is enforced by the repository's external ruleset.
+.claude/settings.json @ShamikM88
+.claude/hooks/ @ShamikM88

@@ -43,6 +43,7 @@ include traceable acceptance criteria, design trade-offs, docs, and assurance ev
 - [ ] Tests and checks are reported accurately; no green result is inferred or promised before it exists.
 - [ ] Compatibility, security, and assurance implications have been considered; no gate was weakened without explicit review.
 - [ ] Known limitations and follow-ups are stated.
+- [ ] For agent-authored work, the `CLAIM` and `OUTCOME` on issue #245 are linked or named ([Agent ledger](../docs/agent-ledger.md)); otherwise write "not applicable".
 
 ## AI assistance disclosure
 <!-- REQUIRED and must remain the final section. Identify each AI product/tool and exact model/version known to have contributed (for a Claude Code session, the model the session itself reports). If not exposed or verified, say so; never guess. A tool's own attribution footer (for example Claude Code's "Generated with Claude Code" line) may follow this section, but does not replace it. Distinguish implementation/authorship from planning, documentation, or review. If no AI contributed, say "None". -->

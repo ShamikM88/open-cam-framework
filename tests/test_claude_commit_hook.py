@@ -27,7 +27,7 @@ def _git(cwd, *args, check=True):
 
 def _bash_path(path):
     """Render a local path with forward slashes for Bash, including on Windows."""
-    return str(path).replace("\\\\", "/")
+    return str(path).replace("\\", "/")
 
 
 def _repo(path, branch="main", origin=CANONICAL_ORIGIN):

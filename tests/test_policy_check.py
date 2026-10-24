@@ -550,10 +550,10 @@ def test_compute_uses_recorded_deal_type_and_local_template_override(tmp_path, m
     )
     write_state("Acme Corp", "Fleet Loan", deal_type="corporate_credit")
     draft_path = tmp_path / "draft.md"
-    draft_path.write_text(
-        _compliant_draft(body="# Draft CAM\n\nLocal override guidance must not appear in the draft."),
-        encoding="utf-8",
+    draft = _compliant_draft().replace(
+        "# Draft CAM\n\n", "# Draft CAM\n\nLocal override guidance must not appear in the draft.\n\n", 1,
     )
+    draft_path.write_text(draft, encoding="utf-8")
 
     result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path))
 

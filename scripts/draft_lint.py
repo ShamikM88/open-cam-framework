@@ -10,10 +10,7 @@ import sys
 
 
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(\x60{3,}|~{3,})(.*)$")
-TRAILING_JSON_RE = re.compile(
-    r"(?im)^[ \t]{0,3}\x60{3,}json[ \t]*\r?\n.*?^[ \t]{0,3}\x60{3,}[ \t]*(?:\r?\n[ \t]*)*\Z",
-    re.DOTALL,
-)
+JSON_INFO_RE = re.compile(r"json[ \t]*", re.IGNORECASE)
 GUIDANCE_COMMENT_RE = re.compile(r"<!--\s*Guidance:\s*(.*?)\s*-->", re.IGNORECASE | re.DOTALL)
 TEMPLATE_PLACEHOLDER_RE = re.compile(r"(?<!\\)\[([^\]\r\n]{1,120})\](?!\s*\()", re.DOTALL)
 OBVIOUS_PLACEHOLDER_RE = re.compile(
@@ -21,7 +18,7 @@ OBVIOUS_PLACEHOLDER_RE = re.compile(
     r"company name|borrower(?: legal)? name|borrower|company|"
     r"internal reference|registration number|amount\s*(?:&|and)\s*currency|"
     r"name\s+or\s+team|insert(?:\s+[^\]\r\n]{1,80})?|"
-    r"enter(?:\s+[^\]\r\n]{1,80})?)\]",
+    r"enter(?:\s+[^\]\r\n]{1,80})?)\](?!\()",
     re.IGNORECASE,
 )
 
@@ -47,9 +44,9 @@ FORBIDDEN_PATTERNS = (
 )
 
 
-def _fenced_line_indexes(lines):
-    """Return indexes inside complete Markdown fences; unclosed fences are not code."""
-    fenced = set()
+def _fence_blocks(lines):
+    """Return (opening index, closing index, info string) for each complete Markdown fence; unclosed ones are skipped."""
+    blocks = []
     index = 0
     while index < len(lines):
         line = lines[index].rstrip("\r\n")
@@ -68,17 +65,41 @@ def _fenced_line_indexes(lines):
         if close_index is None:
             index += 1
             continue
-        fenced.update(range(index, close_index + 1))
+        blocks.append((index, close_index, opening.group(2).strip()))
         index = close_index + 1
+    return blocks
+
+
+def _fenced_line_indexes(lines):
+    """Return indexes inside complete Markdown fences; unclosed fences are not code."""
+    fenced = set()
+    for opening, closing, _info in _fence_blocks(lines):
+        fenced.update(range(opening, closing + 1))
     return fenced
+
+
+def _trailing_json_start(text):
+    """Character offset where the final complete ```json fence begins, if only blank lines follow it; else None.
+
+    Only that one block is the Underwriter's structured output. An earlier JSON example, or any prose between it and
+    the real block, stays client-facing text and must still be linted.
+    """
+    lines = text.splitlines(keepends=True)
+    blocks = _fence_blocks(lines)
+    if not blocks:
+        return None
+    opening, closing, info = blocks[-1]
+    if not JSON_INFO_RE.fullmatch(info) or any(line.strip() for line in lines[closing + 1:]):
+        return None
+    return sum(len(line) for line in lines[:opening])
 
 
 def _visible_text_and_lines(text, *, exclude_trailing_json=False):
     """Strip HTML comments the DOCX exporter removes and preserve source line numbers."""
     if not isinstance(text, str):
         raise ValueError("Draft content must be text.")
-    excluded = TRAILING_JSON_RE.search(text) if exclude_trailing_json else None
-    limited_text = text[:excluded.start()] if excluded else text
+    excluded = _trailing_json_start(text) if exclude_trailing_json else None
+    limited_text = text if excluded is None else text[:excluded]
     lines = limited_text.splitlines(keepends=True)
     fenced = _fenced_line_indexes(lines)
     visible = []
@@ -120,9 +141,14 @@ def _visible_text_and_lines(text, *, exclude_trailing_json=False):
 
 
 def _normalised_search(text, source_lines):
-    """Casefold, collapse whitespace and remove simple Markdown emphasis delimiters."""
+    """Casefold, collapse whitespace and remove simple Markdown emphasis delimiters.
+
+    Returns the normalised text, the source line of each character and its offset in `text`, so a finding can quote
+    the draft's own spelling rather than the casefolded form used for matching.
+    """
     characters = []
     mapped_lines = []
+    mapped_offsets = []
     index = 0
     while index < len(text):
         character = text[index]
@@ -142,19 +168,23 @@ def _normalised_search(text, source_lines):
             if characters and characters[-1] != " ":
                 characters.append(" ")
                 mapped_lines.append(source_lines[index])
+                mapped_offsets.append(index)
         else:
             for folded in character.casefold():
                 characters.append(folded)
                 mapped_lines.append(source_lines[index])
+                mapped_offsets.append(index)
         index += 1
 
     while characters and characters[-1] == " ":
         characters.pop()
         mapped_lines.pop()
+        mapped_offsets.pop()
     if characters and characters[0] == " ":
         characters.pop(0)
         mapped_lines.pop(0)
-    return "".join(characters), mapped_lines
+        mapped_offsets.pop(0)
+    return "".join(characters), mapped_lines, mapped_offsets
 
 
 def _normalise_phrase(text):
@@ -212,7 +242,7 @@ def lint_draft(draft_text, *, document_kind, template_text=None):
             line = source_lines[match.start()] if match.start() < len(source_lines) else 1
             findings.append(_finding("A", match.group(0), line))
 
-    normalized, normalized_lines = _normalised_search(visible, source_lines)
+    normalized, normalized_lines, normalized_offsets = _normalised_search(visible, source_lines)
     seen_placeholders = set()
 
     if document_kind == "cam" and template_text is not None:
@@ -244,7 +274,8 @@ def lint_draft(draft_text, *, document_kind, template_text=None):
         if match.span() in seen_placeholders:
             continue
         line = normalized_lines[match.start()] if match.start() < len(normalized_lines) else 1
-        findings.append(_finding("B_UNFILLED_PLACEHOLDER", match.group(0), line))
+        original = visible[normalized_offsets[match.start()]:normalized_offsets[match.end() - 1] + 1]
+        findings.append(_finding("B_UNFILLED_PLACEHOLDER", original, line))
         seen_placeholders.add(match.span())
 
     findings.sort(key=lambda item: (item["line"], item["rule"], item["match"].casefold()))

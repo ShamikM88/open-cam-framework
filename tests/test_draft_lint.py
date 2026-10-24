@@ -74,7 +74,8 @@ def test_template_guidance_and_placeholders_match_with_line_numbers():
     guidance = next(item for item in findings if item["rule"] == "B_TEMPLATE_GUIDANCE")
     placeholder = next(item for item in findings if item["rule"] == "B_UNFILLED_PLACEHOLDER")
     assert guidance["line"] == 3
-    assert "Keep each material claim" in guidance["match"]
+    # `match` quotes the guidance sentence as the template writes it; only the comparison is normalised.
+    assert guidance["match"] == "Keep *each material claim* tied to reliable evidence."
     assert placeholder["line"] == 6
     assert "[Borrower Legal Name]" in placeholder["match"]
 
@@ -99,3 +100,35 @@ def test_only_selected_template_tokens_trigger_rule_b():
     findings = lint_draft(draft, document_kind="cam", template_text=template)
     placeholders = [item for item in findings if item["rule"] == "B_UNFILLED_PLACEHOLDER"]
     assert len(placeholders) == 1 and placeholders[0]["match"] == "[Name]"
+
+
+def test_a_bracketed_label_that_is_a_markdown_link_is_not_an_obvious_placeholder():
+    linked = lint_draft(
+        "See [Company Name](https://example.invalid/about) for the public filing.", document_kind="research-brief",
+    )
+    assert linked == []
+    bare = lint_draft("See [Company Name] for the public filing.", document_kind="research-brief")
+    assert [item["match"] for item in bare] == ["[Company Name]"]
+
+
+def test_a_placeholder_is_reported_in_the_spelling_the_draft_uses():
+    findings = lint_draft("Subject to [Amount] and [BORROWER NAME].", document_kind="research-brief")
+    assert [item["match"] for item in findings] == ["[Amount]", "[BORROWER NAME]"]
+
+
+def test_an_earlier_json_example_does_not_hide_prose_before_the_real_trailing_block():
+    draft = (
+        "# Synthetic CAM\n\n"
+        "```json\n{\"example\": true}\n```\n\n"
+        "This framework approves the facility.\n\n"
+        "```json\n{\"sources\": [\"Synthetic\"]}\n```\n"
+    )
+    findings = lint_draft(draft, document_kind="cam")
+    assert [(item["rule"], item["line"]) for item in findings] == [("A", 7)]
+    # The structured block at the end is still not client-facing text.
+    assert lint_draft("# Synthetic CAM\n\n```json\n{\"note\": \"state.json\"}\n```\n", document_kind="cam") == []
+
+
+def test_a_json_block_that_is_not_last_is_linted_as_ordinary_text():
+    draft = "# Synthetic CAM\n\n```json\n{\"note\": \"state.json\"}\n```\n\nClosing remark.\n"
+    assert [item["rule"] for item in lint_draft(draft, document_kind="cam")] == ["A"]

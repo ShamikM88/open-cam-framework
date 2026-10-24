@@ -2415,7 +2415,9 @@ def test_draft_lint_cli_help_and_unknown_flag(cli):
     assert help_result.returncode == 0, help_result.stderr
     assert "--draft" in help_result.stdout and "--kind" in help_result.stdout
 
-    bad = cli("draft_lint", "--made-up")
+    valid = cli.workdir / "valid.md"
+    valid.write_text("# Synthetic Research Brief\n", encoding="utf-8")
+    bad = cli("draft_lint", "--draft", valid, "--kind", "research-brief", "--made-up")
     assert bad.returncode == 2
     assert "usage:" in bad.stderr and "unrecognized arguments" in bad.stderr
 
@@ -2446,3 +2448,33 @@ def test_draft_lint_cli_reports_missing_file_with_one_error_line_and_no_stdout(c
     assert result.stderr.startswith("error: ")
     assert len(result.stderr.splitlines()) == 1
     assert "Traceback" not in result.stderr
+
+
+def test_draft_lint_cli_refuses_an_unterminated_comment_with_one_error_line_and_no_stdout(cli):
+    broken = cli.workdir / "broken.md"
+    broken.write_text("# Synthetic Research Brief\n\n<!-- never closed\n", encoding="utf-8")
+    result = cli("draft_lint", "--draft", broken, "--kind", "research-brief")
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert len(result.stderr.splitlines()) == 1
+    assert "Traceback" not in result.stderr
+
+
+def test_draft_lint_cli_checks_a_cam_against_the_template_it_is_given(cli):
+    template = cli.workdir / "template.md"
+    template.write_text(
+        "# Synthetic CAM\n\n<!-- Guidance: State each covenant in one sentence. -->\n\nBorrower: [Borrower Legal Name]\n",
+        encoding="utf-8",
+    )
+    draft = cli.workdir / "cam.md"
+    draft.write_text(
+        "# Synthetic CAM\n\nState each covenant in one sentence.\n\nBorrower: [Borrower Legal Name]\n"
+        "\n```json\n{\"sources\": []}\n```\n",
+        encoding="utf-8",
+    )
+    result = cli("draft_lint", "--draft", draft, "--kind", "cam", "--template", template)
+    assert result.returncode == 1
+    findings = json.loads(result.stdout)["findings"]
+    assert {item["rule"] for item in findings} == {"B_TEMPLATE_GUIDANCE", "B_UNFILLED_PLACEHOLDER"}
+    assert result.stderr == ""

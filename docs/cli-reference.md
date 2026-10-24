@@ -403,9 +403,11 @@ of costs, cash outflows and liabilities; a worked example is in
 python scripts/transcription_check.py --transcription "deals/Synthetic Co/Synthetic Fleet Loan_transcription.json"
 ```
 
+## Draft lint
+
 `scripts/draft_lint.py --draft <path> --kind {cam,research-brief} [--template <path>]` checks a saved Markdown draft without a model call or network access. It prints a JSON object containing findings and exits 0 when none are found, 1 when findings or invalid input require rejection, and 2 for command-line usage errors. For a CAM, pass the exact resolved template to check copied guidance comments and unfilled template tokens. The shared CAM compliance path resolves the template from the recorded deal type, preferring a fork's `templates/local/cam/` override. Research briefs have no CAM template, so they use vocabulary and bounded obvious-placeholder checks.
 
-The trailing structured JSON block is excluded from CAM checks because it is not client-facing narrative. HTML comments that the DOCX exporter strips are ignored; comments inside complete fenced code blocks remain visible.
+Only the final complete ```` ```json ```` block, with nothing but blank lines after it, is excluded from CAM checks, because it is the structured output and not client-facing narrative; an earlier JSON example, and any prose around it, is still linted. A placeholder is reported in the spelling the draft uses, and a bracketed label followed by a link destination is a link, not a placeholder. HTML comments that the DOCX exporter strips are ignored; comments inside complete fenced code blocks remain visible.
 
 Example:
 

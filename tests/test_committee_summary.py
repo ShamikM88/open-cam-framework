@@ -761,7 +761,11 @@ def test_408_generate_keeps_utf8_lf_write_base_dir_and_policy_scope(tmp_path, mo
     # Only the write to the temporary file is pinned; any other open() on this path is none of this test's business.
     temp_path = str(tmp_path / "synthetic-0.tmp")
     writes = [call for call in open_calls if call[0] and call[0][0] == temp_path]
-    assert writes == [((temp_path, "w"), {"encoding": "utf-8", "newline": "\n"})]
+    assert len(writes) == 1
+    args, kwargs = writes[0]
+    assert args == (temp_path, "w") and set(kwargs) == {"encoding", "newline"} and kwargs["newline"] == "\n"
+    # Codec names are case-insensitive, so "UTF-8" is the same behaviour and is not asked for by spelling.
+    assert str(kwargs["encoding"]).lower() == "utf-8"
     assert report == {
         "status": "written",
         "selected_folder": str(tmp_path),

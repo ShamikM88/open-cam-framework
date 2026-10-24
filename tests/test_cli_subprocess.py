@@ -36,7 +36,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export",, "draft_lint",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export", "draft_lint",
     "export_readback", "mutation_report", "orchestrator", "pii_scan", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",

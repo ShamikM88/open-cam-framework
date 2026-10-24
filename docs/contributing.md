@@ -57,6 +57,12 @@ Use this as a review aid. The classifications below point to existing repository
 | Validation evidence in the PR body matches the current head (head SHA, run and counts). | **Blocker** | [CLAUDE.md — Git workflow](../CLAUDE.md#git-workflow); [PR template — Validation and evidence](../.github/pull_request_template.md#validation-and-evidence) |
 | Style nits that do not change behavior or clarity, and optional refactors without a demonstrated correctness, security or maintainability need. | **Non-blocker (advisory)** | [Making a change](#making-a-change) |
 
+
+The optional `## Declared file scope` section in the PR body is a reviewer aid, not a merge condition.
+The separate `.github/workflows/scope-check.yml` workflow compares its path/glob declarations with the
+changed-file list and calls out protected paths even when they are declared. Because a `pull_request` run
+executes the script from the PR's own merge commit, its report is a reviewer aid and not a gate or a proof.
+
 ## Keeping the documentation in step
 
 - **Put each kind of text in its layer.** A rule Claude Code must obey goes in `CLAUDE.md`; an explanation, example or reference goes in `docs/`; the landing page stays short. `CLAUDE.md` is not a user manual: if you are explaining, you are in the wrong file.

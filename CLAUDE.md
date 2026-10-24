@@ -44,14 +44,14 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | `.claude/agents/` | The interactive Checker: the read-only `risk-reviewer` sub-agent that `/review` delegates the qualitative audit to (issue #204) | [architecture](docs/architecture.md#maker-checker-agents) |
 | `.claude/commands/` | The slash commands (the interactive interface); a skill is `.claude/skills/<name>/SKILL.md` | `config/skills_registry.md` (the one inventory), [skill design](docs/skill-design.md) |
 | `config/` | `settings.json`, the command and skill registry; plus git-ignored generated files (`style_guide.md`, `credit_policy.md`, `credit_policy_notes.md`, `spreading_conventions.json`, `deal_learnings.md`) | [configuration](docs/configuration.md) |
-| `scripts/` | The deterministic core (state, spreading, policy engine and checks, export, source manifest, conventions, text I/O), the headless entry points (`calibrate.py`, `orchestrator.py`) and the test-tooling scripts (`check_*`, `mutation_report.py`, `run_evals.py` and its `eval_*` modules) | [cli reference](docs/cli-reference.md), [data model](docs/data-model.md), [financial model](docs/financial-model.md) |
+| `scripts/` | The deterministic core (state, spreading, policy engine and checks, export, source manifest, conventions, text I/O), the headless entry points (`calibrate.py`, `orchestrator.py`) and the test-tooling scripts (`check_*`, `mutation_report.py`, `pr_scope_check.py`, `run_evals.py` and its `eval_*` modules) | [cli reference](docs/cli-reference.md), [data model](docs/data-model.md), [financial model](docs/financial-model.md) |
 | `templates/` | Shipped generic CAM templates (`cam/`), the reference workbook layout (`spreading/`), git-ignored local overrides (`local/`) | [outputs](docs/outputs.md) |
 | `tests/` | The pytest suite, golden snapshots (`snapshots/`), synthetic state fixtures (`fixtures/`) | [testing](docs/testing.md) |
 | `evals/` | The local live-model evaluation harness's synthetic dataset, and its git-ignored results | [evaluation](docs/evaluation.md) |
 | `badges/test-count.json` | The checked-in passing-test count, kept honest by CI | [testing](docs/testing.md) |
 | `deals/` | Generated output, one folder per `[Company]/[Proposal]_[Date]` with `state.json` and `sources/` (git-ignored) | [data model](docs/data-model.md) |
 | `inputs/` | Calibration samples and credit policy documents (git-ignored) | [security](docs/security.md) |
-| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`), the weekly `mutation.yml` and the manual-only `ci-parallelism-benchmark.yml` | [testing](docs/testing.md), [operations](docs/operations.md#re-tuning-test-parallelism) |
+| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`), the separate advisory `scope-check.yml` workflow (not a required check), the weekly `mutation.yml` and the manual-only `ci-parallelism-benchmark.yml` | [testing](docs/testing.md), [operations](docs/operations.md#re-tuning-test-parallelism) |
 | `pyproject.toml` | The one place for tool settings: ruff, pytest, coverage floors, mutation scope | [testing](docs/testing.md) |
 
 The complete annotated tree is in [docs/architecture.md](docs/architecture.md#repository-map).
@@ -104,7 +104,9 @@ review (issue #204); headless, `orchestrator.py` makes it a separate call. Neith
 - **Skills are aids, never input to the Maker or the Checker.** `config/skills_registry.md` is the one inventory of
   commands and skills and [docs/skill-design.md](docs/skill-design.md) is the design. No `agents/*.md` prompt, no command and
   no line of this file names, loads or allows a skill; no script in `scripts/` (so no helper the headless `orchestrator.py`,
-  `calibrate.py` or `run_evals.py` imports) builds a path into `.claude/`; a skill never
+  `calibrate.py` or `run_evals.py` imports) builds a path into `.claude/` (the one exception is the pattern string
+  `.claude/**` in `scripts/pr_scope_check.py`, a protected-path glob matched against changed file names and never opened;
+  `tests/test_skill_inventory.py` allows exactly that string in exactly that module); a skill never
   writes a deal's `state.json`, `steps_completed`, `review_trail` or any other record; and a skill never shares a command's
   name (Claude Code prefers the skill, so a clash silently disables the command). A skill adds a procedure and points to a
   rule; the rule stays here and in its test. `tests/test_skill_inventory.py` checks what can be checked from the files.
@@ -536,6 +538,11 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   subprocess (`tests/test_cli_subprocess.py`; a new CLI must be added to its list), and every `python
   scripts/<name>.py --flag` that a document or command tells a reader to use is checked against that script's
   real `--help` (`tests/test_command_flags.py`).
+- **Advisory PR scope check.** `scripts/pr_scope_check.py` compares the changed paths with the optional
+  `## Declared file scope` in a pull request and calls out fixed protected paths. The separate
+  `.github/workflows/scope-check.yml` job is not a required check; the required names `test`,
+  `test-windows` and `runtime-smoke` remain unchanged. In a `pull_request` run, the script comes from
+  the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
 - **Numbered cross-references are guarded.** `Guideline N` and `Audit Checklist item N` references are resolved
   against the real numbered lists (`tests/test_prompt_consistency.py`); after a renumbering, fix the references it
   lists and update its `EXPECTED_SUBJECTS` in the same change.

@@ -11,7 +11,7 @@ The suite checks the framework without a model, so it is organised by what a fai
 | **The deterministic core**: figures, policy facts, state, sources, conventions, text I/O | `test_spreading_builder`, `test_spreading_check`, `test_transcription_check`, `test_supplied_forecast`, `test_policy_engine`, `test_policy_checks`, `test_policy_check`, `test_forward_covenants`, `test_nonpositive_denominators`, `test_state_manager`, `test_source_manifest`, `test_conventions`, `test_textio`, `test_stdio_encoding`, `test_properties` | A number, a verdict reason or a stored record is wrong |
 | **State over time**: old and malformed `state.json` | `test_legacy_state` | A deal written earlier can no longer be read, or a bad shape is not handled |
 | **The pipeline with scripted models**: the revision loop, the code-enforced override, checkpointing, calibration | `test_orchestrator`, `test_calibrate` | The control flow around the model is wrong (the model itself is replaced by a scripted reply) |
-| **What a user receives**: the `.docx`, `.xlsx`, research brief, templates | `test_deal_export`, `test_docx_builder`, `test_research_export`, `test_template_resolver`, `test_golden_outputs`, `test_spreading_template` | A document changed content or layout |
+| **What a user receives**: the `.docx`, `.xlsx`, research brief, templates | `test_deal_export`, `test_docx_builder`, `test_draft_lint`, `test_research_export`, `test_template_resolver`, `test_golden_outputs`, `test_spreading_template` | A document changed content or layout |
 | **The command-line surface and a fresh clone** | `test_cli_subprocess`, `test_command_flags`, `test_runtime_smoke` (which drives `runtime_smoke.py`) | A script cannot be run as a user runs it, or a document tells a reader to use a flag that is gone |
 | **Contracts between files** | `test_prompt_consistency`, `test_docs`, `test_docs_examples`, `test_docs_contracts`, `test_skill_inventory`, `test_skills`, `test_interactive_checker`, `test_maintainer_skills`, `test_mutation_triage_skill`, `test_docs_maintenance_skill`, `test_credit_challenge_skill`, `test_credit_risk_skill`, `test_ci_workflow`, `test_confidential_paths`, `test_repo_conventions`, `test_pytest_config` | Two files that must agree no longer do (see [The contract tests](#the-contract-tests)) |
 | **The tooling itself**: the badge check, the coverage check, the mutation report, the PII scan | `test_check_test_count`, `test_check_coverage`, `test_mutation_report`, `test_pii_scan` | A guard that guards the others is broken |
@@ -252,7 +252,9 @@ on every checkout; no `pull_request_target`; CI never passes `--write` or `--upd
 issue #146): mutmut changes one line of a governance module at a time and checks that a test then fails;
 a surviving mutant is a line that coverage counts as executed but nothing really asserts on. It runs
 **weekly (Mondays) and on demand only -- never on a pull request or push**, on Ubuntu (mutmut forks, so
-not Windows). **Scope:** the eleven `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
+not Windows). The weekly run is incremental (cached verdicts, new or changed functions and the survivors
+retested; a full run on the first Monday of each month), and a manual run can take mutmut name globs to
+retest one module quickly -- see [operations](operations.md) and issue #435. **Scope:** the eleven `critical_modules` of `[tool.opencam.coverage]` plus `calibrate.py` (its
 chunker/merge helpers, as a *supporting* module -- scored and reported, but not governance-critical and so not in
 the coverage floors); a test pins `only_mutate` to exactly those and the supporting list. The result is a
 downloadable `mutation-report` artifact (survivors, **every mutant with its status** in `mutation-all.txt`, the

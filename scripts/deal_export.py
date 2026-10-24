@@ -12,7 +12,7 @@ import re
 import sys
 from datetime import datetime
 
-from docx_builder import export_to_docx
+from docx_builder import check_exportable, export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import (
     StateError, existing_state_date_str, read_state, resolve_export_date_str, sanitize_path_component,
@@ -239,6 +239,8 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
         path=state_path(company, proposal, date_str=state_date_str, base_dir=base_dir),
     )
     workbook_inputs = workbook_inputs_from_state(state)
+    # Refuse an unexportable draft before any folder is created or any template is auto-saved from it.
+    check_exportable(draft_markdown)
 
     os.makedirs(output_dir, exist_ok=True)
 

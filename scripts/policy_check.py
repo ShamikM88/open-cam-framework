@@ -20,10 +20,10 @@ from state_manager import read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
-                   "downside_case", "financials_source")
+                   "downside_case", "financials_source", "deal_type")
 
 
-def compute(company, proposal, draft_path=None):
+def compute(company, proposal, draft_path=None, deal_type=None):
     """Returns {"policy_state", "reasons", "compliant", "cam_data_present"}.
 
     Call without `draft_path` before a draft exists (e.g. /assemble
@@ -52,10 +52,12 @@ def compute(company, proposal, draft_path=None):
     """
     state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
     validate_state(state, keys=("group_basis",), path=state_path(company, proposal))
-    return compute_from_state(state, draft_path=draft_path)
+    if deal_type is None:
+        return compute_from_state(state, draft_path=draft_path)
+    return compute_from_state(state, draft_path=draft_path, deal_type=deal_type)
 
 
-def compute_from_state(state, draft_path=None):
+def compute_from_state(state, draft_path=None, deal_type=None):
     """The same answer as compute(), for a state already read and validated by the caller.
 
     Lets a caller that has chosen one exact dated state (rather than the newest) evaluate that state, with no
@@ -89,11 +91,17 @@ def compute_from_state(state, draft_path=None):
         with open(draft_path, encoding="utf-8") as f:
             draft_text = f.read()
 
+    recorded_deal_type = state.get("deal_type")
+    if deal_type and recorded_deal_type and str(deal_type).casefold() != str(recorded_deal_type).casefold():
+        raise ValueError("The supplied deal_type does not match the deal's recorded deal_type.")
+    resolved_deal_type = deal_type or recorded_deal_type
+    lint_options = {"deal_type": resolved_deal_type} if resolved_deal_type else {}
     reasons = check_draft_compliance(
         draft_text, policy_state,
         ground_truth_figures(financials, ratios, collateral, downside_case),
         financials_source=financials_source,
         credit_policy_present=credit_policy_present,
+        **lint_options,
     )
 
     return {
@@ -117,9 +125,10 @@ if __name__ == "__main__":
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--draft", help="Path to a drafted CAM Markdown file to check for compliance")
+    parser.add_argument("--deal-type", help="Optional deal type; otherwise use the type recorded in state.json")
     args = parser.parse_args()
 
     try:
-        print(json.dumps(compute(args.company, args.proposal, draft_path=args.draft), indent=2))
+        print(json.dumps(compute(args.company, args.proposal, draft_path=args.draft, deal_type=args.deal_type), indent=2))
     except (OSError, ValueError) as exc:
         sys.exit(f"error: {exc}")

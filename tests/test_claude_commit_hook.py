@@ -408,3 +408,41 @@ def test_a_command_built_at_run_time_that_mentions_commit_asks(tool, command, tm
 def test_run_time_command_words_that_do_not_mention_commit_are_not_questioned(command, tmp_path):
     repo = _repo(tmp_path / "canonical")
     assert _decision(_invoke(command, repo)) is None
+
+
+# Third-round review finding PX452-1: script blocks, function bodies and same-line PowerShell aliases.
+@pytest.mark.parametrize(("tool", "template"), [
+    ("PowerShell", "function f {{ {commit} }}; f"),
+    ("PowerShell", "1 | ForEach-Object {{ {commit} }}"),
+    ("PowerShell", "Invoke-Command -ScriptBlock {{ {commit} }}"),
+    ("PowerShell", "Start-Job {{ {commit} }}"),
+    ("PowerShell", "$sb = {{ {commit} }}; & $sb"),
+    ("Bash", "function f {{ {commit}; }}; f"),
+    ("Bash", "f() {{ {commit}; }}; f"),
+])
+def test_commit_inside_a_function_body_or_script_block_on_main_is_denied(tool, template, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_denied(_invoke(template.format(commit=_COMMIT), repo, tool_name=tool))
+
+
+@pytest.mark.parametrize("command", [
+    "Set-Alias g git; g commit -m synthetic",
+    "sal g git; g commit -m synthetic",
+    "New-Alias -Name g -Value git; g commit -m synthetic",
+])
+def test_a_powershell_alias_defined_on_the_same_line_is_resolved(command, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_denied(_invoke(command, repo, tool_name="PowerShell"))
+
+
+@pytest.mark.parametrize(("tool", "command"), [
+    ("PowerShell", "Get-ChildItem | ForEach-Object { $_.Name }"),
+    ("PowerShell", "function f { Write-Output synthetic }; f"),
+    ("PowerShell", "Set-Alias ll Get-ChildItem; ll"),
+    ("Bash", "echo ${HOME}"),
+    ("Bash", "git log --format='{%H}' -1"),
+    ("Bash", "f() { echo synthetic; }; f"),
+])
+def test_blocks_and_aliases_that_do_not_run_a_commit_are_not_blocked(tool, command, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    assert _decision(_invoke(command, repo, tool_name=tool)) is None

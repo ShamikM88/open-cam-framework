@@ -657,6 +657,69 @@ def _substitutions(segment, shell):
     return bodies
 
 
+def _brace_blocks(segment):
+    """The text inside each top-level { ... } of a segment, quotes respected, an unclosed block taken to the end.
+
+    These are script blocks and function bodies (`function f { git commit }`, `ForEach-Object { ... }`,
+    `Invoke-Command -ScriptBlock { ... }`); `${name}` variable syntax is not a block.
+    """
+    bodies = []
+    quote = None
+    index = 0
+    length = len(segment)
+    while index < length:
+        char = segment[index]
+        if quote:
+            if char == quote:
+                quote = None
+            index += 1
+        elif char in {"'", '"'}:
+            quote = char
+            index += 1
+        elif char == "{" and not (index and segment[index - 1] == "$"):
+            depth, cursor, inner = 1, index + 1, None
+            while cursor < length and depth:
+                inner_char = segment[cursor]
+                if inner:
+                    if inner_char == inner:
+                        inner = None
+                elif inner_char in {"'", '"'}:
+                    inner = inner_char
+                elif inner_char == "{":
+                    depth += 1
+                elif inner_char == "}":
+                    depth -= 1
+                cursor += 1
+            bodies.append(segment[index + 1:cursor - 1] if depth == 0 else segment[index + 1:])
+            index = cursor
+        else:
+            index += 1
+    return bodies
+
+
+_POWERSHELL_ALIAS_COMMANDS = {"set-alias", "sal", "new-alias", "nal"}
+
+
+def _powershell_alias(tokens):
+    """(name, target) for `Set-Alias g git`, `sal -Name g -Value git` and the like, else None."""
+    positional = []
+    named = {}
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token.casefold() in {"-name", "-value"} and index + 1 < len(tokens):
+            named[token.casefold()[1:]] = tokens[index + 1]
+            index += 2
+        elif token.startswith("-"):
+            index += 1
+        else:
+            positional.append(token)
+            index += 1
+    name = named.get("name") or (positional[0] if positional else None)
+    value = named.get("value") or (positional[1] if len(positional) > 1 else None)
+    return (name.casefold(), value) if name and value else None
+
+
 def _classify_repository(path):
     """Return (decision, reason) for a local commit target; None decision means no restriction."""
     if path is None or not path.is_dir():
@@ -707,8 +770,9 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
         segments = _split_commands(command, shell)
     except ValueError:
         return "ask", "Cannot parse the shell command confidently; confirm the commit target manually."
+    ps_aliases = {}
     for segment in segments:
-        for body in _substitutions(segment, shell):
+        for body in _substitutions(segment, shell) + _brace_blocks(segment):
             result = _inspect_command(body, shell, current, depth + 1)
             if result and result[0] == "deny":
                 return result
@@ -732,6 +796,14 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
         if changed:
             current = updated_cwd
             continue
+        if shell == "PowerShell":
+            if Path(tokens[0]).name.casefold() in _POWERSHELL_ALIAS_COMMANDS:
+                defined = _powershell_alias(tokens)
+                if defined:
+                    ps_aliases[defined[0]] = defined[1]
+                continue
+            if tokens[0].casefold() in ps_aliases:
+                tokens = [ps_aliases[tokens[0].casefold()], *tokens[1:]]
         remaining, assignments, heuristic = _strip_prefixes(tokens)
         if shell == "PowerShell":
             started = _start_process(remaining, current)

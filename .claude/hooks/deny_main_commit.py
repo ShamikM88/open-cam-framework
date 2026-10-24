@@ -25,7 +25,7 @@ def _git_env():
 
 def _run_git(path, *args):
     try:
-        return subprocess.run(
+        return subprocess.run(  # noqa: S603, S607 -- fixed argv; local Git metadata only, no shell/network
             ["git", "-C", str(path), *args],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

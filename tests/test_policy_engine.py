@@ -1132,6 +1132,7 @@ def test_an_unavailable_downside_is_an_unresolvable_breach_for_every_covenant_th
         "breach_id": "DOWNSIDE-FY-1-DSCR",
         "downside_status": "UNRESOLVABLE",
         "reason": "downside analysis unavailable for FY+1: no scenario was supplied for this year",
+        "basis": "consolidated",
     }]
 
 

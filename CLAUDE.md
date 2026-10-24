@@ -104,7 +104,9 @@ review (issue #204); headless, `orchestrator.py` makes it a separate call. Neith
 - **Skills are aids, never input to the Maker or the Checker.** `config/skills_registry.md` is the one inventory of
   commands and skills and [docs/skill-design.md](docs/skill-design.md) is the design. No `agents/*.md` prompt, no command and
   no line of this file names, loads or allows a skill; no script in `scripts/` (so no helper the headless `orchestrator.py`,
-  `calibrate.py` or `run_evals.py` imports) builds a path into `.claude/`; a skill never
+  `calibrate.py` or `run_evals.py` imports) builds a path into `.claude/` (the one exception is the pattern string
+  `.claude/**` in `scripts/pr_scope_check.py`, a protected-path glob matched against changed file names and never opened;
+  `tests/test_skill_inventory.py` allows exactly that string in exactly that module); a skill never
   writes a deal's `state.json`, `steps_completed`, `review_trail` or any other record; and a skill never shares a command's
   name (Claude Code prefers the skill, so a clash silently disables the command). A skill adds a procedure and points to a
   rule; the rule stays here and in its test. `tests/test_skill_inventory.py` checks what can be checked from the files.

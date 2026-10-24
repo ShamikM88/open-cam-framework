@@ -454,11 +454,11 @@ def test_no_production_script_and_so_no_helper_of_a_headless_entry_point_builds_
 
 
 def test_the_claude_folder_guard_only_allows_the_declared_scope_glob_literal():
-    sources = {"pr_scope_check": 'PROTECTED = ".claude/**"\\n'}
+    sources = {"pr_scope_check": 'PROTECTED = ".claude/**"' + chr(10)}
     allowed = {"pr_scope_check": {".claude/**"}}
     assert claude_folder_problems(sources, allowed_literals=allowed) == {}
 
-    sources["pr_scope_check"] += 'ROOT = ".claude/skills"\\n'
+    sources["pr_scope_check"] += 'ROOT = ".claude/skills"' + chr(10)
     assert claude_folder_problems(sources, allowed_literals=allowed) == {
         "pr_scope_check": [(2, ".claude/skills")]
     }

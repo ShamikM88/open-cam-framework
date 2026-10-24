@@ -18,6 +18,9 @@ import math
 import re
 import sys
 
+from draft_lint import lint_draft
+from template_resolver import cam_template_path
+
 # Canonical risk categories the Underwriter's structured output must cover
 # (see agents/underwriter_agent.md's Structured Output guideline).
 REQUIRED_RISK_TAXONOMY = [
@@ -273,7 +276,7 @@ def check_reported_figures(reported_figures, ground_truth_figures_dict):
 
 
 def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, financials_source=None,
-                            credit_policy_present=None):
+                            credit_policy_present=None, deal_type=None):
     """The single source of truth for "why would this draft be
     code-enforced-REJECTED": covenant FAIL/UNRESOLVABLE, any security gap,
     and -- only when a draft is actually being audited -- missing required
@@ -430,5 +433,16 @@ def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, 
         reasons.extend(
             check_reported_figures(underwriter_output["reported_figures"], ground_truth_figures_dict)
         )
+
+        template_text = None
+        if deal_type:
+            if not isinstance(deal_type, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", deal_type):
+                raise ValueError("Invalid deal_type for draft lint template resolution.")
+            template_path = cam_template_path(deal_type)
+            if template_path:
+                with open(template_path, encoding="utf-8") as template_file:
+                    template_text = template_file.read()
+        findings = lint_draft(draft_text, document_kind="cam", template_text=template_text)
+        reasons.extend(finding["message"] for finding in findings)
 
     return reasons

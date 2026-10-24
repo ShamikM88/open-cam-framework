@@ -42,7 +42,7 @@ def test_protected_paths_are_reported_with_and_without_declaration(checker):
     report = checker.build_report(files, scope)
     assert "PROTECTED_DECLARED: 6" in report
     assert "PROTECTED_UNDECLARED: 1" in report
-    assert r"PROTECTED_DECLARED agents/underwriter\\_agent.md" in report
+    assert r"PROTECTED_DECLARED agents/underwriter\_agent.md" in report
     assert "PROTECTED_UNDECLARED .github/workflows/ci.yml" in report
     assert "OUT_OF_SCOPE ordinary: 0" in report
 

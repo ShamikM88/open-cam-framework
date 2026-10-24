@@ -179,6 +179,11 @@ the shipped defaults, anything under `templates/local/` may contain structure de
 own real, confidential deal history, so it stays local to your fork rather than getting
 committed. Delete a file there to fall back to the shipped default for that deal type.
 
+**Keep drafter-only guidance out of exports:** in a calibrated local override, wrap each instruction
+that is only for the drafter in an HTML comment, for example `<!-- Guidance: ... -->`, rather than
+leaving it as italic Markdown. The DOCX exporter removes single-line and multi-line HTML comments;
+an unterminated comment refuses export. Leave the analyst signature field blank for the human signer.
+
 ### Financial spreading workbook
 
 [`scripts/spreading_builder.py`](../scripts/spreading_builder.py) builds the `.xlsx` output as a

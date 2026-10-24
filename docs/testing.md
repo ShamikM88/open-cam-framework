@@ -39,7 +39,7 @@ Some tests do not test behaviour; they pin a relationship between two files that
 | Relationship | Test | Pins |
 | :--- | :--- | :--- |
 | Prompts and the code that parses their output | `test_prompt_consistency` | The structured-output example parses, its schema matches the parser, the named risk categories and grounding headers exist, every `Guideline N` / `Audit Checklist item N` reference resolves to the pinned subject |
-| Links and cited headings | `test_docs` | Relative links and heading anchors resolve; every `docs/` page is in the index; the `CLAUDE.md` headings that code cites exist; the evaluation page stays evergreen |
+| Links and cited headings | `test_docs` | Relative links and heading anchors resolve (including those in the PR template, which links to the [mergeability rubric](contributing.md#mergeability-rubric)); every `docs/` page is in the index; the `CLAUDE.md` headings that code cites exist; the evaluation page stays evergreen |
 | Documents and the scripts' flags | `test_command_flags` | Every `--flag` a document or command passes to a script is in that script's `--help` |
 | Quoted examples and the real output | `test_docs_examples` | Every figure and message the worked pages quote is what the scripts print |
 | Documents and the source of truth | `test_docs_contracts` | The slash commands in `.claude/commands/` equal those on the commands page, in the registry and on the repository map; the settings documented as read or inert are the ones the code reads (and each inert key is named in `CLAUDE.md`); the CI jobs the pages name are the jobs in `ci.yml`; every repository path the pages cite as inline code exists (git-ignored locations excepted); the schema version the data-model page shows equals `SCHEMA_VERSION` |

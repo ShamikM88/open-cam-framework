@@ -209,6 +209,7 @@ def test_a_heading_with_inline_code_keeps_its_code_text_in_the_anchor():
     text = "## `orchestrator.py` ends in a traceback\n\n### What `config/settings.json` controls\n"
     assert heading_slugs(text) == {"orchestratorpy-ends-in-a-traceback", "what-configsettingsjson-controls"}
 
+
 def test_pull_request_template_links_to_mergeability_rubric():
     template = (REPO / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
     assert "[mergeability rubric](../docs/contributing.md#mergeability-rubric)" in template

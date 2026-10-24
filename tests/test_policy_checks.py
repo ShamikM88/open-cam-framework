@@ -954,3 +954,18 @@ def test_collateral_cover_pct_returns_na_when_finite_asset_exposures_overflow_th
 def test_collateral_cover_pct_returns_na_when_percentage_overflows_to_infinity():
     collateral = [{"exposure": 1e-308, "collateral_value": 1e308}]
     assert compute_collateral_cover_pct(collateral) is None
+
+
+def test_check_draft_compliance_lints_the_selected_cam_template(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    template_dir = tmp_path / "templates" / "cam"
+    template_dir.mkdir(parents=True)
+    (template_dir / "corporate_credit_cam.md").write_text(
+        "# Synthetic CAM template\n\n<!-- Guidance: Keep each synthetic claim tied to reliable evidence. -->\n",
+        encoding="utf-8",
+    )
+    draft = "# Synthetic CAM\n\nKeep each synthetic claim tied to reliable evidence.\n"
+    reasons = check_draft_compliance(
+        draft, _policy_state(), {}, deal_type="corporate_credit",
+    )
+    assert any("copied template guidance" in reason for reason in reasons)

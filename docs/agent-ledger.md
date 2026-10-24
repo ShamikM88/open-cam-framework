@@ -12,13 +12,14 @@ It is not an approval process. An entry here never approves, merges or closes an
 ## The three entries
 
 Every agent task that changes the repository, reviews a pull request or posts design work starts with a `CLAIM` and ends
-with an `OUTCOME`. Each is a separate comment on #245, headed `## <KIND> (<Product>): <short subject>` where `<Product>` is
-the product name (`ChatGPT`, `Claude`, `Grok`, `Perplexity`).
+with an `OUTCOME`. Each is a separate comment on #245. For new entries, use the heading `## <KIND> (<Product>): <short subject>` where `<Product>` is
+the product name (`ChatGPT`, `Claude`, `Grok`, `Perplexity`). Entries written before this page existed vary (no subject, no `##`,
+bold instead of a heading, and a `SUMMARY` kind); they stay as they are and are not non-conforming.
 
 | Entry | When | Must contain |
 | :--- | :--- | :--- |
 | `CLAIM` | Before the first change or review comment | The `main` SHA read; the issues and pull requests in scope, with heads; the branch names to be used; the result of a duplicate check (an earlier open claim, pull request or branch for the same work); what the agent can and cannot do in its session (for example, no local test run); what it will not do |
-| `STATUS` | At each milestone another reader would want to know about (a branch created, a draft pull request opened, a blocker, a group of reviews finished) | One short paragraph with links; no new scope |
+| `STATUS` | At each milestone another reader would want to know about (a branch created, a draft pull request opened, a blocker, a group of reviews finished) | A short paragraph or a short list, with links; no new scope |
 | `OUTCOME` | When the task ends, including when it ends early | The exact head SHA of each pull request; the Actions run for that head and which jobs passed or failed; test and coverage counts taken from that run; findings opened and fixed; every open point or decision the maintainer owns; what was not done |
 
 A change of scope is a `CLAIM amendment`, not a silent edit. Entries are append-only: #245 is never edited to correct an

@@ -24,6 +24,9 @@ CONSTRAINTS_FILE = REPO_ROOT / "constraints.txt"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 USES_RE = re.compile(r"^\s*-?\s*uses:\s*(\S+)(?:\s+#\s*(\S+))?\s*$")
 REQUIRED_JOBS = ("test", "test-windows", "runtime-smoke", "security")
+SCOPE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "scope-check.yml"
+EXPECTED_SCOPE_WORKFLOW = "name: PR scope check (advisory)\n\non:\n  pull_request:\n    branches: [\"main\"]\n    types: [opened, synchronize, reopened, edited]\n\npermissions: {}\n\njobs:\n  scope-check:\n    name: scope-check\n    if: github.event_name == 'pull_request'\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    permissions:\n      contents: read\n\n    steps:\n      - name: Check out repository\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1\n        with:\n          fetch-depth: 0\n          persist-credentials: false\n\n      - name: Set up Python\n        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0\n        with:\n          python-version: \"3.11\"\n\n      - name: Collect changed-file list\n        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha }}\n        run: git diff --name-only --no-renames -z \"$BASE_SHA...$GITHUB_SHA\" > changed-files.nul\n\n      - name: Extract the PR body as data\n        run: |\n          python - <<'PY'\n          import json\n          import os\n          from pathlib import Path\n\n          with Path(os.environ[\"GITHUB_EVENT_PATH\"]).open(\"r\", encoding=\"utf-8\") as source:\n              event = json.load(source)\n          pr = event.get(\"pull_request\")\n          body = pr.get(\"body\") if isinstance(pr, dict) else \"\"\n          if not isinstance(body, str):\n              body = \"\"\n          Path(\"scope-body.md\").write_text(body, encoding=\"utf-8\")\n          PY\n\n      - name: Report declared scope\n        run: >-\n          python scripts/pr_scope_check.py\n          --changed-files changed-files.nul\n          --scope-body scope-body.md\n          --summary-file \"$GITHUB_STEP_SUMMARY\"\n"
+
 
 
 def workflow_text():
@@ -792,3 +795,42 @@ def test_the_wiki_publish_workflow_is_the_documented_write_permission_exception(
     """Like model-freshness's issues: write, the one-job contents: write is documented in the runbook."""
     operations = " ".join((REPO_ROOT / "docs" / "operations.md").read_text(encoding="utf-8").split())
     assert "`wiki-publish` workflow is the one deliberate write-permission exception" in operations
+
+
+def scope_workflow_text():
+    return SCOPE_WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_scope_workflow_matches_the_maintainer_authorised_yaml_verbatim():
+    assert scope_workflow_text() == EXPECTED_SCOPE_WORKFLOW
+
+
+def test_scope_workflow_is_pull_request_only_and_includes_body_edits():
+    text = scope_workflow_text()
+    triggers = text.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
+    assert re.search(r"^  pull_request:\\n", triggers, re.M)
+    assert "types: [opened, synchronize, reopened, edited]" in triggers
+    assert not re.search(r"^  (push|workflow_dispatch|workflow_run|pull_request_target):", triggers, re.M)
+    assert "pull_request_target" not in text and "workflow_run" not in text
+
+
+def test_scope_workflow_uses_read_only_permissions_pinned_actions_and_safe_inputs():
+    text = scope_workflow_text()
+    assert re.search(r"^permissions:\\s*\\{\\}\\s*$", text, re.M)
+    jobs = split_jobs(text)
+    assert set(jobs) == {"scope-check"}
+    assert job_permissions(jobs["scope-check"]) == {"contents": "read"}
+    assert "timeout-minutes: 10" in jobs["scope-check"]
+    assert "persist-credentials: false" in jobs["scope-check"]
+    assert unpinned_actions(text) == []
+    assert 'BASE_SHA: ${{ github.event.pull_request.base.sha }}' in text
+    assert 'git diff --name-only --no-renames -z "$BASE_SHA...$GITHUB_SHA" > changed-files.nul' in text
+    assert 'Path(os.environ["GITHUB_EVENT_PATH"]).open("r", encoding="utf-8")' in text
+    assert 'Path("scope-body.md").write_text(body, encoding="utf-8")' in text
+    assert '--summary-file "$GITHUB_STEP_SUMMARY"' in text
+    assert "python scripts/pr_scope_check.py" in text
+
+
+def test_advisory_scope_workflow_does_not_change_ci_jobs_or_required_check_names():
+    assert set(split_jobs(workflow_text())) == set(REQUIRED_JOBS)
+    assert "scope-check" not in split_jobs(workflow_text())

@@ -502,3 +502,25 @@ def test_public_issue_reporting_surfaces_private_security_policy_and_synthetic_d
     assert "public issue" in bug_template.lower() and "synthetic data only" in bug_template.lower()
     for heading in ("## Problem", "## Concrete scenario", "## Proposed fix", "## Acceptance criteria"):
         assert heading in bug_template
+
+
+# ---------------------------------------------------------------------------
+# The advisory scope workflow is separate from CI's four-job required-check workflow
+# ---------------------------------------------------------------------------
+
+def test_scope_check_is_documented_as_a_separate_advisory_workflow():
+    scope_workflow = read(".github/workflows/scope-check.yml")
+    assert "name: PR scope check (advisory)" in scope_workflow
+    assert set(split_jobs(workflow_text())) == {"test", "test-windows", "runtime-smoke", "security"}
+    testing = read("docs/testing.md")
+    contributing = read("docs/contributing.md")
+    claude = read("CLAUDE.md")
+    cli = read("docs/cli-reference.md")
+    assert ".github/workflows/scope-check.yml" in testing
+    assert "scope-check" in testing and "not a required check" in testing
+    assert "PR's own merge commit" in testing and "reviewer aid" in testing
+    assert "not a gate or proof" in testing
+    assert "PR's own merge commit" in contributing and "reviewer aid" in contributing
+    assert "not a gate or proof" in contributing
+    assert "scope-check.yml" in claude and "not a required check" in claude
+    assert "pr_scope_check.py" in cli and "#pr-scope-check" in cli

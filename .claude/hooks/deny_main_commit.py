@@ -25,11 +25,10 @@ def _git_env():
 
 def _run_git(path, *args):
     try:
-        return subprocess.run(  # noqa: S603, S607 -- fixed argv; local Git metadata only, no shell/network
-            ["git", "-C", str(path), *args],
+        return subprocess.run(
+            ["git", "-C", str(path), *args],  # noqa: S603, S607 -- fixed argv; local Git metadata only, no shell/network
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -359,7 +358,7 @@ def _git_commit_target(tokens, current):
     target = current
     while index < len(tokens):
         token = tokens[index]
-        if token == "-C":
+        if token == "-C":  # noqa: S105 -- Git directory option, not a credential
             if index + 1 >= len(tokens):
                 return True, None
             target = _path_from_argument(tokens[index + 1], current)

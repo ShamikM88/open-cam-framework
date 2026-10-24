@@ -160,8 +160,14 @@ Covenants are tested in three places, with three different consequences:
 | Where | Which period | A FAIL or UNRESOLVABLE... |
 | :--- | :--- | :--- |
 | `covenant_results` | `FY-Current` | **rejects** the draft by code until the figures or the covenant record change |
-| `downside_covenant_breaches` | each forward year, **only** where the base case passes and the stressed case fails or cannot be tested | **rejects** the draft unless it addresses the breach by id (`downside_breaches_acknowledged`) |
+| `downside_covenant_breaches` | each forward year, **only** where the base case passes and the stressed case fails or cannot be tested | **rejects** the draft unless it addresses the breach by id (`downside_breaches_acknowledged`); each record carries `basis` only when present on the base-case covenant result (same rule as `covenant_results`) |
 | `forward_covenant_results` | each projected forward year's own base case | **never rejects**; it is recorded, and the non-passing entries are shown to the model as plain data |
+
+Each `downside_covenant_breaches` record carries `basis` only when the corresponding base-case result from
+`_evaluate_covenant()` has that key, copied without re-deriving the rule. For a breach, the basis must match the
+recorded view; this means a non-null basis was explicitly stated. An ordinary borrower covenant with no stated
+basis keeps the key absent (not null). On consolidated-view figures, an unstated basis defaults to borrower and is
+UNRESOLVABLE, so it cannot produce a downside breach.
 
 A forward year with no projection recorded is not tested, and the state carries no covenant tenor, so a covenant that
 really ends earlier is still reported for later projected years.

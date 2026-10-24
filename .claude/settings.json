@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(*)",
+            "command": "if command -v python3 >/dev/null 2>&1; then python3 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py\"; else python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py\"; fi",
+            "onFailure": "block",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(*)",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py"
+            ],
+            "onFailure": "block",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

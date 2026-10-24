@@ -948,6 +948,26 @@ def test_html_comment_inside_fenced_code_block_is_preserved_as_code(tmp_path):
     ]
 
 
+def test_a_bare_comment_close_marker_in_ordinary_text_is_not_a_comment(tmp_path):
+    doc = _build(tmp_path, "Literal marker --> remains visible.\n")
+
+    assert [paragraph.text for paragraph in doc.paragraphs] == ["Literal marker --> remains visible."]
+
+
+def test_html_comments_are_removed_from_crlf_markdown(tmp_path):
+    markdown = (
+        "Before\r\n"
+        "<!-- Guidance: first line\r\n"
+        "second secret line -->\r\n"
+        "After <!-- one-line secret --> text.\r\n"
+    )
+    doc = _build(tmp_path, markdown)
+    exported = "\n".join(paragraph.text for paragraph in doc.paragraphs)
+
+    assert "secret" not in exported and "Guidance" not in exported and "<!--" not in exported
+    assert "Before" in exported and "After" in exported and "text." in exported
+
+
 def test_unterminated_html_comment_refuses_export_without_writing_docx(tmp_path):
     output = tmp_path / "unterminated.docx"
 

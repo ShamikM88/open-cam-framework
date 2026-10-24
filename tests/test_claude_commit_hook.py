@@ -93,12 +93,12 @@ def test_project_settings_register_exactly_one_pretooluse_guard_with_both_shell_
     by_shell = {hook.get("if"): hook for hook in hooks}
     assert set(by_shell) == {"Bash(*)", "PowerShell(*)"}
     assert all(hook["type"] == "command" for hook in hooks)
-    assert by_shell["Bash(*)"]["command"] == "python3"
+    bash_command = by_shell["Bash(*)"]["command"]
+    assert "command -v python3" in bash_command and "else python " in bash_command
+    assert "${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py" in bash_command
+    assert by_shell["Bash(*)"].get("args", []) == []
     assert by_shell["PowerShell(*)"]["command"] == "python"
-    assert all(
-        hook["args"] == ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py"]
-        for hook in hooks
-    )
+    assert by_shell["PowerShell(*)"]["args"] == ["${CLAUDE_PROJECT_DIR}/.claude/hooks/deny_main_commit.py"]
     assert all(hook["onFailure"] == "block" for hook in hooks)
     assert all(1 <= hook["timeout"] <= 15 for hook in hooks)
 

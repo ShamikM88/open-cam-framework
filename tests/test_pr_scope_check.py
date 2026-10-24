@@ -47,10 +47,10 @@ def test_protected_paths_are_reported_with_and_without_declaration(checker):
     assert "OUT_OF_SCOPE ordinary: 0" in report
 
 
-@pytest.mark.parametrize("body", ["", "summary only\\n", "## Declared file scope\\n<!-- no patterns -->\\n"])
+@pytest.mark.parametrize("body", ["", "summary only\n", "## Declared file scope\n<!-- no patterns -->\n"])
 def test_missing_and_empty_scope_are_advisory_not_failures(checker, tmp_path, capsys, body):
     changed = tmp_path / "changed-files.nul"
-    changed.write_bytes(b"README.md\\0")
+    changed.write_bytes(b"README.md\0")
     scope = tmp_path / "scope-body.md"
     scope.write_text(body, encoding="utf-8")
     code = checker.main(["--changed-files", str(changed), "--scope-body", str(scope)])
@@ -65,11 +65,11 @@ def test_duplicate_scope_heading_and_malformed_patterns_return_two(checker):
     hostile = "malformed shell: $(touch /tmp/not-run)"
     with pytest.raises(checker.ScopeInputError):
         checker.parse_scope_body(
-            "## Declared file scope\\n- `docs/*.md`\\n" +
-            "## Declared file scope\\n- `**`\\n" + hostile
+            "## Declared file scope\n- `docs/*.md`\n" +
+            "## Declared file scope\n- `**`\n" + hostile
         )
     with pytest.raises(checker.ScopeInputError):
-        checker.parse_scope_body("## Declared file scope\\n- `docs/[abc.md`\\n")
+        checker.parse_scope_body("## Declared file scope\n- `docs/[abc.md`\n")
 
 
 def test_single_star_does_not_cross_a_directory(checker):
@@ -117,7 +117,7 @@ def test_windows_separators_leading_dot_and_repeated_slashes_normalize(checker):
 @pytest.mark.parametrize("path", [
     "/etc/passwd", r"\\\\server\\share\\file", r"C:\\repo\\file.py",
     "C:relative.py", "../escape.py", "docs/../escape.py", "docs/..\\escape.py",
-    "docs/bad\\nname.py", "docs/bad\\x07name.py",
+    "docs/bad\nname.py", "docs/bad\x07name.py",
 ])
 def test_absolute_drive_unc_parent_and_control_paths_are_rejected(checker, path):
     with pytest.raises(checker.ScopeInputError):
@@ -126,11 +126,11 @@ def test_absolute_drive_unc_parent_and_control_paths_are_rejected(checker, path)
 
 def test_hostile_pr_body_is_data_not_shell_or_summary_markup(checker):
     body = (
-        "A free-form paragraph with <img src=x onerror=alert(1)> and `[link](javascript:alert(1))`.\\n"
-        "## Declared file scope\\n"
-        "- `**`\\n"
-        "## Later section\\n"
-        "This shell-shaped text must stay inert: $(touch /tmp/not-run); `--write`; `# heading`.\\n"
+        "A free-form paragraph with <img src=x onerror=alert(1)> and `[link](javascript:alert(1))`.\n"
+        "## Declared file scope\n"
+        "- `**`\n"
+        "## Later section\n"
+        "This shell-shaped text must stay inert: $(touch /tmp/not-run); `--write`; `# heading`.\n"
     )
     patterns = checker.parse_scope_body(body)
     assert patterns == ["**"]
@@ -145,10 +145,10 @@ def test_hostile_pr_body_is_data_not_shell_or_summary_markup(checker):
 
 def test_scope_line_that_tries_to_widen_itself_is_malformed_without_echoing_body(checker, tmp_path, capsys):
     changed = tmp_path / "changed-files.nul"
-    changed.write_bytes(b"docs/a.md\\0")
+    changed.write_bytes(b"docs/a.md\0")
     body = tmp_path / "scope-body.md"
     raw = "- `docs/*.md` # widen with `**` and $(touch /tmp/not-run)"
-    body.write_text("## Declared file scope\\n" + raw + "\\n", encoding="utf-8")
+    body.write_text("## Declared file scope\n" + raw + "\n", encoding="utf-8")
     code = checker.main(["--changed-files", str(changed), "--scope-body", str(body)])
     captured = capsys.readouterr()
     assert code == 2
@@ -158,9 +158,9 @@ def test_scope_line_that_tries_to_widen_itself_is_malformed_without_echoing_body
 
 def test_nul_changed_file_list_accepts_spaces_and_escaped_punctuation(checker, tmp_path):
     changed = tmp_path / "changed-files.nul"
-    changed.write_bytes(b"docs/a file [draft].md\\0README.md\\0")
+    changed.write_bytes(b"docs/a file [draft].md\0README.md\0")
     body = tmp_path / "scope-body.md"
-    body.write_text("## Declared file scope\\n- `docs/*.md`\\n", encoding="utf-8")
+    body.write_text("## Declared file scope\n- `docs/*.md`\n", encoding="utf-8")
     code = checker.main(["--changed-files", str(changed), "--scope-body", str(body)])
     assert code == 0
     report = checker.build_report(["docs/a file [draft].md", "README.md"], ["docs/*.md"])
@@ -178,7 +178,7 @@ def test_missing_input_and_invalid_utf8_return_two(checker, tmp_path, capsys):
     assert "error:" in capsys.readouterr().err
 
     invalid = tmp_path / "invalid.nul"
-    invalid.write_bytes(b"docs/\xff.md\\0")
+    invalid.write_bytes(b"docs/\xff.md\0")
     code = checker.main(["--changed-files", str(invalid), "--scope-body", str(body)])
     assert code == 2
     assert "error:" in capsys.readouterr().err
@@ -186,9 +186,9 @@ def test_missing_input_and_invalid_utf8_return_two(checker, tmp_path, capsys):
 
 def test_summary_file_receives_the_same_report_as_stdout(checker, tmp_path, capsys):
     changed = tmp_path / "changed-files.nul"
-    changed.write_bytes(b"docs/a.md\\0")
+    changed.write_bytes(b"docs/a.md\0")
     body = tmp_path / "scope-body.md"
-    body.write_text("## Declared file scope\\n- `docs/*.md`\\n", encoding="utf-8")
+    body.write_text("## Declared file scope\n- `docs/*.md`\n", encoding="utf-8")
     summary = tmp_path / "summary.md"
     summary.write_text("", encoding="utf-8")
     code = checker.main([
@@ -210,7 +210,7 @@ def test_large_diff_reports_exact_counts_and_caps_paths_at_one_hundred(checker):
 
 def test_changed_file_list_requires_nul_delimiters_and_unique_file_paths(checker, tmp_path):
     bad = tmp_path / "bad.nul"
-    bad.write_bytes(b"docs/a.md\\0docs/a.md\\0")
+    bad.write_bytes(b"docs/a.md\0docs/a.md\0")
     with pytest.raises(checker.ScopeInputError):
         checker.read_changed_files(bad)
     bad.write_bytes(b"docs/a.md")
@@ -220,6 +220,6 @@ def test_changed_file_list_requires_nul_delimiters_and_unique_file_paths(checker
 
 def test_main_block_only_configures_stdio_when_run_as_a_script():
     source = SCRIPT.read_text(encoding="utf-8")
-    assert 'if __name__ == "__main__":\\n    from textio import configure_stdio\\n    configure_stdio()' in source
+    assert 'if __name__ == "__main__":\n    from textio import configure_stdio\n    configure_stdio()' in source
     assert "import anthropic" not in source
     assert "urllib" not in source and "requests" not in source

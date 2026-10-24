@@ -354,11 +354,92 @@ def _nested_shell(tokens, shell):
     allowed = flags.get(executable)
     if not allowed:
         return None
+    powershell = executable in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
     for index, token in enumerate(tokens[1:], start=1):
         if token.casefold() in allowed and index + 1 < len(tokens):
-            nested_shell_type = "PowerShell" if executable in {"powershell", "powershell.exe", "pwsh", "pwsh.exe"} else "Bash"
-            return tokens[index + 1], nested_shell_type
+            if len(tokens) == index + 2:
+                return tokens[index + 1], ("PowerShell" if powershell else "Bash")
+            if powershell or executable in {"cmd", "cmd.exe"}:
+                # PowerShell and cmd join every argument after the flag into one command line; a POSIX shell's -c
+                # takes only the next argument (the rest become $0 and positional parameters).
+                return _join_tokens(tokens[index + 1:], "PowerShell" if powershell else "Bash"), (
+                    "PowerShell" if powershell else "Bash")
+            return tokens[index + 1], "Bash"
     return None
+
+
+def _join_tokens(tokens, shell):
+    """Rebuild a command line from tokens, quoting any token that contains whitespace so word boundaries survive."""
+    joined = []
+    for token in tokens:
+        if token and not re.search(r"\s", token):
+            joined.append(token)
+        elif shell == "PowerShell":
+            joined.append('"' + token.replace('"', '`"') + '"')
+        else:
+            joined.append(shlex.quote(token))
+    return " ".join(joined)
+
+
+_START_PROCESS = {"start-process", "saps", "start"}
+_START_PROCESS_PARAMETERS = {
+    "-wait", "-nonewwindow", "-passthru", "-workingdirectory", "-verb", "-windowstyle", "-credential",
+    "-loaduserprofile", "-usenewenvironment", "-environment", "-redirectstandardinput", "-redirectstandardoutput",
+    "-redirectstandarderror", "-filepath", "-argumentlist", "-args",
+}
+
+
+def _start_process(tokens, current):
+    """Turn a PowerShell Start-Process call into the command line it launches.
+
+    Returns None when this is not Start-Process, ("ask", reason) when the target cannot be read, or
+    (command text, working directory) for the command it starts.
+    """
+    if not tokens or Path(tokens[0]).name.casefold() not in _START_PROCESS:
+        return None
+    file_path = None
+    arguments = []
+    working_directory = current
+    collecting = False
+    positional = 0
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        lowered = token.casefold()
+        if lowered in {"-filepath", "-f"} and index + 1 < len(tokens):
+            file_path = tokens[index + 1]
+            collecting = False
+            index += 2
+        elif lowered in {"-argumentlist", "-args"}:
+            collecting = True
+            index += 1
+        elif lowered == "-workingdirectory" and index + 1 < len(tokens):
+            working_directory = _path_from_argument(tokens[index + 1], current)
+            collecting = False
+            index += 2
+        elif lowered in _START_PROCESS_PARAMETERS or (token.startswith("-") and not collecting):
+            collecting = False
+            index += 2 if lowered in {"-verb", "-windowstyle", "-credential", "-environment", "-redirectstandardinput",
+                                      "-redirectstandardoutput", "-redirectstandarderror"} else 1
+        elif collecting:
+            arguments.append(token)
+            index += 1
+        else:
+            if positional == 0 and file_path is None:
+                file_path = token
+            else:
+                arguments.append(token)
+                collecting = True
+            positional += 1
+            index += 1
+    if file_path is None:
+        return "ask", "Start-Process was used without a program the guard can read; confirm it before it runs."
+    program = _unquote(file_path)
+    if program.startswith("$") or any(marker in program for marker in ("(", "%", "`")):
+        return "ask", "Start-Process launches a program the guard cannot read; confirm it does not run `git commit`."
+    argument_text = " ".join(_unquote(part) for part in arguments).replace(",", " ")
+    argument_text = argument_text.replace("'", "").replace('"', "")
+    return f"{program} {argument_text}".strip(), working_directory
 
 
 def _strip_prefixes(tokens):
@@ -397,6 +478,11 @@ def _strip_prefixes(tokens):
         else:
             break
     return tokens[index:], assignments, False
+
+
+def _is_dynamic_word(word):
+    """A command word that the shell only knows at run time ($g, ${GIT:-git}, $(cmd), `cmd`)."""
+    return word.startswith("$") or word.startswith("`") or "$(" in word
 
 
 def _assignment_pairs(assignments):
@@ -461,7 +547,7 @@ def _git_commit_target(remaining, assignments, heuristic, current, env=None):
     variables = dict(env or {})
     variables.update(_assignment_pairs(assignments))
     args = remaining[1:]
-    target = current
+    base = current  # Git's effective directory: each -C is relative to the previous one
     git_dir = work_tree = None
     aliases = {}
     environment_unknown = False
@@ -475,7 +561,7 @@ def _git_commit_target(remaining, assignments, heuristic, current, env=None):
         if arg == "-C":  # noqa: S105 -- Git directory option, not a credential
             if value is None:
                 return True, None, False
-            target = _path_from_argument(value, current)
+            base = _path_from_argument(value, base)
             index += 2
         elif arg == "-c":
             if value and value.casefold().startswith("alias.") and "=" in value:
@@ -484,18 +570,16 @@ def _git_commit_target(remaining, assignments, heuristic, current, env=None):
             index += 2
         elif arg.startswith("--git-dir=") or arg.startswith("--work-tree="):
             option, _, path = arg.partition("=")
-            resolved = _path_from_argument(path, current)
             if option == "--git-dir":
-                git_dir = (resolved,)
+                git_dir = (path,)
             else:
-                work_tree = (resolved,)
+                work_tree = (path,)
             index += 1
         elif arg in {"--git-dir", "--work-tree"}:
-            resolved = _path_from_argument(value, current) if value is not None else None
             if arg == "--git-dir":
-                git_dir = (resolved,)
+                git_dir = (value,)
             else:
-                work_tree = (resolved,)
+                work_tree = (value,)
             index += 2
         elif arg in {"--namespace", "--config-env"}:
             index += 2
@@ -505,12 +589,15 @@ def _git_commit_target(remaining, assignments, heuristic, current, env=None):
             break
     else:
         return False, None, True
+    target = base
+    # A relative --git-dir or --work-tree is read against the directory the -C options led to, whatever their order.
     if work_tree is not None:
-        target = work_tree[0]
+        target = _path_from_argument(work_tree[0], base) if work_tree[0] is not None else None
     elif git_dir is not None:
-        target = git_dir[0].parent if git_dir[0] is not None and git_dir[0].name == ".git" else None
+        resolved = _path_from_argument(git_dir[0], base) if git_dir[0] is not None else None
+        target = resolved.parent if resolved is not None and resolved.name == ".git" else None
     if environment_unknown and work_tree is None and git_dir is None:
-        target = _environment_target(variables, current)
+        target = _environment_target(variables, base)
     subcommand = args[index]
     if subcommand.casefold() == "commit":
         return True, target, not heuristic
@@ -602,6 +689,20 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
     current = initial_cwd
     pending_ask = None
     env = {}
+    if re.search(r"(?:^|[;&|\n])\s*(?:\$\(|`)", command) and re.search(r"\bcommit\b", command):
+        # A substitution in the command-word position (`$(echo git) commit`) cannot be read statically.
+        pending_ask = (
+            "ask",
+            "The command word is built by a substitution and the command mentions `commit`; confirm it is not a "
+            "`git commit` on main/master.",
+        )
+    if re.search(r"(?:^|[;&|\n])\s*(?:eval|iex|invoke-expression)\b", command, re.IGNORECASE) and re.search(
+            r"\bcommit\b", command):
+        pending_ask = pending_ask or (
+            "ask",
+            "An evaluated string mentions `commit` and cannot be read statically; confirm it is not a "
+            "`git commit` on main/master.",
+        )
     try:
         segments = _split_commands(command, shell)
     except ValueError:
@@ -632,6 +733,26 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
             current = updated_cwd
             continue
         remaining, assignments, heuristic = _strip_prefixes(tokens)
+        if shell == "PowerShell":
+            started = _start_process(remaining, current)
+            if started is not None:
+                if started[0] == "ask":
+                    pending_ask = pending_ask or started
+                    continue
+                result = _inspect_command(started[0], shell, started[1], depth + 1)
+                if result and result[0] == "deny":
+                    return result
+                if result and result[0] == "ask":
+                    pending_ask = pending_ask or result
+                continue
+        if remaining and _is_dynamic_word(remaining[0]) and (
+                re.search(r"\bcommit\b", segment) or any("commit" in str(value) for value in env.values())):
+            pending_ask = pending_ask or (
+                "ask",
+                "The command word is built at run time and the command mentions `commit`; confirm it is not a "
+                "`git commit` on main/master.",
+            )
+            continue
         nested = _nested_shell(remaining, shell)
         if nested is not None:
             nested_command, nested_shell_type = nested
@@ -641,6 +762,13 @@ def _inspect_command(command, shell, initial_cwd, depth=0):
                     "ask", "A wrapped shell command may run `git commit` on main/master; confirm it before it runs.")
             if result and result[0] == "ask":
                 pending_ask = pending_ask or result
+            elif (not result and re.search(r"\bcommit\b", segment)
+                  and Path(remaining[0]).name.casefold() in {"eval", "iex", "invoke-expression"}):
+                pending_ask = pending_ask or (
+                    "ask",
+                    "An evaluated string mentions `commit` and could not be read statically; confirm it is not a "
+                    "`git commit` on main/master.",
+                )
             continue
         if not remaining:
             env.update(_assignment_pairs(assignments))

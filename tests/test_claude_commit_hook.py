@@ -319,3 +319,92 @@ def test_commit_in_a_fork_through_alias_or_selector_defaults_stays_unaffected(tm
     _git(fork, "config", "alias.ci", "commit")
     assert _decision(_invoke("git ci -m synthetic", fork)) is None
     assert _decision(_invoke("command " + _COMMIT, fork)) is None
+
+
+# Second-round review findings (CG452-5, CG452-6 and the siblings found while reproducing them).
+@pytest.mark.parametrize("template", [
+    "Start-Process -FilePath git -ArgumentList 'commit -m synthetic' -Wait",
+    "Start-Process git -ArgumentList 'commit','-m','synthetic' -NoNewWindow -Wait",
+    "Start-Process -FilePath git.exe -ArgumentList \"commit -m synthetic\"",
+    "saps git 'commit -m synthetic'",
+    "Start-Process -FilePath powershell -ArgumentList '-Command', 'git commit -m synthetic'",
+])
+def test_powershell_start_process_launching_a_commit_on_main_is_denied(template, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_denied(_invoke(template, repo, tool_name="PowerShell"))
+
+
+def test_start_process_working_directory_selects_the_checkout(tmp_path):
+    canonical = _repo(tmp_path / "canonical")
+    fork = _repo(tmp_path / "fork", origin="https://github.com/someoneelse/open-cam-framework.git")
+    command = f"Start-Process -FilePath git -ArgumentList 'commit -m synthetic' -WorkingDirectory '{_bash_path(canonical)}'"
+    _assert_denied(_invoke(command, fork, tool_name="PowerShell"))
+    assert _decision(_invoke("Start-Process -FilePath git -ArgumentList 'commit -m synthetic'", fork,
+                             tool_name="PowerShell")) is None
+
+
+def test_start_process_of_an_unreadable_program_asks_and_of_other_programs_is_left_alone(tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_asks(_invoke("Start-Process -FilePath $program -ArgumentList 'commit -m synthetic'", repo,
+                         tool_name="PowerShell"))
+    assert _decision(_invoke("Start-Process notepad.exe -ArgumentList 'notes.txt'", repo, tool_name="PowerShell")) is None
+
+
+def test_relative_c_options_chain_from_each_other_like_git(tmp_path):
+    root = tmp_path
+    canonical = _repo(root / "canonical")
+    nested = root / "nested"
+    nested.mkdir()
+    outside = root / "outside"
+    outside.mkdir()
+    _assert_denied(_invoke("git -C nested -C ../canonical commit -m synthetic", root))
+    _assert_denied(_invoke(f"git -C {_bash_path(canonical)}/.. --git-dir=canonical/.git --work-tree=canonical commit -m synthetic",
+                           outside))
+
+
+def test_chained_relative_c_cannot_be_mistaken_for_a_non_canonical_checkout(tmp_path):
+    """The second -C is relative to the first; resolving it against the session directory finds a different checkout."""
+    fork = _repo(tmp_path / "fork", origin="https://github.com/someoneelse/open-cam-framework.git")
+    _repo(fork / "deep" / "canonical")
+    (fork / "deep" / "zzz").mkdir()
+    # Resolved against the session directory this would be tmp/canonical, which is an unrelated fork checkout.
+    _repo(tmp_path / "canonical", origin="https://github.com/someoneelse/open-cam-framework.git")
+    _assert_denied(_invoke("git -C deep/zzz -C ../canonical commit -m synthetic", fork))
+
+
+@pytest.mark.parametrize(("tool", "template"), [
+    ("PowerShell", "cmd /c {commit}"),
+    ("PowerShell", "cmd.exe /c {commit}"),
+    ("PowerShell", "powershell -NoProfile -Command {commit}"),
+    ("PowerShell", "pwsh -c {commit}"),
+    ("PowerShell", "cmd /c \"{commit}\""),
+])
+def test_unquoted_arguments_after_a_shell_command_flag_are_part_of_the_command(tool, template, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_denied(_invoke(template.format(commit=_COMMIT), repo, tool_name=tool))
+
+
+@pytest.mark.parametrize(("tool", "command"), [
+    ("Bash", "g=git; $g commit -m synthetic"),
+    ("Bash", "g=git; \"$g\" commit -m synthetic"),
+    ("Bash", "${GIT:-git} commit -m synthetic"),
+    ("Bash", "$(echo git) commit -m synthetic"),
+    ("Bash", "cmd=\"" + _COMMIT + "\"; $cmd"),
+    ("PowerShell", "$g='git'; & $g commit -m synthetic"),
+    ("PowerShell", "Invoke-Expression ('gi'+'t commit -m synthetic')"),
+    ("Bash", "eval \"$(echo git) commit -m synthetic\""),
+])
+def test_a_command_built_at_run_time_that_mentions_commit_asks(tool, command, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    _assert_asks(_invoke(command, repo, tool_name=tool))
+
+
+@pytest.mark.parametrize("command", [
+    "$PY -m pytest -q",
+    "$EDITOR notes.txt",
+    "echo \"$(date)\"",
+    "x=$(pwd); echo $x",
+])
+def test_run_time_command_words_that_do_not_mention_commit_are_not_questioned(command, tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    assert _decision(_invoke(command, repo)) is None

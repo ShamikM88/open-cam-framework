@@ -182,6 +182,15 @@ def test_research_command_requires_a_flat_sources_list_and_explicit_override():
     assert "Silence, an ambiguous answer, or “just export it” is not explicit authorisation." in command
     assert "Never pass the flag on your own initiative." in command
     assert '--analyst-override-no-sources "<reason>"' in command
+    assert "Required opening — Go/No-Go." in command
+    assert "The first substantive section after the header must be “## Go/No-Go” and should fit on one page." in command
+    assert "Name the three decisive facts, each with its figure and source" in command
+    assert "list no more than five proposed conditions in descending order of importance" in command
+    assert "Aim for about 1,500 words for the brief." in command
+    assert "This is guidance, not an export-time word limit" in command
+    assert "Never write a “Review status”, “Not approved” or manual-release disclosure in the draft." in command
+    assert "Only scripts/research_export.py inserts the full dated paragraph immediately after the title" in command
+    assert "Never invent the release reason or infer consent." in command
 
 
 

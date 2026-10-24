@@ -404,3 +404,10 @@ def test_a_release_refuses_a_state_whose_record_is_not_a_list_and_changes_nothin
             analyst_release_unapproved="again",
         )
     assert state_file.read_bytes() == before and not list(state_file.parent.glob("*.docx"))
+
+
+def test_an_unterminated_html_comment_is_rejected_before_creating_any_output(tmp_path):
+    brief = VALID_BRIEF + "\n<!-- never closed\n"
+    with pytest.raises(ValueError, match="Unterminated HTML comment"):
+        export_research_brief("Synthetic Co", "Fleet Loan", brief, date_str="2026-10-24", base_dir=str(tmp_path))
+    assert not (tmp_path / "deals").exists()

@@ -25,6 +25,11 @@ def _git(cwd, *args, check=True):
     return result
 
 
+def _bash_path(path):
+    """Render a local path with forward slashes for Bash, including on Windows."""
+    return str(path).replace("\\\\", "/")
+
+
 def _repo(path, branch="main", origin=CANONICAL_ORIGIN):
     path.mkdir(parents=True)
     _git(path, "init", "--initial-branch", branch)
@@ -166,7 +171,7 @@ def test_cd_then_commit_and_set_location_then_commit_are_resolved(tmp_path):
     repo = _repo(tmp_path / "canonical")
     parent = tmp_path / "outside"
     parent.mkdir()
-    _assert_denied(_invoke(f"cd {repo} && git commit -m synthetic", parent))
+    _assert_denied(_invoke(f"cd {_bash_path(repo)} && git commit -m synthetic", parent))
     _assert_denied(_invoke(f"Set-Location {repo}; git commit -m synthetic", parent, tool_name="PowerShell"))
 
 
@@ -174,7 +179,7 @@ def test_git_c_target_is_resolved_even_when_session_cwd_is_elsewhere(tmp_path):
     repo = _repo(tmp_path / "canonical")
     outside = tmp_path / "outside"
     outside.mkdir()
-    _assert_denied(_invoke(f"git -C {repo} commit -m synthetic", outside))
+    _assert_denied(_invoke(f"git -C {_bash_path(repo)} commit -m synthetic", outside))
 
 
 def test_linked_worktree_checked_out_on_main_is_denied(tmp_path):

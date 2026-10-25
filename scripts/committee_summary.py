@@ -124,7 +124,7 @@ def _scalar_rows(by_period: dict[str, JsonValue], periods: Sequence[str], skip: 
                 names.append(name)
     rows = []
     for name in names:
-        row = [name]
+        row: list[JsonValue] = [name]
         for period in periods:
             values = by_period.get(period)
             row.append(values.get(name, NOT_RECORDED) if isinstance(values, dict) else NOT_RECORDED)
@@ -134,7 +134,7 @@ def _scalar_rows(by_period: dict[str, JsonValue], periods: Sequence[str], skip: 
 
 def _records_table(records: Sequence[JsonValue], preferred: Sequence[str]) -> list[str]:
     """A table of a list of dicts: the preferred columns that occur first, then any others, scalar values only."""
-    records = [record for record in records if isinstance(record, dict)]
+    records: list[dict[str, JsonValue]] = [record for record in records if isinstance(record, dict)]
     columns = [column for column in preferred if any(column in record for record in records)]
     for record in records:
         for column, value in record.items():
@@ -171,7 +171,7 @@ def collect(company: str, proposal: str, date_str: str | None = None, base_dir: 
 def render_markdown(data: CommitteeSummaryData) -> str:
     """The summary as Markdown, from the data `collect()` gathered. Pure: no file or state access."""
     state, policy = data["state"], data["policy"]
-    steps = state.get("steps_completed") if isinstance(state.get("steps_completed"), list) else []
+    steps: list[JsonValue] = state.get("steps_completed") if isinstance(state.get("steps_completed"), list) else []
     lines = [f"# Committee summary: {_cell(data['company'])} / {_cell(data['proposal'])}", ""]
 
     source = state.get("financials_source")
@@ -199,18 +199,18 @@ def render_markdown(data: CommitteeSummaryData) -> str:
             ("Figures basis", "figures_basis"), ("Perimeter confirmed on", "perimeter_confirmed_on"))]
         lines.append("")
 
-    inputs = state.get("inputs") if isinstance(state.get("inputs"), dict) else {}
+    inputs: dict[str, JsonValue] = state.get("inputs") if isinstance(state.get("inputs"), dict) else {}
     lines += ["## Facility and key terms", ""]
     lines += [f"- **{_cell(key)}:** {_cell(value)}" for key, value in inputs.items()]
     lines += [f"- **Facility amount, tenor and pricing:** {NOT_RECORDED} in state.json", ""]
-    guarantees = state.get("guarantees") if isinstance(state.get("guarantees"), list) else []
+    guarantees: list[JsonValue] = state.get("guarantees") if isinstance(state.get("guarantees"), list) else []
     if guarantees:
         lines += ["**Guarantees**", ""] + _records_table(guarantees, ("provider", "type", "amount")) + [""]
     else:
         lines += ["No guarantees are recorded.", ""]
 
-    financials = state.get("financials") if isinstance(state.get("financials"), dict) else {}
-    ratios = state.get("ratios") if isinstance(state.get("ratios"), dict) else {}
+    financials: dict[str, JsonValue] = state.get("financials") if isinstance(state.get("financials"), dict) else {}
+    ratios: dict[str, JsonValue] = state.get("ratios") if isinstance(state.get("ratios"), dict) else {}
     periods = _ordered_periods(financials, ratios)
     lines += ["## Financial snapshot", ""]
     if periods:
@@ -254,8 +254,8 @@ def render_markdown(data: CommitteeSummaryData) -> str:
         lines += [f"- {_cell(item.get(id_key))}: {_cell(item.get('text'))}" for item in policy[key]] or ["None."]
         lines.append("")
 
-    collateral = state.get("collateral") if isinstance(state.get("collateral"), list) else []
-    package = state.get("security_package") if isinstance(state.get("security_package"), list) else []
+    collateral: list[JsonValue] = state.get("collateral") if isinstance(state.get("collateral"), list) else []
+    package: list[JsonValue] = state.get("security_package") if isinstance(state.get("security_package"), list) else []
     lines += ["## Collateral and security", ""]
     if collateral:
         lines += ["**Assets**", ""] + _records_table(collateral, ("asset_id",)) + [""]
@@ -284,8 +284,8 @@ def render_markdown(data: CommitteeSummaryData) -> str:
     lines.append(f"- **Saved sources:** {data['manifest_count']} in the manifest; citations declared: "
                  f"{data['sources_declared']}{sources_note}")
     lines += ["", "## Recorded review status", ""]
-    trail = state.get("review_trail") if isinstance(state.get("review_trail"), list) else []
-    last = trail[-1] if trail and isinstance(trail[-1], dict) else {}
+    trail: list[JsonValue] = state.get("review_trail") if isinstance(state.get("review_trail"), list) else []
+    last: dict[str, JsonValue] = trail[-1] if trail and isinstance(trail[-1], dict) else {}
     lines.append(f"- **Latest recorded verdict:** {_cell(state.get('review_verdict') or NOT_RECORDED)} "
                  "(a historical record, not a current approval)")
     lines.append(f"- **Recorded review iterations:** {len(trail)}"

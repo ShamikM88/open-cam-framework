@@ -510,7 +510,9 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     why), and the draft must address it. It is never a silent absence and never a pass.
 
     Returns a list of {"year", "metric", "base_actual", "downside_actual",
-    "threshold", "breach_id", "downside_status", "reason"}. `breach_id` is built from _slugify() (the
+    "threshold", "breach_id", "downside_status", "reason"} with an optional
+    `basis` key copied from the base-case covenant result only when present.
+    `breach_id` is built from _slugify() (the
     same stable-identifier convention as `cp_id`), so a downside breach for
     "FY+2"/"dscr" always slugifies to the same base id (e.g.
     "DOWNSIDE-FY-2-DSCR" -- "+" is not alphanumeric, so it slugifies to
@@ -537,7 +539,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
 
             if base_result["status"] == "PASS" and downside_result["status"] in ("FAIL", "UNRESOLVABLE"):
                 metric = covenant.get("metric")
-                breaches.append({
+                breach = {
                     "year": period,
                     "metric": metric,
                     "base_actual": base_result["actual"],
@@ -546,7 +548,10 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
                     "downside_status": downside_result["status"],
                     "reason": downside_result["reason"],
-                })
+                }
+                if "basis" in base_result:
+                    breach["basis"] = base_result["basis"]
+                breaches.append(breach)
 
     for period in sorted(unavailable if isinstance(unavailable, dict) else {}):
         base_ratios_for_period = (all_ratios or {}).get(period)
@@ -558,7 +563,7 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                                              _period_dict(base_financials, period), recorded_view)
             if base_result["status"] == "PASS":
                 metric = covenant.get("metric")
-                breaches.append({
+                breach = {
                     "year": period,
                     "metric": metric,
                     "base_actual": base_result["actual"],
@@ -567,7 +572,10 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
                     "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
                     "downside_status": "UNRESOLVABLE",
                     "reason": f"downside analysis unavailable for {period}: {unavailable[period]}",
-                })
+                }
+                if "basis" in base_result:
+                    breach["basis"] = base_result["basis"]
+                breaches.append(breach)
 
     return breaches
 

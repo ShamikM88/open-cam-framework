@@ -350,7 +350,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:_covenant_compliance_cs": "d639dc94fa2a50d1",
     "policy_engine:_security_reconfirmation_cs": "91217d55799015bc",
     "policy_engine:_guarantee_standing_cs": "2c9b7d5f7e37a654",
-    "policy_engine:_evaluate_downside_covenants": "e4d4e6876076eace",
+    "policy_engine:_evaluate_downside_covenants": "0c2f3dcec8647ce1",
     "policy_engine:_evaluate_forward_covenants": "d3f54ceae724ecb9",
     "policy_engine:_period_dict": "84198167206c0bc8",
     "policy_engine:evaluate_deal_policy": "ee75c26351a222af",

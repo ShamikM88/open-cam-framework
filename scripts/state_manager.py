@@ -35,6 +35,10 @@ from datetime import date, datetime
 
 from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 
+# A value that can appear in state.json or in a policy result. The one definition every annotated module imports
+# (issue #424), so the alias cannot drift between modules; tests/test_typecheck_config.py pins that it has one home.
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
 DEALS_DIR = "deals"
 
 # Bumped whenever state.json's schema gains a new top-level shape a reader

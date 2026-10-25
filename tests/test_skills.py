@@ -1033,6 +1033,18 @@ def test_credit_skills_distinguish_unavailable_failed_and_successful_empty_glob_
     after_empty_rule = lookup_step[lookup_step.index(empty_result) + len(empty_result):].lstrip()
     assert after_empty_rule.startswith(("Otherwise consider only", "Otherwise accept only"))
 
+    # Option B (issue #280, maintainer-authorised): the older stop sentence applies only to a completed lookup.
+    completed_lookup_stop = {
+        "credit-challenge": "If the lookup completed and there is no qualifying record, or the identity/date does not "
+                            "agree, report that and stop.",
+        "credit-risk": "If the lookup completed and no qualifying record exists, or identity/date does not agree, "
+                       "report that and stop.",
+    }[name]
+    assert completed_lookup_stop in lookup_step
+    assert lookup_step.index(empty_result) < lookup_step.index(completed_lookup_stop)
+    assert "If there is no qualifying record or" not in lookup_step
+    assert "If no qualifying record exists or" not in lookup_step
+
 
 def test_skills_reference_records_platform_runtime_uncertainty_for_credit_lookup():
     text = " ".join(read("docs/skills.md").split())

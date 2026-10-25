@@ -15,15 +15,31 @@ import os
 import re
 import sys
 import tempfile
+from typing import Any, Callable, Sequence, TypedDict
 
 from docx_builder import export_to_docx
 from policy_check import STATE_KEYS_READ, compute_from_state
 from source_manifest import missing_saved_sources, read_manifest, sources_declared
 from spreading_builder import PERIOD_KEYS
 from state_manager import (
-    StateError, find_deal, read_state, required_steps_completed, sanitize_path_component, state_path,
+    JsonValue, StateError, find_deal, read_state, required_steps_completed, sanitize_path_component, state_path,
     validate_iso_date_str, validate_state,
 )
+
+
+class CommitteeSummaryData(TypedDict):
+    """Data collected by this module for its Markdown summary renderer."""
+
+    company: str
+    proposal: str
+    date: str | None
+    state: dict[str, JsonValue]
+    # The producer in policy_engine owns this payload and exports no type on current main.
+    policy: Any
+    manifest_count: int
+    sources_declared: str
+    sources_missing: bool
+
 
 NOT_RECORDED = "not recorded"
 TRACKED_STEPS = ("triage", "spread", "commercial", "collateral", "project", "review", "assemble")
@@ -49,7 +65,7 @@ INLINE_MARKUP = re.compile(
     r"[*`\[\]<>]|(?<![A-Za-z0-9])_{1,2}[^\s_](?:[^_]*[^\s_])?_{1,2}(?![A-Za-z0-9])")
 
 
-def _cell(value):
+def _cell(value: JsonValue) -> str:
     """A recorded value as stored (None is N/A), on one line, safe to put in a table cell, a bullet or a label.
 
     Text a record could use to break the layout or to pass itself off as markup is neutralised: `|` becomes `/`,
@@ -68,14 +84,14 @@ def _cell(value):
     return text
 
 
-def _table(headers, rows):
+def _table(headers: Sequence[str], rows: Sequence[Sequence[JsonValue]]) -> list[str]:
     lines = ["| " + " | ".join(_cell(header) for header in headers) + " |",
              "| " + " | ".join(":---" for _ in headers) + " |"]
     lines.extend("| " + " | ".join(_cell(value) for value in row) + " |" for row in rows)
     return lines
 
 
-def _covenant_row(result, columns):
+def _covenant_row(result: dict[str, JsonValue], columns: Sequence[str]) -> list[JsonValue]:
     """A result's values for `columns`; absent basis means borrower, and absent reason reads "-", not N/A."""
     return [
         (result.get(column) or "-") if column == "reason"
@@ -85,7 +101,7 @@ def _covenant_row(result, columns):
     ]
 
 
-def _covenant_table(columns, results):
+def _covenant_table(columns: Sequence[str], results: Sequence[dict[str, JsonValue]]) -> list[str]:
     """Add basis only for tables whose policy-result rows disclose it."""
     columns = list(columns)
     if any("basis" in result for result in results):
@@ -93,12 +109,12 @@ def _covenant_table(columns, results):
     return _table(columns, [_covenant_row(result, columns) for result in results])
 
 
-def _ordered_periods(*period_maps):
+def _ordered_periods(*period_maps: JsonValue) -> list[str]:
     present = {period for mapping in period_maps if isinstance(mapping, dict) for period in mapping}
     return [period for period in PERIOD_KEYS if period in present]
 
 
-def _scalar_rows(by_period, periods, skip=()):
+def _scalar_rows(by_period: dict[str, JsonValue], periods: Sequence[str], skip: Sequence[str] = ()) -> list[list[JsonValue]]:
     """Rows [name, value per period] for every recorded scalar name, in first-seen order."""
     names = []
     for period in periods:
@@ -116,7 +132,7 @@ def _scalar_rows(by_period, periods, skip=()):
     return rows
 
 
-def _records_table(records, preferred):
+def _records_table(records: Sequence[JsonValue], preferred: Sequence[str]) -> list[str]:
     """A table of a list of dicts: the preferred columns that occur first, then any others, scalar values only."""
     records = [record for record in records if isinstance(record, dict)]
     columns = [column for column in preferred if any(column in record for record in records)]
@@ -127,7 +143,7 @@ def _records_table(records, preferred):
     return _table(columns, [[record.get(column, NOT_RECORDED) for column in columns] for record in records])
 
 
-def collect(company, proposal, date_str=None, base_dir=None):
+def collect(company: str, proposal: str, date_str: str | None = None, base_dir: str | None = None) -> tuple[str, CommitteeSummaryData]:
     """Read the exact dated state and gather everything the summary prints. Returns (folder, summary data)."""
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
@@ -144,7 +160,7 @@ def collect(company, proposal, date_str=None, base_dir=None):
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir, keys=STATE_KEYS_READ) or {}
     validate_state(state, keys=("group_basis",), path=path)
     manifest = read_manifest(company, proposal, date_str=date_str, base_dir=base_dir)
-    data = {
+    data: CommitteeSummaryData = {
         "company": company, "proposal": proposal, "date": date_str, "state": state,
         "policy": compute_from_state(state)["policy_state"], "manifest_count": len(manifest),
         "sources_declared": sources_declared(state), "sources_missing": missing_saved_sources(state, manifest),
@@ -152,7 +168,7 @@ def collect(company, proposal, date_str=None, base_dir=None):
     return os.path.dirname(path), data
 
 
-def render_markdown(data):
+def render_markdown(data: CommitteeSummaryData) -> str:
     """The summary as Markdown, from the data `collect()` gathered. Pure: no file or state access."""
     state, policy = data["state"], data["policy"]
     steps = state.get("steps_completed") if isinstance(state.get("steps_completed"), list) else []
@@ -279,7 +295,7 @@ def render_markdown(data):
     return "\n".join(lines) + "\n"
 
 
-def _replace_atomically(path, write):
+def _replace_atomically(path: str, write: Callable[[str], None]) -> None:
     """Write to a temporary file beside `path`, then replace it, so a failure never leaves a half-written report."""
     handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".committee_summary_", suffix=".tmp")
     os.close(handle)
@@ -291,14 +307,14 @@ def _replace_atomically(path, write):
         raise
 
 
-def generate(company, proposal, date_str=None, base_dir=None):
+def generate(company: str, proposal: str, date_str: str | None = None, base_dir: str | None = None) -> dict[str, JsonValue]:
     """Write the Markdown and Word summaries into the deal's dated folder. Returns the JSON-ready report."""
     folder, data = collect(company, proposal, date_str=date_str, base_dir=base_dir)
     markdown = render_markdown(data)
     stem = os.path.join(folder, f"{data['company']}_{data['proposal']}_Committee_Summary")
     markdown_path, docx_path = stem + ".md", stem + ".docx"
 
-    def write_markdown(temporary):
+    def write_markdown(temporary: str) -> None:
         with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(markdown)
 
@@ -314,7 +330,7 @@ def generate(company, proposal, date_str=None, base_dir=None):
     }
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(

@@ -51,8 +51,8 @@ those citations; `tests/test_docs.py` fails if one disappears.
 | `badges/test-count.json` | The checked-in passing-test count, kept honest by CI | [testing](docs/testing.md) |
 | `deals/` | Generated output, one folder per `[Company]/[Proposal]_[Date]` with `state.json` and `sources/` (git-ignored) | [data model](docs/data-model.md) |
 | `inputs/` | Calibration samples and credit policy documents (git-ignored) | [security](docs/security.md) |
-| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`), the separate advisory `scope-check.yml` workflow (not a required check), the weekly `mutation.yml` and the manual-only `ci-parallelism-benchmark.yml` | [testing](docs/testing.md), [operations](docs/operations.md#re-tuning-test-parallelism) |
-| `pyproject.toml` | The one place for tool settings: ruff, pytest, coverage floors, mutation scope | [testing](docs/testing.md) |
+| `.github/workflows/` | `ci.yml` (`test`, `test-windows`, `runtime-smoke`, `security`), the separate advisory `scope-check.yml` and `typecheck.yml` workflows (not required checks), the weekly `mutation.yml` and the manual-only `ci-parallelism-benchmark.yml` | [testing](docs/testing.md), [operations](docs/operations.md#re-tuning-test-parallelism) |
+| `pyproject.toml` | The one place for tool settings: ruff, pytest, coverage floors, mutation scope, the advisory mypy diagnostic | [testing](docs/testing.md) |
 
 The complete annotated tree is in [docs/architecture.md](docs/architecture.md#repository-map).
 
@@ -543,6 +543,11 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   `.github/workflows/scope-check.yml` job is not a required check; the required names `test`,
   `test-windows` and `runtime-smoke` remain unchanged. In a `pull_request` run, the script comes from
   the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
+- **Advisory type check.** `[tool.mypy]` in `pyproject.toml` and the separate `.github/workflows/typecheck.yml`
+  report mypy errors per module for the eleven governance modules (issue #424). It is a diagnostic, not a required
+  check and not a job in `ci.yml`: type errors do not fail it, only a mypy that cannot run does. `mypy` is a pinned
+  development requirement, never a runtime one. Do not make it required, add `continue-on-error`, or widen the
+  missing-import suppression without a reviewed decision; annotating a module is its own behaviour-preserving PR.
 - **Numbered cross-references are guarded.** `Guideline N` and `Audit Checklist item N` references are resolved
   against the real numbered lists (`tests/test_prompt_consistency.py`); after a renumbering, fix the references it
   lists and update its `EXPECTED_SUBJECTS` in the same change.

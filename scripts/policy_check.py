@@ -24,7 +24,6 @@ STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_
                    "downside_case", "financials_source")
 
 
-
 class PolicyCheckOutput(TypedDict):
     policy_state: dict[str, JsonValue]
     reasons: list[str]

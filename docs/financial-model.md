@@ -164,8 +164,7 @@ Covenants are tested in three places, with three different consequences:
 | `forward_covenant_results` | each projected forward year's own base case | **never rejects**; it is recorded, and the non-passing entries are shown to the model as plain data |
 
 Each `downside_covenant_breaches` record carries `basis` only when the corresponding base-case result from
-`_evaluate_covenant()` has that key, copied without re-deriving the rule. For a breach, the basis must match the
-recorded view; this means a non-null basis was explicitly stated. An ordinary borrower covenant with no stated
+`_evaluate_covenant()` has that key, copied without re-deriving the rule. When a breach carries `basis`, it is the basis the covenant stated, and it equals the recorded view (a covenant on any other basis is UNRESOLVABLE in the base case and never a breach). An ordinary borrower covenant with no stated
 basis keeps the key absent (not null). On consolidated-view figures, an unstated basis defaults to borrower and is
 UNRESOLVABLE, so it cannot produce a downside breach.
 

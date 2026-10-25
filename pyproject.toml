@@ -103,3 +103,42 @@ also_copy = [".github", "docs/examples"]    # selected tests read the workflow f
 # the mutation workflow is not a required check, and a module below target is reported, never failed.
 [tool.opencam.mutation]
 target_critical = 75
+
+# Static type checking (issue #424), Phase 0/1: a DIAGNOSTIC. .github/workflows/typecheck.yml runs `mypy` and reports
+# the error count per module in the job summary; it is not a required check and no result blocks a merge. The strict
+# override applies to the eleven governance modules only (the list equals [tool.opencam.coverage] critical_modules,
+# pinned by tests/test_typecheck_config.py), so on the first run it reports every missing annotation; each module is
+# annotated in its own behaviour-preserving pull request (Phase 2), in the order of the design note on the issue.
+# Global ignore_missing_imports stays false so a missing first-party import is visible. The last override is
+# provisional: keep it only if the pinned python-docx / openpyxl lack usable type information.
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "scripts"
+files = [
+    "scripts/policy_engine.py", "scripts/policy_checks.py", "scripts/policy_check.py",
+    "scripts/spreading_builder.py", "scripts/spreading_check.py",
+    "scripts/state_manager.py", "scripts/deal_export.py", "scripts/docx_builder.py",
+    "scripts/review_compare.py", "scripts/export_readback.py", "scripts/committee_summary.py",
+]
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = [
+    "policy_engine", "policy_checks", "policy_check",
+    "spreading_builder", "spreading_check",
+    "state_manager", "deal_export", "docx_builder",
+    "review_compare", "export_readback", "committee_summary",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_return_any = true
+no_implicit_optional = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["docx", "docx.*", "openpyxl", "openpyxl.*"]
+ignore_missing_imports = true

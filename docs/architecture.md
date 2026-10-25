@@ -240,6 +240,7 @@ open-cam-framework/
 ├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
+├── .github/workflows/typecheck.yml  Advisory mypy diagnostic (error count per module in the job summary; never a required check or a gate)
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eleven governance modules (diagnostic report, never a merge gate)
 ├── .github/workflows/model-freshness.yml  Weekly + manual diagnostic of SDK model/deprecation metadata; updates one tech-debt issue, never a required check
 ├── .github/workflows/ci.yml     CI: `test` (Ubuntu, coverage + floors), `test-windows`, `runtime-smoke` (requirements.txt only), `security` (pip-audit, zizmor) -- see "Testing and static analysis" in `CLAUDE.md`

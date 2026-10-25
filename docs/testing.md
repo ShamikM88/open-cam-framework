@@ -254,6 +254,26 @@ This job is **not a required check** and is not a fifth job in `ci.yml`: the exi
 the required names `test`, `test-windows` and `runtime-smoke` are unchanged. In a `pull_request` run,
 the script comes from the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
 
+### Type checking (advisory diagnostic)
+
+Static type checking is introduced as a **diagnostic, never a gate** (issue #424, Phase 0/1). `[tool.mypy]` in
+`pyproject.toml` lists the eleven governance modules as the files to check and applies a strict override to exactly
+those modules (`disallow_untyped_defs`, `check_untyped_defs`, `warn_return_any`, `no_implicit_optional` and
+`strict_equality`); the global `ignore_missing_imports` stays `false`, and the only suppression is for `docx` and
+`openpyxl`, which is provisional. `mypy` is a pinned development requirement (`requirements-dev.txt`,
+`constraints.txt`), never a runtime one.
+
+The separate `.github/workflows/typecheck.yml` workflow runs bare `mypy` on pull requests that touch `scripts/`, the
+configuration or the pinned tool set, and by hand (`gh workflow run typecheck.yml --ref <branch>`). It writes the
+error count per module to the job summary. Type errors **do not fail the job** (mypy's exit status 1 is the finding);
+the job fails only when mypy could not run at all (exit status 2 or more), so a broken check cannot look clean. It is
+not a required check and not a job in `ci.yml`: the required names `test`, `test-windows` and `runtime-smoke` are
+unchanged. At its introduction mypy reported 237 errors in the eleven modules (206 missing annotations, 13 needing a
+variable annotation, 12 possible `None` accesses, and 6 others); no source file was changed. Each module is then
+annotated in its own behaviour-preserving pull request (Phase 2, one module at a time), and the count in the summary
+is that pull request's before and after. `tests/test_typecheck_config.py` pins the target list, the override scope and
+the pinning; `tests/test_ci_workflow.py` pins the workflow, including a run of the step against a stub `mypy`.
+
 ### Mutation testing
 
 **Mutation testing** (`.github/workflows/mutation.yml`, configuration `[tool.mutmut]` in `pyproject.toml`,

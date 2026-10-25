@@ -35,7 +35,7 @@ If `Glob` is available but the call returns an error, say: “I could not check 
 
 Only a successful, untruncated lookup that returns no qualifying paths may be reported as “No qualifying record was found.”
 
-Otherwise consider only a folder named exactly `<proposal>_YYYY-MM-DD`. Compare the ISO date text and choose the latest matching folder. Read its `state.json`, check that its `date` agrees with the folder suffix, and name the folder in your report. If there is no qualifying record or the identity/date does not agree, report that and stop. Do not use figures remembered from the conversation.
+Otherwise consider only a folder named exactly `<proposal>_YYYY-MM-DD`. Compare the ISO date text and choose the latest matching folder. Read its `state.json`, check that its `date` agrees with the folder suffix, and name the folder in your report. If the lookup completed and there is no qualifying record, or the identity/date does not agree, report that and stop. Do not use figures remembered from the conversation.
 
 ## 3. Establish the evidence actually available
 

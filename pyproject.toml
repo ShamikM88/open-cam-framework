@@ -110,7 +110,8 @@ target_critical = 75
 # pinned by tests/test_typecheck_config.py), so on the first run it reports every missing annotation; each module is
 # annotated in its own behaviour-preserving pull request (Phase 2), in the order of the design note on the issue.
 # Global ignore_missing_imports stays false so a missing first-party import is visible. The last override is
-# provisional: keep it only if the pinned python-docx / openpyxl lack usable type information.
+# provisional: openpyxl 3.1.5 ships no py.typed marker (mypy reports import-untyped without it); python-docx 1.2.0 does
+# ship one, so it needs no suppression. Remove the override if a typed openpyxl is ever pinned.
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "scripts"
@@ -140,5 +141,5 @@ no_implicit_optional = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["docx", "docx.*", "openpyxl", "openpyxl.*"]
+module = ["openpyxl", "openpyxl.*"]
 ignore_missing_imports = true

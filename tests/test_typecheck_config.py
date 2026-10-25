@@ -55,12 +55,13 @@ def test_the_strict_override_covers_exactly_the_target_modules():
         assert table[flag] is True, flag
 
 
-def test_missing_import_suppression_is_limited_to_the_two_named_third_party_libraries():
+def test_missing_import_suppression_is_limited_to_the_one_untyped_third_party_library():
     suppressed = set()
     for table in pyproject()["mypy"]["overrides"]:
         if table.get("ignore_missing_imports"):
             suppressed |= set(table["module"])
-    assert suppressed == {"docx", "docx.*", "openpyxl", "openpyxl.*"}
+    # python-docx ships py.typed, so only openpyxl (no py.typed in 3.1.5) needs the suppression.
+    assert suppressed == {"openpyxl", "openpyxl.*"}
 
 
 def requirement_names(filename):

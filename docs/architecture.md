@@ -236,8 +236,8 @@ open-cam-framework/
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
 ├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the eleven governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`
-├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage -- see "Testing and static analysis" in `CLAUDE.md`
-├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit
+├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage, the advisory mypy configuration -- see "Testing and static analysis" in `CLAUDE.md`
+├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit, mypy (advisory diagnostic only)
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
 ├── .github/workflows/typecheck.yml  Advisory mypy diagnostic (error count per module in the job summary; never a required check or a gate)

@@ -259,8 +259,8 @@ the script comes from the PR's own merge commit, so the report is a reviewer aid
 Static type checking is introduced as a **diagnostic, never a gate** (issue #424, Phase 0/1). `[tool.mypy]` in
 `pyproject.toml` lists the eleven governance modules as the files to check and applies a strict override to exactly
 those modules (`disallow_untyped_defs`, `check_untyped_defs`, `warn_return_any`, `no_implicit_optional` and
-`strict_equality`); the global `ignore_missing_imports` stays `false`, and the only suppression is for `docx` and
-`openpyxl`, which is provisional. `mypy` is a pinned development requirement (`requirements-dev.txt`,
+`strict_equality`); the global `ignore_missing_imports` stays `false`, and the only suppression is for `openpyxl`,
+which ships no type marker (`py.typed`) in the pinned 3.1.5 (python-docx does, so it has none); it is provisional. `mypy` is a pinned development requirement (`requirements-dev.txt`,
 `constraints.txt`), never a runtime one.
 
 The separate `.github/workflows/typecheck.yml` workflow runs bare `mypy` on pull requests that touch `scripts/`, the

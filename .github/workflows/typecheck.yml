@@ -1,0 +1,70 @@
+name: Type check (advisory)
+
+# A diagnostic, never a gate (issue #424, Phase 1). It runs `mypy` as configured in pyproject.toml ([tool.mypy]) and
+# reports the number of type errors per module in the job summary, so each later annotation pull request (Phase 2)
+# can show a before and an after. It is not one of the ruleset-required checks (`test`, `test-windows`,
+# `runtime-smoke`) and is not part of ci.yml.
+#
+# - Type errors never fail the job: mypy exits 1 when it finds any, and the step reports that as a finding. The step
+#   fails only when mypy could not run at all (exit status 2 or more: a crash, an unreadable file in `files`, a bad
+#   configuration), because a broken check must not look like a clean one.
+# - Runs on pull requests that touch the code, the configuration or the pinned tool set, and by hand.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "scripts/**"
+      - "pyproject.toml"
+      - "requirements-dev.txt"
+      - "constraints.txt"
+      - ".github/workflows/typecheck.yml"
+
+permissions: {}
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements-dev.txt
+            constraints.txt
+
+      - name: Install development dependencies
+        run: |
+          python -m pip install --upgrade -c constraints.txt pip==26.2.1
+          pip install -c constraints.txt -r requirements-dev.txt
+
+      - name: Run mypy and report the error count per module
+        run: |
+          status=0
+          mypy > mypy_output.txt 2>&1 || status=$?
+          cat mypy_output.txt
+          errors="$(awk '/^scripts\/[A-Za-z0-9_]+\.py:[0-9]+: error:/ { n++ } END { print n + 0 }' mypy_output.txt)"
+          {
+            echo "### mypy diagnostic (advisory; not a required check)"
+            echo
+            echo "mypy exit status $status (0 clean, 1 type errors found, 2 or more mypy could not run): $errors errors."
+            echo
+            echo '```'
+            awk -F: '/^scripts\/[A-Za-z0-9_]+\.py:[0-9]+: error:/ { n[$1]++ } END { for (f in n) print n[f], f }' mypy_output.txt | sort -rn
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -gt 1 ]; then
+            exit "$status"
+          fi

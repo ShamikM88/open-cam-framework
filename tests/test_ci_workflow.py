@@ -834,3 +834,98 @@ def test_scope_workflow_uses_read_only_permissions_pinned_actions_and_safe_input
 def test_advisory_scope_workflow_does_not_change_ci_jobs_or_required_check_names():
     assert set(split_jobs(workflow_text())) == set(REQUIRED_JOBS)
     assert "scope-check" not in split_jobs(workflow_text())
+
+
+# ---------------------------------------------------------------------------
+# The advisory mypy diagnostic (issue #424, Phase 1)
+# ---------------------------------------------------------------------------
+
+TYPECHECK_WORKFLOW = WORKFLOW.parent / "typecheck.yml"
+
+
+def typecheck_text():
+    return TYPECHECK_WORKFLOW.read_text(encoding="utf-8")
+
+
+def typecheck_run_block():
+    """The shell the `Run mypy` step executes, dedented, read out of the workflow."""
+    (step,) = [s for s in typecheck_text().split("\n      - name: ") if s.startswith("Run mypy")]
+    _, _, body = step.partition("\n        run: |\n")
+    lines = []
+    for line in body.splitlines():
+        if line.strip() and not line.startswith("          "):
+            break
+        lines.append(line)
+    return textwrap.dedent("\n".join(lines))
+
+
+def test_typecheck_workflow_is_advisory_read_only_and_leaves_ci_alone():
+    text = typecheck_text()
+    triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"workflow_dispatch", "pull_request"}
+    assert "pull_request_target" not in text and "workflow_run" not in text
+    jobs = split_jobs(text)
+    assert set(jobs) == {"typecheck"}
+    assert job_permissions(jobs["typecheck"]) == {"contents": "read"}
+    assert "timeout-minutes: 10" in jobs["typecheck"]
+    assert "persist-credentials: false" in jobs["typecheck"]
+    assert unpinned_actions(text) == []
+    # Neither required nor part of ci.yml: the three ruleset-required names are untouched.
+    assert set(split_jobs(workflow_text())) == set(REQUIRED_JOBS)
+    assert "typecheck" not in split_jobs(workflow_text())
+    assert "continue-on-error" not in text
+
+
+def test_typecheck_workflow_installs_the_pinned_development_set_and_runs_the_configured_mypy():
+    body = split_jobs(typecheck_text())["typecheck"]
+    install = [line for line in body.splitlines() if re.search(r"\bpip install\b", line)]
+    assert install and all("-c constraints.txt" in line for line in install), install
+    assert "pip install -c constraints.txt -r requirements-dev.txt" in body
+    assert "constraints.txt" in body.split("cache-dependency-path", 1)[1].split("- name:", 1)[0]
+    # Bare `mypy`, so the files, the strict overrides and the Python version come from pyproject.toml only.
+    invocations = [line for line in typecheck_run_block().splitlines() if re.match(r"\s*mypy\b", line)]
+    assert invocations == ["mypy > mypy_output.txt 2>&1 || status=$?"]
+
+
+def step_bash():
+    """The bash a GitHub-hosted runner gives a `run:` step: on Windows Git for Windows' bash, never the WSL launcher."""
+    if os.name != "nt":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    candidate = Path(git).resolve().parents[1] / "bin" / "bash.exe" if git else None
+    return str(candidate) if candidate is not None and candidate.exists() else None
+
+
+@pytest.mark.skipif(step_bash() is None, reason="the mypy step is a bash script")
+@pytest.mark.parametrize("mypy_status, errors, expect_status", [
+    (0, [], 0),
+    (1, ["scripts/state_manager.py:10: error: bad  [arg-type]",
+         "scripts/state_manager.py:11: error: worse  [return-value]",
+         "scripts/policy_engine.py:3: error: also bad  [assignment]",
+         "scripts/policy_engine.py:4: note: not an error line"], 0),
+    (2, ["mypy: can't read file 'scripts/missing.py': No such file or directory"], 2),
+])
+def test_the_mypy_step_reports_type_errors_without_failing_and_fails_only_when_mypy_cannot_run(
+        tmp_path, mypy_status, errors, expect_status):
+    """Type errors are the diagnostic's findings (exit status 1): the step must pass and report counts per module.
+    A mypy that crashed or could not read its configuration (status 2 or more) is a broken check and must fail."""
+    bash = step_bash()
+    stubs = tmp_path / "bin"
+    stubs.mkdir()
+    output = "\n".join(errors)
+    (stubs / "mypy").write_text(
+        f"#!/usr/bin/env bash\ncat <<'EOF'\n{output}\nEOF\nexit {mypy_status}\n", encoding="utf-8", newline="\n")
+    (stubs / "mypy").chmod(0o755)
+    summary = tmp_path / "summary.md"
+    env = {**os.environ, "PATH": f"{stubs.as_posix()}{os.pathsep}{os.environ['PATH']}",
+           "GITHUB_STEP_SUMMARY": summary.as_posix()}
+    result = subprocess.run([bash, "-e", "-c", typecheck_run_block()], cwd=tmp_path, env=env, capture_output=True,
+                            text=True, encoding="utf-8", timeout=60)
+    assert result.returncode == expect_status, result.stderr
+    written = summary.read_text(encoding="utf-8")
+    assert "mypy diagnostic (advisory" in written
+    if mypy_status == 1:
+        assert "3 errors" in written
+        assert written.index("2 scripts/state_manager.py") < written.index("1 scripts/policy_engine.py")
+    elif mypy_status == 0:
+        assert "0 errors" in written

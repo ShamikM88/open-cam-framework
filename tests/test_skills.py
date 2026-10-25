@@ -969,3 +969,59 @@ def test_evidence_discipline_describes_the_two_keys_in_the_authorised_wording():
         "is backed: it does not match citations to entries, check that a file exists, or look at citations kept "
         "anywhere else. Your own reading below does that.")
     assert expected in text
+
+
+# --- 8. fail-closed deal lookup in the two credit skills (issue #280) -------------------------
+
+CREDIT_LOOKUP_UNAVAILABLE_TEXT = """
+Before reporting a missing deal, establish whether the folder lookup completed. If `Glob` is not available in this skill's active tool set, say: “I could not check `deals/<company>/` because the Glob lookup tool is unavailable in this skill. This does not mean the deal is absent. Please enable Glob for this session and rerun the skill.”
+"""
+
+CREDIT_LOOKUP_ERROR_TEXT = """
+If `Glob` is available but the call returns an error, say: “I could not check `deals/<company>/` because the Glob lookup failed: <brief factual error>. This does not mean the deal is absent. Please correct the lookup problem and rerun the skill; if the error indicates that Glob is unavailable or disabled, enable Glob for this session.”
+"""
+
+CREDIT_LOOKUP_EMPTY_TEXT = """
+Only a successful, untruncated lookup that returns no qualifying paths may be reported as “No qualifying record was found.”
+"""
+
+CREDIT_SKILLS_PLATFORM_TEXT = """
+Tool availability is a Claude Code runtime behaviour; the repository's text tests cannot verify which tools a particular platform exposes. macOS: not verified at runtime; relies on Claude Code's documented tool set. Linux/WSL: runtime behaviour has not yet been verified in this repository; the maintainer's read-only probe is pending. The current Claude Code documentation says that Glob is absent from the default tool set on macOS, Linux and WSL and that folder discovery falls back to find through Bash; until the probe is recorded, treat that as documented behaviour, not a runtime result independently verified by this repository.
+
+The credit-challenge and credit-risk skills remove Bash while running. If Glob is unavailable or its lookup errors, they must report that the deal could not be checked, not that the deal is absent. Only a successful, untruncated lookup with no qualifying paths supports “no qualifying record”.
+"""
+
+
+@pytest.mark.parametrize("name", ["credit-challenge", "credit-risk"])
+def test_credit_skills_distinguish_unavailable_failed_and_successful_empty_glob_lookup(name):
+    """A failed lookup is not evidence that a deal is absent (#280)."""
+    text = skill_text(name)
+    fields = frontmatter(text)
+    body = " ".join(body_of(text).split())
+
+    assert tools(fields, "allowed-tools") == ["Read", "Glob", "Grep"]
+    assert "Bash" in tools(fields, "disallowed-tools")
+
+    unavailable = " ".join(CREDIT_LOOKUP_UNAVAILABLE_TEXT.split())
+    lookup_error = " ".join(CREDIT_LOOKUP_ERROR_TEXT.split())
+    empty_result = " ".join(CREDIT_LOOKUP_EMPTY_TEXT.split())
+    for clause in (unavailable, lookup_error, empty_result):
+        assert clause in body, (name, clause)
+
+    lookup_step = body.partition("## 2.")[2].partition("## 3.")[0]
+    cap_stop = (
+        "If the lookup reaches 100 files or is marked truncated, say that the latest dated folder "
+        "could not be established and stop."
+    )
+    assert cap_stop in lookup_step
+    assert lookup_step.index(cap_stop) < lookup_step.index(unavailable)
+    assert lookup_step.index(unavailable) < lookup_step.index(lookup_error) < lookup_step.index(empty_result)
+    after_empty_rule = lookup_step[lookup_step.index(empty_result) + len(empty_result):].lstrip()
+    assert after_empty_rule.startswith(("Otherwise consider only", "Otherwise accept only"))
+
+
+def test_skills_reference_records_platform_runtime_uncertainty_for_credit_lookup():
+    text = " ".join(read("docs/skills.md").split())
+    expected = " ".join(CREDIT_SKILLS_PLATFORM_TEXT.split())
+    assert expected in text
+    assert "On macOS, Linux and WSL the `Glob` tool is absent from Claude Code's default tool set" not in text

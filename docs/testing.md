@@ -271,8 +271,9 @@ not a required check and not a job in `ci.yml`: the required names `test`, `test
 unchanged. At its introduction mypy reported 237 errors in the eleven modules (206 missing annotations, 13 needing a
 variable annotation, 12 possible `None` accesses, and 6 others); no source file was changed. Each module is then
 annotated in its own behaviour-preserving pull request (Phase 2, one module at a time), and the count in the summary
-is that pull request's before and after. `tests/test_typecheck_config.py` pins the target list, the override scope and
-the pinning; `tests/test_ci_workflow.py` pins the workflow, including a run of the step against a stub `mypy`.
+is that pull request's before and after. The shared `JsonValue` type alias has one home, `scripts/state_manager.py`, and every annotated module imports it
+instead of defining its own. `tests/test_typecheck_config.py` pins the target list, the override scope, the pinning and
+that single home; `tests/test_ci_workflow.py` pins the workflow, including a run of the step against a stub `mypy`.
 
 ### Mutation testing
 

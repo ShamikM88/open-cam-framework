@@ -29,6 +29,12 @@ An **analyst aid** for an adversarial second look at a named deal. Ask what coul
 
 Glob for `deals/<company>/<proposal>_*/state.json`. The lookup lists at most 100 files newest-modified first, which is not the same as latest by date. If the lookup reaches 100 files or is marked truncated, say that the latest dated folder could not be established and stop.
 
+Before reporting a missing deal, establish whether the folder lookup completed. If `Glob` is not available in this skill's active tool set, say: “I could not check `deals/<company>/` because the Glob lookup tool is unavailable in this skill. This does not mean the deal is absent. Please enable Glob for this session and rerun the skill.”
+
+If `Glob` is available but the call returns an error, say: “I could not check `deals/<company>/` because the Glob lookup failed: <brief factual error>. This does not mean the deal is absent. Please correct the lookup problem and rerun the skill; if the error indicates that Glob is unavailable or disabled, enable Glob for this session.”
+
+Only a successful, untruncated lookup that returns no qualifying paths may be reported as “No qualifying record was found.”
+
 Otherwise consider only a folder named exactly `<proposal>_YYYY-MM-DD`. Compare the ISO date text and choose the latest matching folder. Read its `state.json`, check that its `date` agrees with the folder suffix, and name the folder in your report. If there is no qualifying record or the identity/date does not agree, report that and stop. Do not use figures remembered from the conversation.
 
 ## 3. Establish the evidence actually available

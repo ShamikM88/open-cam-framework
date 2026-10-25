@@ -547,7 +547,8 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   report mypy errors per module for the eleven governance modules (issue #424). It is a diagnostic, not a required
   check and not a job in `ci.yml`: type errors do not fail it, only a mypy that cannot run does. `mypy` is a pinned
   development requirement, never a runtime one. Do not make it required, add `continue-on-error`, or widen the
-  missing-import suppression without a reviewed decision; annotating a module is its own behaviour-preserving PR.
+  missing-import suppression without a reviewed decision; annotating a module is its own behaviour-preserving PR. The
+  shared `JsonValue` alias lives only in `scripts/state_manager.py`; annotated modules import it, never redefine it.
 - **Numbered cross-references are guarded.** `Guideline N` and `Audit Checklist item N` references are resolved
   against the real numbered lists (`tests/test_prompt_consistency.py`); after a renumbering, fix the references it
   lists and update its `EXPECTED_SUBJECTS` in the same change.

@@ -85,3 +85,26 @@ def test_mypy_is_a_development_requirement_pinned_exactly_and_never_a_runtime_on
     # mypy's own runtime dependencies are pinned too, so the CI environment is reproducible.
     for dependency in ("mypy-extensions", "pathspec", "typing-extensions"):
         assert dependency in pins, dependency
+
+
+def test_the_shared_json_value_alias_has_one_home_in_state_manager():
+    """Every annotated module imports `JsonValue` from state_manager (issue #424); a second definition would let the
+    copies drift, so exactly one scripts/*.py module-level assignment may define it."""
+    import ast
+
+    definers = []
+    for script in sorted((REPO_ROOT / "scripts").glob("*.py")):
+        tree = ast.parse(script.read_text(encoding="utf-8"))
+        for node in tree.body:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+            if any(isinstance(target, ast.Name) and target.id == "JsonValue" for target in targets):
+                definers.append(script.name)
+    assert definers == ["state_manager.py"], definers
+
+    import typing
+
+    import state_manager
+
+    parts = typing.get_args(state_manager.JsonValue)
+    assert {str, int, float, bool, type(None)} <= set(parts)          # every JSON scalar
+    assert {typing.get_origin(part) for part in parts} >= {list, dict}  # and both containers

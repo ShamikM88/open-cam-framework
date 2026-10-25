@@ -270,6 +270,11 @@ def frontmatter_problems(name, text):
         problems.append(f"disallowed-tools does not remove {missing}")
     if missing := sorted(NETWORK_TOOLS - disallowed):
         problems.append(f"disallowed-tools does not remove network tools {missing}")
+    # A tool that is pre-approved and also removed cannot run, so a procedure that relies on it silently stops working
+    # (issue #280's lookup relies on Glob); catch the contradiction in the frontmatter itself.
+    allowed_names = {token.partition("(")[0] for token in tools(fields, "allowed-tools")}
+    if overlap := sorted(allowed_names & disallowed):
+        problems.append(f"{overlap} is both pre-approved in allowed-tools and removed in disallowed-tools")
     for token in tools(fields, "allowed-tools"):
         if token in READ_ONLY_TOOLS:
             continue
@@ -323,6 +328,10 @@ def test_the_frontmatter_check_reports_each_way_a_skill_could_stop_being_a_safe_
     assert "pre-approves Bash(python scripts/policy_check.py --draft x)" in broken(
         "Bash(python scripts/policy_check.py *)", "Bash(python scripts/policy_check.py --draft x)")
     assert "pre-approves Write" in broken("allowed-tools: Read", "allowed-tools: Read Write")
+    assert "['Read'] is both pre-approved in allowed-tools and removed in disallowed-tools" in broken(
+        "NotebookEdit WebFetch WebSearch\n", "NotebookEdit WebFetch WebSearch Read\n")
+    assert "['Bash'] is both pre-approved" in broken(
+        "NotebookEdit WebFetch WebSearch\n", "NotebookEdit WebFetch WebSearch Bash\n")
     assert "description is missing" in broken("description: Does a thing.", "description: ")
     assert "description is missing" in broken("description: Does a thing.", "description: " + "x" * 1600)
     assert "argument-hint is missing" in broken("argument-hint: --company \"<Name>\"\n", "")

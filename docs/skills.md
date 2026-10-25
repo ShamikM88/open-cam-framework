@@ -345,10 +345,11 @@ score is.
 These are Claude Code features, so they follow its behaviour: a skill in `.claude/skills/<name>/SKILL.md`, a `context:
 fork` subagent, `disable-model-invocation`, and `allowed-tools` as a pre-approval of the read-only scripts (it is not an
 allowlist; `disallowed-tools` removes the write tools, and everything else stays under your permission settings). The `background: false` setting makes the result come back in
-the same turn and needs a recent Claude Code; an older version ignores it and returns the result when it is ready. On
-macOS, Linux and WSL the `Glob` tool is absent from Claude Code's default tool set (it searches with `find` through
-`Bash`, which these skills do not pre-approve), so there you may be asked to approve the folder lookup, or enable `Glob`
-for the session as Claude Code's documentation describes.
+the same turn and needs a recent Claude Code; an older version ignores it and returns the result when it is ready.
+
+Tool availability is a Claude Code runtime behaviour; the repository's text tests cannot verify which tools a particular platform exposes. macOS: not verified at runtime; relies on Claude Code's documented tool set. Linux/WSL: runtime behaviour has not yet been verified in this repository; the maintainer's read-only probe is pending. The current Claude Code documentation says that Glob is absent from the default tool set on macOS, Linux and WSL and that folder discovery falls back to find through Bash; until the probe is recorded, treat that as documented behaviour, not a runtime result independently verified by this repository.
+
+The credit-challenge and credit-risk skills remove Bash while running. If Glob is unavailable or its lookup errors, they must report that the deal could not be checked, not that the deal is absent. Only a successful, untruncated lookup with no qualifying paths supports “no qualifying record”.
 
 ## Changing or adding a skill
 

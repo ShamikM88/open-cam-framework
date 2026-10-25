@@ -689,6 +689,83 @@ def test_base_pass_downside_fail_populates_downside_covenant_breaches():
     assert breach["breach_id"]
 
 
+@pytest.mark.parametrize(
+    ("basis", "group_basis"),
+    [
+        ("borrower", None),
+        ("consolidated", {"basis": "supplied_consolidated"}),
+    ],
+)
+def test_downside_breach_carries_an_explicit_matching_basis(basis, group_basis):
+    state = {
+        "ratios": {"FY+2": {"dscr": 1.25}},
+        "covenants": [{
+            "metric": "dscr", "type": "minimum", "threshold": 1.10, "basis": basis,
+        }],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+    }
+    if group_basis is not None:
+        state["group_basis"] = group_basis
+
+    (breach,) = evaluate_deal_policy(state)["downside_covenant_breaches"]
+
+    assert breach["basis"] == basis
+
+
+def test_downside_breach_omits_basis_for_a_plain_borrower_covenant():
+    state = {
+        "ratios": {"FY+2": {"dscr": 1.25}},
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+    }
+
+    (breach,) = evaluate_deal_policy(state)["downside_covenant_breaches"]
+
+    assert "basis" not in breach
+
+
+@pytest.mark.parametrize(
+    ("basis_fields", "expected_basis"),
+    [
+        ({"basis": "borrower"}, "borrower"),
+        ({}, None),
+    ],
+)
+def test_unavailable_downside_breach_copies_only_a_present_base_basis(basis_fields, expected_basis):
+    covenant = {
+        "metric": "dscr", "type": "minimum", "threshold": 1.10, **basis_fields,
+    }
+    state = {
+        "ratios": {"FY+2": {"dscr": 1.25}},
+        "covenants": [covenant],
+        "downside_case": {"unavailable": {"FY+2": "no downside scenario was supplied"}},
+    }
+
+    (breach,) = evaluate_deal_policy(state)["downside_covenant_breaches"]
+
+    if expected_basis is None:
+        assert "basis" not in breach
+    else:
+        assert breach["basis"] == expected_basis
+
+
+def test_unstated_basis_on_consolidated_view_is_unresolvable_not_a_downside_breach():
+    state = {
+        "group_basis": {"basis": "supplied_consolidated"},
+        "ratios": {
+            "FY-Current": {"dscr": 1.5},
+            "FY+2": {"dscr": 1.25},
+        },
+        "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
+        "downside_case": {"ratios": {"FY+2": {"dscr": 1.05}}},
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert result["covenant_results"][0]["status"] == "UNRESOLVABLE"
+    assert result["downside_covenant_breaches"] == []
+
+
 def test_downside_breach_id_is_stable_and_repeatable_across_calls():
     state = {
         "ratios": {"FY+2": {"dscr": 1.25}},
@@ -1055,6 +1132,7 @@ def test_an_unavailable_downside_is_an_unresolvable_breach_for_every_covenant_th
         "breach_id": "DOWNSIDE-FY-1-DSCR",
         "downside_status": "UNRESOLVABLE",
         "reason": "downside analysis unavailable for FY+1: no scenario was supplied for this year",
+        "basis": "consolidated",
     }]
 
 

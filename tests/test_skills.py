@@ -1009,10 +1009,15 @@ def test_credit_skills_distinguish_unavailable_failed_and_successful_empty_glob_
         assert clause in body, (name, clause)
 
     lookup_step = body.partition("## 2.")[2].partition("## 3.")[0]
-    cap_stop = (
-        "If the lookup reaches 100 files or is marked truncated, say that the latest dated folder "
-        "could not be established and stop."
-    )
+    # The two skills word their existing 100-file stop differently; the added text follows it in each.
+    cap_stop = {
+        "credit-challenge": (
+            "If the lookup reaches 100 files or is marked truncated, say that the latest dated folder "
+            "could not be established and stop."),
+        "credit-risk": (
+            "If it reaches 100 files or is marked truncated, say the latest dated folder could not be "
+            "established and stop."),
+    }[name]
     assert cap_stop in lookup_step
     assert lookup_step.index(cap_stop) < lookup_step.index(unavailable)
     assert lookup_step.index(unavailable) < lookup_step.index(lookup_error) < lookup_step.index(empty_result)

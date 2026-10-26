@@ -13,17 +13,30 @@ import argparse
 import json
 import os
 import sys
+from typing import TypedDict
 
 from policy_checks import check_draft_compliance, ground_truth_figures
 from policy_engine import evaluate_deal_policy
-from state_manager import read_state, state_path, validate_state
+from state_manager import JsonValue, read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
                    "downside_case", "financials_source")
 
 
-def compute(company, proposal, draft_path=None, deal_type=None):
+class PolicyCheckOutput(TypedDict):
+    policy_state: dict[str, JsonValue]
+    reasons: list[str]
+    compliant: bool
+    cam_data_present: bool
+
+
+def compute(
+    company: str,
+    proposal: str,
+    draft_path: str | None = None,
+    deal_type: str | None = None,
+) -> PolicyCheckOutput:
     """Returns {"policy_state", "reasons", "compliant", "cam_data_present"}.
 
     Call without `draft_path` before a draft exists (e.g. /assemble
@@ -57,7 +70,11 @@ def compute(company, proposal, draft_path=None, deal_type=None):
     return compute_from_state(state, draft_path=draft_path, deal_type=deal_type)
 
 
-def compute_from_state(state, draft_path=None, deal_type=None):
+def compute_from_state(
+    state: dict[str, JsonValue],
+    draft_path: str | None = None,
+    deal_type: str | None = None,
+) -> PolicyCheckOutput:
     """The same answer as compute(), for a state already read and validated by the caller.
 
     Lets a caller that has chosen one exact dated state (rather than the newest) evaluate that state, with no

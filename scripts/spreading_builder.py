@@ -436,7 +436,7 @@ def describe_undefined_ratio(metric: str, period_financials: object) -> str | No
     return None
 
 
-def evaluate_financial_model(multi_period_data: Mapping[str, Any] | None) -> dict[str, Any]:
+def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[str, Any]:
     """Programmatically evaluate the same row chains spreading_builder.py
     writes as Excel formulas, for each period in `multi_period_data` --
     historical ("FY-2", "FY-1", "FY-Current") and forward ("FY+1", "FY+2",
@@ -683,7 +683,7 @@ def apply_stress_shocks(base_case_raw: Mapping[str, Any] | None, stress_assumpti
 
 
 def evaluate_downside_case(
-    multi_period_data: Mapping[str, Any] | None,
+    multi_period_data: dict[str, Any] | None,
     stress_assumptions: Mapping[str, Any] | None,
     forward_periods: Collection[str] = DEFAULT_FORWARD_PERIODS,
 ) -> dict[str, Any]:
@@ -917,18 +917,17 @@ def _formula_or_supplied(
     value they gave for this row, or blank if they gave none -- never a formula, which would recompute it from raw
     cells and show a figure nobody supplied), whose downside is unavailable (blank), or whose downside the framework
     derived from analyst-supplied lines (blank for a row that reads a line nobody supplied)."""
-    supplied_downside = supplied_downside_values or {}
-    derived_downside = derived_downside_rows or {}
-    supplied_base = supplied_values or {}
     if col in DOWNSIDE_COL_TO_PERIOD_KEY:
         period = DOWNSIDE_COL_TO_PERIOD_KEY[col]
+        supplied_downside = supplied_downside_values or {}
         if period in supplied_downside:
             return supplied_downside[period].get(label)
         if period in (blank_downside_periods or ()):
             return None
+        derived_downside = derived_downside_rows or {}
         if period in derived_downside and label not in derived_downside[period]:
             return None
-    elif COL_TO_PERIOD_KEY[col] in supplied_base:
+    elif COL_TO_PERIOD_KEY[col] in (supplied_base := supplied_values or {}):
         return supplied_base[COL_TO_PERIOD_KEY[col]].get(label)
     return _resolve_formula(formula_template, row_of, col)
 

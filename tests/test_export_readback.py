@@ -333,6 +333,27 @@ def test_a_changed_style_or_run_formatting_is_reported(deal):
     assert finding["expected"]["style"] != finding["actual"]["style"]
 
 
+def test_a_paragraph_with_no_style_reports_none_instead_of_failing(tmp_path):
+    """python-docx returns no style for a paragraph when the document defines no default paragraph style. The
+    verifier used to raise AttributeError reading `paragraph.style.name`; it now records the style as None, as it
+    already does for a table with no style (the one behaviour change of the Phase 2 annotation of this module)."""
+    from docx.enum.style import WD_STYLE_TYPE
+
+    path = tmp_path / "no_default_paragraph_style.docx"
+    document = docx.Document()
+    document.add_paragraph("Synthetic text")
+    for style in document.styles:
+        if style.type == WD_STYLE_TYPE.PARAGRAPH:
+            style.element.default = False
+    assert document.paragraphs[0].style is None  # the precondition: the document really has no paragraph style
+    document.save(path)
+
+    reloaded = docx.Document(path)
+    block = export_readback._paragraph_block(reloaded.part, reloaded.paragraphs[0])
+    assert block["style"] is None
+    assert export_readback.compare_documents(str(path), str(path)) == []
+
+
 def test_a_retargeted_hyperlink_is_reported(deal):
     def retarget(document):
         relationships = document.part.rels

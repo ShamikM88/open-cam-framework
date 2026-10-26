@@ -11,6 +11,7 @@ import os
 import re
 import sys
 from datetime import datetime
+from typing import Any
 
 from docx_builder import check_exportable, export_to_docx
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
@@ -32,7 +33,7 @@ STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "objec
                    "financials_source": "source"}
 
 
-def _raw_financials(financials):
+def _raw_financials(financials: dict[str, Any] | None) -> dict[str, Any]:
     """Reduce a `financials`-shaped dict (raw + evaluate_financial_model()'s
     computed subtotals per period, keyed under "raw" -- see
     spreading_builder.evaluate_financial_model) down to just the raw
@@ -50,7 +51,7 @@ def _raw_financials(financials):
     }
 
 
-def _financial_data_from_state(state):
+def _financial_data_from_state(state: dict[str, Any]) -> dict[str, Any]:
     """Select exactly one raw-figure store per period for the workbook.
 
     Historical periods follow `financials_source`: analyst-supplied historical
@@ -74,7 +75,7 @@ def _financial_data_from_state(state):
     return _raw_financials(state.get("financials"))
 
 
-def _downside_financial_data_from_state(state):
+def _downside_financial_data_from_state(state: dict[str, Any]) -> dict[str, Any]:
     """state.json's `downside_case` (see spreading_builder.evaluate_downside_case)
     is `{"financials": {...}, "ratios": {...}}` when stress_assumptions were
     ever supplied for this deal, `{}` otherwise -- either way, reduce its own
@@ -87,12 +88,12 @@ def _downside_financial_data_from_state(state):
     return _raw_financials(downside_financials)
 
 
-def _supplied_row_values(*period_dicts):
+def _supplied_row_values(*period_dicts: object) -> dict[str, int | float | str]:
     """{workbook row label: value} for recorded subtotals and ratios that have a workbook row.
 
     A recorded null ratio is N/A; non-numeric values elsewhere are left blank.
     """
-    values = {}
+    values: dict[str, int | float | str] = {}
     for period_dict in period_dicts:
         for key, value in (period_dict if isinstance(period_dict, dict) else {}).items():
             label = SUPPLIED_ROW_LABELS.get(key)
@@ -105,7 +106,14 @@ def _supplied_row_values(*period_dicts):
     return values
 
 
-def _analyst_forecast_columns(state):
+def _analyst_forecast_columns(
+    state: dict[str, Any],
+) -> tuple[
+    dict[str, dict[str, int | float | str]] | None,
+    dict[str, dict[str, int | float | str]] | None,
+    set[str] | None,
+    dict[str, set[str]] | None,
+]:
     """Return recorded analyst-supplied values and any forward-downside annotations.
 
     Historical periods use recorded values when financials_source is analyst-supplied;
@@ -141,25 +149,30 @@ def _analyst_forecast_columns(state):
 
     downside = state.get("downside_case")
     downside = downside if isinstance(downside, dict) else {}
-    basis = downside.get("basis") if isinstance(downside.get("basis"), dict) else {}
-    downside_financials = downside.get("financials") if isinstance(downside.get("financials"), dict) else {}
-    downside_ratios = downside.get("ratios") if isinstance(downside.get("ratios"), dict) else {}
+    basis = downside.get("basis")
+    basis = basis if isinstance(basis, dict) else {}
+    downside_financials = downside.get("financials")
+    downside_financials = downside_financials if isinstance(downside_financials, dict) else {}
+    downside_ratios = downside.get("ratios")
+    downside_ratios = downside_ratios if isinstance(downside_ratios, dict) else {}
     supplied_downside = {
         period: _supplied_row_values(downside_financials.get(period), downside_ratios.get(period))
         for period, how in basis.items() if how == "analyst-supplied" and period in FORWARD_PERIOD_KEYS
     }
-    unavailable = downside.get("unavailable") if isinstance(downside.get("unavailable"), dict) else {}
+    unavailable = downside.get("unavailable")
+    unavailable = unavailable if isinstance(unavailable, dict) else {}
     lines = state.get("analyst_supplied_financials")
     lines = lines if isinstance(lines, dict) else {}
+    dict_lines = {period: value for period, value in lines.items() if isinstance(value, dict)}
     derived = {
-        period: {name for name, value in (lines.get(period) if isinstance(lines.get(period), dict) else {}).items()
+        period: {name for name, value in dict_lines.get(period, {}).items()
                  if isinstance(value, (int, float)) and not isinstance(value, bool)}
         for period, how in basis.items()
         if how != "analyst-supplied" and period in FORWARD_PERIOD_KEYS and period not in unavailable
     }
     return supplied or None, supplied_downside or None, {p for p in unavailable if p in FORWARD_PERIOD_KEYS}, derived
 
-def _collateral_data_from_state(state):
+def _collateral_data_from_state(state: dict[str, Any]) -> list[Any] | None:
     """state.json's `collateral` is expected to be the flat list of asset
     dicts export_to_xlsx() wants (see FIELD_LABELS / COLLATERAL_HEADERS in
     spreading_builder.py). Anything else (missing, or a different shape from
@@ -170,7 +183,7 @@ def _collateral_data_from_state(state):
     return collateral if isinstance(collateral, list) else None
 
 
-def workbook_inputs_from_state(state):
+def workbook_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
     """The keyword arguments `export_to_xlsx()` receives for this state.
 
     The one place that turns a deal's state into workbook inputs: `export_deal()` writes the workbook from them and
@@ -190,7 +203,14 @@ def workbook_inputs_from_state(state):
     }
 
 
-def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, base_dir=None):
+def export_deal(
+    company: str,
+    proposal: str,
+    deal_type: str,
+    draft_markdown: str,
+    date_str: str | None = None,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> str:
     """Create the dated deal folder, auto-save a new template if this deal
     type has none yet, and export the draft to .docx + .xlsx.
 
@@ -265,7 +285,7 @@ def export_deal(company, proposal, deal_type, draft_markdown, date_str=None, bas
     return output_dir
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> None:
     import argparse
 
     parser = argparse.ArgumentParser(

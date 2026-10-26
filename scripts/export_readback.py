@@ -20,18 +20,22 @@ import os
 import sys
 import tempfile
 from pathlib import PurePosixPath, PureWindowsPath
+from typing import Any, TypeGuard
 
 import docx
 import openpyxl
+from docx.opc.part import Part
+from docx.styles.style import CharacterStyle
 from docx.table import Table
 from docx.text.hyperlink import Hyperlink
 from docx.text.paragraph import Paragraph
+from docx.text.run import Run
 
 from deal_export import STATE_KEYS_READ, workbook_inputs_from_state
 from docx_builder import export_to_docx
 from spreading_builder import export_to_xlsx
 from state_manager import (
-    StateError, find_deal, read_state, sanitize_path_component, state_path, validate_iso_date_str, validate_state,
+    JsonValue, StateError, find_deal, read_state, sanitize_path_component, state_path, validate_iso_date_str, validate_state,
 )
 
 MAX_FINDINGS = 200
@@ -54,35 +58,35 @@ LIMITS = (
 )
 
 
-def _is_number(value):
+def _is_number(value: object) -> TypeGuard[int | float]:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _values_equal(expected, actual):
+def _values_equal(expected: object, actual: object) -> bool:
     if _is_number(expected) and _is_number(actual):
         return math.isclose(expected, actual, rel_tol=NUMERIC_TOLERANCE, abs_tol=NUMERIC_TOLERANCE)
     return type(expected) is type(actual) and expected == actual
 
 
-def _finding(artifact, location, kind, expected, actual):
+def _finding(artifact: str, location: str, kind: object, expected: object, actual: object) -> dict[str, object]:
     return {"artifact": artifact, "location": location, "kind": kind, "expected": expected, "actual": actual}
 
 
-def _load_workbook(path):
+def _load_workbook(path: str) -> "openpyxl.Workbook":
     try:
         return openpyxl.load_workbook(path)
     except Exception as exc:  # openpyxl raises a mix of zip, XML and key errors for a damaged file
         raise ValueError(f"cannot read workbook {path}: {exc}") from exc
 
 
-def _load_document(path):
+def _load_document(path: str) -> "docx.document.Document":
     try:
         return docx.Document(path)
     except Exception as exc:  # python-docx raises a mix of zip, XML and key errors for a damaged file
         raise ValueError(f"cannot read document {path}: {exc}") from exc
 
 
-def _color(color):
+def _color(color: "openpyxl.styles.colors.Color | None") -> list[JsonValue] | None:
     """A colour as a comparable list: its kind (rgb, theme, indexed, auto), that kind's value, and its tint."""
     if color is None:
         return None
@@ -91,15 +95,15 @@ def _color(color):
     return [kind, value, color.tint or 0]
 
 
-def _border(cell):
-    sides = {}
+def _border(cell: "openpyxl.cell.cell.Cell") -> dict[str, JsonValue]:
+    sides: dict[str, JsonValue] = {}
     for name in ("left", "right", "top", "bottom"):
         side = getattr(cell.border, name)
         sides[name] = [side.style, _color(side.color)] if side is not None else None
     return sides
 
 
-def _fill(cell):
+def _fill(cell: "openpyxl.cell.cell.Cell") -> JsonValue:
     fill = cell.fill
     return [fill.fill_type, _color(fill.fgColor), _color(fill.bgColor)] if fill.fill_type else None
 
@@ -120,7 +124,7 @@ CELL_PROPERTIES = (
 )
 
 
-def compare_workbooks(expected_path, actual_path):
+def compare_workbooks(expected_path: str, actual_path: str) -> list[dict[str, object]]:
     """Findings for every difference between two workbooks' sheets, cells, formats, visibility and layout."""
     expected, actual = _load_workbook(expected_path), _load_workbook(actual_path)
     findings = []
@@ -137,7 +141,7 @@ def compare_workbooks(expected_path, actual_path):
     return findings
 
 
-def _compare_sheets(name, expected, actual):
+def _compare_sheets(name: str, expected: "openpyxl.worksheet.worksheet.Worksheet", actual: "openpyxl.worksheet.worksheet.Worksheet") -> list[dict[str, object]]:
     findings = []
     rows = max(expected.max_row, actual.max_row)
     columns = max(expected.max_column, actual.max_column)
@@ -159,7 +163,7 @@ def _compare_sheets(name, expected, actual):
     return findings
 
 
-def _reference(part):
+def _reference(part: object) -> Any:
     """The cell range a chart part (a series' values, categories or name) points at, or None."""
     if part is None:
         return None
@@ -169,21 +173,21 @@ def _reference(part):
     return None
 
 
-def _chart_signature(chart):
+def _chart_signature(chart: "openpyxl.chart._chart.ChartBase") -> list[JsonValue]:
     anchor = chart.anchor._from
     series = [[_reference(s.tx), _reference(s.val), _reference(s.cat)] for s in chart.series]
     return [chart.tagname, anchor.row, anchor.col, getattr(chart, "grouping", None), getattr(chart, "type", None),
             series]
 
 
-def _sheet_charts(sheet):
+def _sheet_charts(sheet: "openpyxl.worksheet.worksheet.Worksheet") -> list[list[JsonValue]]:
     return sorted((_chart_signature(chart) for chart in sheet._charts), key=lambda signature: signature[1:3])
 
 
-def _compare_sheet_layout(name, expected, actual):
+def _compare_sheet_layout(name: str, expected: "openpyxl.worksheet.worksheet.Worksheet", actual: "openpyxl.worksheet.worksheet.Worksheet") -> list[dict[str, object]]:
     findings = []
 
-    def compare(location, kind, want, have):
+    def compare(location: str, kind: str, want: object, have: object) -> None:
         if not _values_equal(want, have):
             findings.append(_finding("workbook", f"{name}!{location}", kind, want, have))
 
@@ -210,15 +214,15 @@ def _compare_sheet_layout(name, expected, actual):
     return findings
 
 
-def _text_value(value):
+def _text_value(value: object) -> str | None:
     return None if value is None else str(value)
 
 
-def _points(length):
+def _points(length: "docx.shared.Length | None") -> float | None:
     return None if length is None else length.pt
 
 
-def _run_signature(run):
+def _run_signature(run: Run) -> list[JsonValue]:
     font = run.font
     color = font.color
     rgb = theme = None
@@ -230,8 +234,8 @@ def _run_signature(run):
             bool(font.hidden)]
 
 
-def _paragraph_block(part, paragraph):
-    parts = []
+def _paragraph_block(part: Part, paragraph: Paragraph) -> dict[str, object]:
+    parts: list[JsonValue] = []
     for item in paragraph.iter_inner_content():
         if isinstance(item, Hyperlink):
             parts.append(["link", item.url, [_run_signature(run) for run in item.runs]])
@@ -244,7 +248,7 @@ def _paragraph_block(part, paragraph):
     alt_texts = list(paragraph._p.xpath(".//wp:docPr/@descr"))
     extents = [[extent.get("cx"), extent.get("cy")] for extent in paragraph._p.xpath(".//wp:extent")]
     layout = paragraph.paragraph_format
-    return {"type": "paragraph", "style": paragraph.style.name, "parts": parts, "image_hashes": images,
+    return {"type": "paragraph", "style": paragraph.style.name if paragraph.style is not None else None, "parts": parts, "image_hashes": images,
             "image_alt_text": alt_texts, "image_extents": extents,
             "layout": [_text_value(paragraph.alignment), _points(layout.left_indent), _points(layout.space_before),
                        _points(layout.space_after), _text_value(layout.line_spacing)]}
@@ -258,12 +262,12 @@ CELL_LAYOUT_XPATH = ("./w:tcPr/w:tcW | ./w:tcPr/w:shd | ./w:tcPr/w:vAlign | ./w:
                      "./w:tcPr/w:vMerge | ./w:tcPr/w:tcBorders/*")
 
 
-def _layout_properties(element, xpath):
+def _layout_properties(element: "docx.oxml.xmlchemy.BaseOxmlElement", xpath: str) -> list[list[object]]:
     return [[node.tag.rsplit("}", 1)[-1], sorted((key.rsplit("}", 1)[-1], value) for key, value in node.attrib.items())]
             for node in element.xpath(xpath)]
 
 
-def _table_block(part, table):
+def _table_block(part: Part, table: Table) -> dict[str, object]:
     return {"type": "table", "style": table.style.name if table.style is not None else None,
             "layout": _layout_properties(table._tbl, TABLE_LAYOUT_XPATH),
             "rows": [[{"layout": _layout_properties(cell._tc, CELL_LAYOUT_XPATH),
@@ -271,7 +275,7 @@ def _table_block(part, table):
                       for cell in row.cells] for row in table.rows]}
 
 
-def _blocks(element, parent, part):
+def _blocks(element: "docx.oxml.xmlchemy.BaseOxmlElement", parent: "docx.document.Document | docx.section._BaseHeaderFooter", part: Part) -> list[dict[str, object]]:
     """The paragraphs and tables directly under `element` (the body, a header or a footer), in order."""
     blocks = []
     for child in element.iterchildren():
@@ -283,14 +287,14 @@ def _blocks(element, parent, part):
     return blocks
 
 
-def _story_signature(story):
+def _story_signature(story: "docx.section._BaseHeaderFooter") -> dict[str, object]:
     """A header or footer: whether it is inherited from the previous section, and otherwise its own content."""
     if story.is_linked_to_previous:
         return {"linked": True}
     return {"linked": False, "blocks": _blocks(story._element, story, story.part)}
 
 
-def _section_block(section):
+def _section_block(section: "docx.section.Section") -> dict[str, object]:
     return {"type": "section", "page": [_points(section.page_width), _points(section.page_height),
                                         _text_value(section.orientation)],
             "margins": [_points(section.left_margin), _points(section.right_margin), _points(section.top_margin),
@@ -303,7 +307,7 @@ def _section_block(section):
             "even_page_footer": _story_signature(section.even_page_footer)}
 
 
-def _style_signature(style):
+def _style_signature(style: CharacterStyle) -> list[JsonValue]:
     font, layout = style.font, getattr(style, "paragraph_format", None)
     color = font.color
     rgb = theme = None
@@ -317,7 +321,7 @@ def _style_signature(style):
     return signature
 
 
-def _used_style_names(value, found):
+def _used_style_names(value: object, found: set[str]) -> set[str]:
     """Every paragraph and table style name that appears in the compared blocks and sections."""
     if isinstance(value, dict):
         if isinstance(value.get("style"), str):
@@ -330,19 +334,19 @@ def _used_style_names(value, found):
     return found
 
 
-def _style_definitions(document, names):
+def _style_definitions(document: "docx.document.Document", names: set[str]) -> dict[str, list[JsonValue]]:
     return {style.name: _style_signature(style) for style in document.styles if style.name in names}
 
 
-def _document_sections(document):
+def _document_sections(document: "docx.document.Document") -> list[dict[str, object]]:
     return [_section_block(section) for section in document.sections]
 
 
-def _document_blocks(document):
+def _document_blocks(document: "docx.document.Document") -> list[dict[str, object]]:
     return _blocks(document.element.body, document, document.part)
 
 
-def compare_documents(expected_path, actual_path):
+def compare_documents(expected_path: str, actual_path: str) -> list[dict[str, object]]:
     """Findings for every difference between two documents' body blocks, in order."""
     expected_document, actual_document = _load_document(expected_path), _load_document(actual_path)
     expected, actual = _document_blocks(expected_document), _document_blocks(actual_document)
@@ -371,7 +375,7 @@ def compare_documents(expected_path, actual_path):
     return findings
 
 
-def _approved_draft(state, deal_folder, base_dir):
+def _approved_draft(state: dict[str, JsonValue], deal_folder: str, base_dir: str | os.PathLike[str] | None) -> str:
     """The approved draft's path: repository-relative, a regular file inside the deal's own dated folder."""
     recorded = state.get("approved_draft_path")
     if not isinstance(recorded, str) or not recorded.strip():
@@ -392,12 +396,12 @@ def _approved_draft(state, deal_folder, base_dir):
     return path
 
 
-def _require_file(path, what):
+def _require_file(path: str, what: str) -> None:
     if not os.path.isfile(path):
         raise StateError(f"the {what} {path} does not exist; nothing to compare")
 
 
-def verify_deal(company, proposal, date_str=None, base_dir=None):
+def verify_deal(company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None) -> dict[str, object]:
     """Compare this deal's exported workbook and document with what its record regenerates. Returns the report."""
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
@@ -448,7 +452,7 @@ def verify_deal(company, proposal, date_str=None, base_dir=None):
     }
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(

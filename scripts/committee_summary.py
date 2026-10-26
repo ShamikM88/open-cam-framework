@@ -35,8 +35,8 @@ class CommitteeSummaryData(TypedDict):
     proposal: str
     date: str | None
     state: dict[str, Any]
-    # The producer in policy_engine owns this payload and exports no type on current main.
-    policy: Any
+    # The policy payload's keys are owned by policy_engine, which exports no type yet; it is typed there (Phase 2).
+    policy: dict[str, Any]
     manifest_count: int
     sources_declared: str
     sources_missing: bool

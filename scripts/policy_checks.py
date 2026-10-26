@@ -18,7 +18,7 @@ import math
 import re
 import sys
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, TypedDict
 
 from draft_lint import DraftContentError, lint_draft
 from template_resolver import cam_template_path
@@ -33,6 +33,19 @@ FENCED_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 CATEGORY_SUFFIX_RE = re.compile(r"\s+risk\s*$", re.IGNORECASE)
 
 
+class UnderwriterOutput(TypedDict):
+    """The fixed envelope parse_underwriter_output() returns; the parsed JSON inside each field stays dynamic."""
+
+    cp_ids_included: list[Any]
+    cs_ids_included: list[Any]
+    risk_categories_covered: dict[str, Any]
+    reported_figures: dict[str, Any]
+    downside_breaches_acknowledged: list[Any]
+    sources: list[Any]
+    financials_source_disclosed: bool
+    credit_policy_considered: bool
+
+
 def normalize_category(category: object) -> str:
     """Fixed string transform (not semantic judgment): lowercase, strip a
     trailing "risk" suffix, trim whitespace -- so "Market Risk" and "Market"
@@ -41,7 +54,7 @@ def normalize_category(category: object) -> str:
     return CATEGORY_SUFFIX_RE.sub("", str(category).strip()).strip().lower()
 
 
-def parse_underwriter_output(draft_text: str | None) -> dict[str, Any]:
+def parse_underwriter_output(draft_text: str | None) -> UnderwriterOutput:
     """Extract the Underwriter's trailing structured JSON block
     ({"cp_ids_included": [...], "cs_ids_included": [...],
     "risk_categories_covered": {...}, "reported_figures": {...},

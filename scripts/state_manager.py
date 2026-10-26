@@ -31,10 +31,10 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from datetime import date, datetime
 from types import TracebackType
-from typing import Any, Self, overload
+from typing import Any, Literal, Self, overload
 
 from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 
@@ -331,7 +331,7 @@ def _problems_with_periods(label: str, value: object) -> list[str]:
 
 
 def validate_state(
-    state: object, keys: Iterable[str] | Mapping[str, str] | None = None, path: str = "state.json",
+    state: object, keys: Iterable[str] | dict[str, str] | None = None, path: str = "state.json",
 ) -> dict[str, Any]:
     """Raise StateShapeError, naming every offending key and the type it must have, if `state` (a parsed state.json)
     is not usable. The top level must be an object. `keys` selects what to check: None means every key in
@@ -400,7 +400,19 @@ _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def validate_iso_date_str(value: str, field_name: str = "date_str", require_shape: bool = True) -> str:
+@overload
+def validate_iso_date_str(value: str, field_name: str = "date_str", require_shape: Literal[True] = True) -> str: ...
+
+
+@overload
+def validate_iso_date_str(value: object, field_name: str = "date_str", *, require_shape: Literal[False]) -> object: ...
+
+
+@overload
+def validate_iso_date_str(value: object, field_name: str = "date_str", require_shape: bool = True) -> object: ...
+
+
+def validate_iso_date_str(value: object, field_name: str = "date_str", require_shape: bool = True) -> object:
     """Validate ISO-shaped dates against the calendar.
 
     Strict callers require the exact YYYY-MM-DD shape and a real calendar date. With
@@ -916,7 +928,7 @@ def state_path(
 
 def read_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
-    keys: Iterable[str] | Mapping[str, str] = (),
+    keys: Iterable[str] | dict[str, str] | None = (),
 ) -> dict[str, Any] | None:
     """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
 

@@ -68,7 +68,7 @@ def _values_equal(expected: object, actual: object) -> bool:
     return type(expected) is type(actual) and expected == actual
 
 
-def _finding(artifact: str, location: str, kind: object, expected: object, actual: object) -> dict[str, object]:
+def _finding(artifact: str, location: str, kind: str, expected: object, actual: object) -> dict[str, object]:
     return {"artifact": artifact, "location": location, "kind": kind, "expected": expected, "actual": actual}
 
 
@@ -163,13 +163,14 @@ def _compare_sheets(name: str, expected: "openpyxl.worksheet.worksheet.Worksheet
     return findings
 
 
-def _reference(part: object) -> Any:
+def _reference(part: object) -> str | None:
     """The cell range a chart part (a series' values, categories or name) points at, or None."""
     if part is None:
         return None
     for source in (getattr(part, "numRef", None), getattr(part, "strRef", None)):
         if source is not None:
-            return source.f
+            reference = source.f
+            return reference if isinstance(reference, str) else None
     return None
 
 
@@ -356,7 +357,7 @@ def compare_documents(expected_path: str, actual_path: str) -> list[dict[str, ob
     for index in range(min(len(expected), len(actual))):
         want, have = expected[index], actual[index]
         if want != have:
-            findings.append(_finding("document", f"block {index + 1}", want["type"], want, have))
+            findings.append(_finding("document", f"block {index + 1}", str(want["type"]), want, have))
     want_sections, have_sections = _document_sections(expected_document), _document_sections(actual_document)
     # A style used by only one of the two is already a difference in the blocks above; here, a style both use must
     # still be defined alike (a heading restyled to one-point white text changes no paragraph, only its style).

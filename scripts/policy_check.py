@@ -13,7 +13,7 @@ import argparse
 import json
 import os
 import sys
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from policy_checks import check_draft_compliance, ground_truth_figures
 from policy_engine import evaluate_deal_policy
@@ -71,7 +71,7 @@ def compute(
 
 
 def compute_from_state(
-    state: dict[str, JsonValue],
+    state: dict[str, Any],
     draft_path: str | None = None,
     deal_type: str | None = None,
 ) -> PolicyCheckOutput:

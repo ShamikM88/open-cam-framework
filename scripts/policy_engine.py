@@ -36,6 +36,8 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 """
 import hashlib
 import re
+from collections.abc import Iterable
+from typing import Any
 
 from financial_conventions import PERCENT_TYPE_RATIOS
 from numeric_validation import validate_finite_numbers
@@ -72,7 +74,7 @@ STANDARD_CONDITIONS_SUBSEQUENT = [
 ]
 
 
-def _slugify(value):
+def _slugify(value: object) -> str:
     """Deterministic identifier fragment: uppercase, non-alphanumeric runs
     collapsed to a single "-", no leading/trailing "-". The same input
     always produces the same fragment, which is what makes a `cp_id` built
@@ -90,7 +92,10 @@ def _slugify(value):
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12].upper()
 
 
-def _evaluate_covenant(covenant, ratios, financials=None, recorded_view=DEFAULT_COVENANT_BASIS):
+def _evaluate_covenant(
+    covenant: dict[str, Any], ratios: dict[str, Any], financials: dict[str, Any] | None = None,
+    recorded_view: str = DEFAULT_COVENANT_BASIS,
+) -> dict[str, Any]:
     """One covenant's PASS/FAIL/UNRESOLVABLE result against `ratios`
     (a single period's ratios dict, e.g. state.json's ratios["FY-Current"]).
     `financials` is that same period's `financials` dict, used only to explain WHY a ratio is N/A.
@@ -130,7 +135,7 @@ def _evaluate_covenant(covenant, ratios, financials=None, recorded_view=DEFAULT_
     """
     metric = covenant.get("metric")
     covenant_type = covenant.get("type")
-    threshold = covenant.get("threshold")
+    threshold: object = covenant.get("threshold")
     basis = covenant.get("basis")
     basis_stated = basis is not None
     if not basis_stated:
@@ -157,11 +162,10 @@ def _evaluate_covenant(covenant, ratios, financials=None, recorded_view=DEFAULT_
                             "figures for it")
         return result
 
-    threshold_is_numeric = isinstance(threshold, (int, float)) and not isinstance(threshold, bool)
     if covenant_type not in ("minimum", "maximum"):
         result["reason"] = f"unrecognized covenant type {covenant_type!r} (expected 'minimum' or 'maximum')"
         return result
-    if not threshold_is_numeric:
+    if not (isinstance(threshold, (int, float)) and not isinstance(threshold, bool)):
         result["reason"] = "the covenant threshold is missing or not a number"
         return result
     if metric not in ratios:
@@ -208,7 +212,7 @@ def _evaluate_covenant(covenant, ratios, financials=None, recorded_view=DEFAULT_
     return result
 
 
-def _unique_id(prefix, base_slug, used_ids):
+def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
     """Collision-avoiding id builder shared by every CP/CS generator below:
     produce "<prefix>-<base_slug>", and if that's already in `used_ids`
     append a numeric suffix (-2, -3, ...) until it's unique. `used_ids` is
@@ -227,7 +231,9 @@ def _unique_id(prefix, base_slug, used_ids):
     return candidate
 
 
-def _evaluate_security(collateral, security_package):
+def _evaluate_security(
+    collateral: Iterable[dict[str, Any]], security_package: Iterable[dict[str, Any]],
+) -> tuple[list[str], list[dict[str, str]]]:
     """Cross-reference collateral assets against the security package taken
     over them, joined on asset_id <-> secures_asset_id.
 
@@ -244,7 +250,7 @@ def _evaluate_security(collateral, security_package):
     collateral_by_id = {
         asset.get("asset_id"): asset for asset in collateral if asset.get("asset_id")
     }
-    charges_by_asset_id = {}
+    charges_by_asset_id: dict[Any, list[dict[str, Any]]] = {}
     for charge in security_package:
         asset_id = charge.get("secures_asset_id")
         if asset_id:
@@ -259,9 +265,9 @@ def _evaluate_security(collateral, security_package):
     # "...-AST-001-2") could otherwise collide with a *different* asset
     # whose own id happens to naturally slugify to that exact string (see
     # _unique_id()'s own docstring for the general form of this).
-    used_ids = set()
+    used_ids: set[str] = set()
 
-    def unique_cp_id(prefix, base_slug):
+    def unique_cp_id(prefix: str, base_slug: str) -> str:
         return _unique_id(prefix, base_slug, used_ids)
 
     for asset_id in collateral_by_id:
@@ -325,7 +331,7 @@ def _evaluate_security(collateral, security_package):
     return gaps, cps
 
 
-def _guarantee_cps(guarantees):
+def _guarantee_cps(guarantees: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     """One CP per guarantee. `cp_id` is keyed on an explicit `guarantee_id`
     when supplied (and actually present -- a falsy-but-real id like `0` is
     honored, not treated as absent), otherwise on the provider -- unchanged
@@ -351,13 +357,13 @@ def _guarantee_cps(guarantees):
     supply this guarantee's own stable `guarantee_id` explicitly rather
     than relying on positional disambiguation to keep that identity fixed.
     """
-    def has_explicit_id(guarantee):
+    def has_explicit_id(guarantee: dict[str, Any]) -> bool:
         guarantee_id = guarantee.get("guarantee_id")
         return guarantee_id is not None and not (
             isinstance(guarantee_id, str) and not guarantee_id.strip()
         )
 
-    used_ids = set()
+    used_ids: set[str] = set()
     cps = []
     for guarantee in guarantees:
         provider = guarantee.get("provider", "")
@@ -392,7 +398,7 @@ def _guarantee_cps(guarantees):
     return cps
 
 
-def _covenant_compliance_cs(covenants):
+def _covenant_compliance_cs(covenants: list[dict[str, Any]] | None) -> list[dict[str, str]]:
     """One CS for the whole deal when `covenants` is non-empty -- not one
     per covenant. The underlying obligation (certify ongoing compliance
     with the covenant package under the Facility Agreement) is a single
@@ -414,7 +420,7 @@ def _covenant_compliance_cs(covenants):
     }]
 
 
-def _security_reconfirmation_cs(security_package):
+def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     """One CS per currently-Perfected charge -- mirrors _evaluate_security()'s
     own per-charge granularity (a multi-charge asset can have more than one
     charge independently reach Perfected status, each its own standing
@@ -427,10 +433,10 @@ def _security_reconfirmation_cs(security_package):
     prefix from every other CS/CP generator), matching _evaluate_security()'s
     own collision-avoidance pattern for the equivalent CP.
     """
-    used_ids = set()
+    used_ids: set[str] = set()
     cs_list = []
 
-    def unique_cs_id(base_slug):
+    def unique_cs_id(base_slug: str) -> str:
         return _unique_id("CS-SEC-REPERFECT", base_slug, used_ids)
 
     for charge in security_package:
@@ -447,20 +453,20 @@ def _security_reconfirmation_cs(security_package):
     return cs_list
 
 
-def _guarantee_standing_cs(guarantees):
+def _guarantee_standing_cs(guarantees: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
     """One CS per guarantee -- mirrors _guarantee_cps()'s own one-per-
     guarantee granularity and id-disambiguation approach (a guarantee's own
     `guarantee_id` when supplied and actually present, else its `provider`,
     suffixed on collision). `used_ids` is scoped to this function only
     (distinct "CS-GUARANTEE-" prefix).
     """
-    def has_explicit_id(guarantee):
+    def has_explicit_id(guarantee: dict[str, Any]) -> bool:
         guarantee_id = guarantee.get("guarantee_id")
         return guarantee_id is not None and not (
             isinstance(guarantee_id, str) and not guarantee_id.strip()
         )
 
-    used_ids = set()
+    used_ids: set[str] = set()
     cs_list = []
     for guarantee in guarantees:
         provider = guarantee.get("provider", "")
@@ -478,8 +484,11 @@ def _guarantee_standing_cs(guarantees):
     return cs_list
 
 
-def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_financials=None,
-                                 downside_financials=None, unavailable=None, recorded_view=DEFAULT_COVENANT_BASIS):
+def _evaluate_downside_covenants(
+    covenants: Iterable[dict[str, Any]], all_ratios: dict[str, Any] | None, downside_ratios: dict[str, Any] | None,
+    base_financials: dict[str, Any] | None = None, downside_financials: dict[str, Any] | None = None,
+    unavailable: dict[str, str] | None = None, recorded_view: str = DEFAULT_COVENANT_BASIS,
+) -> list[dict[str, Any]]:
     """For each covenant, independently re-check it against every forward
     period that has both a base-case and a downside-case ratio set. Where
     the base case PASSes but the downside (stressed) case FAILs, record it
@@ -521,7 +530,10 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     "DOWNSIDE-FY-1-DSCR-2"); a single covenant keeps its existing ID.
     """
     breaches = []
-    used_ids = set()
+    used_ids: set[str] = set()
+    all_ratios = all_ratios or {}
+    downside_ratios = downside_ratios or {}
+    unavailable = unavailable if isinstance(unavailable, dict) else {}
     for period in sorted(downside_ratios or {}):
         if period not in (all_ratios or {}):
             continue
@@ -580,7 +592,10 @@ def _evaluate_downside_covenants(covenants, all_ratios, downside_ratios, base_fi
     return breaches
 
 
-def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None, recorded_view=DEFAULT_COVENANT_BASIS):
+def _evaluate_forward_covenants(
+    covenants: Iterable[dict[str, Any]], all_ratios: object, base_financials: object = None,
+    recorded_view: str = DEFAULT_COVENANT_BASIS,
+) -> list[dict[str, Any]]:
     """Every covenant against every forward BASE-CASE year the deal has projected (issue #176).
 
     Policy: a covenant applies to each forward year (`FY+1`, `FY+2`, `FY+3`) that has a recorded, non-empty ratio
@@ -602,7 +617,7 @@ def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None, rec
     """
     if not isinstance(all_ratios, dict):
         return []
-    used_ids = set()
+    used_ids: set[str] = set()
     results = []
     for period in FORWARD_PERIOD_KEYS:
         period_ratios = all_ratios.get(period)
@@ -618,14 +633,14 @@ def _evaluate_forward_covenants(covenants, all_ratios, base_financials=None, rec
     return results
 
 
-def _period_dict(financials, period):
+def _period_dict(financials: object, period: str) -> dict[str, Any] | None:
     """One period's `financials` dict, or None if `financials` is absent or not shaped like {period: {...}} --
     it only feeds an explanatory sentence, so a malformed value must never turn into a new failure here."""
     value = financials.get(period) if isinstance(financials, dict) else None
     return value if isinstance(value, dict) else None
 
 
-def evaluate_deal_policy(state_dict):
+def evaluate_deal_policy(state_dict: dict[str, Any] | None) -> dict[str, Any]:
     """Evaluate one deal's state against deterministic credit policy rules.
 
     Reads (all optional, default to empty): `ratios` (the full multi-period

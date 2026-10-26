@@ -135,7 +135,7 @@ def _evaluate_covenant(
     """
     metric = covenant.get("metric")
     covenant_type = covenant.get("type")
-    threshold: Any = covenant.get("threshold")
+    threshold: object = covenant.get("threshold")
     basis = covenant.get("basis")
     basis_stated = basis is not None
     if not basis_stated:
@@ -162,11 +162,10 @@ def _evaluate_covenant(
                             "figures for it")
         return result
 
-    threshold_is_numeric = isinstance(threshold, (int, float)) and not isinstance(threshold, bool)
     if covenant_type not in ("minimum", "maximum"):
         result["reason"] = f"unrecognized covenant type {covenant_type!r} (expected 'minimum' or 'maximum')"
         return result
-    if not threshold_is_numeric:
+    if not (isinstance(threshold, (int, float)) and not isinstance(threshold, bool)):
         result["reason"] = "the covenant threshold is missing or not a number"
         return result
     if metric not in ratios:

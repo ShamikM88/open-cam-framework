@@ -34,7 +34,7 @@ import time
 from collections.abc import Iterable
 from datetime import date, datetime
 from types import TracebackType
-from typing import Any, Literal, Self, overload
+from typing import Any, Self, overload
 
 from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 
@@ -401,11 +401,7 @@ _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 @overload
-def validate_iso_date_str(value: str, field_name: str = "date_str", require_shape: Literal[True] = True) -> str: ...
-
-
-@overload
-def validate_iso_date_str(value: object, field_name: str = "date_str", *, require_shape: Literal[False]) -> object: ...
+def validate_iso_date_str(value: str, field_name: str = "date_str", require_shape: bool = True) -> str: ...
 
 
 @overload

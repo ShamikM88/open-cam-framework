@@ -17,6 +17,8 @@ import json
 import math
 import re
 import sys
+from collections.abc import Iterable
+from typing import Any
 
 from draft_lint import DraftContentError, lint_draft
 from template_resolver import cam_template_path
@@ -31,7 +33,7 @@ FENCED_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 CATEGORY_SUFFIX_RE = re.compile(r"\s+risk\s*$", re.IGNORECASE)
 
 
-def normalize_category(category):
+def normalize_category(category: object) -> str:
     """Fixed string transform (not semantic judgment): lowercase, strip a
     trailing "risk" suffix, trim whitespace -- so "Market Risk" and "Market"
     both normalize to "market" and compare equal without needing the
@@ -39,7 +41,7 @@ def normalize_category(category):
     return CATEGORY_SUFFIX_RE.sub("", str(category).strip()).strip().lower()
 
 
-def parse_underwriter_output(draft_text):
+def parse_underwriter_output(draft_text: str | None) -> dict[str, Any]:
     """Extract the Underwriter's trailing structured JSON block
     ({"cp_ids_included": [...], "cs_ids_included": [...],
     "risk_categories_covered": {...}, "reported_figures": {...},
@@ -105,7 +107,7 @@ def parse_underwriter_output(draft_text):
     }
 
 
-def compute_collateral_cover_pct(collateral):
+def compute_collateral_cover_pct(collateral: Iterable[dict[str, Any]] | None) -> float | None:
     """Aggregate collateral cover %, matching the same
     collateral_value/exposure ratio spreading_builder.py's Collateral &
     Exposure sheet computes as an Excel formula -- expressed as a
@@ -140,7 +142,10 @@ def compute_collateral_cover_pct(collateral):
     return cover_pct if math.isfinite(cover_pct) else None
 
 
-def ground_truth_figures(financials, ratios, collateral, downside_case=None):
+def ground_truth_figures(
+    financials: dict[str, Any] | None, ratios: dict[str, Any] | None,
+    collateral: Iterable[dict[str, Any]] | None, downside_case: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
     ratio (dscr, gross_leverage, net_debt_to_ebitda, current_ratio, gearing,
@@ -233,23 +238,25 @@ def ground_truth_figures(financials, ratios, collateral, downside_case=None):
     return truth
 
 
-def values_match(reported_value, actual_value, relative_tolerance=0.005):
+def values_match(reported_value: Any, actual_value: Any, relative_tolerance: float = 0.005) -> bool:
     """A fixed 0.5% relative tolerance, applied consistently to every
     metric (ratios and currency amounts alike) rather than picking a
     different rule per metric. Guards the zero case explicitly since a
     relative tolerance is undefined against an actual value of exactly 0.
     """
     try:
-        reported_value = float(reported_value)
-        actual_value = float(actual_value)
+        reported = float(reported_value)
+        actual = float(actual_value)
     except (TypeError, ValueError):
         return False
-    if actual_value == 0:
-        return abs(reported_value) < 1e-9
-    return abs(reported_value - actual_value) / abs(actual_value) <= relative_tolerance
+    if actual == 0:
+        return abs(reported) < 1e-9
+    return abs(reported - actual) / abs(actual) <= relative_tolerance
 
 
-def check_reported_figures(reported_figures, ground_truth_figures_dict):
+def check_reported_figures(
+    reported_figures: dict[str, Any] | None, ground_truth_figures_dict: dict[str, Any],
+) -> list[str]:
     """Compare every figure the Underwriter's structured output declares
     against the actual computed ground truth. A key with no corresponding
     computed value is flagged UNRESOLVABLE_REPORTED_FIGURE -- the same
@@ -275,8 +282,10 @@ def check_reported_figures(reported_figures, ground_truth_figures_dict):
     return reasons
 
 
-def check_draft_compliance(draft_text, policy_state, ground_truth_figures_dict, financials_source=None,
-                            credit_policy_present=None, deal_type=None):
+def check_draft_compliance(
+    draft_text: str | None, policy_state: dict[str, Any], ground_truth_figures_dict: dict[str, Any],
+    financials_source: str | None = None, credit_policy_present: bool | None = None, deal_type: str | None = None,
+) -> list[str]:
     """The single source of truth for "why would this draft be
     code-enforced-REJECTED": covenant FAIL/UNRESOLVABLE, any security gap,
     and -- only when a draft is actually being audited -- missing required

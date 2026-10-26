@@ -1,4 +1,7 @@
+import os
 import re
+from collections.abc import Collection, Mapping, Sequence
+from typing import Any
 
 import openpyxl
 from openpyxl.chart import BarChart, Reference, Series
@@ -57,7 +60,7 @@ CHART_SPACING_ROWS = 18
 # references: every formula names what it depends on, and its actual sheet
 # position is derived, never hardcoded.
 #
-def _ratio(numerator, denominator, scale=""):
+def _ratio(numerator: str, denominator: str, scale: str = "") -> str:
     """A ratio cell: the quotient only when the denominator is POSITIVE, "N/A" otherwise (issue #169). IFERROR alone
     only caught a zero denominator; a negative one (negative EBITDA or equity) produced a finite negative ratio that
     read as, and passed, a maximum covenant. Mirrors safe_div() in evaluate_financial_model() exactly."""
@@ -68,7 +71,7 @@ def _ratio(numerator, denominator, scale=""):
 # purposes only. It must never be referenced by the Profit Before Tax / Net
 # Profit chain below -- principal repayments are a balance-sheet/financing
 # event, not a P&L expense, and folding it into PBT would misstate earnings.
-PNL_ROWS = [
+PNL_ROWS: list[tuple[str, str | None]] = [
     ("Revenue", None),
     ("Cost of Goods Sold", None),
     ("Gross Profit", "={Revenue}-{Cost of Goods Sold}"),
@@ -100,7 +103,7 @@ PNL_ROWS = [
 # DSCR lives here (references only P&L rows above it) rather than next to
 # Gross Leverage, which needs Balance Sheet debt rows that don't exist yet
 # at this point in the sheet -- see KEY_METRIC_ROWS below.
-RATIO_ROWS = [
+RATIO_ROWS: list[tuple[str, str | None]] = [
     ("DSCR", _ratio("{EBITDA}", "{Interest Paid}+{Scheduled Principal Repayment}")),
     ("EBIT/Interest", _ratio("{Operating Profit}", "{Interest Paid}")),
     ("EBITDA/Interest", _ratio("{EBITDA}", "{Interest Paid}")),
@@ -118,7 +121,7 @@ RATIO_ROWS = [
     ("FCF Conversion %", _ratio("{FCF}", "{EBITDA}")),
 ]
 
-BALANCE_SHEET_ROWS = [
+BALANCE_SHEET_ROWS: list[tuple[str, str | None]] = [
     ("Tangible Fixed Assets", None),
     ("Intangible Fixed Assets", None),
     ("Investments", None),
@@ -151,7 +154,7 @@ BALANCE_SHEET_ROWS = [
 # it needs the interest-bearing debt rows above, which don't exist yet inside
 # RATIO_ROWS -- putting it there would be a forward reference and fail
 # validate_row_formulas().
-KEY_METRIC_ROWS = [
+KEY_METRIC_ROWS: list[tuple[str, str | None]] = [
     ("Tangible Net Worth (TNW)", "={Total Equity}-{Intangible Fixed Assets}"),
     ("TNW + Loan Notes / Preference Shares",
      "={Tangible Net Worth (TNW)}+{Loan Notes / Preference Shares}"),
@@ -173,7 +176,7 @@ KEY_METRIC_ROWS = [
 # here rather than None/FIELD_LABELS (see issue #99: these three used to
 # have formula_template=None with no FIELD_LABELS entry to populate them
 # from either, so the exported workbook left them permanently blank).
-WORKING_CAPITAL_ROWS = [
+WORKING_CAPITAL_ROWS: list[tuple[str, str | None]] = [
     ("Trade Debtor Days", _ratio("{Accounts Receivable}", "{Revenue}", "*365")),
     ("Trade Creditor Days", _ratio("{Accounts Payable}", "{Cost of Goods Sold}", "*365")),
     ("Stock Days", _ratio("{Stock}", "{Cost of Goods Sold}", "*365")),
@@ -182,7 +185,7 @@ WORKING_CAPITAL_ROWS = [
      '=IFERROR({Trade Debtor Days}+{Stock Days}-{Trade Creditor Days},"N/A")'),
 ]
 
-SECTIONS = [
+SECTIONS: list[tuple[str, list[tuple[str, str | None]]]] = [
     ("Profit & Loss", PNL_ROWS),
     ("Key Ratios", RATIO_ROWS),
     ("Balance Sheet", BALANCE_SHEET_ROWS),
@@ -261,7 +264,7 @@ FIELD_LABELS = {
     "retained_profit": "Retained Profit",
 }
 
-def _build_label_to_field(field_labels):
+def _build_label_to_field(field_labels: Mapping[str, str]) -> dict[str, str]:
     """Reverse of FIELD_LABELS (label -> field), used by
     _write_financial_spreading() to look up which raw field populates a
     given workbook row. Built with an explicit uniqueness check rather than
@@ -272,7 +275,7 @@ def _build_label_to_field(field_labels):
     no error, no test failure, just one field silently never populating its
     row. Fail loudly here instead, at the one place this mapping is built.
     """
-    label_to_field = {}
+    label_to_field: dict[str, str] = {}
     for field, label in field_labels.items():
         if label in label_to_field:
             raise ValueError(
@@ -286,7 +289,7 @@ def _build_label_to_field(field_labels):
 LABEL_REF_RE = re.compile(r"\{([^{}]+)\}")
 
 
-def _row_layout(sections):
+def _row_layout(sections: Sequence[tuple[str, Sequence[tuple[str, str | None]]]]) -> tuple[dict[str, int], list[tuple[int, str, str | None]]]:
     """Compute each row's absolute sheet position from `sections` itself.
 
     Returns (row_of, ordered) where `row_of` maps label -> row number and
@@ -307,14 +310,14 @@ def _row_layout(sections):
     return row_of, ordered
 
 
-def _referenced_labels(formula_template):
+def _referenced_labels(formula_template: str) -> list[str]:
     return [label for label in LABEL_REF_RE.findall(formula_template) if label != "col"]
 
 
-def _resolve_formula(formula_template, row_of, col):
+def _resolve_formula(formula_template: str, row_of: Mapping[str, int], col: str) -> str:
     """Substitute {col} with the column letter and every other {Label} with
     that label's own column+row (e.g. {Revenue} -> "B3")."""
-    def repl(match):
+    def repl(match: re.Match[str]) -> str:
         label = match.group(1)
         if label == "col":
             return col
@@ -322,7 +325,7 @@ def _resolve_formula(formula_template, row_of, col):
     return LABEL_REF_RE.sub(repl, formula_template)
 
 
-def validate_row_formulas(sections=None):
+def validate_row_formulas(sections: Sequence[tuple[str, Sequence[tuple[str, str | None]]]] | None = None) -> None:
     """Confirm every formula in `sections` only references a label that's
     already been written -- never itself or a row that comes later --
     matching the ordering _write_financial_spreading() will actually
@@ -360,18 +363,18 @@ def validate_row_formulas(sections=None):
                 )
 
 
-def _is_number(value):
+def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _subtotal_figure(period_financials, key):
+def _subtotal_figure(period_financials: Mapping[str, Any], key: str) -> float | None:
     """A recorded subtotal (ebitda, total_equity, current_liabilities), or None if it is absent or not a number --
     an analyst-supplied deal may record only some subtotals, or text such as "n/m". Never treated as zero."""
     value = period_financials.get(key)
     return value if _is_number(value) else None
 
 
-def _raw_figure(period_financials, key):
+def _raw_figure(period_financials: Mapping[str, Any], key: str) -> float | None:
     """A raw line item, or None if it cannot be read. Only a framework-computed period carries `raw`; inside it a
     missing item counts as 0, exactly as evaluate_financial_model() reads it (a null too), but text is unreadable."""
     raw = period_financials.get("raw")
@@ -383,8 +386,8 @@ def _raw_figure(period_financials, key):
     return value if _is_number(value) else None
 
 
-def _sum_or_none(*figures):
-    return None if any(figure is None for figure in figures) else sum(figures)
+def _sum_or_none(*figures: float | None) -> float | None:
+    return None if any(figure is None for figure in figures) else sum(figure for figure in figures if figure is not None)
 
 
 # metric -> (display name, [(denominator label, how to read it from one period's `financials` dict), ...]).
@@ -410,7 +413,7 @@ RATIO_DENOMINATORS["EBIT/Interest"] = RATIO_DENOMINATORS["ebit_interest_cover"]
 RATIO_DENOMINATORS["EBITDA/Interest"] = RATIO_DENOMINATORS["ebitda_interest_cover"]
 
 
-def describe_undefined_ratio(metric, period_financials):
+def describe_undefined_ratio(metric: str, period_financials: object) -> str | None:
     """If a RECORDED denominator of `metric` is zero or negative in this period, one sentence naming the metric and the
     denominator, e.g. "gross leverage not meaningful: EBITDA is negative" or "gearing not defined: total equity is
     zero"; otherwise None. None means "cannot say": the metric has no known denominator, every readable denominator is
@@ -433,7 +436,7 @@ def describe_undefined_ratio(metric, period_financials):
     return None
 
 
-def evaluate_financial_model(multi_period_data):
+def evaluate_financial_model(multi_period_data: Mapping[str, Any] | None) -> dict[str, Any]:
     """Programmatically evaluate the same row chains spreading_builder.py
     writes as Excel formulas, for each period in `multi_period_data` --
     historical ("FY-2", "FY-1", "FY-Current") and forward ("FY+1", "FY+2",
@@ -464,7 +467,7 @@ def evaluate_financial_model(multi_period_data):
     for period, raw in (multi_period_data or {}).items():
         raw = raw or {}
 
-        def g(key, raw=raw):  # bound per iteration (B023), though it is only ever called within this one
+        def g(key: str, raw: Mapping[str, Any] = raw) -> Any:  # bound per iteration (B023), though it is only ever called within this one
             return raw.get(key, 0) or 0
 
         revenue = g("revenue")
@@ -526,7 +529,7 @@ def evaluate_financial_model(multi_period_data):
         tangible_net_worth = total_equity - intangible_assets
         total_debt = current_debt + overdraft + long_term_debt + loan_notes
 
-        def safe_div(numerator, denominator):
+        def safe_div(numerator: float, denominator: float) -> float | None:
             """A zero OR NEGATIVE denominator means the ratio is not
             meaningful, so the result is None (N/A), never a number
             (issue #169).
@@ -549,7 +552,7 @@ def evaluate_financial_model(multi_period_data):
             """
             return numerator / denominator if denominator > 0 else None
 
-        def safe_div_days(numerator, denominator):
+        def safe_div_days(numerator: float, denominator: float) -> float | None:
             """Same undefined-denominator discipline as safe_div() above,
             annualized -- e.g. zero Cost of Goods Sold makes Stock Days
             genuinely undefined, not "0 days of stock on hand"."""
@@ -577,7 +580,7 @@ def evaluate_financial_model(multi_period_data):
         stock_days = safe_div_days(stock, cost_of_sales)
         working_capital_cycle_days = (
             trade_debtor_days + stock_days - trade_creditor_days
-            if None not in (trade_debtor_days, stock_days, trade_creditor_days)
+            if trade_debtor_days is not None and stock_days is not None and trade_creditor_days is not None
             else None
         )
 
@@ -621,7 +624,7 @@ def evaluate_financial_model(multi_period_data):
     return result
 
 
-def apply_stress_shocks(base_case_raw, stress_assumptions):
+def apply_stress_shocks(base_case_raw: Mapping[str, Any] | None, stress_assumptions: Mapping[str, Any] | None) -> dict[str, Any]:
     """Derive one forward year's shocked raw-input dict from its
     already-supplied base-case raw figures and a set of explicit,
     deterministic stress assumptions -- never a Python-invented or
@@ -679,7 +682,11 @@ def apply_stress_shocks(base_case_raw, stress_assumptions):
     return shocked
 
 
-def evaluate_downside_case(multi_period_data, stress_assumptions, forward_periods=DEFAULT_FORWARD_PERIODS):
+def evaluate_downside_case(
+    multi_period_data: Mapping[str, Any] | None,
+    stress_assumptions: Mapping[str, Any] | None,
+    forward_periods: Collection[str] = DEFAULT_FORWARD_PERIODS,
+) -> dict[str, Any]:
     """Build the downside (stressed) case for every forward period present
     in `multi_period_data`, by applying apply_stress_shocks() to that
     period's already-supplied base-case raw figures and then re-running
@@ -708,7 +715,11 @@ def evaluate_downside_case(multi_period_data, stress_assumptions, forward_period
     return evaluate_financial_model(shocked_inputs)
 
 
-def _column_headers(supplied_values, supplied_downside_values, blank_downside_periods):
+def _column_headers(
+    supplied_values: Mapping[str, Any] | None,
+    supplied_downside_values: Mapping[str, Any] | None,
+    blank_downside_periods: Collection[str] | None,
+) -> list[str]:
     """PERIOD_HEADERS, with an analyst-supplied or unavailable forward column labelled as such."""
     headers = list(PERIOD_HEADERS)
     for index, col in enumerate(PERIOD_COLS, start=1):
@@ -723,7 +734,7 @@ def _column_headers(supplied_values, supplied_downside_values, blank_downside_pe
     return headers
 
 
-def supported_rows(supplied_fields, sections=None):
+def supported_rows(supplied_fields: Collection[str], sections: Sequence[tuple[str, Sequence[tuple[str, str | None]]]] | None = None) -> set[str]:
     """The computed rows whose every raw input was supplied: the labels of the rows whose formula chain, followed
     through other computed rows, reads only raw lines in `supplied_fields`. The workbook's own formulas are the
     authority on what a row reads, so there is no second copy of them. A formula over a blank raw cell reads it as
@@ -732,7 +743,7 @@ def supported_rows(supplied_fields, sections=None):
     formulas = {label: template for _title, rows in (sections or SECTIONS) for label, template in rows if template}
     memo = {}
 
-    def supported(label):
+    def supported(label: str) -> bool:
         if label not in memo:
             memo[label] = False         # a reference cycle (validate_row_formulas() rejects them) never counts
             memo[label] = all(supported(ref) if ref in formulas else label_to_field.get(ref) in supplied_fields
@@ -742,9 +753,16 @@ def supported_rows(supplied_fields, sections=None):
     return {label for label in formulas if supported(label)}
 
 
-def _write_financial_spreading(wb, row_of, financial_data=None, downside_financial_data=None,
-                               supplied_values=None, supplied_downside_values=None, blank_downside_periods=None,
-                               derived_downside_fields=None):
+def _write_financial_spreading(
+    wb: Any,
+    row_of: Mapping[str, int],
+    financial_data: Mapping[str, Any] | None = None,
+    downside_financial_data: Mapping[str, Any] | None = None,
+    supplied_values: Mapping[str, Mapping[str, Any]] | None = None,
+    supplied_downside_values: Mapping[str, Mapping[str, Any]] | None = None,
+    blank_downside_periods: Collection[str] | None = None,
+    derived_downside_fields: Mapping[str, Collection[str]] | None = None,
+) -> None:
     ws = wb.active
     ws.title = "Financial Spreading"
     ws.append(_column_headers(supplied_values, supplied_downside_values, blank_downside_periods))
@@ -758,7 +776,7 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
         ws.append([section_title] + [None] * len(PERIOD_COLS))
         ws.cell(row=ws.max_row, column=1).font = Font(bold=True, italic=True)
         for label, formula_template in rows:
-            row_values = [label]
+            row_values: list[Any] = [label]
             for col in PERIOD_COLS:
                 if formula_template:
                     row_values.append(_formula_or_supplied(
@@ -788,7 +806,11 @@ def _write_financial_spreading(wb, row_of, financial_data=None, downside_financi
                   blank_downside_periods=blank_downside_periods)
 
 
-def _has_downside_figures(downside_financial_data=None, supplied_downside_values=None, blank_downside_periods=None):
+def _has_downside_figures(
+    downside_financial_data: Mapping[str, Any] | None = None,
+    supplied_downside_values: Mapping[str, Any] | None = None,
+    blank_downside_periods: Collection[str] | None = None,
+) -> bool:
     """True when at least one downside period carries figures the workbook shows: a non-empty raw
     block (framework-derived) or supplied mapping (analyst) for a period the workbook does not mark
     unavailable (blank_downside_periods). The downside chart exists only then (issue #131, D1)."""
@@ -799,7 +821,7 @@ def _has_downside_figures(downside_financial_data=None, supplied_downside_values
     return False
 
 
-def _chart_series(ws, row, first_col, last_col):
+def _chart_series(ws: Any, row: int, first_col: int, last_col: int) -> Series:
     """One chart series for a table row. Values, legend title and categories all
     reference the workbook's own cells (openpyxl Reference / StrRef) -- no value
     is ever copied into the chart (issue #131)."""
@@ -808,7 +830,7 @@ def _chart_series(ws, row, first_col, last_col):
     return series
 
 
-def _column_chart():
+def _column_chart() -> BarChart:
     """A clustered column chart, as the maintainer decided on the manual Excel check
     (issue #131, comment 6278038868, option A). A column, unlike a line, cannot misrepresent
     a text "N/A" or a blank cell as a zero-valued point on a curve. The configuration fixes
@@ -825,8 +847,14 @@ def _column_chart():
     return chart
 
 
-def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supplied_downside_values=None,
-                  blank_downside_periods=None):
+def _write_charts(
+    ws: Any,
+    row_of: Mapping[str, int],
+    last_table_row: int,
+    downside_financial_data: Mapping[str, Any] | None = None,
+    supplied_downside_values: Mapping[str, Any] | None = None,
+    blank_downside_periods: Collection[str] | None = None,
+) -> None:
     """Native charts below the spreading table (issue #131, decisions D1 and option A).
 
     Three clustered column charts: a leverage chart (Gross Leverage and Net Debt / EBITDA)
@@ -875,26 +903,37 @@ def _write_charts(ws, row_of, last_table_row, downside_financial_data=None, supp
         ws.add_chart(downside, f"A{anchor_row + 2 * CHART_SPACING_ROWS}")
 
 
-def _formula_or_supplied(label, formula_template, row_of, col, supplied_values, supplied_downside_values,
-                         blank_downside_periods, derived_downside_rows=None):
+def _formula_or_supplied(
+    label: str,
+    formula_template: str,
+    row_of: Mapping[str, int],
+    col: str,
+    supplied_values: Mapping[str, Mapping[str, Any]] | None,
+    supplied_downside_values: Mapping[str, Mapping[str, Any]] | None,
+    blank_downside_periods: Collection[str] | None,
+    derived_downside_rows: Mapping[str, Collection[str]] | None = None,
+) -> Any:
     """A computed row's cell: the Excel formula, except in a column whose figures were supplied by the analyst (the
     value they gave for this row, or blank if they gave none -- never a formula, which would recompute it from raw
     cells and show a figure nobody supplied), whose downside is unavailable (blank), or whose downside the framework
     derived from analyst-supplied lines (blank for a row that reads a line nobody supplied)."""
+    supplied_downside = supplied_downside_values or {}
+    derived_downside = derived_downside_rows or {}
+    supplied_base = supplied_values or {}
     if col in DOWNSIDE_COL_TO_PERIOD_KEY:
         period = DOWNSIDE_COL_TO_PERIOD_KEY[col]
-        if period in (supplied_downside_values or {}):
-            return supplied_downside_values[period].get(label)
+        if period in supplied_downside:
+            return supplied_downside[period].get(label)
         if period in (blank_downside_periods or ()):
             return None
-        if period in (derived_downside_rows or {}) and label not in derived_downside_rows[period]:
+        if period in derived_downside and label not in derived_downside[period]:
             return None
-    elif COL_TO_PERIOD_KEY[col] in (supplied_values or {}):
-        return supplied_values[COL_TO_PERIOD_KEY[col]].get(label)
+    elif COL_TO_PERIOD_KEY[col] in supplied_base:
+        return supplied_base[COL_TO_PERIOD_KEY[col]].get(label)
     return _resolve_formula(formula_template, row_of, col)
 
 
-def _write_collateral_sheet(wb, collateral_data=None):
+def _write_collateral_sheet(wb: Any, collateral_data: Sequence[Mapping[str, Any]] | None = None) -> None:
     ws = wb.create_sheet("Collateral & Exposure")
     ws.append(COLLATERAL_HEADERS)
     for cell in ws[1]:
@@ -936,7 +975,7 @@ def _write_collateral_sheet(wb, collateral_data=None):
         ws.column_dimensions[col].width = 16
 
 
-def _write_group_basis_sheet(wb, group_basis):
+def _write_group_basis_sheet(wb: Any, group_basis: Mapping[str, Any]) -> None:
     """Disclose case-A source and perimeter metadata without displaying financial figures."""
     ws = wb.create_sheet("Group basis")
     ws.append([
@@ -962,9 +1001,18 @@ def _write_group_basis_sheet(wb, group_basis):
     ws.column_dimensions["B"].width = 72
 
 
-def export_to_xlsx(company, output_path, financial_data=None, collateral_data=None,
-                    downside_financial_data=None, supplied_values=None, supplied_downside_values=None,
-                    blank_downside_periods=None, derived_downside_fields=None, group_basis=None):
+def export_to_xlsx(
+    company: str,
+    output_path: str | os.PathLike[str],
+    financial_data: Mapping[str, Any] | None = None,
+    collateral_data: Sequence[Mapping[str, Any]] | None = None,
+    downside_financial_data: Mapping[str, Any] | None = None,
+    supplied_values: Mapping[str, Mapping[str, Any]] | None = None,
+    supplied_downside_values: Mapping[str, Mapping[str, Any]] | None = None,
+    blank_downside_periods: Collection[str] | None = None,
+    derived_downside_fields: Mapping[str, Collection[str]] | None = None,
+    group_basis: Mapping[str, Any] | None = None,
+) -> None:
     """Build the financial spreading + collateral workbook.
 
     `financial_data` is the same multi-period raw-figure shape consumed by

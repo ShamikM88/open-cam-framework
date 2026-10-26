@@ -31,7 +31,10 @@ import re
 import sys
 import tempfile
 import time
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
+from types import TracebackType
+from typing import Any, Self, overload
 
 from numeric_validation import NonFiniteNumberError, validate_finite_numbers
 
@@ -97,7 +100,7 @@ FINITE_NUMERIC_STATE_KEYS = (
 )
 
 
-def validate_finite_state_numbers(state, path="state.json"):
+def validate_finite_state_numbers(state: object, path: str = "state.json") -> object:
     """Reject non-finite numbers in financial/policy data, without inspecting unrelated state keys."""
     if not isinstance(state, dict):
         return state  # validate_state() reports the existing top-level shape error
@@ -116,7 +119,7 @@ _SHAPE_DESCRIPTIONS = {
 }
 
 
-def _json_type(value):
+def _json_type(value: object) -> str:
     if value is None:
         return "null"
     if isinstance(value, bool):
@@ -139,7 +142,7 @@ _GROUP_BASIS_PERIOD_KEYS = ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3"
 _SOURCE_NOT_CHECKED = object()
 
 
-def _group_basis_problems(value, financials_source=_SOURCE_NOT_CHECKED):
+def _group_basis_problems(value: object, financials_source: object = _SOURCE_NOT_CHECKED) -> list[str]:
     """Return validation problems for the optional group-basis metadata object.
 
     Unknown future fields are intentionally ignored. This object records source,
@@ -154,7 +157,7 @@ def _group_basis_problems(value, financials_source=_SOURCE_NOT_CHECKED):
 
     problems = []
 
-    def required_string(container, key, path):
+    def required_string(container: dict[str, Any], key: str, path: str) -> str | None:
         if key not in container:
             problems.append(f'"{path}" is required')
             return None
@@ -167,7 +170,7 @@ def _group_basis_problems(value, financials_source=_SOURCE_NOT_CHECKED):
             return None
         return item
 
-    def calendar_date(container, key, path):
+    def calendar_date(container: dict[str, Any], key: str, path: str) -> None:
         if key not in container:
             problems.append(f'"{path}" is required')
             return
@@ -252,7 +255,10 @@ def _group_basis_problems(value, financials_source=_SOURCE_NOT_CHECKED):
     return problems
 
 
-def record_group_basis(company, proposal, group_basis_file, perimeter_confirmed=False, date_str=None, base_dir=None):
+def record_group_basis(
+    company: str, proposal: str, group_basis_file: str, perimeter_confirmed: bool = False,
+    date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
     """Record case-A metadata on an existing deal only, without storing or changing figures.
 
     The read/check/write uses the same per-deal lock and shared atomic _merge_and_write
@@ -316,7 +322,7 @@ def record_group_basis(company, proposal, group_basis_file, perimeter_confirmed=
     return {"recorded": True, "state_path": path, "figures_basis": group_basis["figures_basis"]}
 
 
-def _problems_with_periods(label, value):
+def _problems_with_periods(label: str, value: object) -> list[str]:
     """Problems for a `periods` value. A null period is "not recorded" (evaluate_financial_model treats it as empty)."""
     if not isinstance(value, dict):
         return [f'"{label}" must be {_SHAPE_DESCRIPTIONS["periods"]}, found {_json_type(value)}']
@@ -324,7 +330,9 @@ def _problems_with_periods(label, value):
             for period, period_value in value.items() if period_value is not None and not isinstance(period_value, dict)]
 
 
-def validate_state(state, keys=None, path="state.json"):
+def validate_state(
+    state: object, keys: Iterable[str] | Mapping[str, str] | None = None, path: str = "state.json",
+) -> dict[str, Any]:
     """Raise StateShapeError, naming every offending key and the type it must have, if `state` (a parsed state.json)
     is not usable. The top level must be an object. `keys` selects what to check: None means every key in
     STATE_SHAPES; an iterable of names checks just those; a mapping {name: kind} also overrides the kind (deal_export
@@ -380,7 +388,7 @@ def validate_state(state, keys=None, path="state.json"):
     return state
 
 
-def parse_schema_version(value):
+def parse_schema_version(value: object) -> tuple[int, ...]:
     """`"1.10.0"` -> `(1, 10, 0)`. Raises ValueError for anything that is not a MAJOR.MINOR.PATCH string of digits
     -- a non-string (None, a number, a list...), `"1.2"`, `"1.2.3.4"`, `"v1.1.0"`, `" 1.1.0"`, `""`, a negative part."""
     match = _SCHEMA_VERSION_RE.fullmatch(value) if isinstance(value, str) else None
@@ -392,7 +400,7 @@ _UNSAFE_PATH_CHARS_RE = re.compile(r'[\\/:*?"<>|]')
 _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
-def validate_iso_date_str(value, field_name="date_str", require_shape=True):
+def validate_iso_date_str(value: str, field_name: str = "date_str", require_shape: bool = True) -> str:
     """Validate ISO-shaped dates against the calendar.
 
     Strict callers require the exact YYYY-MM-DD shape and a real calendar date. With
@@ -411,7 +419,15 @@ def validate_iso_date_str(value, field_name="date_str", require_shape=True):
     return value
 
 
-def _validate_explicit_state_date(value):
+@overload
+def _validate_explicit_state_date(value: str) -> str: ...
+
+
+@overload
+def _validate_explicit_state_date(value: None) -> None: ...
+
+
+def _validate_explicit_state_date(value: str | None) -> str | None:
     """Validate an explicitly supplied state date and report failures as StateError."""
     if value is None:
         return None
@@ -421,7 +437,7 @@ def _validate_explicit_state_date(value):
         raise StateError(str(exc)) from exc
 
 
-def _is_valid_iso_date_str(value):
+def _is_valid_iso_date_str(value: str) -> bool:
     try:
         validate_iso_date_str(value)
     except ValueError:
@@ -448,12 +464,12 @@ class _FileLock:
     to `timeout` seconds before giving up.
     """
 
-    def __init__(self, target_path, timeout=LOCK_TIMEOUT_SECONDS):
+    def __init__(self, target_path: str, timeout: float = LOCK_TIMEOUT_SECONDS) -> None:
         self._lock_path = target_path + ".lock"
         self._timeout = timeout
-        self._fd = None
+        self._fd: int | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         deadline = time.monotonic() + self._timeout
         while True:
             try:
@@ -475,7 +491,9 @@ class _FileLock:
                     ) from contention
                 time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None,
+    ) -> None:
         if self._fd is not None:
             os.close(self._fd)
         try:
@@ -484,7 +502,7 @@ class _FileLock:
             pass
 
 
-def sanitize_path_component(value, field_name):
+def sanitize_path_component(value: object, field_name: str) -> str:
     """Reject a company/proposal value that isn't safe to use directly as a
     filesystem path component -- a path separator, drive-letter colon, or a
     bare "." /".." traversal segment would otherwise let `os.path.join`
@@ -503,11 +521,11 @@ def sanitize_path_component(value, field_name):
     return value
 
 
-def _deals_root(base_dir):
+def _deals_root(base_dir: str | os.PathLike[str] | None) -> str:
     return os.path.join(base_dir, DEALS_DIR) if base_dir else DEALS_DIR
 
 
-def _matching_dated_folder_dates(company, proposal, base_dir=None):
+def _matching_dated_folder_dates(company: str, proposal: str, base_dir: str | os.PathLike[str] | None = None) -> list[str]:
     """Date suffixes of exact proposal_YYYY-MM-DD directories, newest last."""
     prefix = f"{proposal}_"
     pattern = os.path.join(
@@ -520,7 +538,7 @@ def _matching_dated_folder_dates(company, proposal, base_dir=None):
     return sorted(set(dates))
 
 
-def _existing_date_str(company, proposal, base_dir=None):
+def _existing_date_str(company: str, proposal: str, base_dir: str | os.PathLike[str] | None = None) -> str | None:
     """Date of the newest folder containing state.json, or None when no deal state exists.
 
     Export-only folders created by deal_export --date-str do not qualify. A malformed
@@ -538,7 +556,7 @@ def _existing_date_str(company, proposal, base_dir=None):
 
 
 
-def _require_known_company(company, base_dir=None):
+def _require_known_company(company: str, base_dir: str | os.PathLike[str] | None = None) -> str:
     """The company's deal folder, or a refusal: starting a review is for a deal that already has a folder.
 
     A mistyped company name would otherwise quietly become a brand-new deal (issue #268); a deal that has never
@@ -554,7 +572,7 @@ def _require_known_company(company, base_dir=None):
     return company_dir
 
 
-def _require_later_than_newest(company, proposal, date_str, base_dir=None):
+def _require_later_than_newest(company: str, proposal: str, date_str: str, base_dir: str | os.PathLike[str] | None = None) -> None:
     """Refuse a review date that is not strictly later than the newest existing state-bearing review.
 
     Every other command resumes the newest dated folder, so a review dated earlier would never become active.
@@ -568,7 +586,9 @@ def _require_later_than_newest(company, proposal, date_str, base_dir=None):
         )
 
 
-def get_review_candidates(company, proposal, date_str=None, base_dir=None):
+def get_review_candidates(
+    company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
     """List eligible earlier review states for an exact company/proposal.
 
     The dated folder must contain a readable state.json accepted by read_state().
@@ -619,7 +639,7 @@ def get_review_candidates(company, proposal, date_str=None, base_dir=None):
     }
 
 
-def _create_review_folder(target_dir, target_state_path, state):
+def _create_review_folder(target_dir: str, target_state_path: str, state: dict[str, Any]) -> None:
     """Create the dated folder and its single state.json so that a failure leaves nothing behind.
 
     The state is written to a temporary file in the new folder and moved into place, and if anything fails
@@ -661,7 +681,10 @@ def _create_review_folder(target_dir, target_state_path, state):
         raise
 
 
-def start_review(company, proposal, date_str=None, prior_date=None, no_prior=False, base_dir=None):
+def start_review(
+    company: str, proposal: str, date_str: str | None = None, prior_date: str | None = None,
+    no_prior: bool = False, base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
     """Create a fresh dated review state without inheriting any prior review fields.
 
     The company must already have a deal folder. The new date must be strictly later than every existing
@@ -735,12 +758,12 @@ def start_review(company, proposal, date_str=None, prior_date=None, no_prior=Fal
     }
 
 
-def _normalize_proposal_for_suggestion(proposal):
+def _normalize_proposal_for_suggestion(proposal: str) -> str:
     """Normalize only case and runs of whitespace/hyphens for advisory near matches."""
     return re.sub(r"[\s-]+", " ", proposal.casefold()).strip()
 
 
-def find_deal(company, proposal, base_dir=None):
+def find_deal(company: str, proposal: str, base_dir: str | os.PathLike[str] | None = None) -> dict[str, Any]:
     """Read-only exact deal lookup with normalization-only advisory candidates.
 
     A matching dated folder counts when its state.json is present, even when
@@ -760,7 +783,7 @@ def find_deal(company, proposal, base_dir=None):
 
     company_dir = os.path.join(_deals_root(base_dir), company)
     company_folder_exists = os.path.isdir(company_dir)
-    candidates_by_proposal = {}
+    candidates_by_proposal: dict[str, dict[str, str]] = {}
     if company_folder_exists:
         requested_key = _normalize_proposal_for_suggestion(proposal)
         with os.scandir(company_dir) as entries:
@@ -799,14 +822,14 @@ def find_deal(company, proposal, base_dir=None):
     }
 
 
-def existing_state_date_str(company, proposal, base_dir=None):
+def existing_state_date_str(company: str, proposal: str, base_dir: str | os.PathLike[str] | None = None) -> str | None:
     """Public form of _existing_date_str(): the date of this deal's newest folder that holds a state.json, or None
     when the deal has no state anywhere. Lets an exporter tell "a brand-new deal" from "a deal whose state is in
     another dated folder"."""
     return _existing_date_str(company, proposal, base_dir=base_dir)
 
 
-def resolve_export_date_str(company, proposal, date_str=None, base_dir=None):
+def resolve_export_date_str(company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None) -> str:
     """Choose a standalone export folder without changing state discovery.
 
     An explicit date wins. Otherwise prefer the newest state-bearing folder so output
@@ -821,7 +844,9 @@ def resolve_export_date_str(company, proposal, date_str=None, base_dir=None):
     dates = _matching_dated_folder_dates(company, proposal, base_dir=base_dir)
     return dates[-1] if dates else datetime.now().strftime("%Y-%m-%d")
 
-def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
+def _resolve_date_str(
+    company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
+) -> str:
     if date_str is not None:
         return _validate_explicit_state_date(date_str)
     if new_review:
@@ -835,7 +860,9 @@ def _resolve_date_str(company, proposal, date_str=None, base_dir=None, new_revie
     return _existing_date_str(company, proposal, base_dir=base_dir) or datetime.now().strftime("%Y-%m-%d")
 
 
-def resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review=False):
+def resolve_date_str(
+    company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
+) -> str:
     """Public wrapper around _resolve_date_str() -- for a caller (e.g.
     orchestrator.py's run_pipeline()) that needs to resolve this deal's
     dated-folder date *once* and then pass that concrete value to every
@@ -858,7 +885,9 @@ def resolve_date_str(company, proposal, date_str=None, base_dir=None, new_review
     return _resolve_date_str(company, proposal, date_str=date_str, base_dir=base_dir, new_review=new_review)
 
 
-def state_path(company, proposal, date_str=None, base_dir=None, new_review=False):
+def state_path(
+    company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
+) -> str:
     """Path to this deal's state.json, resolved the same way deal_export.py
     resolves its output directory: deals/<Company>/<Proposal>_<Date>/ --
     except that an explicit `date_str` isn't required to find an existing
@@ -885,7 +914,10 @@ def state_path(company, proposal, date_str=None, base_dir=None, new_review=False
     return os.path.join(_deals_root(base_dir), company, f"{proposal}_{date_str}", "state.json")
 
 
-def read_state(company, proposal, date_str=None, base_dir=None, new_review=False, keys=()):
+def read_state(
+    company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
+    keys: Iterable[str] | Mapping[str, str] = (),
+) -> dict[str, Any] | None:
     """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
 
     Raises ValueError (not a raw json.JSONDecodeError) if the file exists
@@ -918,7 +950,7 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
         return None
     with open(path, encoding="utf-8") as f:
         try:
-            state = json.load(f)
+            state: dict[str, Any] = json.load(f)
         except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
             # Not valid UTF-8 JSON (a UTF-16 file from PowerShell's `>`, say) or nested absurdly deep: the file's
             # fault, reported like any other unusable state rather than as a traceback.
@@ -939,7 +971,10 @@ def read_state(company, proposal, date_str=None, base_dir=None, new_review=False
     return state
 
 
-def write_state(company, proposal, date_str=None, base_dir=None, new_review=False, **fields):
+def write_state(
+    company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
+    **fields: Any,
+) -> dict[str, Any]:
     """Merge `fields` into this deal's state.json (if any) and write it back.
 
     Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
@@ -990,7 +1025,7 @@ def write_state(company, proposal, date_str=None, base_dir=None, new_review=Fals
         return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
 
 
-def _check_schema_version_is_writable(recorded, path):
+def _check_schema_version_is_writable(recorded: object, path: str) -> None:
     """Refuse (before anything is touched) to overwrite a state this code cannot safely own: one recorded as NEWER
     than SCHEMA_VERSION would be stamped back down to this version, losing the fact that it holds newer-shaped data
     (issue #170); one whose version cannot be parsed cannot be compared at all. Equal, older, and absent (read_state
@@ -1008,7 +1043,10 @@ def _check_schema_version_is_writable(recorded, path):
             "instead; nothing was changed.")
 
 
-def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
+def _merge_and_write(
+    path: str, company: str, proposal: str, date_str: str, base_dir: str | os.PathLike[str] | None,
+    fields: dict[str, Any],
+) -> dict[str, Any]:
     """The actual read-modify-write, factored out so both write_state() and
     append_review_trail() can hold one _FileLock across their *entire*
     read-modify-write -- including, for append_review_trail(), the read and
@@ -1051,8 +1089,10 @@ def _merge_and_write(path, company, proposal, date_str, base_dir, fields):
     return state
 
 
-def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
-                         date_str=None, base_dir=None, **extra_fields):
+def append_review_trail(
+    company: str, proposal: str, verdict: str, notes: str | None = None, timestamp: str | None = None,
+    date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, **extra_fields: Any,
+) -> dict[str, Any]:
     """Append one entry to this deal's append-only `review_trail`, and set
     `review_verdict` to this iteration's verdict as a "latest verdict"
     convenience field.
@@ -1103,7 +1143,7 @@ def append_review_trail(company, proposal, verdict, notes=None, timestamp=None,
         return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
 
 
-def export_reviewer_view(company, proposal, base_dir=None):
+def export_reviewer_view(company: str, proposal: str, base_dir: str | os.PathLike[str] | None = None) -> dict[str, str]:
     """Write derived review-only copies beside a deal's state.json.
 
     The source of truth remains state.json. These files are a convenience for
@@ -1137,7 +1177,7 @@ def export_reviewer_view(company, proposal, base_dir=None):
     return {"state_for_review": state_for_review_path, "review_trail": review_trail_path}
 
 
-def required_steps_completed(steps_completed, required):
+def required_steps_completed(steps_completed: Iterable[str] | None, required: Iterable[str]) -> list[str]:
     """Return the subset of `required` that is missing from `steps_completed`
     (empty list if nothing is missing).
 

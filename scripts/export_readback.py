@@ -375,7 +375,7 @@ def compare_documents(expected_path: str, actual_path: str) -> list[dict[str, ob
     return findings
 
 
-def _approved_draft(state: dict[str, JsonValue], deal_folder: str, base_dir: str | None) -> str:
+def _approved_draft(state: dict[str, JsonValue], deal_folder: str, base_dir: str | os.PathLike[str] | None) -> str:
     """The approved draft's path: repository-relative, a regular file inside the deal's own dated folder."""
     recorded = state.get("approved_draft_path")
     if not isinstance(recorded, str) or not recorded.strip():
@@ -401,7 +401,7 @@ def _require_file(path: str, what: str) -> None:
         raise StateError(f"the {what} {path} does not exist; nothing to compare")
 
 
-def verify_deal(company: str, proposal: str, date_str: str | None = None, base_dir: str | None = None) -> dict[str, object]:
+def verify_deal(company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None) -> dict[str, object]:
     """Compare this deal's exported workbook and document with what its record regenerates. Returns the report."""
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")

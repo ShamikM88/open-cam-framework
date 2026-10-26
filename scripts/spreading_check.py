@@ -20,6 +20,7 @@ No `anthropic` dependency, matching policy_check.py/deal_export.py's pattern.
 import argparse
 import json
 import sys
+from typing import Any
 
 from spreading_builder import (
     FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
@@ -43,8 +44,10 @@ class FinancialSourceModeError(ValueError):
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
 
 
-def plan_fields(existing_state, multi_period_financials=None, stress_assumptions=None,
-                update_financials_source=True):
+def plan_fields(
+    existing_state: dict[str, Any], multi_period_financials: dict[str, Any] | None = None,
+    stress_assumptions: dict[str, Any] | None = None, update_financials_source: bool = True,
+) -> dict[str, Any]:
     """The fields compute() would write for this input against `existing_state`, without reading or writing
     anything: the merge with what the deal already has, the formula evaluation and the downside case. compute()
     is exactly this plus the read and the write; a caller that must know the computation will succeed before it
@@ -97,7 +100,7 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
             "multi_period_financials already on file."
         )
 
-    fields = {}
+    fields: dict[str, Any] = {}
     if touched_periods:
         # Computed from the merged (not fresh-only) per-period raw dicts --
         # see the docstring above -- so a partial correction's subtotals/
@@ -135,8 +138,10 @@ def plan_fields(existing_state, multi_period_financials=None, stress_assumptions
     return fields
 
 
-def compute(company, proposal, multi_period_financials=None, stress_assumptions=None,
-            update_financials_source=True):
+def compute(
+    company: str, proposal: str, multi_period_financials: dict[str, Any] | None = None,
+    stress_assumptions: dict[str, Any] | None = None, update_financials_source: bool = True,
+) -> dict[str, Any]:
     """Recompute financials/ratios (and, when a downside case is derivable,
     downside_case) from raw line items and checkpoint the result to this
     deal's state.json.
@@ -200,7 +205,7 @@ def compute(company, proposal, multi_period_financials=None, stress_assumptions=
     return write_state(company, proposal, **fields)
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Recompute financials/ratios/downside_case from raw line items and "
                      "checkpoint them to state.json -- callable from /spread's or /project's "

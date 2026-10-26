@@ -144,7 +144,7 @@ def _records_table(records: Sequence[Any], preferred: Sequence[str]) -> list[str
     return _table(columns, [[record.get(column, NOT_RECORDED) for column in columns] for record in records])
 
 
-def collect(company: str, proposal: str, date_str: str | None = None, base_dir: str | None = None) -> tuple[str, CommitteeSummaryData]:
+def collect(company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None) -> tuple[str, CommitteeSummaryData]:
     """Read the exact dated state and gather everything the summary prints. Returns (folder, summary data)."""
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
@@ -308,7 +308,7 @@ def _replace_atomically(path: str, write: Callable[[str], None]) -> None:
         raise
 
 
-def generate(company: str, proposal: str, date_str: str | None = None, base_dir: str | None = None) -> dict[str, JsonValue]:
+def generate(company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None) -> dict[str, JsonValue]:
     """Write the Markdown and Word summaries into the deal's dated folder. Returns the JSON-ready report."""
     folder, data = collect(company, proposal, date_str=date_str, base_dir=base_dir)
     markdown = render_markdown(data)

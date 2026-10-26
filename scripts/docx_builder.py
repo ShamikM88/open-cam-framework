@@ -1,14 +1,18 @@
 import os
 import re
 import sys
+from typing import Any
 from urllib.parse import urlsplit
 
 import docx
+from docx.document import Document as DocumentObject
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.opc.constants import RELATIONSHIP_TYPE
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt
+from docx.table import Table, _Cell
+from docx.text.paragraph import Paragraph
 
 TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 SEPARATOR_CELL_RE = re.compile(r"^:?-{3,}:?$")
@@ -41,11 +45,11 @@ ALIGNMENTS = {
 }
 
 
-def _is_table_row(line):
+def _is_table_row(line: str) -> bool:
     return bool(TABLE_ROW_RE.match(line))
 
 
-def _split_row(line):
+def _split_row(line: str) -> list[str]:
     """Split a Markdown table row, treating an escaped pipe as cell content."""
     inner = line.strip()
     if inner.startswith("|"):
@@ -71,11 +75,11 @@ def _split_row(line):
     return cells
 
 
-def _is_separator_row(cells):
+def _is_separator_row(cells: list[str]) -> bool:
     return bool(cells) and all(SEPARATOR_CELL_RE.match(cell) for cell in cells)
 
 
-def _column_alignment(separator_cell):
+def _column_alignment(separator_cell: str) -> str:
     left = separator_cell.startswith(":")
     right = separator_cell.endswith(":")
     if left and right:
@@ -85,7 +89,7 @@ def _column_alignment(separator_cell):
     return "left"
 
 
-def _add_hyperlink_run(paragraph, url, text, bold=False):
+def _add_hyperlink_run(paragraph: Paragraph, url: str, text: str, bold: bool = False) -> None:
     """Add a real, clickable Word hyperlink run -- python-docx has no
     high-level API for this, so it's built directly in OOXML: a
     w:hyperlink element referencing an external relationship on the
@@ -117,7 +121,7 @@ def _add_hyperlink_run(paragraph, url, text, bold=False):
     paragraph._p.append(hyperlink)
 
 
-def _add_inline_runs(paragraph, text, base_bold=False):
+def _add_inline_runs(paragraph: Paragraph, text: str, base_bold: bool = False) -> None:
     """Split `text` on **bold**/*italic*/`code`/[link](url) markers and add
     one run (or, for a link, a real hyperlink) per span, preserving
     `base_bold` (e.g. a table header row) as the default for any plain-text
@@ -164,7 +168,7 @@ def _add_inline_runs(paragraph, text, base_bold=False):
         run.bold = base_bold
 
 
-def _set_cell_text(cell, text, alignment, bold=False):
+def _set_cell_text(cell: _Cell, text: str, alignment: str, bold: bool = False) -> None:
     # A freshly added table cell's paragraph has no runs yet -- don't set
     # cell.text = "" first, since python-docx's text setter always calls
     # add_run() (even for ""), leaving a stray empty run at index 0 ahead of
@@ -174,7 +178,7 @@ def _set_cell_text(cell, text, alignment, bold=False):
     _add_inline_runs(paragraph, text, base_bold=bold)
 
 
-def _add_table(doc, header_cells, alignments, body_rows):
+def _add_table(doc: DocumentObject, header_cells: list[str], alignments: list[str], body_rows: list[list[str]]) -> Table:
     column_count = max([len(header_cells), *(len(row) for row in body_rows)])
     for row_number, row_cells in enumerate(body_rows, start=1):
         if len(row_cells) > len(header_cells):
@@ -184,7 +188,7 @@ def _add_table(doc, header_cells, alignments, body_rows):
                 file=sys.stderr,
             )
 
-    table = doc.add_table(rows=1, cols=column_count)
+    table: Table = doc.add_table(rows=1, cols=column_count)
     table.style = "Table Grid"
     table.autofit = True
 
@@ -202,7 +206,7 @@ def _add_table(doc, header_cells, alignments, body_rows):
     return table
 
 
-def _add_monospace_block(doc, code_lines):
+def _add_monospace_block(doc: DocumentObject, code_lines: list[str]) -> None:
     """Render each line of a non-`json` fenced code block as its own
     paragraph in a monospace font (Consolas, matching the existing
     inline-code font choice) -- unlike every other block type here, these
@@ -221,7 +225,7 @@ def _add_monospace_block(doc, code_lines):
         run.font.name = "Consolas"
 
 
-def _add_image(doc, alt, path):
+def _add_image(doc: DocumentObject, alt: str, path: str) -> None:
     """Embed the image at `path` as its own block, scaled down (never up) to
     fit the page's text width, with `alt` as its accessibility description
     and, when non-empty, an italic caption beneath it (see issue #114).
@@ -241,7 +245,6 @@ def _add_image(doc, alt, path):
     elif not os.path.isfile(path):
         problem = "file not found"
 
-    shape = None
     if problem is None:
         paragraphs_before = len(doc.paragraphs)
         try:
@@ -253,26 +256,26 @@ def _add_image(doc, alt, path):
             # a failure leaves an empty one behind -- drop it.
             for stray in doc.paragraphs[paragraphs_before:]:
                 stray._element.getparent().remove(stray._element)
+        else:
+            section: Any = doc.sections[0]
+            max_width = section.page_width - section.left_margin - section.right_margin
+            if shape.width > max_width:
+                ratio = max_width / shape.width
+                shape.height = int(shape.height * ratio)
+                shape.width = int(max_width)
+
+            if alt:
+                shape._inline.docPr.set("descr", alt)
+                caption = doc.add_paragraph()
+                caption.add_run(alt).italic = True
 
     if problem is not None:
         print(f"[docx_builder] Image not embedded ({problem}): {path}", file=sys.stderr)
         doc.add_paragraph(f"[Image not embedded: {alt or path} -- {problem}]")
         return
 
-    section = doc.sections[0]
-    max_width = section.page_width - section.left_margin - section.right_margin
-    if shape.width > max_width:
-        ratio = max_width / shape.width
-        shape.height = int(shape.height * ratio)
-        shape.width = int(max_width)
 
-    if alt:
-        shape._inline.docPr.set("descr", alt)
-        caption = doc.add_paragraph()
-        caption.add_run(alt).italic = True
-
-
-def _find_closing_fence(lines, open_idx):
+def _find_closing_fence(lines: list[str], open_idx: int) -> int | None:
     """Index of the bare ``` line that closes the fence opened at
     `open_idx`, or None if there isn't one. A fence line carrying a tag
     (```json) can only ever *open* a block, never close one (as in
@@ -283,12 +286,13 @@ def _find_closing_fence(lines, open_idx):
     into the client-facing document.
     """
     for k in range(open_idx + 1, len(lines)):
-        if FENCE_RE.match(lines[k]):
-            return None if FENCE_OPEN_RE.match(lines[k]).group(1) else k
+        fence = FENCE_OPEN_RE.match(lines[k])
+        if fence:
+            return None if fence.group(1) else k
     return None
 
 
-def _is_block_boundary(line):
+def _is_block_boundary(line: str) -> bool | re.Match[str] | None:
     """True when `line` starts (or is) a different block -- a heading,
     bullet, table row, horizontal rule, fenced code block, image, or a blank
     line -- and so must never be absorbed into a preceding plain-text
@@ -314,7 +318,7 @@ def _is_block_boundary(line):
     )
 
 
-def _sanitize_xml_invalid_characters(text):
+def _sanitize_xml_invalid_characters(text: str) -> str:
     """Replace characters forbidden by XML 1.0 and report one aggregate warning."""
     safe = []
     replaced = 0
@@ -339,7 +343,7 @@ def _sanitize_xml_invalid_characters(text):
     return "".join(safe)
 
 
-def _strip_html_comments(markdown_text):
+def _strip_html_comments(markdown_text: str) -> str:
     """Remove HTML comments from client-facing Markdown, but not inside fences.
 
     Preserve surrounding prose while deleting the full comment span, including
@@ -387,7 +391,7 @@ def _strip_html_comments(markdown_text):
     return "".join(output)
 
 
-def check_exportable(markdown_text):
+def check_exportable(markdown_text: str) -> None:
     """Raise ValueError if `export_to_docx` would refuse this Markdown; write and return nothing.
 
     An exporter calls this before it creates a folder or saves a template, so a refusal leaves no side effect.
@@ -395,7 +399,7 @@ def check_exportable(markdown_text):
     _strip_html_comments(_sanitize_xml_invalid_characters(markdown_text))
 
 
-def export_to_docx(markdown_text, output_path):
+def export_to_docx(markdown_text: str, output_path: str) -> None:
     """Render `markdown_text` as a .docx at `output_path`.
 
     Follows normal Markdown paragraph semantics: a single newline inside a
@@ -453,8 +457,7 @@ def export_to_docx(markdown_text, output_path):
                 i += 1
         elif HR_RE.match(line):
             i += 1  # a markdown horizontal rule has no meaningful docx equivalent here
-        elif IMAGE_RE.match(line):
-            image_match = IMAGE_RE.match(line)
+        elif image_match := IMAGE_RE.match(line):
             _add_image(doc, image_match.group(1).strip(), image_match.group(2).strip())
             i += 1
         elif BULLET_RE.match(line):

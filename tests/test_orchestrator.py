@@ -1462,7 +1462,7 @@ def test_new_review_without_earlier_review_starts_minimal_unlinked_then_continue
         "company": "Acme Corp",
         "proposal": "Fleet Loan",
         "date": today,
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
     }
     final_state = read_state("Acme Corp", "Fleet Loan", date_str=today)
     assert "prior_review_date" not in final_state

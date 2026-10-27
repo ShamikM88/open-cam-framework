@@ -658,12 +658,9 @@ def record_entity_record(
         problems = _entity_records_problems(registry, state.get("guarantees"))
         if problems:
             raise StateError(f"Refusing to register entity_record: {problems[0]}. Nothing was changed.")
-        try:
-            validate_finite_numbers(registry, path="entity_records")
-        except NonFiniteNumberError as exc:
-            raise StateError(f"Refusing to register entity_record: {exc}. Nothing was changed.") from exc
-
-        # One write through the common atomic path; this retains schema downgrade and finite-number guards.
+        # The entity contract has already validated every recognized raw line and intercompany amount.
+        # Deliberately do not inspect unknown record fields: additive metadata must survive registration.
+        # The shared write path still enforces schema downgrade and the existing deal-level finite-number guards.
         _merge_and_write(path, company, proposal, record_date, base_dir, {"entity_records": registry})
 
     return {

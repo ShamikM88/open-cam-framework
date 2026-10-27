@@ -4470,6 +4470,20 @@ def test_validate_state_refuses_malformed_persisted_entity_shapes_without_mutati
     ["missing", "empty"],
     ids=["missing-id", "empty-id"],
 )
+def test_unrelated_state_reader_does_not_reject_an_unrequested_entity_records_shape(tmp_path):
+    path = _seed_entity_registry_state(tmp_path, entity_records=[])
+    before = path.read_bytes()
+
+    loaded = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path),
+    )
+
+    assert loaded is not None
+    assert loaded["entity_records"] == []
+    assert path.read_bytes() == before
+
+
 def test_record_entity_record_refuses_missing_or_empty_entity_id_without_writing(tmp_path, id_case):
     path = _seed_entity_registry_state(tmp_path)
     before = path.read_bytes()

@@ -266,7 +266,7 @@ def _change(path: str, kind: str | None, prior: object, current: object) -> dict
     return row
 
 
-def _diff_value(path: str, prior: Any, current: Any, output: list[dict[str, Any]]) -> None:
+def _diff_value(path: str, prior: object, current: object, output: list[dict[str, Any]]) -> None:
     p_missing = prior is _MISSING or prior is None
     c_missing = current is _MISSING or current is None
     if p_missing and c_missing:
@@ -276,8 +276,8 @@ def _diff_value(path: str, prior: Any, current: Any, output: list[dict[str, Any]
 
     if (p_missing and isinstance(current, dict)) or (c_missing and isinstance(prior, dict)):
         start = len(output)
-        p_obj = {} if p_missing else prior
-        c_obj = {} if c_missing else current
+        p_obj = prior if isinstance(prior, dict) else {}
+        c_obj = current if isinstance(current, dict) else {}
         for key in sorted(set(p_obj) | set(c_obj), key=str):
             _diff_value(_join_path(path, str(key)), p_obj.get(key, _MISSING),
                         c_obj.get(key, _MISSING), output)

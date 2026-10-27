@@ -4418,3 +4418,49 @@ def test_record_entity_record_refuses_a_corrupt_existing_deal_without_replacing_
 
     assert str(caught.value).startswith(f"state.json at {path} is corrupted and could not be parsed")
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("shape", "problem"),
+    [
+        ("registry-not-object", '"entity_records" must be an object, found list'),
+        ("record-not-object", "entity_records['synthetic-parent'] must be an object"),
+        ("empty-registry-key", '"entity_records" keys must be non-empty stable entity IDs'),
+        ("perimeter-not-object", "entity_records['synthetic-parent'].perimeter must be an object"),
+        ("included-not-boolean", "entity_records['synthetic-parent'].perimeter.included must be a boolean"),
+        ("empty-control-basis", "entity_records['synthetic-parent'].perimeter.control_basis must be a non-empty string"),
+        ("empty-scope-rationale", "entity_records['synthetic-parent'].perimeter.scope_rationale must be a non-empty string"),
+    ],
+)
+def test_validate_state_refuses_malformed_persisted_entity_shapes_without_mutating_bytes(tmp_path, shape, problem):
+    record = _entity_record_for_tests()
+    if shape == "registry-not-object":
+        registry = []
+    elif shape == "record-not-object":
+        registry = {"synthetic-parent": "not an object"}
+    elif shape == "empty-registry-key":
+        registry = {"": record}
+    else:
+        registry = {"synthetic-parent": record}
+        if shape == "perimeter-not-object":
+            record["perimeter"] = None
+        elif shape == "included-not-boolean":
+            record["perimeter"]["included"] = "yes"
+        elif shape == "empty-control-basis":
+            record["perimeter"]["control_basis"] = ""
+        elif shape == "empty-scope-rationale":
+            record["perimeter"]["scope_rationale"] = " "
+    path = _seed_entity_registry_state(tmp_path, entity_records=registry)
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        read_state(
+            "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+            base_dir=str(tmp_path), keys=("entity_records",),
+        )
+
+    assert str(caught.value) == (
+        f"Cannot use {path}: {problem}. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
+    assert path.read_bytes() == before

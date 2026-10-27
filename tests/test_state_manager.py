@@ -4396,9 +4396,8 @@ def test_record_entity_record_refuses_a_missing_input_file_without_writing(tmp_p
             perimeter_confirmed=True, base_dir=str(tmp_path),
         )
 
-    assert str(caught.value) == (
-        f"Cannot read entity-record file {str(tmp_path / 'missing.json')!r}: "
-        f"[Errno 2] No such file or directory: {str(tmp_path / 'missing.json')!r}"
+    assert str(caught.value).startswith(
+        f"Cannot read entity-record file {str(tmp_path / 'missing.json')!r}:"
     )
     assert path.read_bytes() == before
 

@@ -466,7 +466,7 @@ python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Faci
 
 ## State manager
 
-`scripts/state_manager.py` has six mutually exclusive modes:
+`scripts/state_manager.py` has seven mutually exclusive modes:
 
 - `--find --company ... --proposal ...` is a **read-only** lookup. It prints one JSON object. An exact existing
   record yields `{"record_found": true, "state_path": "...", "date": "YYYY-MM-DD"}`, using the newest valid dated
@@ -525,7 +525,10 @@ python scripts/review_compare.py --company "Synthetic Co" --proposal "Asset Faci
   `recorded`, `state_path` and `figures_basis`; a file, field, date or existing-state refusal prints one
   `error:` line, exits `1`, and writes nothing. The workbook describes this as a **credit aggregation**, never
   a statutory consolidation.
-
+- \`--register-entity-record --company ... --proposal ... --entity-record-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]\`
+  registers one subsidiary, parent or guarantor record on an **exact existing deal only**. The UTF-8 JSON file supplies one record object containing \`entity_id\`, \`legal_name\`, the single primary \`role\` (\`subsidiary\`, \`parent\` or \`guarantor\`), \`source\` (\`document\`, \`accounting_basis\`, real ISO \`date\`), period-keyed \`period_ends\`, \`perimeter\`, \`raw_figures_source\`, the period-keyed \`multi_period_financials\` and \`analyst_supplied_financials\` maps, \`spread_status: "not-spread"\`, \`intercompany_lines\` and \`guarantee_ids\`. The borrower is not an entity-record role and its figures stay in the existing deal-level stores. 
+  The command refuses unless the explicit \`--perimeter-confirmed\` flag is present; it records \`perimeter.confirmed: true\` and \`perimeter.confirmed_on\` using \`--date\` or today (\`source.date\` remains the source document date). It validates the complete registry under the per-deal lock before one atomic write. IDs may not be replaced, every counterparty must resolve to another registered entity, period labels must have matching period ends across records, and each \`guarantee_ids\` item must resolve to exactly one explicit \`guarantee_id\` in the deal's \`guarantees\` list; provider names are not used as links. Each entity-period may hold figures in at most one raw store. Period maps must use framework labels, dates must be real calendar dates, and raw lines/intercompany amounts must be valid finite numbers (booleans are not numbers). A successful command prints one JSON line with \`recorded\`, \`entity_id\`, \`state_path\` and \`spread_status\`; any missing/corrupt deal, invalid input or duplicate ID produces one \`error:\` line, exits \`1\`, and writes nothing. The command never creates a missing deal. Step 1 computes no spread, subtotal, ratio, elimination, aggregate or covenant result.
+  
 The two review-view files are derived copies for the interactive Reviewer, not records of the deal; no other script may
 read them as a record. The source of truth remains the real `state.json`, which `/review` updates in its `State: write`
 stage. See the [data model](data-model.md). Script-reported refusals use exit status `1`, exactly one

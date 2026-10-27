@@ -1791,3 +1791,23 @@ def test_408_markdown_restatement_rows_for_a_consistent_and_a_not_comparable_pai
 def test_408_period_order_puts_current_before_every_numbered_label_including_zero():
     labels = ["FY-2", "FY-0", "FY-Current", "FY-1"]
     assert sorted(labels, key=rc._period_order) == ["FY-Current", "FY-0", "FY-1", "FY-2"]
+
+
+def test_408_markdown_says_none_when_every_category_is_recorded_in_both_states():
+    result = report({}, {})
+    result["summary"]["not_recorded_in_both"] = []
+    assert rc.render_markdown(result).endswith(
+        "## Categories not recorded in both states\n\nNone.\n\n"
+        "Downside case: recorded in at least one state; this comparison does not assess its adequacy.\n")
+
+
+def test_408_markdown_restatement_without_historical_periods_has_the_exact_none_row():
+    lines = rc.render_markdown(report({}, {}, rolled=True)).split("\n")
+    assert "| None | None | not_comparable | No historical periods were recorded |" in lines
+
+
+def test_408_markdown_shows_a_dash_for_a_period_with_no_roll_forward_mapping():
+    result = report({"ratios": {"Last-Year": {"dscr": 1.5}}}, {}, rolled=True)
+    lines = rc.render_markdown(result).split("\n")
+    assert ("| Last-Year | — | not_comparable | "
+            "period label has no defined one-year roll-forward mapping |") in lines

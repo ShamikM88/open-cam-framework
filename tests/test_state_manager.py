@@ -4465,11 +4465,6 @@ def test_validate_state_refuses_malformed_persisted_entity_shapes_without_mutati
     assert path.read_bytes() == before
 
 
-@pytest.mark.parametrize(
-    "id_case",
-    ["missing", "empty"],
-    ids=["missing-id", "empty-id"],
-)
 def test_unrelated_state_reader_does_not_reject_an_unrequested_entity_records_shape(tmp_path):
     path = _seed_entity_registry_state(tmp_path, entity_records=[])
     before = path.read_bytes()
@@ -4484,6 +4479,11 @@ def test_unrelated_state_reader_does_not_reject_an_unrequested_entity_records_sh
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize(
+    "id_case",
+    ["missing", "empty"],
+    ids=["missing-id", "empty-id"],
+)
 def test_record_entity_record_refuses_missing_or_empty_entity_id_without_writing(tmp_path, id_case):
     path = _seed_entity_registry_state(tmp_path)
     before = path.read_bytes()

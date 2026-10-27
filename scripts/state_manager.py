@@ -386,6 +386,8 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
             )
             if date_problem is not None:
                 return [date_problem]
+            if not isinstance(period_end, str):
+                return [f"{record_path}.period_ends[{period!r}] must be a real YYYY-MM-DD calendar date"]
             previous = known_period_ends.get(period)
             if previous is not None and previous[1] != period_end:
                 return [

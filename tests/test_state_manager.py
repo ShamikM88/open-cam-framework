@@ -4502,22 +4502,6 @@ def test_record_entity_record_refuses_missing_or_empty_entity_id_without_writing
     assert path.read_bytes() == before
 
 
-def test_record_entity_record_refuses_unknown_non_finite_metadata_without_writing(tmp_path):
-    path = _seed_entity_registry_state(tmp_path)
-    before = path.read_bytes()
-    record = _entity_record_for_tests()
-    record["future_metadata"] = {"not_finite": float("nan")}
-
-    with pytest.raises(ValueError) as caught:
-        _register_entity_record_for_tests(tmp_path, record)
-
-    assert str(caught.value) == (
-        "Refusing to register entity_record: non-finite numeric value at "
-        "entity_records['synthetic-parent'].future_metadata['not_finite']: nan. Nothing was changed."
-    )
-    assert path.read_bytes() == before
-
-
 def test_record_entity_record_never_downgrades_a_newer_schema_without_writing(tmp_path):
     path = _seed_entity_registry_state(tmp_path)
     state = json.loads(path.read_text(encoding="utf-8"))

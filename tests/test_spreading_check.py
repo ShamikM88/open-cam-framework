@@ -869,9 +869,7 @@ def test_sc_compute_refuses_entity_keyed_map_before_any_state_write(tmp_path, mo
         "Synthetic Co", "Synthetic Facility", date_str="2026-10-27",
         base_dir=str(tmp_path), marker="keep", financials={"FY-Current": {"ebitda": 40}},
     )
-    path = Path(state_manager.state_path(
-        "Synthetic Co", "Synthetic Facility", date_str="2026-10-27", base_dir=str(tmp_path),
-    ))
+    path = tmp_path / "deals" / "Synthetic Co" / "Synthetic Facility_2026-10-27" / "state.json"
     before = path.read_bytes()
 
     with pytest.raises(ValueError) as caught:

@@ -4463,3 +4463,61 @@ def test_validate_state_refuses_malformed_persisted_entity_shapes_without_mutati
         "the file was not modified."
     )
     assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "id_case",
+    ["missing", "empty"],
+    ids=["missing-id", "empty-id"],
+)
+def test_record_entity_record_refuses_missing_or_empty_entity_id_without_writing(tmp_path, id_case):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests()
+    if id_case == "missing":
+        record.pop("entity_id")
+    else:
+        record["entity_id"] = ""
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Invalid entity_record: entity_id must be a non-empty stable ID; nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_unknown_non_finite_metadata_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests()
+    record["future_metadata"] = {"not_finite": float("nan")}
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: non-finite numeric value at "
+        "entity_records['synthetic-parent'].future_metadata['not_finite']: nan. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_if_state_disappears_before_locked_read(tmp_path, monkeypatch):
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(_entity_record_for_tests()), encoding="utf-8")
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    monkeypatch.setattr(state_manager, "read_state", lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+            perimeter_confirmed=True, date_str="2026-10-27", base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f"Refusing to record entity_record: state.json at {str(path)!r} no longer exists; nothing was created."
+    )
+    assert path.read_bytes() == before

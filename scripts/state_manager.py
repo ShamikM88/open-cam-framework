@@ -149,7 +149,6 @@ FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
 FINITE_NUMERIC_STATE_KEYS = (
     "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
     "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
-    "entity_records",
 )
 
 
@@ -190,6 +189,16 @@ def _json_type(value: object) -> str:
 # Case A metadata labels mirror spreading_builder.PERIOD_KEYS without importing its
 # workbook dependencies into this deliberately lightweight state-management module.
 _GROUP_BASIS_PERIOD_KEYS = ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3")
+_ENTITY_RECORD_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
+# Keep these evaluator raw-line keys local so state_manager remains lightweight and dependency-free.
+_ENTITY_RECORD_LINE_KEYS = (
+    "revenue", "cost_of_sales", "admin_expenses", "depreciation", "amortisation", "other_income",
+    "interest_paid", "interest_received", "scheduled_principal", "capex", "exceptional_costs", "tax_paid",
+    "tangible_assets", "intangible_assets", "other_fixed_assets", "cash", "trade_debtors", "stock",
+    "other_current_assets", "trade_creditors", "current_debt", "overdraft", "other_current_liabilities",
+    "long_term_debt", "loan_notes", "other_long_term_liabilities", "provisions", "share_capital",
+    "retained_profit",
+)
 
 
 _SOURCE_NOT_CHECKED = object()
@@ -306,6 +315,192 @@ def _group_basis_problems(value: object, financials_source: object = _SOURCE_NOT
         )
         problems.append(f'"group_basis.figures_basis" is {figures_basis!r}, but {recorded}; these must agree')
     return problems
+
+
+def _entity_record_date_problem(value: object, path: str) -> str | None:
+    """Return one deterministic problem for a strict YYYY-MM-DD calendar date."""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None:
+        return f"{path} must be a real YYYY-MM-DD calendar date"
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return f"{path} must be a real YYYY-MM-DD calendar date"
+    return None
+
+
+def _entity_records_problems(value: object, guarantees: object = None) -> list[str]:
+    """Validate the full entity registry and return its first deterministic problem.
+
+    Unknown fields inside each record are deliberately allowed and preserved.
+    This validates stored inputs only; it does not spread, aggregate or calculate
+    anything from an entity record.
+    """
+    if not isinstance(value, dict):
+        return [f'"entity_records" must be an object, found {_json_type(value)}']
+
+    guarantee_entries = guarantees if isinstance(guarantees, list) else []
+    known_period_ends: dict[str, tuple[str, str]] = {}
+
+    def nonempty_text(item: object) -> bool:
+        return isinstance(item, str) and bool(item.strip())
+
+    for entity_key, record in value.items():
+        if not isinstance(entity_key, str) or not entity_key.strip():
+            return ['"entity_records" keys must be non-empty stable entity IDs']
+        record_path = f"entity_records[{entity_key!r}]"
+        if not isinstance(record, dict):
+            return [f"{record_path} must be an object"]
+        entity_id = record.get("entity_id")
+        if not isinstance(entity_id, str) or not entity_id.strip() or entity_id != entity_key:
+            return [f"{record_path}.entity_id must equal registry key {entity_key!r}; found {entity_id!r}"]
+
+        legal_name = record.get("legal_name")
+        if not nonempty_text(legal_name):
+            return [f"{record_path}.legal_name must be a non-empty string"]
+        role = record.get("role")
+        if not isinstance(role, str) or role not in ("subsidiary", "parent", "guarantor"):
+            return [f"{record_path}.role must be one of 'subsidiary', 'parent' or 'guarantor'; found {role!r}"]
+
+        source = record.get("source")
+        if not isinstance(source, dict):
+            return [f"{record_path}.source must be an object"]
+        for field in ("document", "accounting_basis"):
+            if not nonempty_text(source.get(field)):
+                return [f"{record_path}.source.{field} must be a non-empty string"]
+        date_problem = _entity_record_date_problem(source.get("date"), f"{record_path}.source.date")
+        if date_problem is not None:
+            return [date_problem]
+
+        period_ends = record.get("period_ends")
+        if not isinstance(period_ends, dict):
+            return [f"{record_path}.period_ends must be an object keyed by framework period label"]
+        try:
+            validate_period_keys(
+                period_ends, _ENTITY_RECORD_PERIOD_KEYS, path=f"{record_path}.period_ends",
+            )
+        except ValueError as exc:
+            return [str(exc)]
+        for period, period_end in period_ends.items():
+            date_problem = _entity_record_date_problem(
+                period_end, f"{record_path}.period_ends[{period!r}]",
+            )
+            if date_problem is not None:
+                return [date_problem]
+            previous = known_period_ends.get(period)
+            if previous is not None and previous[1] != period_end:
+                return [
+                    f"period end for label {period!r} must match across entity_records: "
+                    f"{previous[0]!r} has {previous[1]!r}, {entity_key!r} has {period_end!r}"
+                ]
+            if previous is None:
+                known_period_ends[period] = (entity_key, period_end)
+
+        perimeter = record.get("perimeter")
+        if not isinstance(perimeter, dict):
+            return [f"{record_path}.perimeter must be an object"]
+        if not isinstance(perimeter.get("included"), bool):
+            return [f"{record_path}.perimeter.included must be a boolean"]
+        if not nonempty_text(perimeter.get("control_basis")):
+            return [f"{record_path}.perimeter.control_basis must be a non-empty string"]
+        if not nonempty_text(perimeter.get("scope_rationale")):
+            return [f"{record_path}.perimeter.scope_rationale must be a non-empty string"]
+        if perimeter.get("confirmed") is not True:
+            return [f"{record_path}.perimeter.confirmed must be true after explicit analyst confirmation"]
+        date_problem = _entity_record_date_problem(
+            perimeter.get("confirmed_on"), f"{record_path}.perimeter.confirmed_on",
+        )
+        if date_problem is not None:
+            return [date_problem]
+
+        if not nonempty_text(record.get("raw_figures_source")):
+            return [f"{record_path}.raw_figures_source must be a non-empty string"]
+        if record.get("spread_status") != "not-spread":
+            return [f'{record_path}.spread_status must be "not-spread" in step 1']
+
+        raw_stores: dict[str, dict[Any, Any]] = {}
+        for store_name in ("multi_period_financials", "analyst_supplied_financials"):
+            raw_store = record.get(store_name)
+            store_path = f"{record_path}.{store_name}"
+            if not isinstance(raw_store, dict):
+                return [f"{store_path} must be an object keyed by framework period label"]
+            try:
+                validate_period_objects(raw_store, path=store_path)
+                validate_period_keys(raw_store, _ENTITY_RECORD_PERIOD_KEYS, path=store_path)
+                validate_raw_line_items(raw_store, _ENTITY_RECORD_LINE_KEYS, path=store_path)
+                validate_finite_numbers(raw_store, path=store_path)
+            except ValueError as exc:
+                return [str(exc)]
+            for period in raw_store:
+                if period not in period_ends:
+                    return [f"{store_path} period {period!r} is missing from {record_path}.period_ends"]
+            raw_stores[store_name] = raw_store
+
+        multi = raw_stores["multi_period_financials"]
+        supplied = raw_stores["analyst_supplied_financials"]
+        for period, raw in multi.items():
+            supplied_raw = supplied.get(period)
+            if isinstance(raw, dict) and raw and isinstance(supplied_raw, dict) and supplied_raw:
+                return [f"{record_path} has figures in both raw stores for period {period!r}"]
+
+        intercompany_lines = record.get("intercompany_lines")
+        if not isinstance(intercompany_lines, list):
+            return [f"{record_path}.intercompany_lines must be a list"]
+        for index, line in enumerate(intercompany_lines):
+            line_path = f"{record_path}.intercompany_lines[{index}]"
+            if not isinstance(line, dict):
+                return [f"{line_path} must be an object"]
+            period = line.get("period")
+            if not isinstance(period, str) or period not in _ENTITY_RECORD_PERIOD_KEYS:
+                return [
+                    f"{line_path}.period has unknown framework period label {period!r}; expected one of "
+                    + ", ".join(_ENTITY_RECORD_PERIOD_KEYS)
+                ]
+            if period not in period_ends:
+                return [f"{line_path}.period {period!r} is missing from {record_path}.period_ends"]
+            line_key = line.get("line_key")
+            if (not isinstance(line_key, str) or not line_key.strip()
+                    or line_key not in _ENTITY_RECORD_LINE_KEYS):
+                return [f"{line_path}.line_key must be an existing evaluator raw line key; found {line_key!r}"]
+            counterparty = line.get("counterparty_entity_id")
+            if (not isinstance(counterparty, str) or not counterparty.strip()
+                    or counterparty not in value or counterparty == entity_key):
+                return [
+                    f"{line_path}.counterparty_entity_id {counterparty!r} does not resolve to a different "
+                    "entity record in entity_records"
+                ]
+            if not nonempty_text(line.get("direction")):
+                return [f"{line_path}.direction must be a non-empty string"]
+            amount = line.get("amount")
+            if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+                return [f"{line_path}.amount must be a finite JSON number; found {amount!r}"]
+            try:
+                validate_finite_numbers(amount, path=f"{line_path}.amount")
+            except NonFiniteNumberError as exc:
+                return [str(exc)]
+            if not isinstance(line.get("confirmed"), bool):
+                return [f"{line_path}.confirmed must be a boolean"]
+
+        guarantee_ids = record.get("guarantee_ids")
+        if not isinstance(guarantee_ids, list):
+            return [f"{record_path}.guarantee_ids must be a list of explicit guarantee IDs"]
+        seen_guarantee_ids: set[str] = set()
+        for guarantee_id in guarantee_ids:
+            if not isinstance(guarantee_id, str) or not guarantee_id.strip():
+                return [f"{record_path}.guarantee_ids entries must be non-empty strings"]
+            if guarantee_id in seen_guarantee_ids:
+                return [f"{record_path}.guarantee_ids contains duplicate ID {guarantee_id!r}"]
+            seen_guarantee_ids.add(guarantee_id)
+            matches = [
+                item for item in guarantee_entries
+                if isinstance(item, dict) and item.get("guarantee_id") == guarantee_id
+            ]
+            if len(matches) != 1:
+                return [
+                    f"{record_path}.guarantee_ids entry {guarantee_id!r} must resolve to exactly one explicit "
+                    "guarantee_id in state.json guarantees"
+                ]
+
+    return []
 
 
 def record_group_basis(

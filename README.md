@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/ShamikM88/open-cam-framework/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ShamikM88/open-cam-framework/actions/workflows/ci.yml)
 
-> **Status:** a working framework, built and tested on synthetic data only. It drafts and audits credit memos for a
-> person to review. It is not credit advice, and nothing it produces is approved for use in a real lending decision.
+> **Status:** a working framework. Its automated tests use synthetic data only; it has also been tried on publicly
+> available information about real companies. It drafts and audits credit memos for a person to review. It is not credit advice, and nothing it produces is approved for use in a real lending decision.
 
 An open-source, agentic credit underwriting framework. It turns a folder of borrower
 information into a drafted Credit Assessment Memorandum (CAM) — using a **Maker-Checker**

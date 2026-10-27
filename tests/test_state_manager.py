@@ -4518,6 +4518,20 @@ def test_record_entity_record_refuses_unknown_non_finite_metadata_without_writin
     assert path.read_bytes() == before
 
 
+def test_record_entity_record_never_downgrades_a_newer_schema_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["schema_version"] = "9.9.9"
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(SchemaVersionError) as caught:
+        _register_entity_record_for_tests(tmp_path, _entity_record_for_tests())
+
+    assert "schema_version 9.9.9" in str(caught.value)
+    assert path.read_bytes() == before
+
+
 def test_record_entity_record_refuses_if_state_disappears_before_locked_read(tmp_path, monkeypatch):
     record_file = tmp_path / "entity-record.json"
     record_file.write_text(json.dumps(_entity_record_for_tests()), encoding="utf-8")

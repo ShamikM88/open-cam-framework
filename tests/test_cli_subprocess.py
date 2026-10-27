@@ -2318,6 +2318,53 @@ def test_orchestrator_refuses_an_entity_keyed_financials_file_before_credentials
     assert saved_path.read_bytes() == before
 
 
+
+
+@pytest.mark.parametrize(
+    ("file_case", "expected_error"),
+    [
+        ("missing", "Cannot read entity-record file"),
+        ("directory", "Cannot read entity-record file"),
+        ("invalid_json", "Cannot read entity-record file"),
+        ("non_object", "must contain one JSON object"),
+        ("invalid_utf8", "Cannot read entity-record file"),
+    ],
+    ids=["missing", "directory", "invalid-json", "non-object", "invalid-utf8"],
+)
+def test_state_manager_register_entity_record_refuses_bad_input_file_without_writing(
+    cli, file_case, expected_error,
+):
+    state_path, _ = _install_entity_registry_cli_state(cli)
+    record_file = cli.workdir / "entity-record.json"
+    if file_case == "directory":
+        record_file.mkdir()
+    elif file_case == "invalid_json":
+        record_file.write_text("{bad", encoding="utf-8")
+    elif file_case == "non_object":
+        record_file.write_text('["not", "a record"]', encoding="utf-8")
+    elif file_case == "invalid_utf8":
+        record_file.write_bytes(b"\xff")
+    before = state_path.read_bytes()
+
+    result = _run_register_entity_record(cli, record_file, "--perimeter-confirmed")
+
+    _assert_a_clean_state_error(result, expected_error)
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_register_entity_record_refuses_an_impossible_confirmation_date_without_writing(cli):
+    state_path, _ = _install_entity_registry_cli_state(cli)
+    record_file = cli.workdir / "entity-record.json"
+    record_file.write_text(json.dumps(_cli_entity_record()), encoding="utf-8")
+    before = state_path.read_bytes()
+
+    result = _run_register_entity_record(
+        cli, record_file, "--perimeter-confirmed", "--date", "2026-02-30",
+    )
+
+    _assert_a_clean_state_error(result, "date '2026-02-30' is not a valid calendar date")
+    assert state_path.read_bytes() == before
+
 def _export_a_synthetic_deal(cli):
     """A deal exported the way `/assemble` leaves it, under the CLI's working directory."""
     from deal_export import export_deal

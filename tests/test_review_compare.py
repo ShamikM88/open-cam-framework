@@ -1629,3 +1629,165 @@ def test_compare_deal_checks_restatements_only_when_asked(tmp_path, monkeypatch)
 
     assert "restatement_check" not in rc.compare_deal(COMPANY, PROPOSAL, CURRENT_DATE)
     assert rc.compare_deal(COMPANY, PROPOSAL, CURRENT_DATE, periods_rolled_one_year=True)["restatement_check"]
+
+
+# ---------------------------------------------------------------------------
+# Issue #408: the rendered Markdown is the report an analyst reads, so its structure is pinned in full: every
+# heading, blank line, table row and fixed sentence, for an unchanged pair, for a pair with a basis change (changes with
+# deltas and "not recorded" cells, unchanged and absent categories, a recorded downside, a restated restatement row), and for
+# the consistent and not-comparable restatement rows. The expected text was produced by running the renderer and reading it
+# line by line against the code and the comparison semantics before it was recorded here.
+# ---------------------------------------------------------------------------
+
+RENDER_PRIOR = {'financials_source': 'framework-computed',
+ 'stress_assumptions': {'revenue_haircut_pct': 10},
+ 'ratios': {'FY-Current': {'dscr': 1.5, 'gearing': 0.4}, 'FY-1': {'dscr': 1.2}},
+ 'financials': {'FY-Current': {'ebitda': 10, 'raw': {'revenue': 100}},
+                'FY-1': {'ebitda': 8, 'raw': {'revenue': 90}}},
+ 'covenants': [{'metric': 'dscr', 'type': 'minimum', 'threshold': 1.25}]}
+RENDER_CURRENT = {'financials_source': 'analyst-supplied',
+ 'stress_assumptions': {'revenue_haircut_pct': 10},
+ 'ratios': {'FY-Current': {'dscr': 1.8}, 'FY-1': {'dscr': 1.5, 'gearing': 0.4}, 'FY-2': {'dscr': 1.2}},
+ 'financials': {'FY-Current': {'ebitda': 12, 'raw': {'revenue': 120}},
+                'FY-1': {'ebitda': 10, 'raw': {'revenue': 95}}},
+ 'covenants': [{'metric': 'dscr', 'type': 'minimum', 'threshold': 1.25}],
+ 'downside_case': {'financials': {'FY+1': {'ebitda': 5}}}}
+RENDER_CONSISTENT_PRIOR = {'ratios': {'FY-Current': {'dscr': 1.5}, 'FY-1': {'dscr': 1.2}},
+ 'financials': {'FY-Current': {'raw': {'revenue': 100}}}}
+RENDER_CONSISTENT_CURRENT = {'ratios': {'FY-Current': {'dscr': 1.8}, 'FY-1': {'dscr': 1.5}},
+ 'financials': {'FY-1': {'raw': {'revenue': 100}}}}
+
+
+EXPECTED_UNCHANGED_MARKDOWN = [
+    '# Review comparison — Synthetic Co / Asset Facility',
+    '',
+    'Prior review: 2025-10-20  ',
+    'Current review: 2026-10-20',
+    '',
+    '## Changes',
+    '',
+    '| Item | Prior | Current | Change |',
+    '| :--- | :--- | :--- | :--- |',
+    '| None | — | — | No changed values recorded |',
+    '',
+    'Changed paths: 0',
+    '',
+    '## Unchanged by-label categories',
+    '',
+    'None recorded as unchanged.',
+    '',
+    '## Categories not recorded in both states',
+    '',
+    'financials_source, financials_source_note, financials, ratios, multi_period_financials, analyst_supplied_financials, forecast_source, stress_assumptions, downside_case, covenants, policy_state.covenant_results, policy_state.forward_covenant_results, policy_state.downside_covenant_breaches, policy_state.security_gaps, policy_state.required_conditions_precedent, policy_state.required_conditions_subsequent, collateral, security_package, guarantees, ownership, facility_terms',
+    '',
+    'Downside case: not recorded in either state; this is not evidence that downside risk is absent',
+    '',
+]
+
+
+EXPECTED_BASIS_CHANGE_MARKDOWN = [
+    '# Review comparison — Synthetic Co / Asset Facility',
+    '',
+    'Prior review: 2025-10-20  ',
+    'Current review: 2026-10-20',
+    '',
+    '> **COMPARABILITY WARNING: financials_source differs between reviews. Values are compared as stored; movement across a basis change is not necessarily like-for-like.**',
+    '',
+    '## Changes',
+    '',
+    '| Item | Prior | Current | Change |',
+    '| :--- | :--- | :--- | :--- |',
+    '| financials_source | "framework-computed" | "analyst-supplied" | value_changed |',
+    '| financials.FY-1.ebitda | 8 | 10 | value_changed; delta 2 |',
+    '| financials.FY-1.raw.revenue | 90 | 95 | value_changed; delta 5 |',
+    '| financials.FY-Current.ebitda | 10 | 12 | value_changed; delta 2 |',
+    '| financials.FY-Current.raw.revenue | 100 | 120 | value_changed; delta 20 |',
+    '| ratios.FY-1.dscr | 1.2 | 1.5 | value_changed; delta 0.3 |',
+    '| ratios.FY-1.gearing | not recorded | 0.4 | not_recorded_to_value |',
+    '| ratios.FY-2.dscr | not recorded | 1.2 | not_recorded_to_value |',
+    '| ratios.FY-Current.dscr | 1.5 | 1.8 | value_changed; delta 0.3 |',
+    '| ratios.FY-Current.gearing | 0.4 | not recorded | value_to_not_recorded |',
+    '| downside_case.financials.FY+1.ebitda | not recorded | 5 | not_recorded_to_value |',
+    '',
+    'Changed paths: 11',
+    '',
+    '## Unchanged by-label categories',
+    '',
+    'stress_assumptions, covenants',
+    '',
+    '## Categories not recorded in both states',
+    '',
+    'financials_source_note, multi_period_financials, analyst_supplied_financials, forecast_source, policy_state.covenant_results, policy_state.forward_covenant_results, policy_state.downside_covenant_breaches, policy_state.security_gaps, policy_state.required_conditions_precedent, policy_state.required_conditions_subsequent, collateral, security_package, guarantees, ownership, facility_terms',
+    '',
+    'Downside case: recorded in at least one state; this comparison does not assess its adequacy.',
+    '',
+    '## Restatement check',
+    '',
+    'Analyst confirmation recorded: --periods-rolled-one-year = true.',
+    '> **COMPARABILITY WARNING: financials_source differs between reviews. Values are compared as stored; movement across a basis change is not necessarily like-for-like.**',
+    '',
+    '',
+    '| Prior period | Current period | Status | Differences |',
+    '| :--- | :--- | :--- | :--- |',
+    '| FY-Current | FY-1 | restated; COMPARABILITY WARNING: financials_source differs between reviews. Values are compared as stored; movement across a basis change is not necessarily like-for-like. | raw_line_items.revenue: 100 → 95 (difference -5) |',
+    '| FY-1 | FY-2 | restated; COMPARABILITY WARNING: financials_source differs between reviews. Values are compared as stored; movement across a basis change is not necessarily like-for-like. | financials.ebitda: 8 → not recorded (value_to_not_recorded); raw_line_items.revenue: 90 → not recorded (value_to_not_recorded) |',
+    '',
+]
+
+
+EXPECTED_CONSISTENT_AND_NOT_COMPARABLE_MARKDOWN = [
+    '# Review comparison — Synthetic Co / Asset Facility',
+    '',
+    'Prior review: 2025-10-20  ',
+    'Current review: 2026-10-20',
+    '',
+    '## Changes',
+    '',
+    '| Item | Prior | Current | Change |',
+    '| :--- | :--- | :--- | :--- |',
+    '| financials.FY-1.raw.revenue | not recorded | 100 | not_recorded_to_value |',
+    '| financials.FY-Current.raw.revenue | 100 | not recorded | value_to_not_recorded |',
+    '| ratios.FY-1.dscr | 1.2 | 1.5 | value_changed; delta 0.3 |',
+    '| ratios.FY-Current.dscr | 1.5 | 1.8 | value_changed; delta 0.3 |',
+    '',
+    'Changed paths: 4',
+    '',
+    '## Unchanged by-label categories',
+    '',
+    'None recorded as unchanged.',
+    '',
+    '## Categories not recorded in both states',
+    '',
+    'financials_source, financials_source_note, multi_period_financials, analyst_supplied_financials, forecast_source, stress_assumptions, downside_case, covenants, policy_state.covenant_results, policy_state.forward_covenant_results, policy_state.downside_covenant_breaches, policy_state.security_gaps, policy_state.required_conditions_precedent, policy_state.required_conditions_subsequent, collateral, security_package, guarantees, ownership, facility_terms',
+    '',
+    'Downside case: not recorded in either state; this is not evidence that downside risk is absent',
+    '',
+    '## Restatement check',
+    '',
+    'Analyst confirmation recorded: --periods-rolled-one-year = true.',
+    '',
+    '| Prior period | Current period | Status | Differences |',
+    '| :--- | :--- | :--- | :--- |',
+    '| FY-Current | FY-1 | consistent | No recorded-value differences |',
+    '| FY-1 | FY-2 | not_comparable | current period FY-2 is not recorded |',
+    '',
+]
+
+
+def test_408_markdown_for_an_unchanged_pair_is_exact():
+    assert rc.render_markdown(report({}, {})) == "\n".join(EXPECTED_UNCHANGED_MARKDOWN)
+
+
+def test_408_markdown_for_a_basis_change_with_changes_downside_and_restatement_is_exact():
+    result = report(RENDER_PRIOR, RENDER_CURRENT, rolled=True)
+    assert rc.render_markdown(result) == "\n".join(EXPECTED_BASIS_CHANGE_MARKDOWN)
+
+
+def test_408_markdown_restatement_rows_for_a_consistent_and_a_not_comparable_pair_are_exact():
+    result = report(RENDER_CONSISTENT_PRIOR, RENDER_CONSISTENT_CURRENT, rolled=True)
+    assert rc.render_markdown(result) == "\n".join(EXPECTED_CONSISTENT_AND_NOT_COMPARABLE_MARKDOWN)
+
+
+def test_408_period_order_puts_current_before_every_numbered_label_including_zero():
+    labels = ["FY-2", "FY-0", "FY-Current", "FY-1"]
+    assert sorted(labels, key=rc._period_order) == ["FY-Current", "FY-0", "FY-1", "FY-2"]

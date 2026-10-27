@@ -16,8 +16,8 @@ import sys
 from typing import Any, TypedDict
 
 from policy_checks import check_draft_compliance, ground_truth_figures
-from policy_engine import evaluate_deal_policy
-from state_manager import JsonValue, read_state, state_path, validate_state
+from policy_engine import PolicyState, evaluate_deal_policy
+from state_manager import read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
@@ -25,7 +25,7 @@ STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_
 
 
 class PolicyCheckOutput(TypedDict):
-    policy_state: dict[str, JsonValue]
+    policy_state: PolicyState
     reasons: list[str]
     compliant: bool
     cam_data_present: bool

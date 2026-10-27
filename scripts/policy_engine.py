@@ -37,11 +37,12 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
 
 from financial_conventions import PERCENT_TYPE_RATIOS
 from numeric_validation import validate_finite_numbers
 from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
+from state_manager import JsonValue
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
 
@@ -51,8 +52,64 @@ COVENANT_BASES = ("borrower", "consolidated", "guarantor_group")
 DEFAULT_COVENANT_BASIS = "borrower"
 
 
+class CovenantResult(TypedDict):
+    """One covenant's result, keys in this order. `metric`, `type` and `threshold` echo the covenant as recorded, even
+    when it is malformed (the result is then UNRESOLVABLE), so they are JSON values and not the happy-path types.
+    `basis` is present only when the covenant stated one or the recorded figures are not the borrower's, and sits
+    before `actual`."""
+    metric: JsonValue
+    type: JsonValue
+    threshold: JsonValue
+    actual: int | float | None
+    status: Literal["PASS", "FAIL", "UNRESOLVABLE"]
+    headroom_pct: int | float | None
+    reason: str | None
+    basis: NotRequired[JsonValue]
+
+
+class ForwardCovenantResult(CovenantResult):
+    """A covenant result for a forward year: the same keys, then `year` and `forward_id`."""
+    year: str
+    forward_id: str
+
+
+class DownsideBreach(TypedDict):
+    """A base-case PASS that fails or cannot be tested under stress. `base_actual` and `threshold` are copied from the
+    base-case covenant result, so they carry that result's types (a PASS is always numeric, which a type cannot say);
+    `basis` is copied last, and only when the base-case result has one."""
+    year: str
+    metric: JsonValue
+    base_actual: int | float | None
+    downside_actual: int | float | None
+    threshold: JsonValue
+    breach_id: str
+    downside_status: Literal["FAIL", "UNRESOLVABLE"]
+    reason: str | None
+    basis: NotRequired[JsonValue]
+
+
+class ConditionPrecedent(TypedDict):
+    cp_id: str
+    text: str
+
+
+class ConditionSubsequent(TypedDict):
+    cs_id: str
+    text: str
+
+
+class PolicyState(TypedDict):
+    """What evaluate_deal_policy() returns: all six keys, always, in this order."""
+    covenant_results: list[CovenantResult]
+    security_gaps: list[str]
+    required_conditions_precedent: list[ConditionPrecedent]
+    required_conditions_subsequent: list[ConditionSubsequent]
+    downside_covenant_breaches: list[DownsideBreach]
+    forward_covenant_results: list[ForwardCovenantResult]
+
+
 # Always required regardless of deal-specific structure.
-STANDARD_CONDITIONS_PRECEDENT = [
+STANDARD_CONDITIONS_PRECEDENT: list[ConditionPrecedent] = [
     {"cp_id": "KYC-AML", "text": "Standard KYC/AML clearance for all borrowing entities."},
     {"cp_id": "FACILITY-EXECUTION", "text": "Execution of Facility Agreement."},
 ]
@@ -63,7 +120,7 @@ STANDARD_CONDITIONS_PRECEDENT = [
 # days of period end") -- this codebase's grounding rule bars inventing
 # figures, and a submission deadline is exactly the kind of deal-specific
 # detail this module has no basis to assert.
-STANDARD_CONDITIONS_SUBSEQUENT = [
+STANDARD_CONDITIONS_SUBSEQUENT: list[ConditionSubsequent] = [
     {
         "cs_id": "MI-REPORTING",
         "text": (
@@ -95,7 +152,7 @@ def _slugify(value: object) -> str:
 def _evaluate_covenant(
     covenant: dict[str, Any], ratios: dict[str, Any], financials: dict[str, Any] | None = None,
     recorded_view: str = DEFAULT_COVENANT_BASIS,
-) -> dict[str, Any]:
+) -> CovenantResult:
     """One covenant's PASS/FAIL/UNRESOLVABLE result against `ratios`
     (a single period's ratios dict, e.g. state.json's ratios["FY-Current"]).
     `financials` is that same period's `financials` dict, used only to explain WHY a ratio is N/A.
@@ -135,22 +192,37 @@ def _evaluate_covenant(
     """
     metric = covenant.get("metric")
     covenant_type = covenant.get("type")
-    threshold: object = covenant.get("threshold")
+    echoed_threshold = covenant.get("threshold")
+    threshold: object = echoed_threshold
     basis = covenant.get("basis")
     basis_stated = basis is not None
     if not basis_stated:
         basis = DEFAULT_COVENANT_BASIS
 
-    result = {
-        "metric": metric,
-        "type": covenant_type,
-        "threshold": threshold,
-    }
     # A result names its basis when the covenant stated one, or when the recorded figures are not the borrower's (so
     # the default is visible where it matters). An ordinary deal's results keep exactly their earlier shape.
+    result: CovenantResult
     if basis_stated or recorded_view != DEFAULT_COVENANT_BASIS:
-        result["basis"] = basis
-    result.update(actual=None, status="UNRESOLVABLE", headroom_pct=None, reason=None)
+        result = {
+            "metric": metric,
+            "type": covenant_type,
+            "threshold": echoed_threshold,
+            "basis": basis,
+            "actual": None,
+            "status": "UNRESOLVABLE",
+            "headroom_pct": None,
+            "reason": None,
+        }
+    else:
+        result = {
+            "metric": metric,
+            "type": covenant_type,
+            "threshold": echoed_threshold,
+            "actual": None,
+            "status": "UNRESOLVABLE",
+            "headroom_pct": None,
+            "reason": None,
+        }
 
     if basis not in COVENANT_BASES:
         result["reason"] = (f"unrecognized covenant basis {basis!r} "
@@ -233,7 +305,7 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
 
 def _evaluate_security(
     collateral: Iterable[dict[str, Any]], security_package: Iterable[dict[str, Any]],
-) -> tuple[list[str], list[dict[str, str]]]:
+) -> tuple[list[str], list[ConditionPrecedent]]:
     """Cross-reference collateral assets against the security package taken
     over them, joined on asset_id <-> secures_asset_id.
 
@@ -256,8 +328,8 @@ def _evaluate_security(
         if asset_id:
             charges_by_asset_id.setdefault(asset_id, []).append(charge)
 
-    gaps = []
-    cps = []
+    gaps: list[str] = []
+    cps: list[ConditionPrecedent] = []
 
     # A per-prefix candidate is checked against every cp_id already
     # assigned anywhere in this call, not just other charges on the same
@@ -331,7 +403,7 @@ def _evaluate_security(
     return gaps, cps
 
 
-def _guarantee_cps(guarantees: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+def _guarantee_cps(guarantees: Iterable[dict[str, Any]]) -> list[ConditionPrecedent]:
     """One CP per guarantee. `cp_id` is keyed on an explicit `guarantee_id`
     when supplied (and actually present -- a falsy-but-real id like `0` is
     honored, not treated as absent), otherwise on the provider -- unchanged
@@ -364,7 +436,7 @@ def _guarantee_cps(guarantees: Iterable[dict[str, Any]]) -> list[dict[str, str]]
         )
 
     used_ids: set[str] = set()
-    cps = []
+    cps: list[ConditionPrecedent] = []
     for guarantee in guarantees:
         provider = guarantee.get("provider", "")
         guarantee_type = guarantee.get("type")
@@ -398,7 +470,7 @@ def _guarantee_cps(guarantees: Iterable[dict[str, Any]]) -> list[dict[str, str]]
     return cps
 
 
-def _covenant_compliance_cs(covenants: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+def _covenant_compliance_cs(covenants: list[dict[str, Any]] | None) -> list[ConditionSubsequent]:
     """One CS for the whole deal when `covenants` is non-empty -- not one
     per covenant. The underlying obligation (certify ongoing compliance
     with the covenant package under the Facility Agreement) is a single
@@ -420,7 +492,7 @@ def _covenant_compliance_cs(covenants: list[dict[str, Any]] | None) -> list[dict
     }]
 
 
-def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> list[ConditionSubsequent]:
     """One CS per currently-Perfected charge -- mirrors _evaluate_security()'s
     own per-charge granularity (a multi-charge asset can have more than one
     charge independently reach Perfected status, each its own standing
@@ -434,7 +506,7 @@ def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> l
     own collision-avoidance pattern for the equivalent CP.
     """
     used_ids: set[str] = set()
-    cs_list = []
+    cs_list: list[ConditionSubsequent] = []
 
     def unique_cs_id(base_slug: str) -> str:
         return _unique_id("CS-SEC-REPERFECT", base_slug, used_ids)
@@ -453,7 +525,7 @@ def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> l
     return cs_list
 
 
-def _guarantee_standing_cs(guarantees: Iterable[dict[str, Any]]) -> list[dict[str, str]]:
+def _guarantee_standing_cs(guarantees: Iterable[dict[str, Any]]) -> list[ConditionSubsequent]:
     """One CS per guarantee -- mirrors _guarantee_cps()'s own one-per-
     guarantee granularity and id-disambiguation approach (a guarantee's own
     `guarantee_id` when supplied and actually present, else its `provider`,
@@ -467,7 +539,7 @@ def _guarantee_standing_cs(guarantees: Iterable[dict[str, Any]]) -> list[dict[st
         )
 
     used_ids: set[str] = set()
-    cs_list = []
+    cs_list: list[ConditionSubsequent] = []
     for guarantee in guarantees:
         provider = guarantee.get("provider", "")
         base_slug = _slugify(guarantee["guarantee_id"] if has_explicit_id(guarantee) else provider)
@@ -488,7 +560,7 @@ def _evaluate_downside_covenants(
     covenants: Iterable[dict[str, Any]], all_ratios: dict[str, Any] | None, downside_ratios: dict[str, Any] | None,
     base_financials: dict[str, Any] | None = None, downside_financials: dict[str, Any] | None = None,
     unavailable: dict[str, str] | None = None, recorded_view: str = DEFAULT_COVENANT_BASIS,
-) -> list[dict[str, Any]]:
+) -> list[DownsideBreach]:
     """For each covenant, independently re-check it against every forward
     period that has both a base-case and a downside-case ratio set. Where
     the base case PASSes but the downside (stressed) case FAILs, record it
@@ -529,7 +601,7 @@ def _evaluate_downside_covenants(
     on the same metric in one year receive a stable numeric suffix (e.g.
     "DOWNSIDE-FY-1-DSCR-2"); a single covenant keeps its existing ID.
     """
-    breaches = []
+    breaches: list[DownsideBreach] = []
     used_ids: set[str] = set()
     all_ratios = all_ratios or {}
     downside_ratios = downside_ratios or {}
@@ -549,16 +621,17 @@ def _evaluate_downside_covenants(
             downside_result = _evaluate_covenant(covenant, downside_ratios_for_period,
                                                  downside_financials_for_period, recorded_view)
 
-            if base_result["status"] == "PASS" and downside_result["status"] in ("FAIL", "UNRESOLVABLE"):
+            downside_status = downside_result["status"]
+            if base_result["status"] == "PASS" and downside_status in ("FAIL", "UNRESOLVABLE"):
                 metric = covenant.get("metric")
-                breach = {
+                breach: DownsideBreach = {
                     "year": period,
                     "metric": metric,
                     "base_actual": base_result["actual"],
                     "downside_actual": downside_result["actual"],
                     "threshold": base_result["threshold"],
                     "breach_id": _unique_id("DOWNSIDE", f"{_slugify(period)}-{_slugify(metric)}", used_ids),
-                    "downside_status": downside_result["status"],
+                    "downside_status": downside_status,
                     "reason": downside_result["reason"],
                 }
                 if "basis" in base_result:
@@ -595,7 +668,7 @@ def _evaluate_downside_covenants(
 def _evaluate_forward_covenants(
     covenants: Iterable[dict[str, Any]], all_ratios: object, base_financials: object = None,
     recorded_view: str = DEFAULT_COVENANT_BASIS,
-) -> list[dict[str, Any]]:
+) -> list[ForwardCovenantResult]:
     """Every covenant against every forward BASE-CASE year the deal has projected (issue #176).
 
     Policy: a covenant applies to each forward year (`FY+1`, `FY+2`, `FY+3`) that has a recorded, non-empty ratio
@@ -618,7 +691,7 @@ def _evaluate_forward_covenants(
     if not isinstance(all_ratios, dict):
         return []
     used_ids: set[str] = set()
-    results = []
+    results: list[ForwardCovenantResult] = []
     for period in FORWARD_PERIOD_KEYS:
         period_ratios = all_ratios.get(period)
         if not isinstance(period_ratios, dict) or not period_ratios:
@@ -626,10 +699,13 @@ def _evaluate_forward_covenants(
         period_financials = _period_dict(base_financials, period)
         for covenant in covenants:
             result = _evaluate_covenant(covenant, period_ratios, period_financials, recorded_view)
-            result["year"] = period
-            result["forward_id"] = _unique_id(
-                "FORWARD", f"{_slugify(period)}-{_slugify(covenant.get('metric'))}", used_ids)
-            results.append(result)
+            forward_result: ForwardCovenantResult = {
+                **result,
+                "year": period,
+                "forward_id": _unique_id(
+                    "FORWARD", f"{_slugify(period)}-{_slugify(covenant.get('metric'))}", used_ids),
+            }
+            results.append(forward_result)
     return results
 
 
@@ -640,7 +716,7 @@ def _period_dict(financials: object, period: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def evaluate_deal_policy(state_dict: dict[str, Any] | None) -> dict[str, Any]:
+def evaluate_deal_policy(state_dict: dict[str, Any] | None) -> PolicyState:
     """Evaluate one deal's state against deterministic credit policy rules.
 
     Reads (all optional, default to empty): `ratios` (the full multi-period

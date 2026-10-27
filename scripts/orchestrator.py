@@ -3,6 +3,8 @@ import json
 import os
 import sys
 import argparse
+from collections.abc import Mapping
+from typing import Any
 
 from deal_export import export_deal
 from draft_lint import TemplateContentError, lint_draft
@@ -230,7 +232,7 @@ def parse_verdict(response_text):
     return "REJECTED", response_text
 
 
-def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state, ground_truth_figures,
+def _apply_deterministic_policy_checks(verdict, notes, draft_text, policy_state: Mapping[str, Any], ground_truth_figures,
                                         financials_source=None, credit_policy_present=None, deal_type=None):
     """Code-enforced overlay on top of the Risk Reviewer's own (qualitative)
     verdict: covenant/security/CP/taxonomy/narrative-accuracy/analyst-
@@ -282,7 +284,7 @@ def _xml_block(tag, content):
 
 
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
-                              collateral_data, policy_state=None, downside_case=None,
+                              collateral_data, policy_state: Mapping[str, Any] | None = None, downside_case=None,
                               financials_source=None, credit_policy=None,
                               financials_source_note=None, credit_policy_notes=None,
                               company_learnings=None, enterprise_learnings=None):

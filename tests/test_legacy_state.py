@@ -95,7 +95,7 @@ def test_each_fixture_reads_back_with_the_schema_version_it_was_written_with(tmp
 
 def test_analyst_terms_fixture_is_valid_without_a_schema_version_bump():
     state = load_fixture("06_analyst_terms")
-    assert state["schema_version"] == state_manager.SCHEMA_VERSION == "1.1.0"
+    assert state["schema_version"] == "1.1.0"  # the fixture remains a valid pre-entity-record schema
     assert state_manager.validate_state(state) is state
     assert state["analyst_terms"] == [{
         "term": "SYNTHETIC-TERM",

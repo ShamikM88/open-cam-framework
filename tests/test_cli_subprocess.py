@@ -2650,8 +2650,10 @@ def test_state_manager_register_entity_record_refuses_without_confirmation_and_d
 
 
 def test_state_manager_register_entity_record_refuses_duplicate_id_without_replacing_existing_record(cli):
+    existing = _cli_entity_record()
+    existing["perimeter"]["confirmed"] = True
+    state_path, _ = _install_entity_registry_cli_state(cli, entity_records={"synthetic-parent": existing})
     record = _cli_entity_record()
-    state_path, _ = _install_entity_registry_cli_state(cli, entity_records={"synthetic-parent": record})
     record_file = cli.workdir / "entity-record.json"
     record_file.write_text(json.dumps(record), encoding="utf-8")
     before = state_path.read_bytes()

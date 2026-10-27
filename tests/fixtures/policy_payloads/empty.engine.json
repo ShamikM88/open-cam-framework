@@ -1,0 +1,22 @@
+{
+  "covenant_results": [],
+  "security_gaps": [],
+  "required_conditions_precedent": [
+    {
+      "cp_id": "KYC-AML",
+      "text": "Standard KYC/AML clearance for all borrowing entities."
+    },
+    {
+      "cp_id": "FACILITY-EXECUTION",
+      "text": "Execution of Facility Agreement."
+    }
+  ],
+  "required_conditions_subsequent": [
+    {
+      "cs_id": "MI-REPORTING",
+      "text": "Ongoing submission of periodic financial statements and management information to support continued monitoring of the facility."
+    }
+  ],
+  "downside_covenant_breaches": [],
+  "forward_covenant_results": []
+}

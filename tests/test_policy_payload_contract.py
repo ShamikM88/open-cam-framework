@@ -5,7 +5,9 @@ Typing those records as TypedDicts (issue #483) must change no key, no key order
 payload is stored in state, compared between reviews and rendered into documents. The goldens in
 `tests/fixtures/policy_payloads/` were captured from the implementation *before* any typing change, so they are independent
 of the code they check: one `*.engine.json` per case for `evaluate_deal_policy()` (`json.dumps(..., indent=2)`), and one
-`*.cli.json` per case for the exact standard output of `python scripts/policy_check.py`.
+`*.cli.json` per case for the exact standard output of `python scripts/policy_check.py`. Both are compared as bytes. The one
+normalisation is that CRLF becomes LF on both sides: a Windows pipe writes CRLF for every line the script prints and a Windows
+checkout may turn a golden's LF into CRLF, and neither says anything about the payload.
 
 The cases are the six synthetic legacy fixtures plus two synthetic states built here that between them reach every branch
 that shapes the payload: a covenant with and without `basis` (the key sits before `actual` in a covenant result and last in
@@ -129,21 +131,21 @@ CASE_NAMES = [*LEGACY, "rich", "rich_consolidated"]
 
 
 def golden(name, kind):
-    return (GOLDEN_DIR / f"{name}.{kind}.json").read_bytes().decode("utf-8").replace("\r\n", "\n")
+    return (GOLDEN_DIR / f"{name}.{kind}.json").read_bytes().replace(b"\r\n", b"\n")
 
 
-def engine_text(state):
-    return json.dumps(evaluate_deal_policy(state), indent=2) + "\n"
+def engine_bytes(state):
+    return (json.dumps(evaluate_deal_policy(state), indent=2) + "\n").encode("utf-8")
 
 
 @pytest.mark.parametrize("name", CASE_NAMES)
 def test_the_engine_payload_is_byte_for_byte_the_recorded_one(name):
-    assert engine_text(all_cases()[name]) == golden(name, "engine")
+    assert engine_bytes(all_cases()[name]) == golden(name, "engine")
 
 
 def test_the_empty_and_missing_state_payloads_are_the_recorded_ones():
-    assert engine_text({}) == golden("empty", "engine")
-    assert engine_text(None) == golden("empty", "engine")
+    assert engine_bytes({}) == golden("empty", "engine")
+    assert engine_bytes(None) == golden("empty", "engine")
 
 
 def child_env():
@@ -160,10 +162,9 @@ def test_the_policy_check_cli_output_is_byte_for_byte_the_recorded_one(tmp_path,
     (folder / "state.json").write_text(json.dumps(state), encoding="utf-8")
     result = subprocess.run(
         [sys.executable, str(SCRIPTS / "policy_check.py"), "--company", state["company"], "--proposal", state["proposal"]],
-        cwd=tmp_path, env=child_env(), capture_output=True, text=True, encoding="utf-8", timeout=120,
-        stdin=subprocess.DEVNULL)
+        cwd=tmp_path, env=child_env(), capture_output=True, timeout=120, stdin=subprocess.DEVNULL)
     assert result.returncode == 0, result.stderr
-    assert result.stdout == golden(name, "cli")
+    assert result.stdout.replace(b"\r\n", b"\n") == golden(name, "cli")
 
 
 def test_the_rich_cases_reach_every_shape_the_payload_can_take():

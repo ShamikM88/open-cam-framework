@@ -34,13 +34,65 @@ import time
 from collections.abc import Iterable
 from datetime import date, datetime
 from types import TracebackType
-from typing import Any, Self, overload
+from typing import Any, Literal, Self, TypedDict, overload
 
-from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+from numeric_validation import (
+    NonFiniteNumberError, validate_finite_numbers, validate_period_keys, validate_period_objects,
+    validate_raw_line_items,
+)
 
 # A value that can appear in state.json or in a policy result. The one definition every annotated module imports
 # (issue #424), so the alias cannot drift between modules; tests/test_typecheck_config.py pins that it has one home.
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+class EntitySource(TypedDict):
+    """Source document and accounting basis for one entity's own figures."""
+
+    document: str
+    accounting_basis: str
+    date: str
+
+
+class EntityPerimeter(TypedDict):
+    """Analyst-confirmed scope metadata; ownership percentages do not imply control."""
+
+    included: bool
+    control_basis: str
+    scope_rationale: str
+    confirmed: bool
+    confirmed_on: str
+
+
+class EntityIntercompanyLine(TypedDict):
+    """An identified raw line and counterparty, recorded but not eliminated in step 1."""
+
+    period: str
+    line_key: str
+    counterparty_entity_id: str
+    direction: str
+    amount: int | float
+    confirmed: bool
+
+
+class EntityRecord(TypedDict):
+    """Shared step-1 record contract for subsidiaries, parents and guarantors."""
+
+    entity_id: str
+    legal_name: str
+    role: Literal["subsidiary", "parent", "guarantor"]
+    source: EntitySource
+    period_ends: dict[str, str]
+    perimeter: EntityPerimeter
+    raw_figures_source: str
+    multi_period_financials: dict[str, dict[str, JsonValue]]
+    analyst_supplied_financials: dict[str, dict[str, JsonValue]]
+    spread_status: Literal["not-spread"]
+    intercompany_lines: list[EntityIntercompanyLine]
+    guarantee_ids: list[str]
+
+
+EntityRegistry = dict[str, EntityRecord]
 
 DEALS_DIR = "deals"
 
@@ -51,7 +103,7 @@ DEALS_DIR = "deals"
 # at all; read_state() reports LEGACY_SCHEMA_VERSION for those rather than
 # leaving the key absent, so future migration logic always has a defined
 # starting point instead of needing its own "key missing" special case.
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
 # A recorded version must look exactly like SCHEMA_VERSION: MAJOR.MINOR.PATCH, each a run of digits. Compared
@@ -88,7 +140,7 @@ STATE_SHAPES = {
     "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
     "collateral": "list", "covenants": "list", "security_package": "list", "guarantees": "list",
     "steps_completed": "list", "review_trail": "list",
-    "financials_source": "source",
+    "financials_source": "source", "entity_records": "entity_records",
 }
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
@@ -97,6 +149,7 @@ FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
 FINITE_NUMERIC_STATE_KEYS = (
     "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
     "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
+    "entity_records",
 )
 
 
@@ -356,6 +409,8 @@ def validate_state(
             continue
         if kind == "group_basis":
             problems.extend(_group_basis_problems(value, state.get("financials_source")))
+        elif kind == "entity_records":
+            problems.extend(_entity_records_problems(value, state.get("guarantees")))
         elif kind == "periods":
             problems.extend(_problems_with_periods(key, value))
         elif kind == "object":

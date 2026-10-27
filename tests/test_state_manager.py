@@ -4181,12 +4181,24 @@ def test_validate_state_rejects_unconfirmed_or_undated_persisted_entity_without_
     path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": record})
     before = path.read_bytes()
 
-    with pytest.raises(StateShapeError, match=problem):
+    with pytest.raises(StateShapeError) as caught:
         read_state(
             "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
             base_dir=str(tmp_path), keys=("entity_records",),
         )
 
+    if perimeter_patch.get("confirmed") is False:
+        entity_problem = (
+            "entity_records['synthetic-parent'].perimeter.confirmed must be true after explicit analyst confirmation"
+        )
+    else:
+        entity_problem = (
+            "entity_records['synthetic-parent'].perimeter.confirmed_on must be a real YYYY-MM-DD calendar date"
+        )
+    assert str(caught.value) == (
+        f"Cannot use {path}: {entity_problem}. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
     assert path.read_bytes() == before
 
 
@@ -4199,10 +4211,18 @@ def test_validate_state_rejects_a_non_unique_guarantee_link_in_a_persisted_entit
     )
     before = path.read_bytes()
 
-    with pytest.raises(StateShapeError, match="guarantee_ids.*GUARANTEE-SYN-001"):
+    with pytest.raises(StateShapeError) as caught:
         read_state(
             "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
             base_dir=str(tmp_path), keys=("entity_records",),
         )
 
+    entity_problem = (
+        "entity_records['synthetic-parent'].guarantee_ids entry 'GUARANTEE-SYN-001' must resolve to exactly "
+        "one explicit guarantee_id in state.json guarantees"
+    )
+    assert str(caught.value) == (
+        f"Cannot use {path}: {entity_problem}. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
     assert path.read_bytes() == before

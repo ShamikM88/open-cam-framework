@@ -862,6 +862,32 @@ def test_sc_plan_fields_historical_period_phrase_is_absent_without_historical_pe
     )
 
 
+
+def test_sc_compute_refuses_entity_keyed_map_before_any_state_write(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = write_state(
+        "Synthetic Co", "Synthetic Facility", date_str="2026-10-27",
+        base_dir=str(tmp_path), marker="keep", financials={"FY-Current": {"ebitda": 40}},
+    )
+    path = Path(state_manager.state_path(
+        "Synthetic Co", "Synthetic Facility", date_str="2026-10-27", base_dir=str(tmp_path),
+    ))
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        compute(
+            "Synthetic Co", "Synthetic Facility",
+            {"synthetic-opco": {"FY-Current": {"revenue": 100}}},
+        )
+
+    assert str(caught.value) == (
+        "financial inputs: unexpected period key 'synthetic-opco'; expected one of "
+        "FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+    assert path.read_bytes() == before
+    assert original["marker"] == "keep"
+
+
 def test_sc_plan_fields_nothing_to_compute_message_is_exact():
     with pytest.raises(ValueError) as caught:
         plan_fields({})

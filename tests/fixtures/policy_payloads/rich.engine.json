@@ -1,0 +1,829 @@
+{
+  "covenant_results": [
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "borrower",
+      "actual": 1.8,
+      "status": "PASS",
+      "headroom_pct": 0.20000000000000004,
+      "reason": null
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 3.0,
+      "actual": 2.5,
+      "status": "PASS",
+      "headroom_pct": 0.16666666666666666,
+      "reason": null
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 2.6,
+      "actual": 2.5,
+      "status": "PASS",
+      "headroom_pct": 0.03846153846153849,
+      "reason": null
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.45,
+      "actual": 0.4,
+      "status": "PASS",
+      "headroom_pct": 0.11111111111111108,
+      "reason": null
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.3,
+      "actual": 0.4,
+      "status": "FAIL",
+      "headroom_pct": -0.3333333333333335,
+      "reason": null
+    },
+    {
+      "metric": "ebit_interest_cover",
+      "type": "minimum",
+      "threshold": 2.0,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "EBIT interest cover not defined: interest paid is zero"
+    },
+    {
+      "metric": "unknown_metric",
+      "type": "minimum",
+      "threshold": 1,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "metric 'unknown_metric' is not among this period's computed ratios"
+    },
+    {
+      "metric": "dscr",
+      "type": "sideways",
+      "threshold": 1.5,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant type 'sideways' (expected 'minimum' or 'maximum')"
+    },
+    {
+      "metric": "dscr",
+      "type": "maximum",
+      "threshold": null,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant threshold is missing or not a number"
+    },
+    {
+      "metric": "current_ratio",
+      "type": "minimum",
+      "threshold": 0,
+      "actual": 1.1,
+      "status": "PASS",
+      "headroom_pct": null,
+      "reason": null
+    },
+    {
+      "metric": "fcf_conversion_pct",
+      "type": "minimum",
+      "threshold": 87,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "fcf_conversion_pct covenant threshold 87 looks like a percent; percent-type ratios and their covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing."
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "consolidated",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant is on the consolidated basis but the recorded figures are the borrower view, and no consolidated figures are recorded; state the covenant's basis, or record figures for it"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "weird",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant basis 'weird' (expected 'borrower', 'consolidated' or 'guarantor_group')"
+    },
+    {
+      "metric": "net_debt_to_ebitda",
+      "type": "maximum",
+      "threshold": -0.5,
+      "actual": -0.5,
+      "status": "PASS",
+      "headroom_pct": -0.0,
+      "reason": null
+    }
+  ],
+  "security_gaps": [
+    "Uncharged Asset: AST-002 has no corresponding security charge registered.",
+    "Unperfected Security: Asset AST-003 charge status is 'Pending', not Perfected.",
+    "Subordinate Ranking: Asset AST-003 charge ranking is 'Second', not First.",
+    "Subordinate Ranking: Asset AST-004 charge ranking is 'Second', not First.",
+    "Unperfected Security: Asset ast 004 charge status is 'Pending', not Perfected.",
+    "Dangling Reference: GHOST-9 does not exist in collateral records."
+  ],
+  "required_conditions_precedent": [
+    {
+      "cp_id": "KYC-AML",
+      "text": "Standard KYC/AML clearance for all borrowing entities."
+    },
+    {
+      "cp_id": "FACILITY-EXECUTION",
+      "text": "Execution of Facility Agreement."
+    },
+    {
+      "cp_id": "SEC-MAPPING-AST-002",
+      "text": "Resolution of collateral security mapping discrepancy for asset AST-002."
+    },
+    {
+      "cp_id": "SEC-PERFECT-AST-003",
+      "text": "Execution and completion of registration to perfect charge over asset AST-003 (Current Status: Pending)."
+    },
+    {
+      "cp_id": "SEC-PRIORITY-AST-003",
+      "text": "Negotiation, execution, and stamping of a formal Intercreditor Deed / Deed of Priority with existing chargeholders for asset AST-003 (Current Ranking: Second)."
+    },
+    {
+      "cp_id": "SEC-PRIORITY-AST-004",
+      "text": "Negotiation, execution, and stamping of a formal Intercreditor Deed / Deed of Priority with existing chargeholders for asset AST-004 (Current Ranking: Second)."
+    },
+    {
+      "cp_id": "SEC-PERFECT-AST-004",
+      "text": "Execution and completion of registration to perfect charge over asset ast 004 (Current Status: Pending)."
+    },
+    {
+      "cp_id": "SEC-MAPPING-GHOST-9",
+      "text": "Resolution of collateral security mapping discrepancy for asset GHOST-9."
+    },
+    {
+      "cp_id": "GUARANTEE-PARENT-HOLDINGS",
+      "text": "Execution of Corporate Guarantee by Parent Holdings for 500000."
+    },
+    {
+      "cp_id": "GUARANTEE-PARENT-HOLDINGS-2",
+      "text": "Execution of Corporate Guarantee by Parent Holdings for Unlimited Facility."
+    },
+    {
+      "cp_id": "GUARANTEE-G-1",
+      "text": "Execution of Guarantee by Director X for 0."
+    },
+    {
+      "cp_id": "GUARANTEE-PARENT-HOLDINGS-3",
+      "text": "Execution of Personal Guarantee by Parent-Holdings for Unlimited Facility."
+    },
+    {
+      "cp_id": "GUARANTEE-E3B0C44298FC",
+      "text": "Execution of Guarantee by  for 25."
+    }
+  ],
+  "required_conditions_subsequent": [
+    {
+      "cs_id": "MI-REPORTING",
+      "text": "Ongoing submission of periodic financial statements and management information to support continued monitoring of the facility."
+    },
+    {
+      "cs_id": "CS-COVENANT-COMPLIANCE",
+      "text": "Ongoing certification of continued compliance with all financial covenants set out in the Facility Agreement."
+    },
+    {
+      "cs_id": "CS-SEC-REPERFECT-AST-001",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of the security charge over asset AST-001."
+    },
+    {
+      "cs_id": "CS-SEC-REPERFECT-AST-004",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of the security charge over asset AST-004."
+    },
+    {
+      "cs_id": "CS-SEC-REPERFECT-AST-004-2",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of the security charge over asset AST-004."
+    },
+    {
+      "cs_id": "CS-SEC-REPERFECT-GHOST-9",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued perfection status of the security charge over asset GHOST-9."
+    },
+    {
+      "cs_id": "CS-GUARANTEE-PARENT-HOLDINGS",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor Parent Holdings."
+    },
+    {
+      "cs_id": "CS-GUARANTEE-PARENT-HOLDINGS-2",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor Parent Holdings."
+    },
+    {
+      "cs_id": "CS-GUARANTEE-G-1",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor Director X."
+    },
+    {
+      "cs_id": "CS-GUARANTEE-PARENT-HOLDINGS-3",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor Parent-Holdings."
+    },
+    {
+      "cs_id": "CS-GUARANTEE-E3B0C44298FC",
+      "text": "Ongoing (e.g. annual) reconfirmation of the continued standing of guarantor ."
+    }
+  ],
+  "downside_covenant_breaches": [
+    {
+      "year": "FY+1",
+      "metric": "dscr",
+      "base_actual": 1.7,
+      "downside_actual": 1.4,
+      "threshold": 1.5,
+      "breach_id": "DOWNSIDE-FY-1-DSCR",
+      "downside_status": "FAIL",
+      "reason": null,
+      "basis": "borrower"
+    },
+    {
+      "year": "FY+1",
+      "metric": "gross_leverage",
+      "base_actual": 2.8,
+      "downside_actual": 3.4,
+      "threshold": 3.0,
+      "breach_id": "DOWNSIDE-FY-1-GROSS-LEVERAGE",
+      "downside_status": "FAIL",
+      "reason": null
+    },
+    {
+      "year": "FY+1",
+      "metric": "gearing",
+      "base_actual": 0.4,
+      "downside_actual": 0.6,
+      "threshold": 0.45,
+      "breach_id": "DOWNSIDE-FY-1-GEARING",
+      "downside_status": "FAIL",
+      "reason": null
+    },
+    {
+      "year": "FY+2",
+      "metric": "dscr",
+      "base_actual": 1.6,
+      "downside_actual": 1.2,
+      "threshold": 1.5,
+      "breach_id": "DOWNSIDE-FY-2-DSCR",
+      "downside_status": "FAIL",
+      "reason": null,
+      "basis": "borrower"
+    },
+    {
+      "year": "FY+2",
+      "metric": "gross_leverage",
+      "base_actual": 2.9,
+      "downside_actual": null,
+      "threshold": 3.0,
+      "breach_id": "DOWNSIDE-FY-2-GROSS-LEVERAGE",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "gross leverage not meaningful: EBITDA is negative"
+    },
+    {
+      "year": "FY+2",
+      "metric": "gearing",
+      "base_actual": 0.4,
+      "downside_actual": null,
+      "threshold": 0.45,
+      "breach_id": "DOWNSIDE-FY-2-GEARING",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "gearing not meaningful: total equity is negative"
+    },
+    {
+      "year": "FY+3",
+      "metric": "dscr",
+      "base_actual": 1.6,
+      "downside_actual": null,
+      "threshold": 1.5,
+      "breach_id": "DOWNSIDE-FY-3-DSCR",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "downside analysis unavailable for FY+3: the supplied forecast cannot be stressed",
+      "basis": "borrower"
+    },
+    {
+      "year": "FY+3",
+      "metric": "gross_leverage",
+      "base_actual": 2.6,
+      "downside_actual": null,
+      "threshold": 3.0,
+      "breach_id": "DOWNSIDE-FY-3-GROSS-LEVERAGE",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "downside analysis unavailable for FY+3: the supplied forecast cannot be stressed"
+    },
+    {
+      "year": "FY+3",
+      "metric": "gross_leverage",
+      "base_actual": 2.6,
+      "downside_actual": null,
+      "threshold": 2.6,
+      "breach_id": "DOWNSIDE-FY-3-GROSS-LEVERAGE-2",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "downside analysis unavailable for FY+3: the supplied forecast cannot be stressed"
+    },
+    {
+      "year": "FY+3",
+      "metric": "ebit_interest_cover",
+      "base_actual": 4.0,
+      "downside_actual": null,
+      "threshold": 2.0,
+      "breach_id": "DOWNSIDE-FY-3-EBIT-INTEREST-COVER",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "downside analysis unavailable for FY+3: the supplied forecast cannot be stressed"
+    },
+    {
+      "year": "FY+3",
+      "metric": "current_ratio",
+      "base_actual": 1.3,
+      "downside_actual": null,
+      "threshold": 0,
+      "breach_id": "DOWNSIDE-FY-3-CURRENT-RATIO",
+      "downside_status": "UNRESOLVABLE",
+      "reason": "downside analysis unavailable for FY+3: the supplied forecast cannot be stressed"
+    }
+  ],
+  "forward_covenant_results": [
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "borrower",
+      "actual": 1.7,
+      "status": "PASS",
+      "headroom_pct": 0.1333333333333333,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-DSCR"
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 3.0,
+      "actual": 2.8,
+      "status": "PASS",
+      "headroom_pct": 0.06666666666666672,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-GROSS-LEVERAGE"
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 2.6,
+      "actual": 2.8,
+      "status": "FAIL",
+      "headroom_pct": -0.07692307692307682,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-GROSS-LEVERAGE-2"
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.45,
+      "actual": 0.4,
+      "status": "PASS",
+      "headroom_pct": 0.11111111111111108,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-GEARING"
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.3,
+      "actual": 0.4,
+      "status": "FAIL",
+      "headroom_pct": -0.3333333333333335,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-GEARING-2"
+    },
+    {
+      "metric": "ebit_interest_cover",
+      "type": "minimum",
+      "threshold": 2.0,
+      "actual": 4.0,
+      "status": "PASS",
+      "headroom_pct": 1.0,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-EBIT-INTEREST-COVER"
+    },
+    {
+      "metric": "unknown_metric",
+      "type": "minimum",
+      "threshold": 1,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "metric 'unknown_metric' is not among this period's computed ratios",
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-UNKNOWN-METRIC"
+    },
+    {
+      "metric": "dscr",
+      "type": "sideways",
+      "threshold": 1.5,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant type 'sideways' (expected 'minimum' or 'maximum')",
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-DSCR-2"
+    },
+    {
+      "metric": "dscr",
+      "type": "maximum",
+      "threshold": null,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant threshold is missing or not a number",
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-DSCR-3"
+    },
+    {
+      "metric": "current_ratio",
+      "type": "minimum",
+      "threshold": 0,
+      "actual": 1.2,
+      "status": "PASS",
+      "headroom_pct": null,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-CURRENT-RATIO"
+    },
+    {
+      "metric": "fcf_conversion_pct",
+      "type": "minimum",
+      "threshold": 87,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "fcf_conversion_pct covenant threshold 87 looks like a percent; percent-type ratios and their covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing.",
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-FCF-CONVERSION-PCT"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "consolidated",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant is on the consolidated basis but the recorded figures are the borrower view, and no consolidated figures are recorded; state the covenant's basis, or record figures for it",
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-DSCR-4"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "weird",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant basis 'weird' (expected 'borrower', 'consolidated' or 'guarantor_group')",
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-DSCR-5"
+    },
+    {
+      "metric": "net_debt_to_ebitda",
+      "type": "maximum",
+      "threshold": -0.5,
+      "actual": -0.3,
+      "status": "FAIL",
+      "headroom_pct": 0.4,
+      "reason": null,
+      "year": "FY+1",
+      "forward_id": "FORWARD-FY-1-NET-DEBT-TO-EBITDA"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "borrower",
+      "actual": 1.6,
+      "status": "PASS",
+      "headroom_pct": 0.06666666666666672,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-DSCR"
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 3.0,
+      "actual": 2.9,
+      "status": "PASS",
+      "headroom_pct": 0.03333333333333336,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-GROSS-LEVERAGE"
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 2.6,
+      "actual": 2.9,
+      "status": "FAIL",
+      "headroom_pct": -0.11538461538461531,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-GROSS-LEVERAGE-2"
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.45,
+      "actual": 0.4,
+      "status": "PASS",
+      "headroom_pct": 0.11111111111111108,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-GEARING"
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.3,
+      "actual": 0.4,
+      "status": "FAIL",
+      "headroom_pct": -0.3333333333333335,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-GEARING-2"
+    },
+    {
+      "metric": "ebit_interest_cover",
+      "type": "minimum",
+      "threshold": 2.0,
+      "actual": 4.0,
+      "status": "PASS",
+      "headroom_pct": 1.0,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-EBIT-INTEREST-COVER"
+    },
+    {
+      "metric": "unknown_metric",
+      "type": "minimum",
+      "threshold": 1,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "metric 'unknown_metric' is not among this period's computed ratios",
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-UNKNOWN-METRIC"
+    },
+    {
+      "metric": "dscr",
+      "type": "sideways",
+      "threshold": 1.5,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant type 'sideways' (expected 'minimum' or 'maximum')",
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-DSCR-2"
+    },
+    {
+      "metric": "dscr",
+      "type": "maximum",
+      "threshold": null,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant threshold is missing or not a number",
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-DSCR-3"
+    },
+    {
+      "metric": "current_ratio",
+      "type": "minimum",
+      "threshold": 0,
+      "actual": 1.2,
+      "status": "PASS",
+      "headroom_pct": null,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-CURRENT-RATIO"
+    },
+    {
+      "metric": "fcf_conversion_pct",
+      "type": "minimum",
+      "threshold": 87,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "fcf_conversion_pct covenant threshold 87 looks like a percent; percent-type ratios and their covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing.",
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-FCF-CONVERSION-PCT"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "consolidated",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant is on the consolidated basis but the recorded figures are the borrower view, and no consolidated figures are recorded; state the covenant's basis, or record figures for it",
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-DSCR-4"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "weird",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant basis 'weird' (expected 'borrower', 'consolidated' or 'guarantor_group')",
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-DSCR-5"
+    },
+    {
+      "metric": "net_debt_to_ebitda",
+      "type": "maximum",
+      "threshold": -0.5,
+      "actual": 0.1,
+      "status": "FAIL",
+      "headroom_pct": 1.2,
+      "reason": null,
+      "year": "FY+2",
+      "forward_id": "FORWARD-FY-2-NET-DEBT-TO-EBITDA"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "borrower",
+      "actual": 1.6,
+      "status": "PASS",
+      "headroom_pct": 0.06666666666666672,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-DSCR"
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 3.0,
+      "actual": 2.6,
+      "status": "PASS",
+      "headroom_pct": 0.1333333333333333,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-GROSS-LEVERAGE"
+    },
+    {
+      "metric": "gross_leverage",
+      "type": "maximum",
+      "threshold": 2.6,
+      "actual": 2.6,
+      "status": "PASS",
+      "headroom_pct": 0.0,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-GROSS-LEVERAGE-2"
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.45,
+      "actual": 0.5,
+      "status": "FAIL",
+      "headroom_pct": -0.11111111111111108,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-GEARING"
+    },
+    {
+      "metric": "gearing",
+      "type": "maximum",
+      "threshold": 0.3,
+      "actual": 0.5,
+      "status": "FAIL",
+      "headroom_pct": -0.6666666666666667,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-GEARING-2"
+    },
+    {
+      "metric": "ebit_interest_cover",
+      "type": "minimum",
+      "threshold": 2.0,
+      "actual": 4.0,
+      "status": "PASS",
+      "headroom_pct": 1.0,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-EBIT-INTEREST-COVER"
+    },
+    {
+      "metric": "unknown_metric",
+      "type": "minimum",
+      "threshold": 1,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "metric 'unknown_metric' is not among this period's computed ratios",
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-UNKNOWN-METRIC"
+    },
+    {
+      "metric": "dscr",
+      "type": "sideways",
+      "threshold": 1.5,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant type 'sideways' (expected 'minimum' or 'maximum')",
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-DSCR-2"
+    },
+    {
+      "metric": "dscr",
+      "type": "maximum",
+      "threshold": null,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant threshold is missing or not a number",
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-DSCR-3"
+    },
+    {
+      "metric": "current_ratio",
+      "type": "minimum",
+      "threshold": 0,
+      "actual": 1.3,
+      "status": "PASS",
+      "headroom_pct": null,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-CURRENT-RATIO"
+    },
+    {
+      "metric": "fcf_conversion_pct",
+      "type": "minimum",
+      "threshold": 87,
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "fcf_conversion_pct covenant threshold 87 looks like a percent; percent-type ratios and their covenant thresholds are stored as fractions (0.87 means 87%). Confirm the unit before comparing.",
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-FCF-CONVERSION-PCT"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "consolidated",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "the covenant is on the consolidated basis but the recorded figures are the borrower view, and no consolidated figures are recorded; state the covenant's basis, or record figures for it",
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-DSCR-4"
+    },
+    {
+      "metric": "dscr",
+      "type": "minimum",
+      "threshold": 1.5,
+      "basis": "weird",
+      "actual": null,
+      "status": "UNRESOLVABLE",
+      "headroom_pct": null,
+      "reason": "unrecognized covenant basis 'weird' (expected 'borrower', 'consolidated' or 'guarantor_group')",
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-DSCR-5"
+    },
+    {
+      "metric": "net_debt_to_ebitda",
+      "type": "maximum",
+      "threshold": -0.5,
+      "actual": 0.2,
+      "status": "FAIL",
+      "headroom_pct": 1.4,
+      "reason": null,
+      "year": "FY+3",
+      "forward_id": "FORWARD-FY-3-NET-DEBT-TO-EBITDA"
+    }
+  ]
+}

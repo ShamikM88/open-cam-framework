@@ -1,0 +1,28 @@
+{
+  "covenant_results": [],
+  "security_gaps": [
+    "Uncharged Asset: AST-001 has no corresponding security charge registered."
+  ],
+  "required_conditions_precedent": [
+    {
+      "cp_id": "KYC-AML",
+      "text": "Standard KYC/AML clearance for all borrowing entities."
+    },
+    {
+      "cp_id": "FACILITY-EXECUTION",
+      "text": "Execution of Facility Agreement."
+    },
+    {
+      "cp_id": "SEC-MAPPING-AST-001",
+      "text": "Resolution of collateral security mapping discrepancy for asset AST-001."
+    }
+  ],
+  "required_conditions_subsequent": [
+    {
+      "cs_id": "MI-REPORTING",
+      "text": "Ongoing submission of periodic financial statements and management information to support continued monitoring of the facility."
+    }
+  ],
+  "downside_covenant_breaches": [],
+  "forward_covenant_results": []
+}

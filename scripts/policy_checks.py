@@ -17,7 +17,7 @@ import json
 import math
 import re
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, TypedDict
 
 from draft_lint import DraftContentError, lint_draft
@@ -296,7 +296,7 @@ def check_reported_figures(
 
 
 def check_draft_compliance(
-    draft_text: str | None, policy_state: dict[str, Any], ground_truth_figures_dict: dict[str, Any],
+    draft_text: str | None, policy_state: Mapping[str, Any], ground_truth_figures_dict: dict[str, Any],
     financials_source: str | None = None, credit_policy_present: bool | None = None, deal_type: str | None = None,
 ) -> list[str]:
     """The single source of truth for "why would this draft be

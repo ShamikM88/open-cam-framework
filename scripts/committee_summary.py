@@ -15,11 +15,12 @@ import os
 import re
 import sys
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypedDict
 
 from docx_builder import export_to_docx
 from policy_check import STATE_KEYS_READ, compute_from_state
+from policy_engine import PolicyState
 from source_manifest import missing_saved_sources, read_manifest, sources_declared
 from spreading_builder import PERIOD_KEYS
 from state_manager import (
@@ -35,8 +36,7 @@ class CommitteeSummaryData(TypedDict):
     proposal: str
     date: str | None
     state: dict[str, Any]
-    # The policy payload's keys are owned by policy_engine, which exports no type yet; it is typed there (Phase 2).
-    policy: dict[str, Any]
+    policy: PolicyState
     manifest_count: int
     sources_declared: str
     sources_missing: bool
@@ -92,7 +92,7 @@ def _table(headers: Sequence[str], rows: Sequence[Sequence[JsonValue]]) -> list[
     return lines
 
 
-def _covenant_row(result: dict[str, JsonValue], columns: Sequence[str]) -> list[JsonValue]:
+def _covenant_row(result: Mapping[str, Any], columns: Sequence[str]) -> list[JsonValue]:
     """A result's values for `columns`; absent basis means borrower, and absent reason reads "-", not N/A."""
     return [
         (result.get(column) or "-") if column == "reason"
@@ -102,7 +102,7 @@ def _covenant_row(result: dict[str, JsonValue], columns: Sequence[str]) -> list[
     ]
 
 
-def _covenant_table(columns: Sequence[str], results: Sequence[dict[str, JsonValue]]) -> list[str]:
+def _covenant_table(columns: Sequence[str], results: Sequence[Mapping[str, Any]]) -> list[str]:
     """Add basis only for tables whose policy-result rows disclose it."""
     columns = list(columns)
     if any("basis" in result for result in results):
@@ -249,10 +249,13 @@ def render_markdown(data: CommitteeSummaryData) -> str:
         lines += ["No downside case is recorded; that is not evidence that downside risk is absent.", ""]
 
     lines += ["## Conditions precedent and subsequent", ""]
-    for heading, key, id_key in (("Conditions precedent", "required_conditions_precedent", "cp_id"),
-                                 ("Conditions subsequent", "required_conditions_subsequent", "cs_id")):
+    condition_groups: tuple[tuple[str, Sequence[Mapping[str, Any]], str], ...] = (
+        ("Conditions precedent", policy["required_conditions_precedent"], "cp_id"),
+        ("Conditions subsequent", policy["required_conditions_subsequent"], "cs_id"),
+    )
+    for heading, items, id_key in condition_groups:
         lines += [f"**{heading}**", ""]
-        lines += [f"- {_cell(item.get(id_key))}: {_cell(item.get('text'))}" for item in policy[key]] or ["None."]
+        lines += [f"- {_cell(item.get(id_key))}: {_cell(item.get('text'))}" for item in items] or ["None."]
         lines.append("")
 
     collateral = state.get("collateral") if isinstance(state.get("collateral"), list) else []

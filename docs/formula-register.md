@@ -699,7 +699,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   with no analysis (the unavailable rule of [F-036](#f-036--downside-case-evaluation)) records the same way when the base case PASSes
 - **Unit and storage:** a list of breach records (year, metric, base_actual, downside_actual, threshold,
   breach_id, downside_status, reason, and optional `basis` copied from the base-case covenant result when present);
-  never mutates the base case
+  `reason` is `None` for a FAIL and one sentence for an UNRESOLVABLE; never mutates the base case
 - **Edge rules:** a breach is only recorded where the base case PASSes — a covenant already failing in the
   base case is that failure, not a downside breach; a covenant whose basis is not the recorded view (F-038) is
   UNRESOLVABLE in the base case, so it is never a downside breach. The `basis` key is copied only when present in

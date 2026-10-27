@@ -570,6 +570,108 @@ def record_group_basis(
     return {"recorded": True, "state_path": path, "figures_basis": group_basis["figures_basis"]}
 
 
+
+def record_entity_record(
+    company: str, proposal: str, entity_record_file: str, perimeter_confirmed: bool = False,
+    date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Register one entity's own figures and metadata on an existing deal.
+
+    The complete registry is validated under the deal lock before one atomic
+    _merge_and_write call. This function records inputs only: it performs no
+    spreading, aggregation, elimination, ratio or covenant calculation.
+    """
+    if not perimeter_confirmed:
+        raise StateError(
+            "Refusing to register entity_record without explicit --perimeter-confirmed analyst confirmation; "
+            "nothing was changed."
+        )
+
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    if date_str is None:
+        confirmation_date = datetime.now().strftime("%Y-%m-%d")
+    else:
+        try:
+            confirmation_date = validate_iso_date_str(date_str, field_name="date")
+        except ValueError as exc:
+            raise StateError(str(exc)) from exc
+
+    found = find_deal(company, proposal, base_dir=base_dir)
+    if not found["record_found"]:
+        raise StateError(
+            f"Refusing to record entity_record: no exact existing state.json for company {company!r} "
+            f"and proposal {proposal!r}; no deal was created."
+        )
+
+    try:
+        with open(entity_record_file, encoding="utf-8") as handle:
+            try:
+                supplied = json.load(handle)
+            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+                raise StateError(
+                    f"Cannot read entity-record file {entity_record_file!r} as UTF-8 JSON: {exc}"
+                ) from exc
+    except OSError as exc:
+        raise StateError(f"Cannot read entity-record file {entity_record_file!r}: {exc}") from exc
+
+    if not isinstance(supplied, dict):
+        raise StateError(
+            f"Entity-record file {entity_record_file!r} must contain one JSON object; nothing was changed."
+        )
+    record = dict(supplied)
+    entity_id = record.get("entity_id")
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise StateError("Invalid entity_record: entity_id must be a non-empty stable ID; nothing was changed.")
+    perimeter = record.get("perimeter")
+    if not isinstance(perimeter, dict):
+        raise StateError('Invalid entity_record: "perimeter" must be an object; nothing was changed.')
+    confirmed_perimeter = dict(perimeter)
+    confirmed_perimeter["confirmed"] = True
+    confirmed_perimeter["confirmed_on"] = confirmation_date
+    record["perimeter"] = confirmed_perimeter
+
+    record_date = found["date"]
+    path = found["state_path"]
+    if not isinstance(record_date, str) or not isinstance(path, str):
+        raise StateError("Refusing to register entity_record: exact existing state path was not resolved.")
+    with _FileLock(path):
+        state = read_state(
+            company, proposal, date_str=record_date, base_dir=base_dir,
+            keys=("guarantees", "entity_records"),
+        )
+        if state is None:
+            raise StateError(
+                f"Refusing to record entity_record: state.json at {path!r} no longer exists; nothing was created."
+            )
+        existing = state.get("entity_records")
+        existing_registry = existing if isinstance(existing, dict) else {}
+        if entity_id in existing_registry:
+            raise StateError(
+                f"Refusing to register entity_record {entity_id!r}: entity ID already exists; nothing was changed."
+            )
+
+        registry: dict[str, Any] = dict(existing_registry)
+        registry[entity_id] = record
+        problems = _entity_records_problems(registry, state.get("guarantees"))
+        if problems:
+            raise StateError(f"Refusing to register entity_record: {problems[0]}. Nothing was changed.")
+        try:
+            validate_finite_numbers(registry, path="entity_records")
+        except NonFiniteNumberError as exc:
+            raise StateError(f"Refusing to register entity_record: {exc}. Nothing was changed.") from exc
+
+        # One write through the common atomic path; this retains schema downgrade and finite-number guards.
+        _merge_and_write(path, company, proposal, record_date, base_dir, {"entity_records": registry})
+
+    return {
+        "recorded": True,
+        "entity_id": entity_id,
+        "state_path": path,
+        "spread_status": "not-spread",
+    }
+
+
 def _problems_with_periods(label: str, value: object) -> list[str]:
     """Problems for a `periods` value. A null period is "not recorded" (evaluate_financial_model treats it as empty)."""
     if not isinstance(value, dict):

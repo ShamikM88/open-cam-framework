@@ -110,21 +110,21 @@ metadata-only field preserves compatibility for states without the key. The orig
 
 ### Shared entity records (cases B and C, step 1)
 
-\`entity_records\` is an optional top-level object keyed by stable entity ID. It is shared by case B's future credit aggregation and case C's future standalone guarantor spread; there is no separate guarantor-only record. A state without this key means no entities have been recorded. Reading a legacy state does not synthesize entities or migrate borrower figures. The next normal write uses schema version \`1.2.0\`.
+`entity_records` is an optional top-level object keyed by stable entity ID. It is shared by case B's future credit aggregation and case C's future standalone guarantor spread; there is no separate guarantor-only record. A state without this key means no entities have been recorded. Reading a legacy state does not synthesize entities or migrate borrower figures. The next normal write uses schema version `1.2.0`.
 
 Each registry value is one entity record with:
-- \`entity_id\`, which must equal the key, and a non-empty \`legal_name\`;
-- exactly one primary \`role\`: \`subsidiary\`, \`parent\` or \`guarantor\`. \`borrower\` is intentionally not a role here: borrower figures remain in the existing deal-level stores;
-- \`source.document\`, \`source.accounting_basis\` and real ISO \`source.date\`;
-- \`period_ends\`, a mapping from the framework period label (\`FY-2\`, \`FY-1\`, \`FY-Current\`, \`FY+1\`, \`FY+2\`, \`FY+3\`) to a real ISO calendar date;
-- \`perimeter.included\`, \`control_basis\`, \`scope_rationale\`, \`confirmed: true\` and a real ISO \`confirmed_on\`;
-- a non-empty \`raw_figures_source\`, two raw maps named \`multi_period_financials\` and \`analyst_supplied_financials\`, and \`spread_status: "not-spread"\`;
-- \`intercompany_lines\`, each naming a framework period, existing evaluator \`line_key\`, explicit \`counterparty_entity_id\`, direction, finite numeric amount and confirmation flag;
-- \`guarantee_ids\`, each resolving to exactly one explicit \`guarantee_id\` in the deal's existing \`guarantees\` list. A provider name is never used to guess a link.
+- `entity_id`, which must equal the key, and a non-empty `legal_name`;
+- exactly one primary `role`: `subsidiary`, `parent` or `guarantor`. `borrower` is intentionally not a role here: borrower figures remain in the existing deal-level stores;
+- `source.document`, `source.accounting_basis` and real ISO `source.date`;
+- `period_ends`, a mapping from the framework period label (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`) to a real ISO calendar date;
+- `perimeter.included`, `control_basis`, `scope_rationale`, `confirmed: true` and a real ISO `confirmed_on`;
+- a non-empty `raw_figures_source`, two raw maps named `multi_period_financials` and `analyst_supplied_financials`, and `spread_status: "not-spread"`;
+- `intercompany_lines`, each naming a framework period, existing evaluator `line_key`, explicit `counterparty_entity_id`, direction, finite numeric amount and confirmation flag;
+- `guarantee_ids`, each resolving to exactly one explicit `guarantee_id` in the deal's existing `guarantees` list. A provider name is never used to guess a link.
 
 Every nested raw map remains period-keyed. The validator rejects an entity ID where a period label is expected, impossible dates, a mismatched entity key, unknown counterparties, missing or false perimeter confirmation, duplicate/unresolved guarantee IDs, invalid numeric raw lines or intercompany amounts, and figures present in both raw stores for one entity-period. A shared period label must use the same period-end date across all registered records; dates are never aligned or rolled automatically. Extra record fields are preserved for forward compatibility.
 
-Registration uses \`python scripts/state_manager.py --register-entity-record --company ... --proposal ... --entity-record-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]\`. The JSON file contains one record object. The explicit flag records analyst confirmation; \`--date\` is the confirmation date (or today), distinct from \`source.date\`. The command requires an exact existing deal, refuses duplicate IDs, validates the whole registry while holding the deal lock, and writes once through the atomic state manager path. A refusal leaves \`state.json\` byte-for-byte unchanged.
+Registration uses `python scripts/state_manager.py --register-entity-record --company ... --proposal ... --entity-record-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]`. The JSON file contains one record object. The explicit flag records analyst confirmation; `--date` is the confirmation date (or today), distinct from `source.date`. The command requires an exact existing deal, refuses duplicate IDs, validates the whole registry while holding the deal lock, and writes once through the atomic state manager path. A refusal leaves `state.json` byte-for-byte unchanged.
 
 Step 1 is recording and validation only. It computes no subtotals, ratios, spread, eliminations, aggregate view or covenant result, and does not change borrower figures, workbook/CAM presentation, policy routing or legal guarantee conditions. Later work must define and review those behaviours separately.
 

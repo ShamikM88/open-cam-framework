@@ -1575,7 +1575,8 @@ if __name__ == "__main__":
                     "--find is a read-only exact lookup; --review-candidates lists eligible earlier reviews; "
                     "--start-review creates a fresh state with an optional prior-review link; --check-steps "
                     "reports missing required steps; --export-reviewer-view separates review history; "
-                    "--record-group-basis records source and perimeter metadata."
+                    "--record-group-basis records source and perimeter metadata; "
+                    "--register-entity-record registers one subsidiary, parent or guarantor's own input record."
     )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--find", action="store_true",
@@ -1590,14 +1591,18 @@ if __name__ == "__main__":
                        help="Write state_for_review.json and review_trail.json under review_view/.")
     modes.add_argument("--record-group-basis", action="store_true",
                        help="Record metadata for borrower-supplied consolidated group accounts on an existing deal.")
+    modes.add_argument("--register-entity-record", action="store_true",
+                       help="Register one entity's own figures and metadata on an existing deal.")
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--date",
-                        help="YYYY-MM-DD, defaults to today: the review date with --start-review and --review-candidates; the perimeter-confirmation date with --record-group-basis.")
+                        help="YYYY-MM-DD, defaults to today: the review date with --start-review and --review-candidates; the perimeter-confirmation date with --record-group-basis or --register-entity-record.")
     parser.add_argument("--group-basis-file",
                         help="UTF-8 JSON object with group-basis metadata, used only with --record-group-basis.")
+    parser.add_argument("--entity-record-file",
+                        help="UTF-8 JSON object for one entity record, used only with --register-entity-record.")
     parser.add_argument("--perimeter-confirmed", action="store_true",
-                        help="Explicitly confirm the group perimeter as an analyst; required with --record-group-basis.")
+                        help="Explicitly confirm the perimeter as an analyst; required with --record-group-basis or --register-entity-record.")
     prior = parser.add_mutually_exclusive_group()
     prior.add_argument("--prior-date",
                        help="Explicit earlier review date to link when starting a review.")
@@ -1615,13 +1620,20 @@ if __name__ == "__main__":
             parser.error("--prior-date and --no-prior are only valid with --start-review")
     if args.review_candidates and (args.prior_date is not None or args.no_prior):
         parser.error("--prior-date and --no-prior are only valid with --start-review")
-    if args.record_group_basis:
+    if args.record_group_basis or args.register_entity_record:
         if args.prior_date is not None or args.no_prior:
             parser.error("--prior-date and --no-prior are only valid with --start-review")
         if args.required is not None:
             parser.error("--required is only valid with --check-steps")
-    elif args.group_basis_file is not None or args.perimeter_confirmed:
-        parser.error("--group-basis-file and --perimeter-confirmed are only valid with --record-group-basis")
+        if args.record_group_basis and args.entity_record_file is not None:
+            parser.error("--entity-record-file is only valid with --register-entity-record")
+        if args.register_entity_record and args.group_basis_file is not None:
+            parser.error("--group-basis-file is only valid with --record-group-basis")
+    elif args.group_basis_file is not None or args.entity_record_file is not None or args.perimeter_confirmed:
+        parser.error(
+            "--group-basis-file, --entity-record-file and --perimeter-confirmed are only valid with "
+            "--record-group-basis or --register-entity-record"
+        )
 
     if args.find:
         try:
@@ -1651,6 +1663,17 @@ if __name__ == "__main__":
         try:
             report = record_group_basis(
                 args.company, args.proposal, args.group_basis_file,
+                perimeter_confirmed=args.perimeter_confirmed, date_str=args.date,
+            )
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report))
+    elif args.register_entity_record:
+        if not args.entity_record_file:
+            sys.exit("error: --entity-record-file is required with --register-entity-record")
+        try:
+            report = record_entity_record(
+                args.company, args.proposal, args.entity_record_file,
                 perimeter_confirmed=args.perimeter_confirmed, date_str=args.date,
             )
         except (OSError, ValueError) as exc:

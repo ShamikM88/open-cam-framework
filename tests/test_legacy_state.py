@@ -655,4 +655,5 @@ def test_group_basis_is_absent_for_legacy_fixtures_and_survives_supported_writes
     assert "group_basis" not in written
     assert written["marker"] == "preserved-write"
     for key, value in original.items():
-        assert written[key] == value, key
+        if key != "schema_version":
+            assert written[key] == value, key

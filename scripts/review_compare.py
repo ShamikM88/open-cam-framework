@@ -1,5 +1,6 @@
 """Read-only deterministic comparison of two dated states for the same deal."""
 import argparse
+from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal, InvalidOperation, localcontext
 import json
@@ -7,6 +8,7 @@ import math
 import os
 import re
 import sys
+from typing import Any
 
 from state_manager import state_path, validate_iso_date_str
 
@@ -38,7 +40,7 @@ class ComparisonError(ValueError):
 _MISSING = object()
 
 
-def _validate_date(value, flag):
+def _validate_date(value: str, flag: str) -> str:
     try:
         validate_iso_date_str(value, field_name=flag)
         date.fromisoformat(value)
@@ -47,20 +49,20 @@ def _validate_date(value, flag):
     return value
 
 
-def _parse_constant(value):
+def _parse_constant(value: str) -> Decimal | str:
     try:
         return Decimal(value)
     except InvalidOperation:
         return value
 
 
-def _exceeds_depth(value):
+def _exceeds_depth(value: object) -> bool:
     """True when `value` is nested (objects and lists) more than MAX_STATE_DEPTH levels deep. Iterative on purpose."""
     pending = [(value, 1)]
     while pending:
         item, depth = pending.pop()
         if isinstance(item, dict):
-            children = item.values()
+            children: Iterable[object] = item.values()
         elif isinstance(item, list):
             children = item
         else:
@@ -71,7 +73,7 @@ def _exceeds_depth(value):
     return False
 
 
-def _first_nonfinite(value, path="$"):
+def _first_nonfinite(value: object, path: str = "$") -> str | None:
     if isinstance(value, Decimal):
         return None if value.is_finite() else path
     if isinstance(value, float):
@@ -89,7 +91,7 @@ def _first_nonfinite(value, path="$"):
     return None
 
 
-def _read_state(company, proposal, date_value, label):
+def _read_state(company: str, proposal: str, date_value: str | None, label: str) -> dict[str, Any]:
     try:
         path = state_path(company, proposal, date_str=date_value)
     except (OSError, ValueError) as exc:
@@ -117,11 +119,11 @@ def _read_state(company, proposal, date_value, label):
     return state
 
 
-def _is_number(value):
+def _is_number(value: object) -> bool:
     return not isinstance(value, bool) and isinstance(value, (int, float, Decimal))
 
 
-def _as_decimal(value):
+def _as_decimal(value: object) -> Decimal:
     if isinstance(value, Decimal):
         return value
     if isinstance(value, int) and not isinstance(value, bool):
@@ -129,9 +131,9 @@ def _as_decimal(value):
     return Decimal(str(value))
 
 
-def _exact_delta(current, prior):
+def _exact_delta(current: object, prior: object) -> Decimal:
     current_decimal, prior_decimal = _as_decimal(current), _as_decimal(prior)
-    low_exponent = min(current_decimal.as_tuple().exponent, prior_decimal.as_tuple().exponent)
+    low_exponent: Any = min(current_decimal.as_tuple().exponent, prior_decimal.as_tuple().exponent)
     highest = max(
         current_decimal.adjusted() if not current_decimal.is_zero() else 0,
         prior_decimal.adjusted() if not prior_decimal.is_zero() else 0,
@@ -143,7 +145,7 @@ def _exact_delta(current, prior):
         return current_decimal - prior_decimal
 
 
-def _deep_equal(left, right):
+def _deep_equal(left: object, right: object) -> bool:
     if left is right:
         return True
     if _is_number(left) and _is_number(right):
@@ -160,11 +162,11 @@ def _deep_equal(left, right):
     return type(left) is type(right) and left == right
 
 
-def _recorded(value):
+def _recorded(value: object) -> bool:
     return value is not _MISSING and value is not None
 
 
-def _get_field(state, dotted_path):
+def _get_field(state: object, dotted_path: str) -> object:
     current = state
     for part in dotted_path.split("."):
         if not isinstance(current, dict) or part not in current:
@@ -173,11 +175,11 @@ def _get_field(state, dotted_path):
     return current
 
 
-def _json_compact(value):
+def _json_compact(value: object) -> str:
     return _json_dump(value, indent=None)
 
 
-def _stable_list_kind(path):
+def _stable_list_kind(path: str) -> str | None:
     return {
         "covenants": "covenant",
         "policy_state.covenant_results": "covenant",
@@ -190,10 +192,11 @@ def _stable_list_kind(path):
     }.get(path)
 
 
-def _record_maps(records, kind):
+def _record_maps(records: object, kind: str) -> dict[tuple[object, ...], dict[str, Any]] | None:
     if not isinstance(records, list):
         return None
-    result, counts = {}, {}
+    result: dict[tuple[object, ...], dict[str, Any]] = {}
+    counts: dict[tuple[str, str], int] = {}
     for record in records:
         if not isinstance(record, dict):
             return None
@@ -202,7 +205,7 @@ def _record_maps(records, kind):
                 return None
             canonical = (_json_compact(record["metric"]), _json_compact(record["type"]))
             counts[canonical] = counts.get(canonical, 0) + 1
-            identity = ("metric_type", canonical[0], canonical[1], counts[canonical])
+            identity: tuple[object, ...] = ("metric_type", canonical[0], canonical[1], counts[canonical])
         else:
             value = record.get(kind)
             if value is None or (
@@ -216,21 +219,21 @@ def _record_maps(records, kind):
     return result
 
 
-def _identity_label(identity):
+def _identity_label(identity: tuple[object, ...]) -> str:
     if identity[0] == "metric_type":
         return f"metric={identity[1]},type={identity[2]},occurrence={identity[3]}"
     return f"{identity[0]}={identity[1]}"
 
 
-def _join_path(base, child):
+def _join_path(base: str, child: str) -> str:
     return child if not base else f"{base}.{child}"
 
 
-def _record_path(base, identity):
+def _record_path(base: str, identity: tuple[object, ...]) -> str:
     return f"{base}[{_identity_label(identity)}]"
 
 
-def _transition_kind(prior, current):
+def _transition_kind(prior: object, current: object) -> str | None:
     p_missing = prior is _MISSING or prior is None
     c_missing = current is _MISSING or current is None
     if p_missing and c_missing:
@@ -242,7 +245,7 @@ def _transition_kind(prior, current):
     return "value_changed"
 
 
-def _canonical_value(value):
+def _canonical_value(value: object) -> object:
     """Sort object keys recursively while preserving list order and exact scalar values."""
     if isinstance(value, dict):
         return {key: _canonical_value(value[key]) for key in sorted(value, key=str)}
@@ -251,7 +254,7 @@ def _canonical_value(value):
     return value
 
 
-def _change(path, kind, prior, current):
+def _change(path: str, kind: str | None, prior: object, current: object) -> dict[str, Any]:
     row = {
         "path": path,
         "change": kind,
@@ -263,7 +266,7 @@ def _change(path, kind, prior, current):
     return row
 
 
-def _diff_value(path, prior, current, output):
+def _diff_value(path: str, prior: object, current: object, output: list[dict[str, Any]]) -> None:
     p_missing = prior is _MISSING or prior is None
     c_missing = current is _MISSING or current is None
     if p_missing and c_missing:
@@ -273,8 +276,8 @@ def _diff_value(path, prior, current, output):
 
     if (p_missing and isinstance(current, dict)) or (c_missing and isinstance(prior, dict)):
         start = len(output)
-        p_obj = {} if p_missing else prior
-        c_obj = {} if c_missing else current
+        p_obj = prior if isinstance(prior, dict) else {}
+        c_obj = current if isinstance(current, dict) else {}
         for key in sorted(set(p_obj) | set(c_obj), key=str):
             _diff_value(_join_path(path, str(key)), p_obj.get(key, _MISSING),
                         c_obj.get(key, _MISSING), output)
@@ -313,7 +316,7 @@ def _diff_value(path, prior, current, output):
     output.append(_change(path, _transition_kind(prior, current), prior, current))
 
 
-def _basis_change(prior_state, current_state):
+def _basis_change(prior_state: dict[str, Any], current_state: dict[str, Any]) -> dict[str, Any]:
     prior_basis = prior_state.get("financials_source")
     current_basis = current_state.get("financials_source")
     changed = not _deep_equal(prior_basis, current_basis)
@@ -325,8 +328,8 @@ def _basis_change(prior_state, current_state):
     }
 
 
-def _period_keys(state):
-    keys = set()
+def _period_keys(state: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
     for field in ("financials", "ratios", "multi_period_financials", "analyst_supplied_financials"):
         periods = state.get(field)
         if isinstance(periods, dict):
@@ -334,7 +337,7 @@ def _period_keys(state):
     return keys
 
 
-def _period_order(period):
+def _period_order(period: str) -> tuple[int, int | str, str]:
     match = HISTORICAL_PERIOD_RE.fullmatch(period)
     if not match:
         return (1, period.casefold(), period)
@@ -343,25 +346,25 @@ def _period_order(period):
     return (0, int(match.group(1)) + 1, period)
 
 
-def _next_older_period(period):
+def _next_older_period(period: str) -> str | None:
     match = HISTORICAL_PERIOD_RE.fullmatch(period)
     if not match:
         return None
     return "FY-1" if match.group(1) == "Current" else f"FY-{int(match.group(1)) + 1}"
 
 
-def _period_value(state, field, period):
+def _period_value(state: dict[str, Any], field: str, period: str) -> object:
     container = state.get(field)
     return container.get(period, _MISSING) if isinstance(container, dict) else _MISSING
 
 
-def _period_present(state, period):
+def _period_present(state: dict[str, Any], period: str) -> bool:
     return any(_recorded(_period_value(state, field, period)) for field in (
         "financials", "ratios", "multi_period_financials", "analyst_supplied_financials"
     ))
 
 
-def _raw_period(state, period):
+def _raw_period(state: dict[str, Any], period: str) -> tuple[object, str | None]:
     supplied = _period_value(state, "analyst_supplied_financials", period)
     financial = _period_value(state, "financials", period)
     multiperiod = _period_value(state, "multi_period_financials", period)
@@ -377,7 +380,7 @@ def _raw_period(state, period):
     return _MISSING, None
 
 
-def _period_snapshot(state, period):
+def _period_snapshot(state: dict[str, Any], period: str) -> dict[str, Any]:
     raw, raw_store = _raw_period(state, period)
     financial = _period_value(state, "financials", period)
     ratios = _period_value(state, "ratios", period)
@@ -390,7 +393,7 @@ def _period_snapshot(state, period):
     }
 
 
-def _restatement_check(prior_state, current_state, basis):
+def _restatement_check(prior_state: dict[str, Any], current_state: dict[str, Any], basis: dict[str, Any]) -> dict[str, Any]:
     periods = []
     for prior_period in sorted(_period_keys(prior_state), key=_period_order):
         current_period = _next_older_period(prior_period)
@@ -405,7 +408,7 @@ def _restatement_check(prior_state, current_state, basis):
             })
             continue
         current_values = _period_snapshot(current_state, current_period)
-        differences = []
+        differences: list[dict[str, Any]] = []
         # raw_store identifies where the saved lines were found, not a value to
         # compare; otherwise the period label itself would make every pair differ.
         prior_comparable = {key: value for key, value in prior_values.items() if key != "raw_store"}
@@ -427,8 +430,15 @@ def _restatement_check(prior_state, current_state, basis):
     }
 
 
-def compare_states(company, proposal, prior_date, current_date, prior_state, current_state,
-                   periods_rolled_one_year=False):
+def compare_states(
+    company: str,
+    proposal: str,
+    prior_date: str,
+    current_date: str,
+    prior_state: dict[str, Any],
+    current_state: dict[str, Any],
+    periods_rolled_one_year: bool = False,
+) -> dict[str, Any]:
     """Build the stable report from two already-read state dictionaries."""
     if prior_state.get("company") != company or current_state.get("company") != company:
         raise ComparisonError(f"states must both match --company {company!r}")
@@ -442,7 +452,9 @@ def compare_states(company, proposal, prior_date, current_date, prior_state, cur
         bad_number = _first_nonfinite(saved)
         if bad_number is not None:
             raise ComparisonError(f"{label} state contains a non-finite number at {bad_number}")
-    changes, unchanged, not_recorded = [], [], []
+    changes: list[dict[str, Any]] = []
+    unchanged: list[str] = []
+    not_recorded: list[str] = []
     for field in COMPARE_FIELDS:
         before, after = _get_field(prior_state, field), _get_field(current_state, field)
         start = len(changes)
@@ -467,7 +479,13 @@ def compare_states(company, proposal, prior_date, current_date, prior_state, cur
     return report
 
 
-def compare_deal(company, proposal, current_date, prior_date=None, periods_rolled_one_year=False):
+def compare_deal(
+    company: str,
+    proposal: str,
+    current_date: str,
+    prior_date: str | None = None,
+    periods_rolled_one_year: bool = False,
+) -> dict[str, Any]:
     current_date = _validate_date(current_date, "--current-date")
     if prior_date is not None:
         prior_date = _validate_date(prior_date, "--prior-date")
@@ -488,9 +506,9 @@ def compare_deal(company, proposal, current_date, prior_date=None, periods_rolle
                           periods_rolled_one_year=periods_rolled_one_year)
 
 
-def _json_dump(value, indent=2):
+def _json_dump(value: object, indent: int | None = 2) -> str:
     """Encode Decimal values as exact JSON numbers, without a float conversion."""
-    def encode(item, level):
+    def encode(item: object, level: int) -> str:
         if isinstance(item, Decimal):
             if not item.is_finite():
                 raise ValueError("cannot serialize a non-finite decimal")
@@ -529,11 +547,11 @@ def _json_dump(value, indent=2):
     return encode(value, 0)
 
 
-def _display_value(value):
+def _display_value(value: object) -> str:
     return "not recorded" if value is _MISSING or value is None else _json_compact(value)
 
 
-def render_markdown(report):
+def render_markdown(report: dict[str, Any]) -> str:
     lines = [
         f"# Review comparison — {report['company']} / {report['proposal']}", "",
         f"Prior review: {report['prior_date']}  ", f"Current review: {report['current_date']}", "",
@@ -584,7 +602,7 @@ def render_markdown(report):
     return "\n".join(lines)
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Compare two exact dated deal states read-only; no model calls or writes.")
     parser.add_argument("--company", required=True, help="Exact company name used in the deal folder.")
@@ -598,7 +616,7 @@ def build_parser():
     return parser
 
 
-def main(argv=None):
+def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         report = compare_deal(args.company, args.proposal, args.current_date, prior_date=args.prior_date,

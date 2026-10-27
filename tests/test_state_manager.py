@@ -3868,6 +3868,12 @@ def test_validate_state_recognises_the_entity_records_shape():
     assert state_manager.validate_state(state, keys=("entity_records",)) is state
 
 
+def test_entity_record_line_keys_match_the_spreading_evaluator_contract():
+    from spreading_builder import FIELD_LABELS
+
+    assert set(state_manager._ENTITY_RECORD_LINE_KEYS) == set(FIELD_LABELS)
+
+
 def test_record_entity_record_round_trips_a_shared_registry_and_preserves_unknown_fields(tmp_path):
     guarantees = [{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic Parent Ltd"}]
     path = _seed_entity_registry_state(tmp_path, guarantees=guarantees)
@@ -3960,9 +3966,14 @@ def test_record_entity_record_refuses_a_mismatched_existing_registry_key_without
     path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": malformed})
     before = path.read_bytes()
 
-    with pytest.raises(StateShapeError, match="entity_id.*registry key"):
+    with pytest.raises(StateShapeError) as caught:
         _register_entity_record_for_tests(tmp_path, _entity_record_for_tests("synthetic-opco", "subsidiary"))
 
+    assert str(caught.value) == (
+        f"Cannot use {path}: entity_records['synthetic-parent'].entity_id must equal registry key "
+        "'synthetic-parent'; found 'another-id'. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
     assert path.read_bytes() == before
 
 
@@ -3999,9 +4010,18 @@ def test_record_entity_record_refuses_impossible_dates_without_writing(tmp_path,
     else:
         record["period_ends"]["FY-Current"] = bad_date
 
-    with pytest.raises(ValueError, match=problem):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    field = (
+        "entity_records['synthetic-opco'].source.date"
+        if bad_date_path == "source"
+        else "entity_records['synthetic-opco'].period_ends['FY-Current']"
+    )
+    assert str(caught.value) == (
+        f"Refusing to register entity_record: {field} must be a real YYYY-MM-DD calendar date. "
+        "Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 
@@ -4011,9 +4031,14 @@ def test_record_entity_record_refuses_period_end_mismatch_across_registry_withou
     record = _entity_record_for_tests("synthetic-opco", "subsidiary")
     record["period_ends"]["FY-Current"] = "2025-11-30"
 
-    with pytest.raises(ValueError, match="period.*FY-Current.*2025-12-31.*2025-11-30"):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    assert str(caught.value) == (
+        "Refusing to register entity_record: period end for label 'FY-Current' must match across "
+        "entity_records: 'synthetic-parent' has '2025-12-31', 'synthetic-opco' has '2025-11-30'. "
+        "Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 
@@ -4026,9 +4051,14 @@ def test_record_entity_record_refuses_unknown_counterparty_without_writing(tmp_p
         "direction": "receivable", "amount": 10, "confirmed": True,
     }]
 
-    with pytest.raises(ValueError, match="counterparty_entity_id.*missing-entity"):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-opco'].intercompany_lines[0]."
+        "counterparty_entity_id 'missing-entity' does not resolve to a different entity record in "
+        "entity_records. Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 
@@ -4050,9 +4080,14 @@ def test_record_entity_record_requires_a_unique_explicit_guarantee_id_without_wr
     record = _entity_record_for_tests("synthetic-parent", "parent")
     record["guarantee_ids"] = ["GUARANTEE-SYN-001"]
 
-    with pytest.raises(ValueError, match="guarantee_ids.*GUARANTEE-SYN-001"):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-parent'].guarantee_ids entry "
+        "'GUARANTEE-SYN-001' must resolve to exactly one explicit guarantee_id in state.json guarantees. "
+        "Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 
@@ -4067,9 +4102,16 @@ def test_record_entity_record_rejects_invalid_raw_line_numbers_without_writing(t
     record = _entity_record_for_tests("synthetic-opco", "subsidiary")
     record["multi_period_financials"]["FY-Current"]["revenue"] = invalid_value
 
-    with pytest.raises(ValueError, match="revenue"):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    expected_problem = (
+        "entity_records['synthetic-opco'].multi_period_financials: period 'FY-Current', field 'revenue' "
+        f"must be a finite JSON number or null; found {invalid_value!r}"
+    )
+    assert str(caught.value) == (
+        f"Refusing to register entity_record: {expected_problem}. Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 
@@ -4079,9 +4121,13 @@ def test_record_entity_record_rejects_figures_in_both_raw_stores_for_one_period_
     record = _entity_record_for_tests("synthetic-opco", "subsidiary")
     record["analyst_supplied_financials"] = {"FY-Current": {"revenue": 100}}
 
-    with pytest.raises(ValueError, match="both raw stores.*FY-Current"):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-opco'] has figures in both raw "
+        "stores for period 'FY-Current'. Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 
@@ -4100,9 +4146,19 @@ def test_record_entity_record_rejects_invalid_intercompany_amount_without_writin
         "direction": "receivable", "amount": invalid_amount, "confirmed": True,
     }]
 
-    with pytest.raises(ValueError, match="intercompany_lines.*amount"):
+    with pytest.raises(ValueError) as caught:
         _register_entity_record_for_tests(tmp_path, record)
 
+    line_path = "entity_records['synthetic-opco'].intercompany_lines[0].amount"
+    if isinstance(invalid_amount, float) and (
+        invalid_amount != invalid_amount or invalid_amount == float("inf") or invalid_amount == float("-inf")
+    ):
+        expected_problem = f"non-finite numeric value at {line_path}: {invalid_amount!r}"
+    else:
+        expected_problem = f"{line_path} must be a finite JSON number; found {invalid_amount!r}"
+    assert str(caught.value) == (
+        f"Refusing to register entity_record: {expected_problem}. Nothing was changed."
+    )
     assert path.read_bytes() == before
 
 

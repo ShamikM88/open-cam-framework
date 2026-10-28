@@ -4025,21 +4025,19 @@ def test_record_entity_record_refuses_impossible_dates_without_writing(tmp_path,
     assert path.read_bytes() == before
 
 
-def test_record_entity_record_refuses_period_end_mismatch_across_registry_without_writing(tmp_path):
+def test_record_entity_record_accepts_standalone_guarantor_with_different_year_end(tmp_path):
     path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
     before = path.read_bytes()
-    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
-    record["period_ends"]["FY-Current"] = "2025-11-30"
+    guarantor = _entity_record_for_tests("synthetic-guarantor", "guarantor")
+    guarantor["period_ends"]["FY-Current"] = "2025-11-30"
 
-    with pytest.raises(ValueError) as caught:
-        _register_entity_record_for_tests(tmp_path, record)
+    _register_entity_record_for_tests(tmp_path, guarantor)
 
-    assert str(caught.value) == (
-        "Refusing to register entity_record: period end for label 'FY-Current' must match across "
-        "entity_records: 'synthetic-parent' has '2025-12-31', 'synthetic-opco' has '2025-11-30'. "
-        "Nothing was changed."
-    )
-    assert path.read_bytes() == before
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert path.read_bytes() != before
+    assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-guarantor"}
+    assert saved["entity_records"]["synthetic-parent"]["period_ends"]["FY-Current"] == "2025-12-31"
+    assert saved["entity_records"]["synthetic-guarantor"]["period_ends"]["FY-Current"] == "2025-11-30"
 
 
 def test_record_entity_record_refuses_unknown_counterparty_without_writing(tmp_path):

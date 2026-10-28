@@ -4236,6 +4236,7 @@ def test_validate_state_rejects_a_non_unique_guarantee_link_in_a_persisted_entit
         ("empty-accounting-basis", "entity_records['synthetic-opco'].source.accounting_basis must be a non-empty string"),
         ("period-ends-not-object", "entity_records['synthetic-opco'].period_ends must be an object keyed by framework period label"),
         ("unknown-period-end-key", "entity_records['synthetic-opco'].period_ends: unexpected period key 'synthetic-opco'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"),
+        ("period-end-not-date", "entity_records['synthetic-opco'].period_ends['FY-Current'] must be a real YYYY-MM-DD calendar date"),
         ("perimeter-not-object", 'Invalid entity_record: "perimeter" must be an object; nothing was changed.'),
         ("included-not-boolean", "entity_records['synthetic-opco'].perimeter.included must be a boolean"),
         ("empty-control-basis", "entity_records['synthetic-opco'].perimeter.control_basis must be a non-empty string"),
@@ -4291,6 +4292,8 @@ def test_record_entity_record_refuses_invalid_contract_fields_with_exact_error_a
         record["period_ends"] = []
     elif case == "unknown-period-end-key":
         record["period_ends"] = {"synthetic-opco": "2025-12-31"}
+    elif case == "period-end-not-date":
+        record["period_ends"]["FY-Current"] = None
     elif case == "perimeter-not-object":
         record["perimeter"] = None
     elif case == "included-not-boolean":

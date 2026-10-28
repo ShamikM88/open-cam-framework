@@ -339,7 +339,6 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
         return [f'"entity_records" must be an object, found {_json_type(value)}']
 
     guarantee_entries = guarantees if isinstance(guarantees, list) else []
-    known_period_ends: dict[str, tuple[str, str]] = {}
 
     def nonempty_text(item: object) -> bool:
         return isinstance(item, str) and bool(item.strip())
@@ -386,16 +385,6 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
             )
             if date_problem is not None:
                 return [date_problem]
-            if not isinstance(period_end, str):
-                return [f"{record_path}.period_ends[{period!r}] must be a real YYYY-MM-DD calendar date"]
-            previous = known_period_ends.get(period)
-            if previous is not None and previous[1] != period_end:
-                return [
-                    f"period end for label {period!r} must match across entity_records: "
-                    f"{previous[0]!r} has {previous[1]!r}, {entity_key!r} has {period_end!r}"
-                ]
-            if previous is None:
-                known_period_ends[period] = (entity_key, period_end)
 
         perimeter = record.get("perimeter")
         if not isinstance(perimeter, dict):
@@ -609,7 +598,8 @@ def record_entity_record(
     try:
         with open(entity_record_file, encoding="utf-8") as handle:
             try:
-                supplied = json.load(handle)
+                supplied: Any = json.load(handle)
+                record: EntityRecord = supplied
             except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
                 raise StateError(
                     f"Cannot read entity-record file {entity_record_file!r} as UTF-8 JSON: {exc}"
@@ -621,17 +611,14 @@ def record_entity_record(
         raise StateError(
             f"Entity-record file {entity_record_file!r} must contain one JSON object; nothing was changed."
         )
-    record = dict(supplied)
     entity_id = record.get("entity_id")
     if not isinstance(entity_id, str) or not entity_id.strip():
         raise StateError("Invalid entity_record: entity_id must be a non-empty stable ID; nothing was changed.")
     perimeter = record.get("perimeter")
     if not isinstance(perimeter, dict):
         raise StateError('Invalid entity_record: "perimeter" must be an object; nothing was changed.')
-    confirmed_perimeter = dict(perimeter)
-    confirmed_perimeter["confirmed"] = True
-    confirmed_perimeter["confirmed_on"] = confirmation_date
-    record["perimeter"] = confirmed_perimeter
+    perimeter["confirmed"] = True
+    perimeter["confirmed_on"] = confirmation_date
 
     record_date = found["date"]
     path = found["state_path"]
@@ -647,13 +634,13 @@ def record_entity_record(
                 f"Refusing to record entity_record: state.json at {path!r} no longer exists; nothing was created."
             )
         existing = state.get("entity_records")
-        existing_registry = existing if isinstance(existing, dict) else {}
+        existing_registry: EntityRegistry = existing if isinstance(existing, dict) else {}
         if entity_id in existing_registry:
             raise StateError(
                 f"Refusing to register entity_record {entity_id!r}: entity ID already exists; nothing was changed."
             )
 
-        registry: dict[str, Any] = dict(existing_registry)
+        registry: EntityRegistry = dict(existing_registry)
         registry[entity_id] = record
         problems = _entity_records_problems(registry, state.get("guarantees"))
         if problems:

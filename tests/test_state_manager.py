@@ -4382,7 +4382,14 @@ def test_record_entity_record_refuses_bad_input_file_without_writing(tmp_path, f
             perimeter_confirmed=True, base_dir=str(tmp_path),
         )
 
-    assert str(caught.value).startswith(expected_error)
+    if expected_error == "must contain one JSON object":
+        assert str(caught.value) == (
+            f"Entity-record file {str(record_file)!r} must contain one JSON object; nothing was changed."
+        )
+    else:
+        assert str(caught.value).startswith(
+            f"{expected_error} {str(record_file)!r} as UTF-8 JSON:"
+        )
     assert path.read_bytes() == before
 
 

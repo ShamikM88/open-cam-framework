@@ -173,6 +173,7 @@ keeps a short file map for orientation.
 open-cam-framework/
 ├── .claude/agents/               The interactive Checker sub-agent (risk-reviewer), started by /review in a fresh, read-only context
 ├── .claude/hooks/                Offline PreToolUse guard (deny_main_commit.py) that denies a commit on main/master in the canonical repository -- see [Security](security.md#repository-shipped-claude-code-commit-guard)
+├── .claude/settings.json         Registers the PreToolUse commit guard for Bash and PowerShell (one hook entry, pinned by a test); the file that runs repository-controlled code, so it is part of the security review surface -- see [Security](security.md#repository-shipped-claude-code-commit-guard)
 ├── .claude/commands/             Slash-command interface (primary) -- see "Slash commands" in `CLAUDE.md`
 │   ├── calibrate.md, calibrate-policy.md
 │   ├── triage.md, research.md, spread.md, commercial.md, collateral.md, project.md
@@ -245,6 +246,7 @@ open-cam-framework/
 ├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit, mypy (advisory diagnostic only)
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
+├── .github/CODEOWNERS           Names the maintainer as owner of `.claude/settings.json` and `.claude/hooks/`; it only protects them if the repository's external ruleset requires code-owner review -- see [Security](security.md#repository-shipped-claude-code-commit-guard)
 ├── .github/workflows/typecheck.yml  Advisory mypy diagnostic (error count per module in the job summary; never a required check or a gate)
 ├── .github/workflows/scope-check.yml  Advisory PR scope check: changed paths against the pull request's declared file scope; reports only, never a required check or a gate
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eleven governance modules (diagnostic report, never a merge gate)

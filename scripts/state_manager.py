@@ -454,10 +454,9 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
                 return [f"{line_path}.line_key must be an existing evaluator raw line key; found {line_key!r}"]
             counterparty = line.get("counterparty_entity_id")
             if (not isinstance(counterparty, str) or not counterparty.strip()
-                    or counterparty not in value or counterparty == entity_key):
+                    or counterparty == entity_key):
                 return [
-                    f"{line_path}.counterparty_entity_id {counterparty!r} does not resolve to a different "
-                    "entity record in entity_records"
+                    f"{line_path}.counterparty_entity_id must be a non-empty string and must not equal its entity ID"
                 ]
             if not nonempty_text(line.get("direction")):
                 return [f"{line_path}.direction must be a non-empty string"]
@@ -474,6 +473,10 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
         guarantee_ids = record.get("guarantee_ids")
         if not isinstance(guarantee_ids, list):
             return [f"{record_path}.guarantee_ids must be a list of explicit guarantee IDs"]
+        if role == "guarantor" and not guarantee_ids:
+            return [
+                f"{record_path}.guarantee_ids must contain at least one explicit guarantee_id for role 'guarantor'"
+            ]
         seen_guarantee_ids: set[str] = set()
         for guarantee_id in guarantee_ids:
             if not isinstance(guarantee_id, str) or not guarantee_id.strip():

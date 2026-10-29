@@ -4305,7 +4305,7 @@ def test_validate_state_rejects_a_non_unique_guarantee_link_in_a_persisted_entit
         ("intercompany-unknown-period", "entity_records['synthetic-opco'].intercompany_lines[0].period has unknown framework period label 'bad-period'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"),
         ("intercompany-period-missing-end", "entity_records['synthetic-opco'].intercompany_lines[0].period 'FY-1' is missing from entity_records['synthetic-opco'].period_ends"),
         ("intercompany-invalid-line-key", "entity_records['synthetic-opco'].intercompany_lines[0].line_key must be an existing evaluator raw line key; found 'made_up_line'"),
-        ("intercompany-self-counterparty", "entity_records['synthetic-opco'].intercompany_lines[0].counterparty_entity_id 'synthetic-opco' does not resolve to a different entity record in entity_records"),
+        ("intercompany-self-counterparty", "entity_records['synthetic-opco'].intercompany_lines[0].counterparty_entity_id must be a non-empty string and must not equal its entity ID"),
         ("intercompany-empty-direction", "entity_records['synthetic-opco'].intercompany_lines[0].direction must be a non-empty string"),
         ("intercompany-confirmed-not-boolean", "entity_records['synthetic-opco'].intercompany_lines[0].confirmed must be a boolean"),
         ("guarantee-ids-not-list", "entity_records['synthetic-opco'].guarantee_ids must be a list of explicit guarantee IDs"),

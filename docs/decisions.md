@@ -360,7 +360,7 @@ so in its Related line) when a later decision supersedes it.
   that annotates a registered function. Phase 2 is complete: all eleven modules report zero errors. Phase 3, a
   failing type check, is not started: making a check required is a ruleset change that stays the maintainer's, and
   it needs its own plan and sign-off, so #424 stays open for it.
-- **Related.** #424 (comments of 2026-10-25, 2026-10-26 and 2026-10-27), #465, #476, PRs #474 and #477 to #489, D13,
+- **Related.** #424 (comments of 2026-10-25, 2026-10-26 and 2026-10-27), #465, #476, PRs #474, #476 to #482 and #484 to #489, D13,
   D18.
 
 ## D21. The policy engine's results are typed contracts, pinned byte for byte
@@ -378,8 +378,9 @@ so in its Related line) when a later decision supersedes it.
   output-identical; the formula register's output-shape prose is updated only where needed and no formula changes.
   The approved deviation from the design note: `DownsideBreach.base_actual` is `int | float | None` and `threshold`
   is `JsonValue`, not the narrower first proposal.
-- **Why.** The change must be static only. The output was pinned before the typing: 18 golden payload tests in
-  `tests/fixtures/policy_payloads/`, captured before the change and compared as bytes.
+- **Why.** The change must be static only. The output was pinned before the typing: 18 golden payload tests
+  (`tests/test_policy_payload_contract.py`, goldens in `tests/fixtures/policy_payloads/`), captured before the change
+  and compared as bytes.
 - **Consequences.** A change to the payload's shape updates the `TypedDict` and its goldens in the same PR.
 - **Related.** #483 (design note and the decision of 2026-10-27), #482, #477, PR #492, D18, D20.
 
@@ -388,10 +389,11 @@ so in its Related line) when a later decision supersedes it.
 - **Context.** D19 settled the three cases and refuses entity-keyed input. Cases B and C need to hold more than one
   entity's figures without a second source of truth for the borrower.
 - **Choice.** An optional top-level `entity_records` object keyed by stable entity ID, shared by B and C
-  (decisions of 2026-10-26 and 2026-10-28 on #472). `SCHEMA_VERSION` goes to 1.2.0 with step 1, and a state without
+  (decisions of 2026-10-26 and 2026-10-28 on #472). `SCHEMA_VERSION` goes to 1.2.0 with step 1 (PR #494, open at the time of writing), and a state without
   the key reads as "no entities recorded" and behaves as before. Period labels stay inside each record, and an
   entity-keyed input where a period label is expected is still refused at every entry point. Each entity has one
-  primary role (`subsidiary`, `parent`, `guarantor`); other relationships are explicit links such as `guarantee_ids`,
+  primary role (`subsidiary`, `parent`, `guarantor`, plus any roles the step-1 design names for other group
+  members); other relationships are explicit links such as `guarantee_ids`,
   never a second role. The borrower is not a role in step 1: its figures stay in the existing stores. If a case B
   credit aggregation and case A's `group_basis` would both claim the consolidated view, the engine fails closed;
   insertion order or last write never chooses. A standalone guarantor alongside case A is allowed. Step 1 records and
@@ -407,7 +409,8 @@ so in its Related line) when a later decision supersedes it.
 ## D23. Group accounts, case C: a guarantor is an entity record, and a covenant names one
 
 - **Context.** Case C spreads a guarantor or parent on its own, with no combination (D19).
-- **Choice.** A guarantor is an entity record with `role: guarantor` under D22's contract and explicit
+- **Choice.** Decided for the first release of case C, not built at the time of writing: a guarantor is an entity
+  record with `role: guarantor` under D22's contract and explicit
   `guarantee_ids`; there is no separate guarantor model. A `guarantor_group` covenant names one guarantor entity
   through a new optional field `basis_entity_id`; a legal guarantee is joined to an entity only through an explicit
   `guarantee_id`, and a legacy guarantee without an ID is never matched by provider name. A set of several guarantors
@@ -416,8 +419,8 @@ so in its Related line) when a later decision supersedes it.
   is not shown as current and cannot be used by a covenant. Missing accounts are disclosure only: the guarantee
   conditions precedent and subsequent are unchanged and independent of whether accounts exist, and no new
   legal-standing condition is invented. "Consolidated" is never used for case C.
-- **Why.** One contract serves both cases, and an unmatched or stale view must fail visibly rather than borrow a
-  neighbouring one.
+- **Why.** One contract serves both cases, and a view that is missing, stale or unlinked stays UNRESOLVABLE with a
+  reason.
 - **Consequences.** The wording of the CAM section for a standalone guarantor and every disclosure phrase are not
   decided; they are decided when the presentation step starts, with the exact text recorded on the issue. A new
   deterministic "strength" measure needs its own agreement and a Proposed register entry, and a credit or accounting
@@ -438,7 +441,8 @@ so in its Related line) when a later decision supersedes it.
   the incremental mode was checked against a full run.
 - **Why.** Survivors are a to-do list, not a score (D13), and help text is not behaviour.
 - **Consequences.** A survivor that is accepted is accepted for a stated reason, in the PR or on the issue.
-- **Related.** #182, #408, #435, #219, PR #446, D13.
+- **Related.** #182 (its "Done looks like" and the comments of 2026-10-18 and 2026-10-27), #408, #435, #219, PR #446,
+  D13; the incremental-run description is in `docs/operations.md` and `docs/testing.md`.
 
 ## D25. The credit skills fail closed when the deal lookup does not complete
 
@@ -483,7 +487,9 @@ so in its Related line) when a later decision supersedes it.
 - **Choice.** Guideline 13 is appended to `agents/underwriter_agent.md` (Guidelines 1 to 12 keep their numbers):
   conclusions follow from the decisive figures, repayment capacity includes the proposed facility's own repayments,
   product mechanics decide title and the secondary source of repayment, trends are not drawn across different
-  bases, and the voice is impersonal with sentences of about 25 words or fewer as guidance, not a hard limit. The
+  bases, asset finance assesses the financed asset and its residual value and, where an introducer shares residual-value
+  risk, that introducer as a counterparty, never in promotional terms, and the voice is impersonal with sentences of
+  about 25 words or fewer as guidance, not a hard limit; missing information is stated once, not repeated. The
   local style guide overrides the voice rules only where it states a different rule explicitly, and the rules live in
   the Guideline, not in a separate default style guide. The Checker gains Audit Checklist items 5 to 7 (the verdict
   follows the evidence, internal consistency, product and accounting mechanics) before the verdict, now item 8. A
@@ -500,7 +506,9 @@ so in its Related line) when a later decision supersedes it.
 - **Context.** #443 asked for a research brief that supports an early Go/No-Go decision.
 - **Choice.** The first substantive section after the header is `## Go/No-Go`, short enough for one page: GO,
   CONDITIONAL GO or NO-GO with the action that follows, the three decisive facts each with figure and source, and no
-  more than five conditions in descending order, saying so if fewer are supported. About 1,500 words is guidance,
+  more than five conditions in descending order; if fewer than three decisive facts are supported, or no
+  conditions are needed, it says so rather than inventing them. Passing legal identity, charges and bureau checks is
+  not by itself a credit Go when the commercial evidence points the other way. About 1,500 words is guidance,
   never an export-time limit. The review-status disclosure belongs to the exporter: the drafter never writes it, and
   `scripts/research_export.py` inserts the dated paragraph straight after the title, as before, only when the analyst
   explicitly chooses the disclosed manual-review release.
@@ -564,5 +572,5 @@ so in its Related line) when a later decision supersedes it.
   lazy import it is 106 s of about 600 s (17.5%) in a single-process profile, no longer the critical path, and the
   rest is spread across several files of 20 to 80 s that are already about as small as they reasonably get.
 - **Why.** A split would not shorten the CI critical path.
-- **Consequences.** The data does not justify the split; a new profile would be needed to reopen it.
+- **Consequences.** The current profile does not justify the split.
 - **Related.** #425 (closed 2026-10-27), PR #428, D14.

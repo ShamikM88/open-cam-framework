@@ -4026,10 +4026,15 @@ def test_record_entity_record_refuses_impossible_dates_without_writing(tmp_path,
 
 
 def test_record_entity_record_accepts_standalone_guarantor_with_different_year_end(tmp_path):
-    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    path = _seed_entity_registry_state(
+        tmp_path,
+        entity_records={"synthetic-parent": _entity_record_for_tests()},
+        guarantees=[{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic Guarantor Ltd"}],
+    )
     before = path.read_bytes()
     guarantor = _entity_record_for_tests("synthetic-guarantor", "guarantor")
     guarantor["period_ends"]["FY-Current"] = "2025-11-30"
+    guarantor["guarantee_ids"] = ["GUARANTEE-SYN-001"]
 
     _register_entity_record_for_tests(tmp_path, guarantor)
 
@@ -4038,14 +4043,47 @@ def test_record_entity_record_accepts_standalone_guarantor_with_different_year_e
     assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-guarantor"}
     assert saved["entity_records"]["synthetic-parent"]["period_ends"]["FY-Current"] == "2025-12-31"
     assert saved["entity_records"]["synthetic-guarantor"]["period_ends"]["FY-Current"] == "2025-11-30"
+    assert saved["entity_records"]["synthetic-guarantor"]["guarantee_ids"] == ["GUARANTEE-SYN-001"]
 
 
-def test_record_entity_record_refuses_unknown_counterparty_without_writing(tmp_path):
-    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+@pytest.mark.parametrize(
+    "registration_order",
+    [
+        ("synthetic-parent", "synthetic-opco"),
+        ("synthetic-opco", "synthetic-parent"),
+    ],
+    ids=["parent-first", "subsidiary-first"],
+)
+def test_record_entity_record_accepts_reciprocal_intercompany_pair_in_either_order(
+        tmp_path, registration_order):
+    path = _seed_entity_registry_state(tmp_path)
+    parent = _entity_record_for_tests("synthetic-parent", "parent")
+    parent["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-opco",
+        "direction": "receivable", "amount": 10, "confirmed": True,
+    }]
+    subsidiary = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    subsidiary["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-parent",
+        "direction": "payable", "amount": 10, "confirmed": True,
+    }]
+    records = {"synthetic-parent": parent, "synthetic-opco": subsidiary}
+
+    for entity_id in registration_order:
+        _register_entity_record_for_tests(tmp_path, records[entity_id])
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-opco"}
+    assert saved["entity_records"]["synthetic-parent"]["intercompany_lines"][0]["counterparty_entity_id"] == "synthetic-opco"
+    assert saved["entity_records"]["synthetic-opco"]["intercompany_lines"][0]["counterparty_entity_id"] == "synthetic-parent"
+
+
+def test_record_entity_record_refuses_self_counterparty_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
     before = path.read_bytes()
-    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record = _entity_record_for_tests("synthetic-parent", "parent")
     record["intercompany_lines"] = [{
-        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "missing-entity",
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-parent",
         "direction": "receivable", "amount": 10, "confirmed": True,
     }]
 
@@ -4053,9 +4091,25 @@ def test_record_entity_record_refuses_unknown_counterparty_without_writing(tmp_p
         _register_entity_record_for_tests(tmp_path, record)
 
     assert str(caught.value) == (
-        "Refusing to register entity_record: entity_records['synthetic-opco'].intercompany_lines[0]."
-        "counterparty_entity_id 'missing-entity' does not resolve to a different entity record in "
-        "entity_records. Nothing was changed."
+        "Refusing to register entity_record: entity_records['synthetic-parent'].intercompany_lines[0]."
+        "counterparty_entity_id must be a non-empty string and must not equal its entity ID. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_guarantor_without_guarantee_id_without_writing(tmp_path):
+    path = _seed_entity_registry_state(
+        tmp_path, guarantees=[{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic Guarantor Ltd"}],
+    )
+    before = path.read_bytes()
+    guarantor = _entity_record_for_tests("synthetic-guarantor", "guarantor")
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, guarantor)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-guarantor'].guarantee_ids must contain "
+        "at least one explicit guarantee_id for role 'guarantor'. Nothing was changed."
     )
     assert path.read_bytes() == before
 

@@ -73,7 +73,7 @@ Fix the file (or the checkout) and run again; nothing was modified.
 | :--- | :--- | :--- |
 | `error: Cannot use deals/.../state.json: "ratios" must be an object keyed by period whose values are objects ..., found list.` | A key the step reads has the wrong type (here a list). The message names every offending key and the type it needs | Correct the key by hand, or restore the file from a backup. Re-running `/spread` rewrites `financials` and `ratios` |
 | `error: state.json at ... is corrupted and could not be parsed (...)` | The file is not valid JSON, for instance because a write was interrupted | Restore from a backup or repair the JSON by hand |
-| `error: Refusing to write ...: it was written by a newer framework (schema_version 9.0.0) than this one supports (1.1.0); writing would downgrade it. Update this checkout of the framework instead; nothing was changed.` | The deal was written by a newer version of the framework | Update this checkout. Do not edit `schema_version` by hand. Reading such a file still works |
+| `error: Refusing to write ...: it was written by a newer framework (schema_version 9.0.0) than this one supports (1.2.0); writing would downgrade it. Update this checkout of the framework instead; nothing was changed.` | The deal was written by a newer version of the framework | Update this checkout. Do not edit `schema_version` by hand. Reading such a file still works |
 
 A `schema_version` that is not `MAJOR.MINOR.PATCH` digits (`null`, `1.2`, `v1.1.0`) is refused the same way. The
 slash commands that write `state.json` directly with Claude's file tools (`/triage`, `/commercial`, `/collateral`,

@@ -2318,6 +2318,53 @@ def test_orchestrator_refuses_an_entity_keyed_financials_file_before_credentials
     assert saved_path.read_bytes() == before
 
 
+
+
+@pytest.mark.parametrize(
+    ("file_case", "expected_error"),
+    [
+        ("missing", "Cannot read entity-record file"),
+        ("directory", "Cannot read entity-record file"),
+        ("invalid_json", "Cannot read entity-record file"),
+        ("non_object", "must contain one JSON object"),
+        ("invalid_utf8", "Cannot read entity-record file"),
+    ],
+    ids=["missing", "directory", "invalid-json", "non-object", "invalid-utf8"],
+)
+def test_state_manager_register_entity_record_refuses_bad_input_file_without_writing(
+    cli, file_case, expected_error,
+):
+    state_path, _ = _install_entity_registry_cli_state(cli)
+    record_file = cli.workdir / "entity-record.json"
+    if file_case == "directory":
+        record_file.mkdir()
+    elif file_case == "invalid_json":
+        record_file.write_text("{bad", encoding="utf-8")
+    elif file_case == "non_object":
+        record_file.write_text('["not", "a record"]', encoding="utf-8")
+    elif file_case == "invalid_utf8":
+        record_file.write_bytes(b"\xff")
+    before = state_path.read_bytes()
+
+    result = _run_register_entity_record(cli, record_file, "--perimeter-confirmed")
+
+    _assert_a_clean_state_error(result, expected_error)
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_register_entity_record_refuses_an_impossible_confirmation_date_without_writing(cli):
+    state_path, _ = _install_entity_registry_cli_state(cli)
+    record_file = cli.workdir / "entity-record.json"
+    record_file.write_text(json.dumps(_cli_entity_record()), encoding="utf-8")
+    before = state_path.read_bytes()
+
+    result = _run_register_entity_record(
+        cli, record_file, "--perimeter-confirmed", "--date", "2026-02-30",
+    )
+
+    _assert_a_clean_state_error(result, "date '2026-02-30' is not a valid calendar date")
+    assert state_path.read_bytes() == before
+
 def _export_a_synthetic_deal(cli):
     """A deal exported the way `/assemble` leaves it, under the CLI's working directory."""
     from deal_export import export_deal
@@ -2501,3 +2548,129 @@ def test_pr_scope_check_cli_runs_valid_input_and_treats_hostile_body_as_data(cli
     assert "error:" in malformed.stderr
     assert "$(touch" not in malformed.stdout + malformed.stderr
     assert not marker.exists()
+
+
+# ---------------------------------------------------------------------------
+# Issue #472 / #473: register one entity record on an existing deal.
+# ---------------------------------------------------------------------------
+
+def _cli_entity_record(entity_id="synthetic-parent", role="parent"):
+    return {
+        "entity_id": entity_id,
+        "legal_name": f"Synthetic {entity_id} Ltd",
+        "role": role,
+        "source": {
+            "document": f"Synthetic accounts for {entity_id}",
+            "accounting_basis": "UK GAAP",
+            "date": "2026-02-01",
+        },
+        "period_ends": {"FY-Current": "2025-12-31"},
+        "perimeter": {
+            "included": True,
+            "control_basis": "analyst-confirmed",
+            "scope_rationale": "Synthetic test perimeter",
+            "confirmed": False,
+            "confirmed_on": "2026-01-01",
+        },
+        "raw_figures_source": "Synthetic source document",
+        "multi_period_financials": {"FY-Current": {"revenue": 100}},
+        "analyst_supplied_financials": {},
+        "spread_status": "not-spread",
+        "intercompany_lines": [],
+        "guarantee_ids": [],
+        "future_metadata": {"preserve": True},
+    }
+
+
+def _install_entity_registry_cli_state(cli, entity_records=None):
+    company, proposal, date_str = "Synthetic Group Ltd", "Synthetic Group Facility", "2026-01-01"
+    folder = cli.workdir / "deals" / company / f"{proposal}_{date_str}"
+    folder.mkdir(parents=True)
+    state_path = folder / "state.json"
+    state = {
+        "company": company, "proposal": proposal, "date": date_str, "schema_version": "1.1.0",
+        "financials_source": "framework-computed",
+        "financials": {"FY-Current": {"ebitda": 50}},
+        "ratios": {"FY-Current": {"dscr": 1.5}},
+        "multi_period_financials": {"FY-Current": {"revenue": 100}},
+        "analyst_supplied_financials": {},
+        "guarantees": [],
+        "marker": "preserve",
+    }
+    if entity_records is not None:
+        state["entity_records"] = entity_records
+    state_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    return state_path, state
+
+
+def _run_register_entity_record(cli, record_path, *extra):
+    return cli(
+        "state_manager", "--register-entity-record", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--entity-record-file", record_path, *extra,
+    )
+
+
+def test_state_manager_register_entity_record_subprocess_round_trips_and_preserves_existing_figures(cli):
+    state_path, original = _install_entity_registry_cli_state(cli)
+    record_file = cli.workdir / "entity-record.json"
+    record_file.write_text(json.dumps(_cli_entity_record()), encoding="utf-8")
+
+    result = _run_register_entity_record(cli, record_file, "--perimeter-confirmed", "--date", "2026-10-27")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == "" and result.stdout.count("\n") == 1
+    report = json.loads(result.stdout)
+    assert report["recorded"] is True
+    assert report["entity_id"] == "synthetic-parent"
+    assert report["state_path"].replace("\\", "/") == (
+        "deals/Synthetic Group Ltd/Synthetic Group Facility_2026-01-01/state.json"
+    )
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert saved["schema_version"] == "1.2.0"
+    assert saved["entity_records"]["synthetic-parent"]["perimeter"]["confirmed"] is True
+    assert saved["entity_records"]["synthetic-parent"]["perimeter"]["confirmed_on"] == "2026-10-27"
+    assert saved["entity_records"]["synthetic-parent"]["future_metadata"] == {"preserve": True}
+    for key in ("financials", "ratios", "multi_period_financials", "analyst_supplied_financials", "financials_source",
+                "guarantees", "marker"):
+        assert saved[key] == original[key], key
+
+
+def test_state_manager_register_entity_record_refuses_without_confirmation_and_does_not_write(cli):
+    state_path, _ = _install_entity_registry_cli_state(cli)
+    record_file = cli.workdir / "entity-record.json"
+    record_file.write_text(json.dumps(_cli_entity_record()), encoding="utf-8")
+    before = state_path.read_bytes()
+
+    result = _run_register_entity_record(cli, record_file)
+
+    _assert_a_clean_state_error(
+        result, "Refusing to register entity_record without explicit --perimeter-confirmed analyst confirmation",
+    )
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_register_entity_record_refuses_duplicate_id_without_replacing_existing_record(cli):
+    existing = _cli_entity_record()
+    existing["perimeter"]["confirmed"] = True
+    state_path, _ = _install_entity_registry_cli_state(cli, entity_records={"synthetic-parent": existing})
+    record = _cli_entity_record()
+    record_file = cli.workdir / "entity-record.json"
+    record_file.write_text(json.dumps(record), encoding="utf-8")
+    before = state_path.read_bytes()
+
+    result = _run_register_entity_record(cli, record_file, "--perimeter-confirmed")
+
+    _assert_a_clean_state_error(
+        result, "Refusing to register entity_record 'synthetic-parent': entity ID already exists",
+    )
+    assert state_path.read_bytes() == before
+
+
+def test_state_manager_register_entity_record_help_lists_all_flags(cli):
+    result = cli("state_manager", "--help")
+    assert result.returncode == 0 and result.stderr == ""
+    for flag in (
+        "--register-entity-record", "--company", "--proposal", "--entity-record-file",
+        "--perimeter-confirmed", "--date",
+    ):
+        assert flag in result.stdout

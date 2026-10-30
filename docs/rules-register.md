@@ -188,19 +188,19 @@ independently proven by the gate.
 - **Status:** Not covered
 - **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
 
-### R-POL-013 — A current-year FAIL produces a rejection reason
+### R-POL-013 — A current-year FAIL rejects the draft
 
-- **Claim:** A current-year covenant with status FAIL produces a draft-compliance rejection reason.
+- **Claim:** The deterministic policy overlay returns REJECTED when a current-year covenant has status FAIL.
 - **Source:** [Covenants](financial-model.md#covenants).
-- **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
+- **Implemented in:** `scripts/orchestrator.py::_apply_deterministic_policy_checks`
 - **Status:** Not covered
 - **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
 
-### R-POL-014 — A current-year UNRESOLVABLE result produces a rejection
+### R-POL-014 — A current-year UNRESOLVABLE result rejects the draft
 
-- **Claim:** A current-year covenant with status UNRESOLVABLE produces a code-enforced draft rejection.
+- **Claim:** The deterministic policy overlay returns REJECTED when a current-year covenant has status UNRESOLVABLE.
 - **Source:** [Covenants](financial-model.md#covenants).
-- **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
+- **Implemented in:** `scripts/orchestrator.py::_apply_deterministic_policy_checks`
 - **Status:** Not covered
 - **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
 

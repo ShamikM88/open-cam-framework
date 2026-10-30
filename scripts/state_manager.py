@@ -34,13 +34,65 @@ import time
 from collections.abc import Iterable
 from datetime import date, datetime
 from types import TracebackType
-from typing import Any, Self, overload
+from typing import Any, Literal, Self, TypedDict, overload
 
-from numeric_validation import NonFiniteNumberError, validate_finite_numbers
+from numeric_validation import (
+    NonFiniteNumberError, validate_finite_numbers, validate_period_keys, validate_period_objects,
+    validate_raw_line_items,
+)
 
 # A value that can appear in state.json or in a policy result. The one definition every annotated module imports
 # (issue #424), so the alias cannot drift between modules; tests/test_typecheck_config.py pins that it has one home.
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
+class EntitySource(TypedDict):
+    """Source document and accounting basis for one entity's own figures."""
+
+    document: str
+    accounting_basis: str
+    date: str
+
+
+class EntityPerimeter(TypedDict):
+    """Analyst-confirmed scope metadata; ownership percentages do not imply control."""
+
+    included: bool
+    control_basis: str
+    scope_rationale: str
+    confirmed: bool
+    confirmed_on: str
+
+
+class EntityIntercompanyLine(TypedDict):
+    """An identified raw line and counterparty, recorded but not eliminated in step 1."""
+
+    period: str
+    line_key: str
+    counterparty_entity_id: str
+    direction: str
+    amount: int | float
+    confirmed: bool
+
+
+class EntityRecord(TypedDict):
+    """Shared step-1 record contract for subsidiaries, parents and guarantors."""
+
+    entity_id: str
+    legal_name: str
+    role: Literal["subsidiary", "parent", "guarantor"]
+    source: EntitySource
+    period_ends: dict[str, str]
+    perimeter: EntityPerimeter
+    raw_figures_source: str
+    multi_period_financials: dict[str, dict[str, JsonValue]]
+    analyst_supplied_financials: dict[str, dict[str, JsonValue]]
+    spread_status: Literal["not-spread"]
+    intercompany_lines: list[EntityIntercompanyLine]
+    guarantee_ids: list[str]
+
+
+EntityRegistry = dict[str, EntityRecord]
 
 DEALS_DIR = "deals"
 
@@ -51,7 +103,7 @@ DEALS_DIR = "deals"
 # at all; read_state() reports LEGACY_SCHEMA_VERSION for those rather than
 # leaving the key absent, so future migration logic always has a defined
 # starting point instead of needing its own "key missing" special case.
-SCHEMA_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.2.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
 # A recorded version must look exactly like SCHEMA_VERSION: MAJOR.MINOR.PATCH, each a run of digits. Compared
@@ -88,7 +140,7 @@ STATE_SHAPES = {
     "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
     "collateral": "list", "covenants": "list", "security_package": "list", "guarantees": "list",
     "steps_completed": "list", "review_trail": "list",
-    "financials_source": "source",
+    "financials_source": "source", "entity_records": "entity_records",
 }
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
@@ -137,6 +189,16 @@ def _json_type(value: object) -> str:
 # Case A metadata labels mirror spreading_builder.PERIOD_KEYS without importing its
 # workbook dependencies into this deliberately lightweight state-management module.
 _GROUP_BASIS_PERIOD_KEYS = ("FY-2", "FY-1", "FY-Current", "FY+1", "FY+2", "FY+3")
+_ENTITY_RECORD_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
+# Keep these evaluator raw-line keys local so state_manager remains lightweight and dependency-free.
+_ENTITY_RECORD_LINE_KEYS = (
+    "revenue", "cost_of_sales", "admin_expenses", "depreciation", "amortisation", "other_income",
+    "interest_paid", "interest_received", "scheduled_principal", "capex", "exceptional_costs", "tax_paid",
+    "tangible_assets", "intangible_assets", "other_fixed_assets", "cash", "trade_debtors", "stock",
+    "other_current_assets", "trade_creditors", "current_debt", "overdraft", "other_current_liabilities",
+    "long_term_debt", "loan_notes", "other_long_term_liabilities", "provisions", "share_capital",
+    "retained_profit",
+)
 
 
 _SOURCE_NOT_CHECKED = object()
@@ -255,6 +317,186 @@ def _group_basis_problems(value: object, financials_source: object = _SOURCE_NOT
     return problems
 
 
+def _entity_record_date_problem(value: object, path: str) -> str | None:
+    """Return one deterministic problem for a strict YYYY-MM-DD calendar date."""
+    if not isinstance(value, str) or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value) is None:
+        return f"{path} must be a real YYYY-MM-DD calendar date"
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return f"{path} must be a real YYYY-MM-DD calendar date"
+    return None
+
+
+def _entity_records_problems(value: object, guarantees: object = None) -> list[str]:
+    """Validate the full entity registry and return its first deterministic problem.
+
+    Unknown fields inside each record are deliberately allowed and preserved.
+    This validates stored inputs only; it does not spread, aggregate or calculate
+    anything from an entity record.
+    """
+    if not isinstance(value, dict):
+        return [f'"entity_records" must be an object, found {_json_type(value)}']
+
+    guarantee_entries = guarantees if isinstance(guarantees, list) else []
+
+    def nonempty_text(item: object) -> bool:
+        return isinstance(item, str) and bool(item.strip())
+
+    for entity_key, record in value.items():
+        if not isinstance(entity_key, str) or not entity_key.strip():
+            return ['"entity_records" keys must be non-empty stable entity IDs']
+        record_path = f"entity_records[{entity_key!r}]"
+        if not isinstance(record, dict):
+            return [f"{record_path} must be an object"]
+        entity_id = record.get("entity_id")
+        if not isinstance(entity_id, str) or not entity_id.strip() or entity_id != entity_key:
+            return [f"{record_path}.entity_id must equal registry key {entity_key!r}; found {entity_id!r}"]
+
+        legal_name = record.get("legal_name")
+        if not nonempty_text(legal_name):
+            return [f"{record_path}.legal_name must be a non-empty string"]
+        role = record.get("role")
+        if not isinstance(role, str) or role not in ("subsidiary", "parent", "guarantor"):
+            return [f"{record_path}.role must be one of 'subsidiary', 'parent' or 'guarantor'; found {role!r}"]
+
+        source = record.get("source")
+        if not isinstance(source, dict):
+            return [f"{record_path}.source must be an object"]
+        for field in ("document", "accounting_basis"):
+            if not nonempty_text(source.get(field)):
+                return [f"{record_path}.source.{field} must be a non-empty string"]
+        date_problem = _entity_record_date_problem(source.get("date"), f"{record_path}.source.date")
+        if date_problem is not None:
+            return [date_problem]
+
+        period_ends = record.get("period_ends")
+        if not isinstance(period_ends, dict):
+            return [f"{record_path}.period_ends must be an object keyed by framework period label"]
+        try:
+            validate_period_keys(
+                period_ends, _ENTITY_RECORD_PERIOD_KEYS, path=f"{record_path}.period_ends",
+            )
+        except ValueError as exc:
+            return [str(exc)]
+        for period, period_end in period_ends.items():
+            date_problem = _entity_record_date_problem(
+                period_end, f"{record_path}.period_ends[{period!r}]",
+            )
+            if date_problem is not None:
+                return [date_problem]
+
+        perimeter = record.get("perimeter")
+        if not isinstance(perimeter, dict):
+            return [f"{record_path}.perimeter must be an object"]
+        if not isinstance(perimeter.get("included"), bool):
+            return [f"{record_path}.perimeter.included must be a boolean"]
+        if not nonempty_text(perimeter.get("control_basis")):
+            return [f"{record_path}.perimeter.control_basis must be a non-empty string"]
+        if not nonempty_text(perimeter.get("scope_rationale")):
+            return [f"{record_path}.perimeter.scope_rationale must be a non-empty string"]
+        if perimeter.get("confirmed") is not True:
+            return [f"{record_path}.perimeter.confirmed must be true after explicit analyst confirmation"]
+        date_problem = _entity_record_date_problem(
+            perimeter.get("confirmed_on"), f"{record_path}.perimeter.confirmed_on",
+        )
+        if date_problem is not None:
+            return [date_problem]
+
+        if not nonempty_text(record.get("raw_figures_source")):
+            return [f"{record_path}.raw_figures_source must be a non-empty string"]
+        if record.get("spread_status") != "not-spread":
+            return [f'{record_path}.spread_status must be "not-spread" in step 1']
+
+        raw_stores: dict[str, dict[Any, Any]] = {}
+        for store_name in ("multi_period_financials", "analyst_supplied_financials"):
+            raw_store = record.get(store_name)
+            store_path = f"{record_path}.{store_name}"
+            if not isinstance(raw_store, dict):
+                return [f"{store_path} must be an object keyed by framework period label"]
+            try:
+                validate_period_objects(raw_store, path=store_path)
+                validate_period_keys(raw_store, _ENTITY_RECORD_PERIOD_KEYS, path=store_path)
+                validate_raw_line_items(raw_store, _ENTITY_RECORD_LINE_KEYS, path=store_path)
+                validate_finite_numbers(raw_store, path=store_path)
+            except ValueError as exc:
+                return [str(exc)]
+            for period in raw_store:
+                if period not in period_ends:
+                    return [f"{store_path} period {period!r} is missing from {record_path}.period_ends"]
+            raw_stores[store_name] = raw_store
+
+        multi = raw_stores["multi_period_financials"]
+        supplied = raw_stores["analyst_supplied_financials"]
+        for period, raw in multi.items():
+            supplied_raw = supplied.get(period)
+            if isinstance(raw, dict) and raw and isinstance(supplied_raw, dict) and supplied_raw:
+                return [f"{record_path} has figures in both raw stores for period {period!r}"]
+
+        intercompany_lines = record.get("intercompany_lines")
+        if not isinstance(intercompany_lines, list):
+            return [f"{record_path}.intercompany_lines must be a list"]
+        for index, line in enumerate(intercompany_lines):
+            line_path = f"{record_path}.intercompany_lines[{index}]"
+            if not isinstance(line, dict):
+                return [f"{line_path} must be an object"]
+            period = line.get("period")
+            if not isinstance(period, str) or period not in _ENTITY_RECORD_PERIOD_KEYS:
+                return [
+                    f"{line_path}.period has unknown framework period label {period!r}; expected one of "
+                    + ", ".join(_ENTITY_RECORD_PERIOD_KEYS)
+                ]
+            if period not in period_ends:
+                return [f"{line_path}.period {period!r} is missing from {record_path}.period_ends"]
+            line_key = line.get("line_key")
+            if (not isinstance(line_key, str) or not line_key.strip()
+                    or line_key not in _ENTITY_RECORD_LINE_KEYS):
+                return [f"{line_path}.line_key must be an existing evaluator raw line key; found {line_key!r}"]
+            counterparty = line.get("counterparty_entity_id")
+            if (not isinstance(counterparty, str) or not counterparty.strip()
+                    or counterparty == entity_key):
+                return [
+                    f"{line_path}.counterparty_entity_id must be a non-empty string and must not equal its entity ID"
+                ]
+            if not nonempty_text(line.get("direction")):
+                return [f"{line_path}.direction must be a non-empty string"]
+            amount = line.get("amount")
+            if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+                return [f"{line_path}.amount must be a finite JSON number; found {amount!r}"]
+            try:
+                validate_finite_numbers(amount, path=f"{line_path}.amount")
+            except NonFiniteNumberError as exc:
+                return [str(exc)]
+            if not isinstance(line.get("confirmed"), bool):
+                return [f"{line_path}.confirmed must be a boolean"]
+
+        guarantee_ids = record.get("guarantee_ids")
+        if not isinstance(guarantee_ids, list):
+            return [f"{record_path}.guarantee_ids must be a list of explicit guarantee IDs"]
+        if role == "guarantor" and not guarantee_ids:
+            return [
+                f"{record_path}.guarantee_ids must contain at least one explicit guarantee_id for role 'guarantor'"
+            ]
+        seen_guarantee_ids: set[str] = set()
+        for guarantee_id in guarantee_ids:
+            if not isinstance(guarantee_id, str) or not guarantee_id.strip():
+                return [f"{record_path}.guarantee_ids entries must be non-empty strings"]
+            if guarantee_id in seen_guarantee_ids:
+                return [f"{record_path}.guarantee_ids contains duplicate ID {guarantee_id!r}"]
+            seen_guarantee_ids.add(guarantee_id)
+            matches = [
+                item for item in guarantee_entries
+                if isinstance(item, dict) and item.get("guarantee_id") == guarantee_id
+            ]
+            if len(matches) != 1:
+                return [
+                    f"{record_path}.guarantee_ids entry {guarantee_id!r} must resolve to exactly one explicit "
+                    "guarantee_id in state.json guarantees"
+                ]
+
+    return []
+
+
 def record_group_basis(
     company: str, proposal: str, group_basis_file: str, perimeter_confirmed: bool = False,
     date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
@@ -322,6 +564,103 @@ def record_group_basis(
     return {"recorded": True, "state_path": path, "figures_basis": group_basis["figures_basis"]}
 
 
+
+def record_entity_record(
+    company: str, proposal: str, entity_record_file: str, perimeter_confirmed: bool = False,
+    date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Register one entity's own figures and metadata on an existing deal.
+
+    The complete registry is validated under the deal lock before one atomic
+    _merge_and_write call. This function records inputs only: it performs no
+    spreading, aggregation, elimination, ratio or covenant calculation.
+    """
+    if not perimeter_confirmed:
+        raise StateError(
+            "Refusing to register entity_record without explicit --perimeter-confirmed analyst confirmation; "
+            "nothing was changed."
+        )
+
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    if date_str is None:
+        confirmation_date = datetime.now().strftime("%Y-%m-%d")
+    else:
+        try:
+            confirmation_date = validate_iso_date_str(date_str, field_name="date")
+        except ValueError as exc:
+            raise StateError(str(exc)) from exc
+
+    found = find_deal(company, proposal, base_dir=base_dir)
+    if not found["record_found"]:
+        raise StateError(
+            f"Refusing to record entity_record: no exact existing state.json for company {company!r} "
+            f"and proposal {proposal!r}; no deal was created."
+        )
+
+    try:
+        with open(entity_record_file, encoding="utf-8") as handle:
+            try:
+                supplied: Any = json.load(handle)
+                record: EntityRecord = supplied
+            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+                raise StateError(
+                    f"Cannot read entity-record file {entity_record_file!r} as UTF-8 JSON: {exc}"
+                ) from exc
+    except OSError as exc:
+        raise StateError(f"Cannot read entity-record file {entity_record_file!r}: {exc}") from exc
+
+    if not isinstance(supplied, dict):
+        raise StateError(
+            f"Entity-record file {entity_record_file!r} must contain one JSON object; nothing was changed."
+        )
+    entity_id = record.get("entity_id")
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise StateError("Invalid entity_record: entity_id must be a non-empty stable ID; nothing was changed.")
+    perimeter = record.get("perimeter")
+    if not isinstance(perimeter, dict):
+        raise StateError('Invalid entity_record: "perimeter" must be an object; nothing was changed.')
+    perimeter["confirmed"] = True
+    perimeter["confirmed_on"] = confirmation_date
+
+    record_date = found["date"]
+    path = found["state_path"]
+    if not isinstance(record_date, str) or not isinstance(path, str):
+        raise StateError("Refusing to register entity_record: exact existing state path was not resolved.")
+    with _FileLock(path):
+        state = read_state(
+            company, proposal, date_str=record_date, base_dir=base_dir,
+            keys=("guarantees", "entity_records"),
+        )
+        if state is None:
+            raise StateError(
+                f"Refusing to record entity_record: state.json at {path!r} no longer exists; nothing was created."
+            )
+        existing = state.get("entity_records")
+        existing_registry: EntityRegistry = existing if isinstance(existing, dict) else {}
+        if entity_id in existing_registry:
+            raise StateError(
+                f"Refusing to register entity_record {entity_id!r}: entity ID already exists; nothing was changed."
+            )
+
+        registry: EntityRegistry = dict(existing_registry)
+        registry[entity_id] = record
+        problems = _entity_records_problems(registry, state.get("guarantees"))
+        if problems:
+            raise StateError(f"Refusing to register entity_record: {problems[0]}. Nothing was changed.")
+        # The entity contract has already validated every recognized raw line and intercompany amount.
+        # Deliberately do not inspect unknown record fields: additive metadata must survive registration.
+        # The shared write path still enforces schema downgrade and the existing deal-level finite-number guards.
+        _merge_and_write(path, company, proposal, record_date, base_dir, {"entity_records": registry})
+
+    return {
+        "recorded": True,
+        "entity_id": entity_id,
+        "state_path": path,
+        "spread_status": "not-spread",
+    }
+
+
 def _problems_with_periods(label: str, value: object) -> list[str]:
     """Problems for a `periods` value. A null period is "not recorded" (evaluate_financial_model treats it as empty)."""
     if not isinstance(value, dict):
@@ -356,6 +695,8 @@ def validate_state(
             continue
         if kind == "group_basis":
             problems.extend(_group_basis_problems(value, state.get("financials_source")))
+        elif kind == "entity_records":
+            problems.extend(_entity_records_problems(value, state.get("guarantees")))
         elif kind == "periods":
             problems.extend(_problems_with_periods(key, value))
         elif kind == "object":
@@ -1223,7 +1564,8 @@ if __name__ == "__main__":
                     "--find is a read-only exact lookup; --review-candidates lists eligible earlier reviews; "
                     "--start-review creates a fresh state with an optional prior-review link; --check-steps "
                     "reports missing required steps; --export-reviewer-view separates review history; "
-                    "--record-group-basis records source and perimeter metadata."
+                    "--record-group-basis records source and perimeter metadata; "
+                    "--register-entity-record registers one subsidiary, parent or guarantor's own input record."
     )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--find", action="store_true",
@@ -1238,14 +1580,18 @@ if __name__ == "__main__":
                        help="Write state_for_review.json and review_trail.json under review_view/.")
     modes.add_argument("--record-group-basis", action="store_true",
                        help="Record metadata for borrower-supplied consolidated group accounts on an existing deal.")
+    modes.add_argument("--register-entity-record", action="store_true",
+                       help="Register one entity's own figures and metadata on an existing deal.")
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
     parser.add_argument("--date",
-                        help="YYYY-MM-DD, defaults to today: the review date with --start-review and --review-candidates; the perimeter-confirmation date with --record-group-basis.")
+                        help="YYYY-MM-DD, defaults to today: the review date with --start-review and --review-candidates; the perimeter-confirmation date with --record-group-basis or --register-entity-record.")
     parser.add_argument("--group-basis-file",
                         help="UTF-8 JSON object with group-basis metadata, used only with --record-group-basis.")
+    parser.add_argument("--entity-record-file",
+                        help="UTF-8 JSON object for one entity record, used only with --register-entity-record.")
     parser.add_argument("--perimeter-confirmed", action="store_true",
-                        help="Explicitly confirm the group perimeter as an analyst; required with --record-group-basis.")
+                        help="Explicitly confirm the perimeter as an analyst; required with --record-group-basis or --register-entity-record.")
     prior = parser.add_mutually_exclusive_group()
     prior.add_argument("--prior-date",
                        help="Explicit earlier review date to link when starting a review.")
@@ -1263,13 +1609,20 @@ if __name__ == "__main__":
             parser.error("--prior-date and --no-prior are only valid with --start-review")
     if args.review_candidates and (args.prior_date is not None or args.no_prior):
         parser.error("--prior-date and --no-prior are only valid with --start-review")
-    if args.record_group_basis:
+    if args.record_group_basis or args.register_entity_record:
         if args.prior_date is not None or args.no_prior:
             parser.error("--prior-date and --no-prior are only valid with --start-review")
         if args.required is not None:
             parser.error("--required is only valid with --check-steps")
-    elif args.group_basis_file is not None or args.perimeter_confirmed:
-        parser.error("--group-basis-file and --perimeter-confirmed are only valid with --record-group-basis")
+        if args.record_group_basis and args.entity_record_file is not None:
+            parser.error("--entity-record-file is only valid with --register-entity-record")
+        if args.register_entity_record and args.group_basis_file is not None:
+            parser.error("--group-basis-file is only valid with --record-group-basis")
+    elif args.group_basis_file is not None or args.entity_record_file is not None or args.perimeter_confirmed:
+        parser.error(
+            "--group-basis-file, --entity-record-file and --perimeter-confirmed are only valid with "
+            "--record-group-basis or --register-entity-record"
+        )
 
     if args.find:
         try:
@@ -1299,6 +1652,17 @@ if __name__ == "__main__":
         try:
             report = record_group_basis(
                 args.company, args.proposal, args.group_basis_file,
+                perimeter_confirmed=args.perimeter_confirmed, date_str=args.date,
+            )
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report))
+    elif args.register_entity_record:
+        if not args.entity_record_file:
+            sys.exit("error: --entity-record-file is required with --register-entity-record")
+        try:
+            report = record_entity_record(
+                args.company, args.proposal, args.entity_record_file,
                 perimeter_confirmed=args.perimeter_confirmed, date_str=args.date,
             )
         except (OSError, ValueError) as exc:

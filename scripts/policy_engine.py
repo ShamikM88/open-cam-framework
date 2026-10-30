@@ -445,11 +445,11 @@ def _guarantee_cps(guarantees: Iterable[dict[str, Any]]) -> list[ConditionPreced
         if isinstance(guarantee_type, str) and not guarantee_type.strip():
             guarantee_type = None
         amount = guarantee.get("amount")
-        # Only an absent/blank amount means "no cap specified" -- a
-        # legitimate falsy amount like 0 must not be overwritten with
-        # "Unlimited Facility", which would materially misstate the CP.
+        # Only an absent/blank amount means "not recorded" -- a legitimate
+        # falsy amount like 0 must not be overwritten with the recorded
+        # "an amount to be confirmed" wording, which would materially misstate the CP.
         if amount is None or (isinstance(amount, str) and not amount.strip()):
-            amount = "Unlimited Facility"
+            amount = "an amount to be confirmed"
 
         base_slug = _slugify(guarantee["guarantee_id"] if has_explicit_id(guarantee) else provider)
 

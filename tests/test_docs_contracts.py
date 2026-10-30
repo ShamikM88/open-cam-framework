@@ -524,3 +524,33 @@ def test_scope_check_is_documented_as_a_separate_advisory_workflow():
     assert "not a gate or a proof" in contributing
     assert "scope-check.yml" in claude and "not a required check" in claude
     assert "pr_scope_check.py" in cli and "#pr-scope-check" in cli
+
+
+# The guarantee-amount guidance authorised by the maintainer on issue #505, comment 6522121343 (review finding
+# PX516-1 on PR #516). An absent amount drafts "for an amount to be confirmed"; an uncapped guarantee is recorded as
+# the plain text `an unlimited amount` in the existing amount field. Any other change needs a fresh authorisation.
+AUTHORISED_GUARANTEE_AMOUNT_WORDING = (
+    (".claude/commands/project.md",
+     '(numeric. If the amount is not known yet, omit it entirely: the conditions precedent then read "for an amount '
+     'to be confirmed". For a guarantee the user says is uncapped, write the text `an unlimited amount` as the '
+     '`amount`. Never write `0`, which would understate it as a nil guarantee)'),
+    (".claude/commands/project.md",
+     "(omit `amount` entirely when it is not known yet; write `an unlimited amount` for an uncapped guarantee; "
+     "never `0`)"),
+    ("docs/commands.md",
+     '(omit `amount` if not yet known, which reads "an amount to be confirmed"; write `an unlimited amount` for an '
+     "uncapped guarantee; never `0`)"),
+)
+
+
+@pytest.mark.parametrize("path, wording", AUTHORISED_GUARANTEE_AMOUNT_WORDING)
+def test_guarantee_amount_guidance_matches_the_maintainer_authorisation(path, wording):
+    assert " ".join(wording.split()) in " ".join(read(path).split())
+
+
+@pytest.mark.parametrize("path", [".claude/commands/project.md", "docs/commands.md"])
+def test_no_command_guidance_says_to_omit_the_amount_for_an_uncapped_guarantee(path):
+    text = " ".join(read(path).split())
+    assert "unlimited/uncapped guarantee" not in text
+    assert "for an uncapped guarantee — never" not in text
+    assert "omit `amount` for an uncapped guarantee" not in text

@@ -524,20 +524,31 @@ def test_guarantee_cp_uses_amount_when_given():
     assert cps["GUARANTEE-ACME-HOLDINGS"] == "Execution of Corporate Guarantee by Acme Holdings for £500,000."
 
 
-def test_guarantee_cp_falls_back_to_unlimited_facility_when_amount_missing():
+def test_guarantee_cp_missing_amount_reads_amount_to_be_confirmed():
+    """An absent amount must read as an amount to be confirmed, never as
+    unlimited cover (issue #505; wording recorded by the maintainer on the issue)."""
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal"}]}
     result = evaluate_deal_policy(state)
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
-    assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for an amount to be confirmed."
+    assert "Unlimited" not in cps["GUARANTEE-JANE-SMITH"]
+
+
+def test_guarantee_cp_missing_amount_without_type_reads_amount_to_be_confirmed():
+    state = {"guarantees": [{"provider": "Jane Smith"}]}
+    result = evaluate_deal_policy(state)
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Guarantee by Jane Smith for an amount to be confirmed."
 
 
 def test_guarantee_cp_preserves_a_legitimate_zero_amount():
     """A falsy-but-real amount (0) must not be silently rewritten to
-    "Unlimited Facility" -- that would materially misstate the CP."""
+    "an amount to be confirmed" -- that would materially misstate the CP."""
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": 0}]}
     result = evaluate_deal_policy(state)
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
     assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for 0."
+    assert "an amount to be confirmed" not in cps["GUARANTEE-JANE-SMITH"]
 
     missing_provider = evaluate_deal_policy({"guarantees": [{"amount": 0}]})
     assert [
@@ -552,7 +563,55 @@ def test_guarantee_cp_treats_blank_string_amount_as_missing():
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": "   "}]}
     result = evaluate_deal_policy(state)
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
-    assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for an amount to be confirmed."
+
+
+_ABSENT_AMOUNT = object()  # sentinel: the "amount" key is left out entirely
+
+
+def _guarantee_cp_text(amount, guarantee_type):
+    guarantee = {"provider": "Synthetic Guarantor"}
+    if guarantee_type is not None:
+        guarantee["type"] = guarantee_type
+    if amount is not _ABSENT_AMOUNT:
+        guarantee["amount"] = amount
+    result = evaluate_deal_policy({"guarantees": [guarantee]})
+    [text] = [cp["text"] for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")]
+    return text
+
+
+# Exact CP sentences for every absent-amount form, typed and untyped (review findings CG516-1 / PX516-2;
+# wording recorded by the maintainer on #505).
+@pytest.mark.parametrize("amount", [_ABSENT_AMOUNT, None, "", "   ", " \t "],
+                         ids=["key-absent", "none", "empty", "spaces", "tab-whitespace"])
+@pytest.mark.parametrize(("guarantee_type", "expected"), [
+    ("Personal", "Execution of Personal Guarantee by Synthetic Guarantor for an amount to be confirmed."),
+    (None, "Execution of Guarantee by Synthetic Guarantor for an amount to be confirmed."),
+], ids=["typed", "untyped"])
+def test_guarantee_cp_absent_amount_exact_text(amount, guarantee_type, expected):
+    assert _guarantee_cp_text(amount, guarantee_type) == expected
+
+
+# A recorded amount, including a zero in any form, is kept exactly as written.
+@pytest.mark.parametrize(("amount", "written"), [
+    (0, "0"), (0.0, "0.0"), ("0", "0"), ("£500,000", "£500,000"), (250000, "250000"),
+], ids=["int-zero", "float-zero", "string-zero", "non-blank-string", "positive-number"])
+@pytest.mark.parametrize(("guarantee_type", "prefix"), [
+    ("Personal", "Execution of Personal Guarantee by Synthetic Guarantor for "),
+    (None, "Execution of Guarantee by Synthetic Guarantor for "),
+], ids=["typed", "untyped"])
+def test_guarantee_cp_recorded_amount_kept_as_written(amount, written, guarantee_type, prefix):
+    assert _guarantee_cp_text(amount, guarantee_type) == f"{prefix}{written}."
+
+
+# An uncapped guarantee is recorded as the plain text "an unlimited amount" in the existing amount field and kept as
+# written (decision on #505, comment 6522121343); there is no separate "unlimited" input.
+@pytest.mark.parametrize(("guarantee_type", "expected"), [
+    ("Personal", "Execution of Personal Guarantee by Synthetic Guarantor for an unlimited amount."),
+    (None, "Execution of Guarantee by Synthetic Guarantor for an unlimited amount."),
+], ids=["typed", "untyped"])
+def test_guarantee_cp_unlimited_amount_text_kept_as_written(guarantee_type, expected):
+    assert _guarantee_cp_text("an unlimited amount", guarantee_type) == expected
 
 
 def test_guarantee_cps_use_distinct_ids_when_same_provider_guarantees_two_facilities():
@@ -1664,7 +1723,7 @@ def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_t
         cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
     ] == [{
         "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
-        "text": "Execution of Guarantee by Synthetic Guarantor for Unlimited Facility.",
+        "text": "Execution of Guarantee by Synthetic Guarantor for an amount to be confirmed.",
     }]
 
 

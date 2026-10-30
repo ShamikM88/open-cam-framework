@@ -315,7 +315,10 @@ so in its Related line) when a later decision supersedes it.
   Vocabulary: a group figure the framework derives is a **credit aggregation**, never a statutory or IFRS
   consolidation, until investment and equity, goodwill, non-controlling interests and the other material adjustments
   are covered. The perimeter is confirmed by the analyst and never inferred from an ownership percentage. Period ends
-  must match (a mismatch is refused, never aligned by guesswork). A covenant will carry an explicit basis (borrower,
+  must match among the entities one aggregation uses (a mismatch there is refused, never aligned by guesswork); the
+  check belongs to the aggregation step, not to registering an entity record, and a standalone guarantor (case C) may
+  have a different year-end (decision of 2026-10-28, [#472](https://github.com/ShamikM88/open-cam-framework/issues/472#issuecomment-6464570816)).
+  A covenant will carry an explicit basis (borrower,
   consolidated, guarantor group), defaulting to borrower. An input keyed by entity is refused: the evaluator and its
   callers accept only the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`) and name
   the first unexpected key in one error line.

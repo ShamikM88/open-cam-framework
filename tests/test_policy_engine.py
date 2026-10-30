@@ -466,20 +466,31 @@ def test_guarantee_cp_uses_amount_when_given():
     assert cps["GUARANTEE-ACME-HOLDINGS"] == "Execution of Corporate Guarantee by Acme Holdings for £500,000."
 
 
-def test_guarantee_cp_falls_back_to_unlimited_facility_when_amount_missing():
+def test_guarantee_cp_missing_amount_reads_amount_to_be_confirmed():
+    """An absent amount must read as an amount to be confirmed, never as
+    unlimited cover (issue #505; wording recorded by the maintainer on the issue)."""
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal"}]}
     result = evaluate_deal_policy(state)
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
-    assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for an amount to be confirmed."
+    assert "Unlimited" not in cps["GUARANTEE-JANE-SMITH"]
+
+
+def test_guarantee_cp_missing_amount_without_type_reads_amount_to_be_confirmed():
+    state = {"guarantees": [{"provider": "Jane Smith"}]}
+    result = evaluate_deal_policy(state)
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Guarantee by Jane Smith for an amount to be confirmed."
 
 
 def test_guarantee_cp_preserves_a_legitimate_zero_amount():
     """A falsy-but-real amount (0) must not be silently rewritten to
-    "Unlimited Facility" -- that would materially misstate the CP."""
+    "an amount to be confirmed" -- that would materially misstate the CP."""
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": 0}]}
     result = evaluate_deal_policy(state)
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
     assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for 0."
+    assert "an amount to be confirmed" not in cps["GUARANTEE-JANE-SMITH"]
 
     missing_provider = evaluate_deal_policy({"guarantees": [{"amount": 0}]})
     assert [
@@ -494,7 +505,7 @@ def test_guarantee_cp_treats_blank_string_amount_as_missing():
     state = {"guarantees": [{"provider": "Jane Smith", "type": "Personal", "amount": "   "}]}
     result = evaluate_deal_policy(state)
     cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
-    assert "Unlimited Facility" in cps["GUARANTEE-JANE-SMITH"]
+    assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for an amount to be confirmed."
 
 
 def test_guarantee_cps_use_distinct_ids_when_same_provider_guarantees_two_facilities():
@@ -1606,7 +1617,7 @@ def test_pe_guarantee_cp_default_type_does_not_duplicate_guarantee_in_text(has_t
         cp for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")
     ] == [{
         "cp_id": "GUARANTEE-SYNTHETIC-GUARANTOR",
-        "text": "Execution of Guarantee by Synthetic Guarantor for Unlimited Facility.",
+        "text": "Execution of Guarantee by Synthetic Guarantor for an amount to be confirmed.",
     }]
 
 

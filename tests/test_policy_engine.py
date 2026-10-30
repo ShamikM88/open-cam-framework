@@ -83,6 +83,43 @@ def test_maximum_covenant_fail():
     assert covenant["headroom_pct"] == pytest.approx((3.0 - 3.2) / 3.0)
 
 
+# A negative threshold flips the sign of the raw divisions above, so the headroom is
+# expressed against the threshold's absolute value: positive when the covenant passes,
+# negative when it fails, whatever the threshold's sign (issue #506).
+def test_negative_threshold_minimum_covenant_pass_has_positive_headroom():
+    ratios = {"FY-Current": {"dscr": -0.3}}
+    covenant_ = {"metric": "dscr", "type": "minimum", "threshold": -0.5}
+    covenant = evaluate_deal_policy({"ratios": ratios, "covenants": [covenant_]})["covenant_results"][0]
+    assert covenant["status"] == "PASS"
+    assert covenant["headroom_pct"] == pytest.approx((-0.3 - -0.5) / 0.5)
+
+
+def test_negative_threshold_minimum_covenant_fail_has_negative_headroom():
+    ratios = {"FY-Current": {"dscr": -0.8}}
+    covenant_ = {"metric": "dscr", "type": "minimum", "threshold": -0.5}
+    covenant = evaluate_deal_policy({"ratios": ratios, "covenants": [covenant_]})["covenant_results"][0]
+    assert covenant["status"] == "FAIL"
+    assert covenant["headroom_pct"] == pytest.approx((-0.8 - -0.5) / 0.5)
+
+
+def test_negative_threshold_maximum_covenant_pass_has_positive_headroom():
+    # The issue's example: a maximum covenant of -1.0 with an actual of -2.0 passes
+    # and must not report -100% headroom.
+    ratios = {"FY-Current": {"dscr": -2.0}}
+    covenant_ = {"metric": "dscr", "type": "maximum", "threshold": -1.0}
+    covenant = evaluate_deal_policy({"ratios": ratios, "covenants": [covenant_]})["covenant_results"][0]
+    assert covenant["status"] == "PASS"
+    assert covenant["headroom_pct"] == pytest.approx((-1.0 - -2.0) / 1.0)
+
+
+def test_negative_threshold_maximum_covenant_fail_has_negative_headroom():
+    ratios = {"FY-Current": {"dscr": -0.3}}
+    covenant_ = {"metric": "dscr", "type": "maximum", "threshold": -0.5}
+    covenant = evaluate_deal_policy({"ratios": ratios, "covenants": [covenant_]})["covenant_results"][0]
+    assert covenant["status"] == "FAIL"
+    assert covenant["headroom_pct"] == pytest.approx((-0.5 - -0.3) / 0.5)
+
+
 @pytest.mark.parametrize(
     "actual, threshold, bad_value",
     [(87, 1.0, "actual"), (0.87, 80, "threshold")],

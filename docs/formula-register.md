@@ -796,7 +796,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `guarantee_id` when supplied, else provider, with a stable numeric suffix on collision)
 - **Unit and storage:** a list of `{"cp_id", "text"}`; `cp_id` is the join key the Underwriter must echo back
   exactly — never paraphrased
-- **Edge rules:** an absent/blank guarantee amount reads "Unlimited Facility"; a falsy-but-real amount like 0
+- **Edge rules:** an absent/blank guarantee amount reads "an amount to be confirmed" (the CP says "for an amount
+  to be confirmed"); a falsy-but-real amount like 0
   is kept, never overwritten; a guarantee with no type, or a blank (empty or whitespace-only) type, reads
   "Execution of Guarantee by <provider> for <amount>." (the word "Guarantee" once), while a typed one reads
   "Execution of <type> Guarantee by <provider> for <amount>." — except that a type which already contains the

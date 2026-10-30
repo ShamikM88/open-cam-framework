@@ -200,7 +200,7 @@ worked examples are in [Workflows](workflows.md).
 - **Inputs:** `FY+1` to `FY+3` raw figures in the same shape as `/spread`; stress assumptions
   `revenue_haircut_pct`, `opex_increase_pct` (admin expenses only), `interest_rate_bump_bps` (each optional,
   default no shock); covenants as `{"metric", "type": "minimum"|"maximum", "threshold"}` where `metric` is a ratio
-  name; guarantees as `{"provider", "type", "amount"}` (omit `amount` for an uncapped guarantee, never `0`).
+  name; guarantees as `{"provider", "type", "amount"}` (omit `amount` if not yet known, which reads "an amount to be confirmed"; write `an unlimited amount` for an uncapped guarantee; never `0`).
   `gearing`, `fcf_conversion_pct` and covenants on those metrics use the fraction convention in the
   [financial model](financial-model.md#percent-type-ratios-are-stored-as-fractions).
 - **Produces:** run through `spreading_check.py ... --no-update-financials-source` (always, so forward figures never

@@ -48,8 +48,7 @@ facility agreement simply has none to record here):
    `ebit_interest_cover`, `ebitda_interest_cover`, or `fcf_conversion_pct`), its `type`
    (`"minimum"` or `"maximum"`), and its numeric `threshold`.
 4. **Guarantees** — for each: the `provider` (guarantor name), the `type` of guarantee (e.g.
-   "Personal Guarantee", "Corporate Guarantee"), and the `amount` (numeric — omit it entirely for
-   an unlimited/uncapped guarantee; never write `0`, which would understate it as a nil guarantee).
+   "Personal Guarantee", "Corporate Guarantee"), and the `amount` (numeric. If the amount is not known yet, omit it entirely: the conditions precedent then read "for an amount to be confirmed". For a guarantee the user says is uncapped, write the text `an unlimited amount` as the `amount`. Never write `0`, which would understate it as a nil guarantee).
 
 ## Which mode: framework-computed (the default) or analyst-supplied
 
@@ -210,8 +209,7 @@ a field another step already recorded):
   (`covenant_results`) picks them up correctly. Merge with, don't replace, any covenants already
   recorded from an earlier run of this command.
 - If guarantees were supplied: set/update `guarantees` as a **flat list**, each entry
-  `{"provider": "...", "type": "...", "amount": 0}` (omit `amount` entirely for an uncapped
-  guarantee — never `0`). Add a stable `guarantee_id` to an entry only if the user gave one
+  `{"provider": "...", "type": "...", "amount": 0}` (omit `amount` entirely when it is not known yet; write `an unlimited amount` for an uncapped guarantee; never `0`). Add a stable `guarantee_id` to an entry only if the user gave one
   explicitly, or this guarantor would otherwise collide with another entry sharing the same
   `provider` name — `scripts/policy_engine.py` disambiguates automatically by provider name
   otherwise. Merge with, don't replace, any guarantees already recorded.

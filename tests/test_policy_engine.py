@@ -508,6 +508,44 @@ def test_guarantee_cp_treats_blank_string_amount_as_missing():
     assert cps["GUARANTEE-JANE-SMITH"] == "Execution of Personal Guarantee by Jane Smith for an amount to be confirmed."
 
 
+_ABSENT_AMOUNT = object()  # sentinel: the "amount" key is left out entirely
+
+
+def _guarantee_cp_text(amount, guarantee_type):
+    guarantee = {"provider": "Synthetic Guarantor"}
+    if guarantee_type is not None:
+        guarantee["type"] = guarantee_type
+    if amount is not _ABSENT_AMOUNT:
+        guarantee["amount"] = amount
+    result = evaluate_deal_policy({"guarantees": [guarantee]})
+    [text] = [cp["text"] for cp in result["required_conditions_precedent"] if cp["cp_id"].startswith("GUARANTEE-")]
+    return text
+
+
+# Exact CP sentences for every absent-amount form, typed and untyped (review findings CG516-1 / PX516-2;
+# wording recorded by the maintainer on #505).
+@pytest.mark.parametrize("amount", [_ABSENT_AMOUNT, None, "", "   ", " \t "],
+                         ids=["key-absent", "none", "empty", "spaces", "tab-whitespace"])
+@pytest.mark.parametrize(("guarantee_type", "expected"), [
+    ("Personal", "Execution of Personal Guarantee by Synthetic Guarantor for an amount to be confirmed."),
+    (None, "Execution of Guarantee by Synthetic Guarantor for an amount to be confirmed."),
+], ids=["typed", "untyped"])
+def test_guarantee_cp_absent_amount_exact_text(amount, guarantee_type, expected):
+    assert _guarantee_cp_text(amount, guarantee_type) == expected
+
+
+# A recorded amount, including a zero in any form, is kept exactly as written.
+@pytest.mark.parametrize(("amount", "written"), [
+    (0, "0"), (0.0, "0.0"), ("0", "0"), ("£500,000", "£500,000"), (250000, "250000"),
+], ids=["int-zero", "float-zero", "string-zero", "non-blank-string", "positive-number"])
+@pytest.mark.parametrize(("guarantee_type", "prefix"), [
+    ("Personal", "Execution of Personal Guarantee by Synthetic Guarantor for "),
+    (None, "Execution of Guarantee by Synthetic Guarantor for "),
+], ids=["typed", "untyped"])
+def test_guarantee_cp_recorded_amount_kept_as_written(amount, written, guarantee_type, prefix):
+    assert _guarantee_cp_text(amount, guarantee_type) == f"{prefix}{written}."
+
+
 def test_guarantee_cps_use_distinct_ids_when_same_provider_guarantees_two_facilities():
     """The same person/entity guaranteeing two different amounts is a
     realistic deal structure -- both must get a distinct, addressable CP,

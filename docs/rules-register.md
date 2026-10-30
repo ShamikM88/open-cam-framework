@@ -46,10 +46,10 @@ claim-to-test check, any actual gap is to receive its own issue.
 
 The field has one of three forms, using repository-relative paths:
 
-- `scripts/module.py` names a file only. Use this when responsibility sits in that module but no single function
+- `<file>` names a file only. Use this when responsibility sits in that module but no single function
   is the right reference.
-- `scripts/module.py::function_name` names a module-level function. A method is written
-  `scripts/module.py::ClassName.method_name`.
+- `<file>::<function>` names a module-level function. A method is written
+  `<file>::<Class>.<method>`.
 - `none` states that no implementation exists.
 
 The #499 gate will check that a file path exists and, when a function or method suffix is present, that the named

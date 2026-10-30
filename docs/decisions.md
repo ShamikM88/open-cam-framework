@@ -360,8 +360,8 @@ so in its Related line) when a later decision supersedes it.
   that annotates a registered function. Phase 2 is complete: all eleven modules report zero errors. Phase 3, a
   failing type check, is not started: making a check required is a ruleset change that stays the maintainer's, and
   it needs its own plan and sign-off, so #424 stays open for it.
-- **Related.** #424 (comments of 2026-10-25, 2026-10-26 and 2026-10-27), #465, #476, PRs #474, #476 to #482 and #484 to #489, D13,
-  D18.
+- **Related.** #424 (comments of 2026-10-25, 2026-10-26 and 2026-10-27), PRs #465, #474, #476 to #482 and #484 to #489,
+  D13, D18.
 
 ## D21. The policy engine's results are typed contracts, pinned byte for byte
 

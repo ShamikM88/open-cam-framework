@@ -127,7 +127,7 @@
         "threshold": -0.5,
         "actual": -0.5,
         "status": "PASS",
-        "headroom_pct": -0.0,
+        "headroom_pct": 0.0,
         "reason": null
       }
     ],
@@ -507,7 +507,7 @@
         "threshold": -0.5,
         "actual": -0.3,
         "status": "FAIL",
-        "headroom_pct": 0.4,
+        "headroom_pct": -0.4,
         "reason": null,
         "year": "FY+1",
         "forward_id": "FORWARD-FY-1-NET-DEBT-TO-EBITDA"
@@ -664,7 +664,7 @@
         "threshold": -0.5,
         "actual": 0.1,
         "status": "FAIL",
-        "headroom_pct": 1.2,
+        "headroom_pct": -1.2,
         "reason": null,
         "year": "FY+2",
         "forward_id": "FORWARD-FY-2-NET-DEBT-TO-EBITDA"
@@ -821,7 +821,7 @@
         "threshold": -0.5,
         "actual": 0.2,
         "status": "FAIL",
-        "headroom_pct": 1.4,
+        "headroom_pct": -1.4,
         "reason": null,
         "year": "FY+3",
         "forward_id": "FORWARD-FY-3-NET-DEBT-TO-EBITDA"

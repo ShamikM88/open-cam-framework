@@ -343,7 +343,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_checks:values_match": "9c731a2d394a90b3",
     "policy_checks:check_reported_figures": "a741a70e6cff04b3",
     "policy_engine:_slugify": "264359bfb298ee76",
-    "policy_engine:_evaluate_covenant": "be8287e92ce9653f",
+    "policy_engine:_evaluate_covenant": "ef4ca208f95c472b",
     "policy_engine:_unique_id": "068fcbe504d4a5a0",
     "policy_engine:_evaluate_security": "a48a1db8ff42d679",
     "policy_engine:_guarantee_cps": "e5bdff3a1fa86037",

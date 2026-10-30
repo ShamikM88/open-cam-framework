@@ -274,11 +274,13 @@ def _evaluate_covenant(
 
     if covenant_type == "minimum":
         if threshold:
-            result["headroom_pct"] = (actual - threshold) / threshold
+            # The threshold's absolute value keeps headroom's sign meaningful for a negative
+            # threshold too (issue #506): positive when the covenant passes, negative when it fails.
+            result["headroom_pct"] = (actual - threshold) / abs(threshold)
         result["status"] = "PASS" if actual >= threshold else "FAIL"
     else:
         if threshold:
-            result["headroom_pct"] = (threshold - actual) / threshold
+            result["headroom_pct"] = (threshold - actual) / abs(threshold)
         result["status"] = "PASS" if actual <= threshold else "FAIL"
 
     return result

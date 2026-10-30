@@ -546,6 +546,16 @@ def test_guarantee_cp_recorded_amount_kept_as_written(amount, written, guarantee
     assert _guarantee_cp_text(amount, guarantee_type) == f"{prefix}{written}."
 
 
+# An uncapped guarantee is recorded as the plain text "an unlimited amount" in the existing amount field and kept as
+# written (decision on #505, comment 6522121343); there is no separate "unlimited" input.
+@pytest.mark.parametrize(("guarantee_type", "expected"), [
+    ("Personal", "Execution of Personal Guarantee by Synthetic Guarantor for an unlimited amount."),
+    (None, "Execution of Guarantee by Synthetic Guarantor for an unlimited amount."),
+], ids=["typed", "untyped"])
+def test_guarantee_cp_unlimited_amount_text_kept_as_written(guarantee_type, expected):
+    assert _guarantee_cp_text("an unlimited amount", guarantee_type) == expected
+
+
 def test_guarantee_cps_use_distinct_ids_when_same_provider_guarantees_two_facilities():
     """The same person/entity guaranteeing two different amounts is a
     realistic deal structure -- both must get a distinct, addressable CP,

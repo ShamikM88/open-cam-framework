@@ -203,7 +203,7 @@ The checks behind `transcription_check.py` (see [Workflows](workflows.md#figures
 | `error: refused: analyst-supplied mode needs --source-note` | Analyst-supplied mode records the confirmed convention as `financials_source_note`, and the transcription disclosure is added to it | Pass the convention description the analyst confirmed |
 | `error: refused: the source file ... does not exist` | `source.file` does not point at the image | Correct the path; the image is saved from there |
 
-A cross-foot row that reads `NOT ASSESSED: not transcribed: stock, ...` is not a failure and not a pass: the check was not made because those lines were not written down. Transcribe them (an explicit `0` counts) if you want the check, or accept that those figures are not cross-footed. A `MISMATCH` on `balance_sheet_balances` with every other check matching usually means a balance sheet line the framework has no field for (for example other reserves) or a line that was not transcribed as zero.
+A cross-foot row that reads `NOT ASSESSED: not transcribed: stock, ...` is not a failure and not a pass: the check was not made because those lines were not written down. Transcribe them (an explicit `0` counts) if you want the check, or accept that those figures are not cross-footed. A `MISMATCH` on `balance_sheet_balances` with every other check matching usually means a balance sheet line the framework has no field for (for example minority interest; other reserves belong in Retained Profit) or a line that was not transcribed as zero.
 
 ## Review and rejection
 

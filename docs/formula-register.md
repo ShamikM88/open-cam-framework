@@ -25,8 +25,8 @@ without the recorded fingerprints being refreshed.
   convention (decision D-a of issue #504). Exceptional costs are deducted only in profit before tax
   ([F-007](#f-007--profit-before-tax)), never in operating profit ([F-004](#f-004--operating-profit-ebit)) or
   EBITDA ([F-006](#f-006--ebitda)), and other income is added in operating profit. Every ratio and covenant
-  built on them is on that basis: FCF and FCF conversion (F-009, F-010), DSCR (F-021), EBIT and EBITDA interest
-  cover (F-022, F-023), gross leverage (F-026) and net debt / EBITDA (F-027).
+  built on them is on that basis: operating margin (F-005), FCF and FCF conversion (F-009, F-010), DSCR (F-021),
+  EBIT and EBITDA interest cover (F-022, F-023), gross leverage (F-026) and net debt / EBITDA (F-027).
 - **Ids are stable.** `F-001`…`F-NNN` are never reused or renumbered; a withdrawn entry keeps its id with a
   status saying so, and a new entry takes the next number.
 
@@ -139,7 +139,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — the `_ratio()` workbook formula in `PNL_ROWS` only;
   there is no computed state key (see [Known differences](#known-differences), KD-1)
-- **Basis:** standard definition
+- **Basis:** house convention (operating profit is before exceptional items and includes other income, decision D-a of
+  issue #504; see the Conventions section)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-006 — EBITDA
@@ -467,7 +468,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `KEY_METRIC_ROWS` (Key Credit Metrics); unit guard in `scripts/policy_engine.py` —
   `_evaluate_covenant()` and `scripts/financial_conventions.py` — `warn_percent_type_values()`
-- **Basis:** house convention (percent-type fraction storage, issue #357)
+- **Basis:** house convention (percent-type fraction storage, issue #357). Total debt includes the whole loan-notes line
+  (D-f of issue #504, see F-020) and equity is on the D-e basis (Retained Profit includes all reserves, see F-017)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-026 — Gross Leverage

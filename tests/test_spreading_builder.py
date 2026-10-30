@@ -409,6 +409,23 @@ def test_iferror_falls_back_to_na_on_division_by_zero(workbook):
         assert _evaluate(ws, "B", label_to_row[label], memo) == "N/A"
 
 
+
+def test_evaluate_financial_model_refuses_entity_keyed_input_with_first_key_exactly(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError) as caught:
+        evaluate_financial_model({
+            "synthetic-opco": {"FY-Current": {"revenue": 100}},
+            "synthetic-parent": {"FY-Current": {"revenue": 200}},
+        })
+
+    assert str(caught.value) == (
+        "financial inputs: unexpected period key 'synthetic-opco'; expected one of "
+        "FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
+    )
+    assert list(tmp_path.iterdir()) == []
+
+
 # ---------------------------------------------------------------------------
 # _build_label_to_field(): FIELD_LABELS's reverse mapping must fail loudly
 # on a duplicate label rather than silently collapsing to whichever entry

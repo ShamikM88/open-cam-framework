@@ -20,7 +20,7 @@ shortened):
   "company": "Synthetic Co",
   "proposal": "Synthetic Fleet Loan",
   "date": "2026-10-04",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "deal_type": "asset_finance",
   "inputs": {"pd": "0.20%", "lgd": "LGD 3 (15%)"},
   "steps_completed": ["spread", "project"],
@@ -49,6 +49,7 @@ shortened):
 | `financials`, `ratios`, `multi_period_financials`, `financials_source` | `spreading_check.py` for computed periods; `supplied_forecast.py` for analyst-supplied forward values | Computed per-period subtotals/ratios with raw inputs under `financials[period]["raw"]`; `multi_period_financials` records computed raw input lines, while `financials_source` remains the deal-wide historical-basis label |
 | `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode; `supplied_forecast.py` for forward raw breakdowns when provided | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
 | `group_basis` | `state_manager.py --record-group-basis`, after explicit analyst confirmation | Optional metadata describing borrower-supplied consolidated accounts: basis, reporting entity, covered entities, source/date/accounting basis, common period end, period labels, supplied/recomputed basis and confirmed perimeter. It contains no figures and never changes either raw store. |
+| `entity_records` | `state_manager.py --register-entity-record`, after explicit perimeter confirmation | Optional registry keyed by stable entity ID. Each record captures one subsidiary, parent or guarantor, its source, period ends, confirmed perimeter, exactly one raw store per entity-period, intercompany references and explicit guarantee IDs. Step 1 records inputs only; no spread or aggregation is computed. |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
@@ -105,13 +106,27 @@ passes the explicit `--perimeter-confirmed` flag.
 This describes a credit aggregation of consolidated accounts supplied by the borrower, not a
 statutory consolidation prepared by the framework. Case A introduces no eliminations, new formulas
 or entity-level arithmetic, and does not infer control from ownership percentages. The optional,
-metadata-only field preserves compatibility for states without the key. The comment above
-`SCHEMA_VERSION` in `scripts/state_manager.py` says to bump for a top-level shape a reader must
-know how to interpret, “not on every new optional field”; as this optional metadata has a
-consumer-specific validation contract and does not alter the legacy structure, `SCHEMA_VERSION`
-remains unchanged. Unknown future fields within `group_basis` are ignored; a `null` value means not
-recorded, as for every other key; a malformed value that is present is refused by consumers that read it, with
-an error naming `group_basis`.
+metadata-only field preserves compatibility for states without the key. The original optional `group_basis` metadata did not itself require a schema bump. Schema version `1.2.0` now records the addition of the separate `entity_records` contract. A state without `entity_records` remains unchanged when read; it is not migrated or populated from borrower data. The next normal write applies the current schema version. Unknown future fields within `group_basis` are ignored; a `null` value means not recorded, as for every other key; a malformed value that is present is refused by consumers that read it, with an error naming `group_basis`.
+
+### Shared entity records (cases B and C, step 1)
+
+`entity_records` is an optional top-level object keyed by stable entity ID. It is shared by case B's future credit aggregation and case C's future standalone guarantor spread; there is no separate guarantor-only record. A state without this key means no entities have been recorded. Reading a legacy state does not synthesize entities or migrate borrower figures. The next normal write uses schema version `1.2.0`.
+
+Each registry value is one entity record with:
+- `entity_id`, which must equal the key, and a non-empty `legal_name`;
+- exactly one primary `role`: `subsidiary`, `parent` or `guarantor`. `borrower` is intentionally not a role here: borrower figures remain in the existing deal-level stores;
+- `source.document`, `source.accounting_basis` and real ISO `source.date`;
+- `period_ends`, a mapping from the framework period label (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`) to a real ISO calendar date;
+- `perimeter.included`, `control_basis`, `scope_rationale`, `confirmed: true` and a real ISO `confirmed_on`;
+- a non-empty `raw_figures_source`, two raw maps named `multi_period_financials` and `analyst_supplied_financials`, and `spread_status: "not-spread"`;
+- `intercompany_lines`, each naming a framework period, existing evaluator `line_key`, explicit `counterparty_entity_id`, direction, finite numeric amount and confirmation flag;
+- `guarantee_ids`, which may be empty for `subsidiary` and `parent` roles; a `guarantor` must list at least one. Each listed ID must resolve to exactly one explicit `guarantee_id` in the deal's existing `guarantees` list. A provider name is never used to guess a link.
+
+Every nested raw map remains period-keyed. The validator rejects an entity ID where a period label is expected, impossible dates, a mismatched entity key, empty or self-referential counterparty IDs, missing or false perimeter confirmation, duplicate/unresolved guarantee IDs, raw-line values outside the existing validator's finite-number-or-null contract (null denotes unavailable), or non-finite/non-numeric intercompany amounts, and figures present in both raw stores for one entity-period. Each record validates its own framework labels and real calendar dates. Counterparty resolution and matching period ends across records are deferred to the later aggregation step, which checks references and date agreement only among the entities it actually uses; a standalone guarantor may have a different year-end. Dates are never aligned or rolled automatically. Extra record fields are preserved for forward compatibility.
+
+Registration uses `python scripts/state_manager.py --register-entity-record --company ... --proposal ... --entity-record-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]`. The JSON file contains one record object. The explicit flag records analyst confirmation; `--date` is the confirmation date (or today), distinct from `source.date`. The command requires an exact existing deal, refuses duplicate IDs, validates the whole registry while holding the deal lock, and writes once through the atomic state manager path. A refusal leaves `state.json` byte-for-byte unchanged.
+
+Step 1 is recording and validation only. It computes no subtotals, ratios, spread, eliminations, aggregate view or covenant result, and does not change borrower figures, workbook/CAM presentation, policy routing or legal guarantee conditions. Later work must define and review those behaviours separately.
 
 ### Reviewer view files
 

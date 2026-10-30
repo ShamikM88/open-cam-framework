@@ -21,21 +21,21 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 | Term | How it is computed | Plain meaning |
 | :--- | :--- | :--- |
 | Gross profit | revenue - cost of sales | What is left after the direct cost of what was sold |
-| Operating profit (EBIT) | gross profit - admin expenses - depreciation - amortisation + other income | Profit from running the business, before interest and tax |
-| EBITDA | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings |
-| Profit before tax | operating profit - interest paid + interest received - exceptional costs | |
+| Operating profit (EBIT) | gross profit - admin expenses - depreciation - amortisation + other income | Profit from running the business, before interest and tax. A house convention: before exceptional items (deducted only in profit before tax) and including other income, so every ratio and covenant on it is on that basis ([F-004](formula-register.md#f-004--operating-profit-ebit)) |
+| EBITDA | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings. Like operating profit, before exceptional items and including other income, so every EBITDA-based ratio and covenant is on that basis ([F-006](formula-register.md#f-006--ebitda)) |
+| Profit before tax | operating profit - interest paid + interest received - exceptional costs | Where exceptional costs are deducted; operating profit and EBITDA are before them |
 | Net profit | profit before tax - tax paid | |
-| Free cash flow (FCF) | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest. Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
+| Free cash flow (FCF), before working capital | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest, before any change in working capital (a working-capital-adjusted measure is a separate follow-up, issue #520; the stored key stays `fcf`). Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
 | Current assets / liabilities | assets: cash + trade debtors + stock + other current assets. Liabilities: trade creditors + current debt + overdraft + other current liabilities | What is expected to turn into cash, or fall due, within a year |
-| Total debt | current debt + overdraft + long-term debt + loan notes | Interest-bearing borrowing. Provisions and trade creditors are deliberately excluded |
-| Total equity | share capital + retained profit | The owners' stake |
+| Total debt | current debt + overdraft + long-term debt + loan notes | Interest-bearing borrowing. The combined Loan Notes / Preference Shares line counts fully as debt, whatever the instrument's terms ([F-020](formula-register.md#f-020--total-debt-interest-bearing)). Provisions and trade creditors are deliberately excluded |
+| Total equity | share capital + retained profit | The owners' stake. Retained profit includes all reserves and share premium; there is no separate line for them ([F-017](formula-register.md#f-017--total-equity)) |
 | Tangible net worth (TNW) | total equity - intangible assets | Net worth that does not rely on intangibles such as goodwill |
 
 ### Ratios
 
 | Ratio (state key) | Formula | Reading |
 | :--- | :--- | :--- |
-| DSCR, debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | Times earnings cover the year's debt service. Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR, debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
 | Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
 | Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
 | Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; see [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions) |

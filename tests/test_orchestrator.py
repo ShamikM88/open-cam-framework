@@ -1462,7 +1462,7 @@ def test_new_review_without_earlier_review_starts_minimal_unlinked_then_continue
         "company": "Acme Corp",
         "proposal": "Fleet Loan",
         "date": today,
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
     }
     final_state = read_state("Acme Corp", "Fleet Loan", date_str=today)
     assert "prior_review_date" not in final_state
@@ -2650,6 +2650,14 @@ def test_run_pipeline_fails_open_when_the_near_miss_lookup_cannot_list_the_compa
 
 def test_run_pipeline_refuses_an_entity_keyed_input_before_any_model_call_or_write(project_root):
     client = MockClient([])
+    write_state(
+        "Synthetic Group Ltd", "Group Facility", date_str="2026-10-27",
+        base_dir=str(project_root), marker="keep",
+    )
+    path = Path(state_path(
+        "Synthetic Group Ltd", "Group Facility", date_str="2026-10-27", base_dir=str(project_root),
+    ))
+    before = path.read_bytes()
 
     with pytest.raises(ValueError) as caught:
         run_pipeline(
@@ -2661,7 +2669,7 @@ def test_run_pipeline_refuses_an_entity_keyed_input_before_any_model_call_or_wri
         "financial inputs: unexpected period key 'HoldCo'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"
     )
     assert client.call_count == 0
-    assert not (project_root / "deals").exists()
+    assert path.read_bytes() == before
 
 
 def _recomputed_group_basis():

@@ -38,7 +38,7 @@ def test_read_state_returns_none_when_no_file_exists(tmp_path):
 def test_write_state_stamps_the_current_schema_version_on_a_fresh_deal(tmp_path):
     base = str(tmp_path)
     state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
-    assert state["schema_version"] == SCHEMA_VERSION == "1.1.0"
+    assert state["schema_version"] == SCHEMA_VERSION == "1.2.0"
 
 
 def test_write_state_sets_schema_version_on_every_subsequent_write_too(tmp_path):
@@ -3777,3 +3777,821 @@ def test_start_review_takes_its_lock_on_the_proposal_start_file_in_the_company_f
 
     assert taken == [(os.path.join(str(tmp_path), "deals", "Synthetic Co", "Credit Facility.start"),
                       state_manager.LOCK_TIMEOUT_SECONDS)]
+
+
+# ---------------------------------------------------------------------------
+# Issue #472 / #473: entity record step 1 (recording and validation only).
+# ---------------------------------------------------------------------------
+
+def _entity_record_for_tests(entity_id="synthetic-parent", role="parent"):
+    return {
+        "entity_id": entity_id,
+        "legal_name": f"Synthetic {entity_id} Ltd",
+        "role": role,
+        "source": {
+            "document": f"Synthetic accounts for {entity_id}",
+            "accounting_basis": "UK GAAP",
+            "date": "2026-02-01",
+        },
+        "period_ends": {"FY-Current": "2025-12-31"},
+        "perimeter": {
+            "included": True,
+            "control_basis": "analyst-confirmed",
+            "scope_rationale": "Synthetic test perimeter, explicitly confirmed",
+            "confirmed": True,
+            "confirmed_on": "2026-10-27",
+        },
+        "raw_figures_source": "Synthetic source document",
+        "multi_period_financials": {"FY-Current": {"revenue": 100}},
+        "analyst_supplied_financials": {},
+        "spread_status": "not-spread",
+        "intercompany_lines": [],
+        "guarantee_ids": [],
+        "future_metadata": {"preserve": True},
+    }
+
+
+def _seed_entity_registry_state(tmp_path, entity_records=None, guarantees=None):
+    write_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), financials_source="framework-computed",
+        financials={"FY-Current": {"ebitda": 50}},
+        ratios={"FY-Current": {"dscr": 1.5}},
+        multi_period_financials={"FY-Current": {"revenue": 100}},
+        analyst_supplied_financials={}, guarantees=[] if guarantees is None else guarantees,
+        marker="keep",
+    )
+    path = Path(state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+    ))
+    if entity_records is not None:
+        state = json.loads(path.read_text(encoding="utf-8"))
+        state["entity_records"] = entity_records
+        path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    return path
+
+
+def _register_entity_record_for_tests(tmp_path, record, *, perimeter_confirmed=True, date_str="2026-10-27"):
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(record, allow_nan=True), encoding="utf-8")
+    return state_manager.record_entity_record(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+        perimeter_confirmed=perimeter_confirmed, date_str=date_str, base_dir=str(tmp_path),
+    )
+
+
+def test_entity_records_are_optional_on_legacy_state_and_reading_does_not_migrate_it(tmp_path):
+    path = Path(state_path(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+    ))
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({
+        "company": "Synthetic Group Ltd", "proposal": "Synthetic Group Facility",
+        "date": "2026-01-01", "schema_version": "1.1.0", "marker": "legacy",
+    }), encoding="utf-8")
+    before = path.read_bytes()
+
+    loaded = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("entity_records",),
+    )
+
+    assert loaded is not None
+    assert loaded["schema_version"] == "1.1.0"
+    assert "entity_records" not in loaded
+    assert path.read_bytes() == before
+
+
+def test_validate_state_recognises_the_entity_records_shape():
+    parent = _entity_record_for_tests()
+    state = {"entity_records": {"synthetic-parent": parent}, "guarantees": []}
+    assert state_manager.validate_state(state, keys=("entity_records",)) is state
+
+
+def test_entity_record_line_keys_match_the_spreading_evaluator_contract():
+    from spreading_builder import FIELD_LABELS
+
+    assert set(state_manager._ENTITY_RECORD_LINE_KEYS) == set(FIELD_LABELS)
+
+
+def test_record_entity_record_round_trips_a_shared_registry_and_preserves_unknown_fields(tmp_path):
+    guarantees = [{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic Parent Ltd"}]
+    path = _seed_entity_registry_state(tmp_path, guarantees=guarantees)
+    original = json.loads(path.read_text(encoding="utf-8"))
+
+    parent = _entity_record_for_tests()
+    _register_entity_record_for_tests(tmp_path, parent)
+
+    subsidiary = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    subsidiary["multi_period_financials"] = {"FY-Current": {"revenue": 200, "loan_notes": 25}}
+    subsidiary["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes",
+        "counterparty_entity_id": "synthetic-parent", "direction": "receivable",
+        "amount": 25, "confirmed": True,
+    }]
+    subsidiary["guarantee_ids"] = ["GUARANTEE-SYN-001"]
+    _register_entity_record_for_tests(tmp_path, subsidiary)
+
+    saved = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path), keys=("entity_records", "guarantees"),
+    )
+    assert saved is not None
+    assert saved["schema_version"] == "1.2.0"
+    assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-opco"}
+    assert saved["entity_records"]["synthetic-opco"]["entity_id"] == "synthetic-opco"
+    assert saved["entity_records"]["synthetic-opco"]["intercompany_lines"][0]["counterparty_entity_id"] == "synthetic-parent"
+    assert saved["entity_records"]["synthetic-opco"]["guarantee_ids"] == ["GUARANTEE-SYN-001"]
+    assert saved["entity_records"]["synthetic-opco"]["perimeter"]["confirmed"] is True
+    assert saved["entity_records"]["synthetic-opco"]["perimeter"]["confirmed_on"] == "2026-10-27"
+    assert saved["entity_records"]["synthetic-opco"]["future_metadata"] == {"preserve": True}
+    assert saved["financials"] == original["financials"]
+    assert saved["ratios"] == original["ratios"]
+    assert saved["multi_period_financials"] == original["multi_period_financials"]
+    assert saved["analyst_supplied_financials"] == original["analyst_supplied_financials"]
+    assert saved["financials_source"] == original["financials_source"]
+    assert saved["marker"] == "keep"
+    assert saved["guarantees"] == guarantees
+
+
+def test_record_entity_record_requires_explicit_perimeter_confirmation_and_preserves_bytes(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests()
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record, perimeter_confirmed=False)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record without explicit --perimeter-confirmed analyst confirmation; "
+        "nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_a_missing_deal_without_creating_one(tmp_path):
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(_entity_record_for_tests()), encoding="utf-8")
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        "Refusing to record entity_record: no exact existing state.json for company 'Synthetic Group Ltd' "
+        "and proposal 'Synthetic Group Facility'; no deal was created."
+    )
+    assert not (tmp_path / "deals").exists()
+
+
+def test_record_entity_record_refuses_duplicate_id_without_replacing_existing_record(tmp_path):
+    parent = _entity_record_for_tests()
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": parent})
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, parent)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record 'synthetic-parent': entity ID already exists; nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_a_mismatched_existing_registry_key_without_writing(tmp_path):
+    malformed = _entity_record_for_tests()
+    malformed["entity_id"] = "another-id"
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": malformed})
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        _register_entity_record_for_tests(tmp_path, _entity_record_for_tests("synthetic-opco", "subsidiary"))
+
+    assert str(caught.value) == (
+        f"Cannot use {path}: entity_records['synthetic-parent'].entity_id must equal registry key "
+        "'synthetic-parent'; found 'another-id'. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_validates_its_own_period_map_and_preserves_bytes(tmp_path):
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["multi_period_financials"] = {"synthetic-opco": {"FY-Current": {"revenue": 200}}}
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-opco'].multi_period_financials: "
+        "unexpected period key 'synthetic-opco'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3. "
+        "Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("bad_date_path", "bad_date", "problem"),
+    [
+        ("source", "2026-02-30", "source.date"),
+        ("period", "2026-02-30", "period_ends"),
+    ],
+)
+def test_record_entity_record_refuses_impossible_dates_without_writing(tmp_path, bad_date_path, bad_date, problem):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    if bad_date_path == "source":
+        record["source"]["date"] = bad_date
+    else:
+        record["period_ends"]["FY-Current"] = bad_date
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    field = (
+        "entity_records['synthetic-opco'].source.date"
+        if bad_date_path == "source"
+        else "entity_records['synthetic-opco'].period_ends['FY-Current']"
+    )
+    assert str(caught.value) == (
+        f"Refusing to register entity_record: {field} must be a real YYYY-MM-DD calendar date. "
+        "Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_accepts_standalone_guarantor_with_different_year_end(tmp_path):
+    path = _seed_entity_registry_state(
+        tmp_path,
+        entity_records={"synthetic-parent": _entity_record_for_tests()},
+        guarantees=[{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic Guarantor Ltd"}],
+    )
+    before = path.read_bytes()
+    guarantor = _entity_record_for_tests("synthetic-guarantor", "guarantor")
+    guarantor["period_ends"]["FY-Current"] = "2025-11-30"
+    guarantor["guarantee_ids"] = ["GUARANTEE-SYN-001"]
+
+    _register_entity_record_for_tests(tmp_path, guarantor)
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert path.read_bytes() != before
+    assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-guarantor"}
+    assert saved["entity_records"]["synthetic-parent"]["period_ends"]["FY-Current"] == "2025-12-31"
+    assert saved["entity_records"]["synthetic-guarantor"]["period_ends"]["FY-Current"] == "2025-11-30"
+    assert saved["entity_records"]["synthetic-guarantor"]["guarantee_ids"] == ["GUARANTEE-SYN-001"]
+
+
+@pytest.mark.parametrize(
+    "registration_order",
+    [
+        ("synthetic-parent", "synthetic-opco"),
+        ("synthetic-opco", "synthetic-parent"),
+    ],
+    ids=["parent-first", "subsidiary-first"],
+)
+def test_record_entity_record_accepts_reciprocal_intercompany_pair_in_either_order(
+        tmp_path, registration_order):
+    path = _seed_entity_registry_state(tmp_path)
+    parent = _entity_record_for_tests("synthetic-parent", "parent")
+    parent["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-opco",
+        "direction": "receivable", "amount": 10, "confirmed": True,
+    }]
+    subsidiary = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    subsidiary["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-parent",
+        "direction": "payable", "amount": 10, "confirmed": True,
+    }]
+    records = {"synthetic-parent": parent, "synthetic-opco": subsidiary}
+
+    for entity_id in registration_order:
+        _register_entity_record_for_tests(tmp_path, records[entity_id])
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-opco"}
+    assert saved["entity_records"]["synthetic-parent"]["intercompany_lines"][0]["counterparty_entity_id"] == "synthetic-opco"
+    assert saved["entity_records"]["synthetic-opco"]["intercompany_lines"][0]["counterparty_entity_id"] == "synthetic-parent"
+
+
+def test_record_entity_record_refuses_self_counterparty_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-parent", "parent")
+    record["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-parent",
+        "direction": "receivable", "amount": 10, "confirmed": True,
+    }]
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-parent'].intercompany_lines[0]."
+        "counterparty_entity_id must be a non-empty string and must not equal its entity ID. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_guarantor_without_guarantee_id_without_writing(tmp_path):
+    path = _seed_entity_registry_state(
+        tmp_path, guarantees=[{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic Guarantor Ltd"}],
+    )
+    before = path.read_bytes()
+    guarantor = _entity_record_for_tests("synthetic-guarantor", "guarantor")
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, guarantor)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-guarantor'].guarantee_ids must contain "
+        "at least one explicit guarantee_id for role 'guarantor'. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "guarantees",
+    [
+        [],
+        [{"provider": "Synthetic Parent Ltd"}],
+        [
+            {"guarantee_id": "GUARANTEE-SYN-001"},
+            {"guarantee_id": "GUARANTEE-SYN-001"},
+        ],
+    ],
+    ids=["missing-id", "provider-only-is-not-a-link", "duplicate-explicit-id"],
+)
+def test_record_entity_record_requires_a_unique_explicit_guarantee_id_without_writing(tmp_path, guarantees):
+    path = _seed_entity_registry_state(tmp_path, guarantees=guarantees)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-parent", "parent")
+    record["guarantee_ids"] = ["GUARANTEE-SYN-001"]
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-parent'].guarantee_ids entry "
+        "'GUARANTEE-SYN-001' must resolve to exactly one explicit guarantee_id in state.json guarantees. "
+        "Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "invalid_value",
+    [True, False, float("nan"), float("inf"), float("-inf"), "100", [], {}],
+    ids=["true", "false", "nan", "positive-infinity", "negative-infinity", "string", "list", "object"],
+)
+def test_record_entity_record_rejects_invalid_raw_line_numbers_without_writing(tmp_path, invalid_value):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["multi_period_financials"]["FY-Current"]["revenue"] = invalid_value
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    expected_problem = (
+        "entity_records['synthetic-opco'].multi_period_financials: period 'FY-Current', field 'revenue' "
+        f"must be a finite JSON number or null; found {invalid_value!r}"
+    )
+    assert str(caught.value) == (
+        f"Refusing to register entity_record: {expected_problem}. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_rejects_figures_in_both_raw_stores_for_one_period_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["analyst_supplied_financials"] = {"FY-Current": {"revenue": 100}}
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Refusing to register entity_record: entity_records['synthetic-opco'] has figures in both raw "
+        "stores for period 'FY-Current'. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "invalid_amount",
+    [True, False, float("nan"), float("inf"), float("-inf"), "10", None, [], {}],
+    ids=["true", "false", "nan", "positive-infinity", "negative-infinity", "string", "null", "list", "object"],
+)
+def test_record_entity_record_rejects_invalid_intercompany_amount_without_writing(tmp_path, invalid_amount):
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["multi_period_financials"] = {"FY-Current": {"revenue": 200}}
+    record["intercompany_lines"] = [{
+        "period": "FY-Current", "line_key": "loan_notes", "counterparty_entity_id": "synthetic-parent",
+        "direction": "receivable", "amount": invalid_amount, "confirmed": True,
+    }]
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    line_path = "entity_records['synthetic-opco'].intercompany_lines[0].amount"
+    if isinstance(invalid_amount, float) and (
+        invalid_amount != invalid_amount or invalid_amount == float("inf") or invalid_amount == float("-inf")
+    ):
+        expected_problem = f"non-finite numeric value at {line_path}: {invalid_amount!r}"
+    else:
+        expected_problem = f"{line_path} must be a finite JSON number; found {invalid_amount!r}"
+    assert str(caught.value) == (
+        f"Refusing to register entity_record: {expected_problem}. Nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("perimeter_patch", "problem"),
+    [
+        ({"confirmed": False}, "perimeter.confirmed"),
+        ({"confirmed": True, "confirmed_on": None}, "perimeter.confirmed_on"),
+        ({"confirmed": True}, "perimeter.confirmed_on"),
+    ],
+    ids=["false-confirmation", "null-confirmation-date", "missing-confirmation-date"],
+)
+def test_validate_state_rejects_unconfirmed_or_undated_persisted_entity_without_writing(
+    tmp_path, perimeter_patch, problem,
+):
+    record = _entity_record_for_tests()
+    record["perimeter"].update(perimeter_patch)
+    if perimeter_patch == {"confirmed": True}:
+        record["perimeter"].pop("confirmed_on")
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": record})
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        read_state(
+            "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+            base_dir=str(tmp_path), keys=("entity_records",),
+        )
+
+    if perimeter_patch.get("confirmed") is False:
+        entity_problem = (
+            "entity_records['synthetic-parent'].perimeter.confirmed must be true after explicit analyst confirmation"
+        )
+    else:
+        entity_problem = (
+            "entity_records['synthetic-parent'].perimeter.confirmed_on must be a real YYYY-MM-DD calendar date"
+        )
+    assert str(caught.value) == (
+        f"Cannot use {path}: {entity_problem}. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
+    assert path.read_bytes() == before
+
+
+def test_validate_state_rejects_a_non_unique_guarantee_link_in_a_persisted_entity(tmp_path):
+    record = _entity_record_for_tests()
+    record["guarantee_ids"] = ["GUARANTEE-SYN-001"]
+    path = _seed_entity_registry_state(
+        tmp_path, entity_records={"synthetic-parent": record},
+        guarantees=[{"guarantee_id": "GUARANTEE-SYN-001"}, {"guarantee_id": "GUARANTEE-SYN-001"}],
+    )
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        read_state(
+            "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+            base_dir=str(tmp_path), keys=("entity_records",),
+        )
+
+    entity_problem = (
+        "entity_records['synthetic-parent'].guarantee_ids entry 'GUARANTEE-SYN-001' must resolve to exactly "
+        "one explicit guarantee_id in state.json guarantees"
+    )
+    assert str(caught.value) == (
+        f"Cannot use {path}: {entity_problem}. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_problem"),
+    [
+        ("empty-legal-name", "entity_records['synthetic-opco'].legal_name must be a non-empty string"),
+        ("borrower-role", "entity_records['synthetic-opco'].role must be one of 'subsidiary', 'parent' or 'guarantor'; found 'borrower'"),
+        ("source-not-object", "entity_records['synthetic-opco'].source must be an object"),
+        ("empty-document", "entity_records['synthetic-opco'].source.document must be a non-empty string"),
+        ("empty-accounting-basis", "entity_records['synthetic-opco'].source.accounting_basis must be a non-empty string"),
+        ("period-ends-not-object", "entity_records['synthetic-opco'].period_ends must be an object keyed by framework period label"),
+        ("unknown-period-end-key", "entity_records['synthetic-opco'].period_ends: unexpected period key 'synthetic-opco'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"),
+        ("period-end-not-date", "entity_records['synthetic-opco'].period_ends['FY-Current'] must be a real YYYY-MM-DD calendar date"),
+        ("perimeter-not-object", 'Invalid entity_record: "perimeter" must be an object; nothing was changed.'),
+        ("included-not-boolean", "entity_records['synthetic-opco'].perimeter.included must be a boolean"),
+        ("empty-control-basis", "entity_records['synthetic-opco'].perimeter.control_basis must be a non-empty string"),
+        ("empty-scope-rationale", "entity_records['synthetic-opco'].perimeter.scope_rationale must be a non-empty string"),
+        ("empty-raw-figures-source", "entity_records['synthetic-opco'].raw_figures_source must be a non-empty string"),
+        ("invalid-spread-status", 'entity_records[\'synthetic-opco\'].spread_status must be "not-spread" in step 1'),
+        ("raw-store-not-object", "entity_records['synthetic-opco'].multi_period_financials must be an object keyed by framework period label"),
+        ("raw-period-not-object", "entity_records['synthetic-opco'].multi_period_financials: period 'FY-Current' must be an object of line items; found list"),
+        ("raw-period-missing-end", "entity_records['synthetic-opco'].multi_period_financials period 'FY-1' is missing from entity_records['synthetic-opco'].period_ends"),
+        ("intercompany-lines-not-list", "entity_records['synthetic-opco'].intercompany_lines must be a list"),
+        ("intercompany-line-not-object", "entity_records['synthetic-opco'].intercompany_lines[0] must be an object"),
+        ("intercompany-unknown-period", "entity_records['synthetic-opco'].intercompany_lines[0].period has unknown framework period label 'bad-period'; expected one of FY-2, FY-1, FY-Current, FY+1, FY+2, FY+3"),
+        ("intercompany-period-missing-end", "entity_records['synthetic-opco'].intercompany_lines[0].period 'FY-1' is missing from entity_records['synthetic-opco'].period_ends"),
+        ("intercompany-invalid-line-key", "entity_records['synthetic-opco'].intercompany_lines[0].line_key must be an existing evaluator raw line key; found 'made_up_line'"),
+        ("intercompany-self-counterparty", "entity_records['synthetic-opco'].intercompany_lines[0].counterparty_entity_id must be a non-empty string and must not equal its entity ID"),
+        ("intercompany-empty-direction", "entity_records['synthetic-opco'].intercompany_lines[0].direction must be a non-empty string"),
+        ("intercompany-confirmed-not-boolean", "entity_records['synthetic-opco'].intercompany_lines[0].confirmed must be a boolean"),
+        ("guarantee-ids-not-list", "entity_records['synthetic-opco'].guarantee_ids must be a list of explicit guarantee IDs"),
+        ("empty-guarantee-id", "entity_records['synthetic-opco'].guarantee_ids entries must be non-empty strings"),
+        ("duplicate-guarantee-ids", "entity_records['synthetic-opco'].guarantee_ids contains duplicate ID 'GUARANTEE-SYN-001'"),
+    ],
+)
+def test_record_entity_record_refuses_invalid_contract_fields_with_exact_error_and_no_write(
+    tmp_path, case, expected_problem,
+):
+    parent = _entity_record_for_tests()
+    guarantees = [{"guarantee_id": "GUARANTEE-SYN-001"}] if case == "duplicate-guarantee-ids" else []
+    path = _seed_entity_registry_state(
+        tmp_path, entity_records={"synthetic-parent": parent}, guarantees=guarantees,
+    )
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    line = {
+        "period": "FY-Current",
+        "line_key": "loan_notes",
+        "counterparty_entity_id": "synthetic-parent",
+        "direction": "receivable",
+        "amount": 10,
+        "confirmed": True,
+    }
+
+    if case == "empty-legal-name":
+        record["legal_name"] = " "
+    elif case == "borrower-role":
+        record["role"] = "borrower"
+    elif case == "source-not-object":
+        record["source"] = None
+    elif case == "empty-document":
+        record["source"]["document"] = " "
+    elif case == "empty-accounting-basis":
+        record["source"]["accounting_basis"] = ""
+    elif case == "period-ends-not-object":
+        record["period_ends"] = []
+    elif case == "unknown-period-end-key":
+        record["period_ends"] = {"synthetic-opco": "2025-12-31"}
+    elif case == "period-end-not-date":
+        record["period_ends"]["FY-Current"] = None
+    elif case == "perimeter-not-object":
+        record["perimeter"] = None
+    elif case == "included-not-boolean":
+        record["perimeter"]["included"] = "yes"
+    elif case == "empty-control-basis":
+        record["perimeter"]["control_basis"] = ""
+    elif case == "empty-scope-rationale":
+        record["perimeter"]["scope_rationale"] = " "
+    elif case == "empty-raw-figures-source":
+        record["raw_figures_source"] = ""
+    elif case == "invalid-spread-status":
+        record["spread_status"] = "spread"
+    elif case == "raw-store-not-object":
+        record["multi_period_financials"] = []
+    elif case == "raw-period-not-object":
+        record["multi_period_financials"] = {"FY-Current": []}
+    elif case == "raw-period-missing-end":
+        record["multi_period_financials"] = {"FY-1": {"revenue": 100}}
+    elif case == "intercompany-lines-not-list":
+        record["intercompany_lines"] = {}
+    elif case == "intercompany-line-not-object":
+        record["intercompany_lines"] = ["not an object"]
+    elif case == "intercompany-unknown-period":
+        line["period"] = "bad-period"
+        record["intercompany_lines"] = [line]
+    elif case == "intercompany-period-missing-end":
+        line["period"] = "FY-1"
+        record["intercompany_lines"] = [line]
+    elif case == "intercompany-invalid-line-key":
+        line["line_key"] = "made_up_line"
+        record["intercompany_lines"] = [line]
+    elif case == "intercompany-self-counterparty":
+        line["counterparty_entity_id"] = "synthetic-opco"
+        record["intercompany_lines"] = [line]
+    elif case == "intercompany-empty-direction":
+        line["direction"] = ""
+        record["intercompany_lines"] = [line]
+    elif case == "intercompany-confirmed-not-boolean":
+        line["confirmed"] = "yes"
+        record["intercompany_lines"] = [line]
+    elif case == "guarantee-ids-not-list":
+        record["guarantee_ids"] = None
+    elif case == "empty-guarantee-id":
+        record["guarantee_ids"] = [" "]
+    elif case == "duplicate-guarantee-ids":
+        record["guarantee_ids"] = ["GUARANTEE-SYN-001", "GUARANTEE-SYN-001"]
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    if case == "perimeter-not-object":
+        expected = expected_problem
+    else:
+        expected = f"Refusing to register entity_record: {expected_problem}. Nothing was changed."
+    assert str(caught.value) == expected
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_an_impossible_confirmation_date_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, _entity_record_for_tests(), date_str="2026-02-30")
+
+    assert str(caught.value) == "date '2026-02-30' is not a valid calendar date"
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("file_contents", "expected_error"),
+    [
+        ("{bad", "Cannot read entity-record file"),
+        ('["not", "one record"]', "must contain one JSON object"),
+    ],
+    ids=["invalid-json", "non-object-json"],
+)
+def test_record_entity_record_refuses_bad_input_file_without_writing(tmp_path, file_contents, expected_error):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(file_contents, encoding="utf-8")
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    if expected_error == "must contain one JSON object":
+        assert str(caught.value) == (
+            f"Entity-record file {str(record_file)!r} must contain one JSON object; nothing was changed."
+        )
+    else:
+        assert str(caught.value).startswith(
+            f"{expected_error} {str(record_file)!r} as UTF-8 JSON:"
+        )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_a_missing_input_file_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(tmp_path / "missing.json"),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value).startswith(
+        f"Cannot read entity-record file {str(tmp_path / 'missing.json')!r}:"
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_a_corrupt_existing_deal_without_replacing_it(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    path.write_bytes(b"{broken state")
+    before = path.read_bytes()
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(_entity_record_for_tests()), encoding="utf-8")
+
+    with pytest.raises(StateShapeError) as caught:
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+            perimeter_confirmed=True, base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value).startswith(f"state.json at {path} is corrupted and could not be parsed")
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("shape", "problem"),
+    [
+        ("registry-not-object", '"entity_records" must be an object, found list'),
+        ("record-not-object", "entity_records['synthetic-parent'] must be an object"),
+        ("empty-registry-key", '"entity_records" keys must be non-empty stable entity IDs'),
+        ("perimeter-not-object", "entity_records['synthetic-parent'].perimeter must be an object"),
+        ("included-not-boolean", "entity_records['synthetic-parent'].perimeter.included must be a boolean"),
+        ("empty-control-basis", "entity_records['synthetic-parent'].perimeter.control_basis must be a non-empty string"),
+        ("empty-scope-rationale", "entity_records['synthetic-parent'].perimeter.scope_rationale must be a non-empty string"),
+    ],
+)
+def test_validate_state_refuses_malformed_persisted_entity_shapes_without_mutating_bytes(tmp_path, shape, problem):
+    record = _entity_record_for_tests()
+    if shape == "registry-not-object":
+        registry = []
+    elif shape == "record-not-object":
+        registry = {"synthetic-parent": "not an object"}
+    elif shape == "empty-registry-key":
+        registry = {"": record}
+    else:
+        registry = {"synthetic-parent": record}
+        if shape == "perimeter-not-object":
+            record["perimeter"] = None
+        elif shape == "included-not-boolean":
+            record["perimeter"]["included"] = "yes"
+        elif shape == "empty-control-basis":
+            record["perimeter"]["control_basis"] = ""
+        elif shape == "empty-scope-rationale":
+            record["perimeter"]["scope_rationale"] = " "
+    path = _seed_entity_registry_state(tmp_path, entity_records=registry)
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError) as caught:
+        read_state(
+            "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+            base_dir=str(tmp_path), keys=("entity_records",),
+        )
+
+    assert str(caught.value) == (
+        f"Cannot use {path}: {problem}. Fix the file by hand or restore it from a backup; "
+        "the file was not modified."
+    )
+    assert path.read_bytes() == before
+
+
+def test_unrelated_state_reader_does_not_reject_an_unrequested_entity_records_shape(tmp_path):
+    path = _seed_entity_registry_state(tmp_path, entity_records=[])
+    before = path.read_bytes()
+
+    loaded = read_state(
+        "Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+        base_dir=str(tmp_path),
+    )
+
+    assert loaded is not None
+    assert loaded["entity_records"] == []
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "id_case",
+    ["missing", "empty"],
+    ids=["missing-id", "empty-id"],
+)
+def test_record_entity_record_refuses_missing_or_empty_entity_id_without_writing(tmp_path, id_case):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    record = _entity_record_for_tests()
+    if id_case == "missing":
+        record.pop("entity_id")
+    else:
+        record["entity_id"] = ""
+
+    with pytest.raises(ValueError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    assert str(caught.value) == (
+        "Invalid entity_record: entity_id must be a non-empty stable ID; nothing was changed."
+    )
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_never_downgrades_a_newer_schema_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["schema_version"] = "9.9.9"
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(SchemaVersionError) as caught:
+        _register_entity_record_for_tests(tmp_path, _entity_record_for_tests())
+
+    assert "schema_version 9.9.9" in str(caught.value)
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_refuses_if_state_disappears_before_locked_read(tmp_path, monkeypatch):
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(_entity_record_for_tests()), encoding="utf-8")
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+    monkeypatch.setattr(state_manager, "read_state", lambda *args, **kwargs: None)
+
+    with pytest.raises(ValueError) as caught:
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+            perimeter_confirmed=True, date_str="2026-10-27", base_dir=str(tmp_path),
+        )
+
+    assert str(caught.value) == (
+        f"Refusing to record entity_record: state.json at {str(path)!r} no longer exists; nothing was created."
+    )
+    assert path.read_bytes() == before

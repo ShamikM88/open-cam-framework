@@ -8,6 +8,7 @@ gate rather than a suggestion. Most tests below assert on that determinism
 directly, not just on the individual rule outcomes.
 """
 import json
+import math
 
 import pytest
 
@@ -118,6 +119,26 @@ def test_negative_threshold_maximum_covenant_fail_has_negative_headroom():
     covenant = evaluate_deal_policy({"ratios": ratios, "covenants": [covenant_]})["covenant_results"][0]
     assert covenant["status"] == "FAIL"
     assert covenant["headroom_pct"] == pytest.approx((-0.5 - -0.3) / 0.5)
+
+
+# Literal expected values at a negative threshold (review finding PX515-1): the cases above
+# compute their expectation with the formula; these pin the numbers themselves, including
+# equality, where the headroom must be +0.0 rather than the -0.0 a signed denominator gives.
+@pytest.mark.parametrize(("covenant_type", "actual", "status", "expected"), [
+    ("minimum", -1.0, "PASS", 0.5),
+    ("minimum", -3.0, "FAIL", -0.5),
+    ("minimum", -2.0, "PASS", 0.0),
+    ("maximum", -3.0, "PASS", 0.5),
+    ("maximum", -1.0, "FAIL", -0.5),
+    ("maximum", -2.0, "PASS", 0.0),
+])
+def test_negative_threshold_headroom_literal_values(covenant_type, actual, status, expected):
+    ratios = {"FY-Current": {"dscr": actual}}
+    covenant_ = {"metric": "dscr", "type": covenant_type, "threshold": -2.0}
+    covenant = evaluate_deal_policy({"ratios": ratios, "covenants": [covenant_]})["covenant_results"][0]
+    assert covenant["status"] == status
+    assert covenant["headroom_pct"] == expected
+    assert math.copysign(1.0, covenant["headroom_pct"]) == math.copysign(1.0, expected)
 
 
 @pytest.mark.parametrize(

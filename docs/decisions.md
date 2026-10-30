@@ -30,6 +30,19 @@ so in its Related line) when a later decision supersedes it.
 - [D17. Headless runs cannot reset an analyst-supplied historical basis](#d17-headless-runs-cannot-reset-an-analyst-supplied-historical-basis)
 - [D18. Code defines, the register describes](#d18-code-defines-the-register-describes)
 - [D19. Group accounts: case A first, and a credit aggregation is never called a consolidation](#d19-group-accounts-case-a-first-and-a-credit-aggregation-is-never-called-a-consolidation)
+- [D20. Governance modules are typed with mypy: advisory first, no escape hatches](#d20-governance-modules-are-typed-with-mypy-advisory-first-no-escape-hatches)
+- [D21. The policy engine's results are typed contracts, pinned byte for byte](#d21-the-policy-engines-results-are-typed-contracts-pinned-byte-for-byte)
+- [D22. Group accounts: one shared entity record for cases B and C](#d22-group-accounts-one-shared-entity-record-for-cases-b-and-c)
+- [D23. Group accounts, case C: a guarantor is an entity record, and a covenant names one](#d23-group-accounts-case-c-a-guarantor-is-an-entity-record-and-a-covenant-names-one)
+- [D24. Mutation survivors: behaviour gets tests, help text is accepted](#d24-mutation-survivors-behaviour-gets-tests-help-text-is-accepted)
+- [D25. The credit skills fail closed when the deal lookup does not complete](#d25-the-credit-skills-fail-closed-when-the-deal-lookup-does-not-complete)
+- [D26. CAM template guidance is an HTML comment, and the draft lint rejects leftovers](#d26-cam-template-guidance-is-an-html-comment-and-the-draft-lint-rejects-leftovers)
+- [D27. The Underwriter's voice and the Checker's consistency checks](#d27-the-underwriters-voice-and-the-checkers-consistency-checks)
+- [D28. A research brief opens with a Go/No-Go](#d28-a-research-brief-opens-with-a-gono-go)
+- [D29. A Claude Code hook, not a git hook, guards commits on main](#d29-a-claude-code-hook-not-a-git-hook-guards-commits-on-main)
+- [D30. The PR scope check is advisory and separate from CI](#d30-the-pr-scope-check-is-advisory-and-separate-from-ci)
+- [D31. The headless pipeline stays on the Anthropic SDK 1.x](#d31-the-headless-pipeline-stays-on-the-anthropic-sdk-1x)
+- [D32. Test-suite speed: the lazy import was the fix, and splitting the CLI test file was rejected](#d32-test-suite-speed-the-lazy-import-was-the-fix-and-splitting-the-cli-test-file-was-rejected)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -302,7 +315,10 @@ so in its Related line) when a later decision supersedes it.
   Vocabulary: a group figure the framework derives is a **credit aggregation**, never a statutory or IFRS
   consolidation, until investment and equity, goodwill, non-controlling interests and the other material adjustments
   are covered. The perimeter is confirmed by the analyst and never inferred from an ownership percentage. Period ends
-  must match (a mismatch is refused, never aligned by guesswork). A covenant will carry an explicit basis (borrower,
+  must match among the entities one aggregation uses (a mismatch there is refused, never aligned by guesswork); the
+  check belongs to the aggregation step, not to registering an entity record, and a standalone guarantor (case C) may
+  have a different year-end (decision of 2026-10-28, [#472](https://github.com/ShamikM88/open-cam-framework/issues/472#issuecomment-6464570816)).
+  A covenant will carry an explicit basis (borrower,
   consolidated, guarantor group), defaulting to borrower. An input keyed by entity is refused: the evaluator and its
   callers accept only the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`) and name
   the first unexpected key in one error line.
@@ -323,3 +339,241 @@ so in its Related line) when a later decision supersedes it.
   prompt-change gate.
 - **Related.** #48 (the decisions comment of 2026-10-20), #49 (no FX), #96 (narrative parent research), #124, #266,
   D2, D4, D18.
+
+## D20. Governance modules are typed with mypy: advisory first, no escape hatches
+
+- **Context.** The deterministic core passes a deal's meaning between modules as dictionaries, and several defects
+  were of exactly that kind (a wrong key, a null where an object was expected). A language migration was estimated at
+  months and nothing in the project needs it; types are the cheapest way to add most of the remaining safety.
+- **Choice.** The eleven governance modules are annotated with mypy in small, behaviour-preserving pull requests, one
+  per module. The check is advisory: `[tool.mypy]` and the separate `typecheck.yml` report errors per module and are
+  not a required check. The shared `JsonValue` alias lives only in `scripts/state_manager.py` and every other module
+  imports it (a test pins that); module-specific shapes stay with the module that owns the data. An annotation PR
+  may also carry minimal narrowing that mypy needs once a parameter is typed (bind a value once, test it with
+  `isinstance`), but every non-annotation change is listed line by line in the PR, and none uses `# type: ignore`,
+  `cast()`, an `assert` for narrowing, or `from __future__ import annotations`. A diagnostic that needs a real
+  logic change stops the PR and is reported for a new decision. The nine triage items T1 to T9 were each signed off
+  (T8 and T9 keep the `"N/A"` marker and the `{}` fallbacks; T5's option of turning an unexpected `None` into a
+  placeholder is not authorised), and T10 to T14 were approved in their PRs (T13 and T14 keep two loose local
+  declarations, `low_exponent: Any` and `section: Any`, where a library's stubs are wider than the code's guarantee).
+- **Why.** Typing a parameter makes mypy check the code that uses it, so a pure annotation change does not exist for
+  every module. Listing each non-annotation change keeps the review honest, and an `assert` disappears under
+  `python -O`, so it cannot be the narrowing.
+- **Consequences.** The formula-register fingerprints (raw source lines, unchanged scheme) are refreshed in each PR
+  that annotates a registered function. Phase 2 is complete: all eleven modules report zero errors. Phase 3, a
+  failing type check, is not started: making a check required is a ruleset change that stays the maintainer's, and
+  it needs its own plan and sign-off, so #424 stays open for it.
+- **Related.** #424 (comments of 2026-10-25, 2026-10-26 and 2026-10-27), PRs #465, #474, #476 to #482 and #484 to #489,
+  D13, D18.
+
+## D21. The policy engine's results are typed contracts, pinned byte for byte
+
+- **Context.** The policy payload (covenant results, forward results, downside breaches, conditions and the whole
+  policy state) crossed module boundaries as untyped dictionaries. Findings CG482-2 on the policy-engine annotation
+  and CG477-1 on the committee summary asked for typed contracts; the maintainer staged both as #483 (decision of
+  2026-10-26) instead of fixing them inside an annotation PR.
+- **Choice.** Six `TypedDict` contracts in `scripts/policy_engine.py`: `CovenantResult`, `ForwardCovenantResult`,
+  `DownsideBreach`, `ConditionPrecedent`, `ConditionSubsequent` and `PolicyState`; `evaluate_deal_policy` returns
+  `PolicyState`; statuses are exact `Literal` unions; `DownsideBreach.reason` is `str | None` to match the current
+  null output. It is one type-complete PR; `PolicyCheckOutput` and the committee-summary payload are typed in the
+  same change; the orchestrator's read-only consumers are annotated with `Mapping` without widening the mypy target;
+  there is no runtime validator; minimal construction and narrowing rewrites are allowed only when listed, tested and
+  output-identical; the formula register's output-shape prose is updated only where needed and no formula changes.
+  The approved deviation from the design note: `DownsideBreach.base_actual` is `int | float | None` and `threshold`
+  is `JsonValue`, not the narrower first proposal.
+- **Why.** The change must be static only. The output was pinned before the typing: 18 golden payload tests
+  (`tests/test_policy_payload_contract.py`, goldens in `tests/fixtures/policy_payloads/`), captured before the change
+  and compared as bytes.
+- **Consequences.** A change to the payload's shape updates the `TypedDict` and its goldens in the same PR.
+- **Related.** #483 (design note and the decision of 2026-10-27), #482, #477, PR #492, D18, D20.
+
+## D22. Group accounts: one shared entity record for cases B and C
+
+- **Context.** D19 settled the three cases and refuses entity-keyed input. Cases B and C need to hold more than one
+  entity's figures without a second source of truth for the borrower.
+- **Choice.** An optional top-level `entity_records` object keyed by stable entity ID, shared by B and C
+  (decisions of 2026-10-26 and 2026-10-28 on #472). `SCHEMA_VERSION` goes to 1.2.0 with step 1 (PR #494, open at the time of writing), and a state without
+  the key reads as "no entities recorded" and behaves as before. Period labels stay inside each record, and an
+  entity-keyed input where a period label is expected is still refused at every entry point. Each entity has one
+  primary role (`subsidiary`, `parent`, `guarantor`, plus any roles the step-1 design names for other group
+  members); other relationships are explicit links such as `guarantee_ids`,
+  never a second role. The borrower is not a role in step 1: its figures stay in the existing stores. If a case B
+  credit aggregation and case A's `group_basis` would both claim the consolidated view, the engine fails closed;
+  insertion order or last write never chooses. A standalone guarantor alongside case A is allowed. Step 1 records and
+  validates only (no subtotals, ratios, eliminations or covenant routing, no new formula). Period-end agreement is
+  not enforced when an entity is registered: it is checked only among the entities one aggregation uses, in the
+  later aggregation step, so a standalone guarantor may have a different year-end.
+- **Why.** The recorded reasons are one source of truth per figure and no hidden choice between two claimed
+  consolidated views; recording first keeps the judgement-heavy arithmetic for a separately reviewed step.
+- **Consequences.** The decisions authorise no merge and no edit to the agent prompts, commands, skills or the CAM
+  template; the accounting review before the elimination engine is still required.
+- **Related.** #472 (comments of 2026-10-26 and 2026-10-28), #473, #48, D19, PR #494 (step 1).
+
+## D23. Group accounts, case C: a guarantor is an entity record, and a covenant names one
+
+- **Context.** Case C spreads a guarantor or parent on its own, with no combination (D19).
+- **Choice.** Decided for the first release of case C, not built at the time of writing: a guarantor is an entity
+  record with `role: guarantor` under D22's contract and explicit
+  `guarantee_ids`; there is no separate guarantor model. A `guarantor_group` covenant names one guarantor entity
+  through a new optional field `basis_entity_id`; a legal guarantee is joined to an entity only through an explicit
+  `guarantee_id`, and a legacy guarantee without an ID is never matched by provider name. A set of several guarantors
+  is not part of the first release. A view that is missing, stale or unlinked stays UNRESOLVABLE with a reason. An
+  entity's spread records a fingerprint of the raw inputs it was computed from; if they change, the spread is stale,
+  is not shown as current and cannot be used by a covenant. Missing accounts are disclosure only: the guarantee
+  conditions precedent and subsequent are unchanged and independent of whether accounts exist, and no new
+  legal-standing condition is invented. "Consolidated" is never used for case C.
+- **Why.** One contract serves both cases, and a view that is missing, stale or unlinked stays UNRESOLVABLE with a
+  reason.
+- **Consequences.** The wording of the CAM section for a standalone guarantor and every disclosure phrase are not
+  decided; they are decided when the presentation step starts, with the exact text recorded on the issue. A new
+  deterministic "strength" measure needs its own agreement and a Proposed register entry, and a credit or accounting
+  reviewer verifies which statement lines and bases the evaluator may use for guarantors before the spreading step.
+- **Related.** #473 (comment of 2026-10-26), #472, D19, D22.
+
+## D24. Mutation survivors: behaviour gets tests, help text is accepted
+
+- **Context.** A mutation run (D13) leaves survivors. Some are untested behaviour; others are argparse help prose or
+  equivalent mutants that no test should pin.
+- **Choice.** Behavioural survivors are killed by test-only pull requests, one per module: behaviour first and never
+  argparse help prose, each test mapped to mutant numbers, re-measured with a name-filtered mutation run on the
+  branch, mutants believed equivalent named in the PR with their reason, no production change, and an independent
+  review (ChatGPT or Perplexity) before merge. The argparse help-text survivors of the four `main()` functions
+  (`spreading_check`, `deal_export`, `committee_summary`, `export_readback`) are accepted as survivors, with no
+  `# pragma: no mutate` and no source change. The weekly run is incremental (cached verdicts, new or changed functions
+  and the survivors retested) with a module filter for manual runs; cache keep-alive was accepted as documented once
+  the incremental mode was checked against a full run.
+- **Why.** Survivors are a to-do list, not a score (D13), and help text is not behaviour.
+- **Consequences.** A survivor that is accepted is accepted for a stated reason, in the PR or on the issue.
+- **Related.** #182 (its "Done looks like" and the comments of 2026-10-18 and 2026-10-27), #408, #435, #219, PR #446,
+  D13; the incremental-run description is in `docs/operations.md` and `docs/testing.md`.
+
+## D25. The credit skills fail closed when the deal lookup does not complete
+
+- **Context.** `credit-challenge` and `credit-risk` find a deal with `Glob`. Whether `Glob` is present in a forked
+  skill on a given platform is a Claude Code runtime fact that this repository's tests cannot see, and a failed
+  lookup read as "no deal" would be a false negative.
+- **Choice.** The tools stay as they are (`allowed-tools` is `Read`, `Glob`, `Grep`; `Bash` stays disallowed). Before
+  reporting a missing deal each skill establishes whether the lookup completed: if `Glob` is unavailable or errors it
+  says the deal could not be checked and that this does not mean it is absent, and only a successful, untruncated
+  lookup with no qualifying paths supports "No qualifying record was found". The older stop sentence depends on a
+  completed lookup, by a one-clause edit. A fixed lookup script and near-match suggestions were not chosen.
+  macOS behaviour is not verified at runtime (decision of 2026-10-20): it relies on Claude Code's documented tool
+  set, and the documentation says so.
+- **Why.** Making the skill fail closed removes the false negative without widening its tools. macOS cannot be tested
+  here: no Mac is available and API work is on hold.
+- **Consequences.** `tests/test_skills.py` pins the tool contract and the three distinctions. `mutation-triage` is
+  out of scope.
+- **Related.** #280 (comments of 2026-10-20 and 2026-10-25), PRs #466 to #468, D15.
+
+## D26. CAM template guidance is an HTML comment, and the draft lint rejects leftovers
+
+- **Context.** Shipped template guidance could reach the exported document, and a bracket placeholder in the
+  signature would collide with the lint's unfilled-placeholder rule.
+- **Choice.** The shipped guidance lines are HTML comments (`<!-- Guidance: ... -->`) that the exporter drops,
+  single-line and multi-line; an unterminated comment refuses the export, with a clear error, rather than stripping
+  to the end of the file. The signature is a blank line for the signing analyst (for example `________`), never a
+  bracket placeholder: the drafter never fills it and an exported signature never carries an agent identity. A fork
+  wraps its own guidance in comments (documented in `docs/outputs.md`); there is no export-time warning. The draft
+  lint rejects a hit before export and names the term and its line; its term list lives in code and is pinned by a
+  test, not in `config/`; it checks against the template resolved for the deal, local override included, through an
+  optional `deal_type`; and it is not governance-critical until its false-positive rate is visible.
+- **Why.** A bracket placeholder would collide with the lint's unfilled-placeholder rule, and the lint's template
+  check catches guidance a fork's own template left uncommented.
+- **Consequences.** The golden snapshots changed only by the intended comment and signature differences.
+- **Related.** #439 and #440 (decisions of 2026-10-24), PRs #449 and #453.
+
+## D27. The Underwriter's voice and the Checker's consistency checks
+
+- **Context.** The Underwriter's conclusions did not always follow from the figures and its voice was not an analyst's
+  (#441), and the Checker had no items for whether the verdict follows the evidence, for internal consistency or
+  for product and accounting mechanics (#442).
+- **Choice.** Guideline 13 is appended to `agents/underwriter_agent.md` (Guidelines 1 to 12 keep their numbers):
+  conclusions follow from the decisive figures, repayment capacity includes the proposed facility's own repayments,
+  product mechanics decide title and the secondary source of repayment, trends are not drawn across different
+  bases, asset finance assesses the financed asset and its residual value and, where an introducer shares residual-value
+  risk, that introducer as a counterparty, never in promotional terms, and the voice is impersonal with sentences of
+  about 25 words or fewer as guidance, not a hard limit; missing information is stated once, not repeated. The
+  local style guide overrides the voice rules only where it states a different rule explicitly, and the rules live in
+  the Guideline, not in a separate default style guide. The Checker gains Audit Checklist items 5 to 7 (the verdict
+  follows the evidence, internal consistency, product and accounting mechanics) before the verdict, now item 8. A
+  substantiated material failure of item 5 or 7 rejects; item 6 rejects a material contradiction, while rounding or
+  formatting that preserves value, period and basis is minor; a failure means a real finding, never a different view
+  of the credit decision.
+- **Why.** Both changes landed together so the evaluation baseline goes stale once.
+- **Consequences.** `docs/evaluation.md` says a baseline produced under an earlier prompt hash is stale and not
+  comparable. `.claude/agents/risk-reviewer.md` needed no change.
+- **Related.** #441 and #442 (decisions of 2026-10-24), PR #450, D1.
+
+## D28. A research brief opens with a Go/No-Go
+
+- **Context.** #443 asked for a research brief that supports an early Go/No-Go decision.
+- **Choice.** The first substantive section after the header is `## Go/No-Go`, short enough for one page: GO,
+  CONDITIONAL GO or NO-GO with the action that follows, the three decisive facts each with figure and source, and no
+  more than five conditions in descending order; if fewer than three decisive facts are supported, or no
+  conditions are needed, it says so rather than inventing them. Passing legal identity, charges and bureau checks is
+  not by itself a credit Go when the commercial evidence points the other way. About 1,500 words is guidance,
+  never an export-time limit. The review-status disclosure belongs to the exporter: the drafter never writes it, and
+  `scripts/research_export.py` inserts the dated paragraph straight after the title, as before, only when the analyst
+  explicitly chooses the disclosed manual-review release.
+- **Why.** The other placement options were more change than the gain justified.
+- **Consequences.** A command-file test pins that the drafter writes no review-status line.
+- **Related.** #443 (decision of 2026-10-24), PR #451.
+
+## D29. A Claude Code hook, not a git hook, guards commits on main
+
+- **Context.** #445 asked to prevent Claude Code commits on `main` and `master`; the maintainer's user-level guard
+  was about 180 lines and could be ported.
+- **Choice.** The guard is a Claude Code hook in `.claude/hooks/` with its own pytest file. It asks when it cannot
+  classify a command (repository or branch unknown) and denies when the guard itself errors. A test pins
+  `.claude/settings.json` to exactly one `PreToolUse` guard entry so an added command shows up in review, and a
+  CODEOWNERS entry
+  covers `.claude/settings.json` and `.claude/hooks/`. Merge approval stays user-level, and blocking pushes to `main`
+  stays with the ruleset. A git `pre-commit` hook is a possible follow-up if commits outside Claude Code turn out to
+  matter.
+- **Why.** The failure behaviour was checked against the current Claude Code documentation before the build (what a
+  non-zero exit, a timeout or invalid output does), and the script also catches its own exceptions and denies.
+- **Consequences.** The CODEOWNERS entry only takes effect if the ruleset requires code-owner review, which is the
+  maintainer's change. See [Security](security.md#repository-shipped-claude-code-commit-guard).
+- **Related.** #445 (decision of 2026-10-24), PRs #452 and #463.
+
+## D30. The PR scope check is advisory and separate from CI
+
+- **Context.** #456 asked for a mergeability rubric and an advisory comparison of a pull request's changed files
+  with the scope it declares.
+- **Choice.** `scripts/pr_scope_check.py` (standard library only) compares the changed files with the PR body's
+  `## Declared file scope` section, read from the event JSON and never interpolated into a shell, since the body is
+  hostile data. It is advisory: valid input exits 0 whatever the findings, malformed input exits 2, and a missing
+  scope is reported as not declared. The protected-path list is fixed in code, includes `.claude/**` and
+  `diff_cover_critical.toml`, and reports declared and undeclared protected paths separately, with no exceptions
+  mechanism. It runs in its own workflow, `.github/workflows/scope-check.yml`, with `contents: read` only; `ci.yml`
+  is not edited and no required check or ruleset changes. A mergeability rubric in `docs/contributing.md` states the
+  merge criteria, including that every confirmed finding is fixed or waived and the validation evidence matches the
+  current head.
+- **Why.** The report is a reviewer aid: in a `pull_request` run the script comes from the PR's own merge commit, so
+  it is neither a gate nor a proof.
+- **Consequences.** A pull request without a declared scope reports "not declared" and is not blocked.
+- **Related.** #456 (decisions of 2026-10-24), PRs #460 and #461.
+
+## D31. The headless pipeline stays on the Anthropic SDK 1.x
+
+- **Context.** Version 2 of the `anthropic` SDK changes the authentication header (so the whitespace-only-key
+  credential check fails on it) and the migration guide changes the default API version.
+- **Choice.** `requirements.txt` keeps `anthropic>=1.13.0,<2` and `constraints.txt` keeps `anthropic==1.15.0`.
+  2.x is not supported until a live smoke test can be run.
+- **Why.** The upgrade is not a version bump, and a 2.x smoke test needs credits while API work is on hold.
+- **Consequences.** No change to the pins or to the credential check ahead of that test. When it is possible: make the
+  credential check correct for both header formats with a whitespace-only-key test at all three entry points, add a
+  2.x CI lane, run the gated smoke sequence, and only then move the pin and raise the cap.
+- **Related.** #458 (decision of 2026-10-25, open for the live check), PR #459, D12, D16.
+
+## D32. Test-suite speed: the lazy import was the fix, and splitting the CLI test file was rejected
+
+- **Context.** `tests/test_cli_subprocess.py` was 229 s of 488 s (47%) and the critical path under per-file
+  scheduling.
+- **Choice.** `anthropic` is imported lazily for the CLI fast paths, which cut pytest time by 43% on Ubuntu (four
+  workers) and 42% on Windows (two workers) with identical passed counts. Splitting the file was rejected: after the
+  lazy import it is 106 s of about 600 s (17.5%) in a single-process profile, no longer the critical path, and the
+  rest is spread across several files of 20 to 80 s that are already about as small as they reasonably get.
+- **Why.** A split would not shorten the CI critical path.
+- **Consequences.** The current profile does not justify the split.
+- **Related.** #425 (closed 2026-10-27), PR #428, D14.

@@ -346,7 +346,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:_evaluate_covenant": "be8287e92ce9653f",
     "policy_engine:_unique_id": "068fcbe504d4a5a0",
     "policy_engine:_evaluate_security": "a48a1db8ff42d679",
-    "policy_engine:_guarantee_cps": "e5bdff3a1fa86037",
+    "policy_engine:_guarantee_cps": "441a3779aab7710a",
     "policy_engine:_covenant_compliance_cs": "9b7207cdeef99b07",
     "policy_engine:_security_reconfirmation_cs": "b1967c0b3a5fa049",
     "policy_engine:_guarantee_standing_cs": "f1983ec89c4a3685",

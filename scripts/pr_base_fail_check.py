@@ -153,7 +153,7 @@ def _node_id(path, unit):
 
 def _git(repo, *args):
     """Run git in the checkout; a failure is a broken check, never a verdict."""
-    result = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, timeout=60)
+    result = subprocess.run(["git", *args], cwd=str(repo), capture_output=True, timeout=60)  # noqa: S603, S607
     if result.returncode != 0:
         raise CheckBroken("git refused a command")
     return result.stdout
@@ -161,8 +161,8 @@ def _git(repo, *args):
 
 def read_revision(repo, sha, path):
     """A file's bytes at a revision, or None when the path does not exist there (a deleted file)."""
-    result = subprocess.run(["git", "show", f"{sha}:{path}"], cwd=str(repo), capture_output=True,
-                            timeout=60)
+    result = subprocess.run(["git", "show", f"{sha}:{path}"],  # noqa: S603, S607
+                            cwd=str(repo), capture_output=True, timeout=60)
     if result.returncode != 0:
         return None
     return result.stdout
@@ -241,9 +241,10 @@ def run_selected_tests(repo, base_sha, head_sha, selection, overlay):
     xml_path = tmp_root / "junit.xml"
     try:
         try:
-            completed = subprocess.run(
+            completed = subprocess.run(  # noqa: S603 - a fixed argument list, like every CLI in this repository
                 [sys.executable, "-m", "pytest", f"--junitxml={xml_path}", "-p", "no:cacheprovider",
-                 "-q", *node_ids], cwd=str(worktree), capture_output=True, timeout=PYTEST_TIMEOUT_SECONDS)
+                 "-q", *node_ids], cwd=str(worktree), capture_output=True,
+                timeout=PYTEST_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired as exc:
             raise CheckBroken("pytest timed out") from exc
         if pytest_exit_is_malfunction(completed.returncode):
@@ -275,7 +276,9 @@ def classify_junit(xml_bytes, selection):
     otherwise. Parametrized runs are counted per function — one unit, many cases.
     """
     try:
-        root = ET.fromstring(xml_bytes)
+        # The XML is pytest's own JUnit output from this run, written by pytest with escaped names;
+        # the script never resolves entities or external documents (S314).
+        root = ET.fromstring(xml_bytes)  # noqa: S314
     except ET.ParseError as exc:
         raise CheckBroken("unreadable JUnit XML") from exc
     cases = [case for suite in root.iter("testsuite") for case in suite.iter("testcase")]

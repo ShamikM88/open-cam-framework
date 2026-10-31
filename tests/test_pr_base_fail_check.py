@@ -185,15 +185,19 @@ def test_changed_file_list_is_validated_like_the_scope_checks(checker, tmp_path)
 # JUnit classification: verdicts with the failure kind named
 # ---------------------------------------------------------------------------
 
-def _junit(cases, errors=0):
-    """A minimal pytest junit XML: cases are (classname, name, child) with child in {None, failure, error}."""
+def _junit(cases, errors=0, suites=()):
+    """A minimal pytest junit XML: cases are (classname, name, child) with child in {None, failure, error};
+    extra raw suites are appended inside the single root element."""
     body = "".join(
         f'<testcase classname="{classname}" name="{name}">'
         + ("" if child is None else f"<{child} type=\"{child}\">boom</{child}>")
         + "</testcase>"
         for classname, name, child in cases)
-    return (f'<testsuite name="suite" tests="{len(cases)}" failures="0" errors="{errors}" '
-            f'time="0.01">{body}</testsuite>').encode("utf-8")
+    return ("<testsuites>"
+            f'<testsuite name="suite" tests="{len(cases)}" failures="0" errors="{errors}" '
+            f'time="0.01">{body}</testsuite>'
+            + "".join(s.decode("utf-8") for s in suites)
+            + "</testsuites>").encode("utf-8")
 
 
 def test_assertion_failures_are_red_with_the_kind_named(checker):
@@ -215,9 +219,9 @@ def test_parametrized_runs_are_counted_per_function(checker):
 
 def test_a_collection_error_is_cannot_run_with_the_import_kind(checker):
     selected = {"tests/test_x.py": [(None, "test_new")], "tests/test_y.py": [(None, "test_other")]}
-    xml = (_junit([], errors=1)
-           + b'<testsuite name="suite2"><error type="pytest.errors">ERROR tests/test_x.py\n'
-           b"ModuleNotFoundError: No module named 'helpers'</error></testsuite>")
+    xml = _junit([], errors=1, suites=(
+        b'<testsuite name="suite2"><error type="pytest.errors">ERROR tests/test_x.py\n'
+        b"ModuleNotFoundError: No module named 'helpers'</error></testsuite>",))
     rows = checker.classify_junit(xml, selected)
     by_id = {row["id"]: row for row in rows}
     assert by_id["tests/test_x.py::test_new"]["category"] == "CANNOT_RUN"
@@ -259,7 +263,7 @@ def _row(**overrides):
 
 
 def test_the_report_carries_the_verdict_the_table_and_the_legend(checker):
-    report = checker.build_report([_row()], 1, [])
+    report = checker.build_report([_row()], [])
     assert "### New tests on the base commit (advisory; not a required check)" in report
     assert "Verdict: RED_ON_BASE — 1 selected test function, 1 failed on the base commit (kind: assertion)." in report
     assert "| Test function | Runs | Failed | Passed | Kind |" in report
@@ -270,30 +274,30 @@ def test_the_report_carries_the_verdict_the_table_and_the_legend(checker):
 
 
 def test_each_verdict_has_its_own_summary_line(checker):
-    passing = checker.build_report([_row(category="PASSES_ON_BASE", failed=0, passed=6)], 1, [])
+    passing = checker.build_report([_row(category="PASSES_ON_BASE", failed=0, passed=6)], [])
     assert "Verdict: PASSES_ON_BASE — 1 selected test function, all passed on the base commit." in passing
     cannot = checker.build_report([_row(category="CANNOT_RUN", runs=0, failed=0, passed=0,
-                                       kind="import")], 1, [])
+                                       kind="import")], [])
     assert "Verdict: CANNOT_RUN — 1 selected test function, 1 could not run on the base commit (kind: import)." in cannot
-    none = checker.build_report([], 0, [])
+    none = checker.build_report([], [])
     assert "Verdict: NO_TESTS_SELECTED — the PR adds or changes no test function." in none
     assert "| Test function" not in none
 
 
 def test_the_table_is_capped_and_the_omission_counted(checker):
     rows = [_row(id=f"tests/test_x.py::test_n{i}") for i in range(105)]
-    report = checker.build_report(rows, 105, [])
+    report = checker.build_report(rows, [])
     assert report.count("| tests/test_x.py::test_n") == 100
     assert "5 more rows omitted" in report
 
 
 def test_paths_are_escaped_as_markdown_not_links(checker):
-    report = checker.build_report([_row(id="tests/we`ird|name.py::test_a")], 1, [])
+    report = checker.build_report([_row(id="tests/we`ird|name.py::test_a")], [])
     assert "we\\`ird\\|name" in report
 
 
 def test_unparseable_files_are_noted(checker):
-    report = checker.build_report([], 0, ["tests/broken.py"])
+    report = checker.build_report([], ["tests/broken.py"])
     assert "tests/broken.py could not be parsed at the head commit" in report
 
 
@@ -462,7 +466,9 @@ def test_malformed_input_exits_two_without_a_verdict(tmp_path):
 
 def test_a_git_failure_exits_two(tmp_path):
     repo, base = _base_repo(tmp_path)
-    bogus = "f" * 40  # a well-formed SHA that does not exist in the repository
+    repo.write("tests/test_new.py", "def test_new():\n    assert 1\n")
+    head = repo.commit()                       # the changed path must exist at the head to be selected
+    bogus = "f" * 40                           # a well-formed SHA that does not exist in the repository
     listing = repo.root / "changed-files.nul"
     listing.write_bytes(b"tests/test_new.py\0")
     result = subprocess.run(
@@ -473,8 +479,11 @@ def test_a_git_failure_exits_two(tmp_path):
     assert "error:" in result.stderr and "Verdict:" not in result.stdout
 
 
-def test_pytest_internal_and_usage_errors_are_malfunctions_not_verdicts(checker):
-    for code in (3, 4):
-        assert checker.pytest_exit_is_malfunction(code)
-    for code in (0, 1, 2, 5):
+def test_only_a_pytest_internal_error_is_a_malfunction_by_exit_code(checker):
+    """Exit 4 with a JUnit file is a result — pytest exits 4 for a selected node id whose file
+    cannot be collected on the base (#453's case), and the JUnit carries the collection error. Only
+    pytest's internal error (3) is a broken check by exit code alone; a usage error that wrote no
+    JUnit at all is caught by the missing-file check in the runner."""
+    assert checker.pytest_exit_is_malfunction(3)
+    for code in (0, 1, 2, 4, 5):
         assert not checker.pytest_exit_is_malfunction(code)

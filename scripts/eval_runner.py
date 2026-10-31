@@ -418,13 +418,19 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             raise KeyboardInterrupt
         # The call WAS attempted (and counted against the cap): record it as exactly that, so per-run call
         # counts still sum to the budget. Whether a result exists depends on WHEN the interrupt landed.
-        if error:  # the call had already failed when the Ctrl-C landed in cleanup: say that once, never
-            # "in flight" next to "already failed" (CG525-2); the flag lets the pack name the same shape
-            extra = {**extra, "call_had_failed": True}
-            outcome = ("the output is kept but was not scored" if role in router.responses
-                       else "no model result was obtained")
-            why = (f"interrupted (Ctrl-C) during cleanup after the model call had already failed; "
-                   f"{outcome}; the recorded error: {error}")
+        if error:  # an error was recorded before the Ctrl-C landed in cleanup. It may belong to
+            # the model call or to a pipeline stage that ran after the response was saved: only
+            # a call with no response and no no-text result had already failed (CG525-4); for a
+            # completed call the failure is a later pipeline failure, never a failed model call.
+            if role in router.responses or first.get("no_text"):
+                completed = ("the output is kept but was not scored" if role in router.responses
+                             else "it returned no text")
+                why = (f"interrupted (Ctrl-C) during cleanup after the model call completed and a "
+                       f"later pipeline stage had failed; {completed}; the recorded error: {error}")
+            else:
+                extra = {**extra, "call_had_failed": True}
+                why = (f"interrupted (Ctrl-C) during cleanup after the model call had already "
+                       f"failed; no model result was obtained; the recorded error: {error}")
         elif role in router.responses:
             why = ("interrupted (Ctrl-C) after the model call completed (during scoring or cleanup); the output "
                    "is kept but was not scored")

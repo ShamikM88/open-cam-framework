@@ -212,7 +212,10 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
     failed with an error, that error text is kept in the run's `error` alongside the interrupt). If
     it had completed and Ctrl-C hit during scoring or the work-directory cleanup, the output is kept
     in `output_text` but was never scored -- unless the reply had no text (for example a refusal), in
-    which case there is no output to keep (the review pack says which of the three happened). Either
+    which case there is no output to keep (the review pack says which of the three happened). An
+    error recorded after the response was saved belongs to a later pipeline stage, not the model
+    call: that run is still worded as a completed call whose output is kept, with the pipeline
+    failure named in `error`, and is never labelled a failed model call. Either
     way the call is recorded and counted, and the working directory is restored first. (Ctrl-C before
     any call is in flight records no run at all, because nothing was spent.) Ctrl-C while a finished
     run is being appended to `runs.jsonl` or reported as progress keeps that run in the record and

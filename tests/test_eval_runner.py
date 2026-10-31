@@ -1158,6 +1158,44 @@ def test_an_api_error_in_flight_survives_a_ctrl_c_that_lands_in_cleanup(env, mon
     assert run["live_calls"] == 1 and budget.calls == 1
     assert "Ctrl-C" in run["error"]
     assert "RuntimeError: boom: the API is down" in run["error"]   # ...but the original, redacted error is kept
+    # The wording says the call failed before the cleanup interrupt; it never says the call was
+    # in flight once it says it had already failed (review finding CG525-2).
+    assert "already failed" in run["error"] and "in flight" not in run["error"]
+    # The whole message is built, redacted, then cut, so the final error keeps the 300-character cap
+    # (review finding CG525-1).
+    assert len(run["error"]) <= 300
+
+
+def test_a_long_key_plus_a_cleanup_interrupt_keeps_the_cap_and_leaves_no_key_fragment(env, monkeypatch):
+    # The 300-character cap must survive the combination of a long redacted error with the
+    # cleanup-interrupt wording, and the final cut must not leave a fragment of the key
+    # (review finding CG525-1).
+    key = "an-odd-shaped-key-ABCDEFGHIJ0123456789"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+
+    def fail(kwargs):
+        raise RuntimeError("x" * 270 + key + " tail")
+
+    run, _ = one_run(env, case, FakeClient(fail))
+    assert run["status"] == "interrupted"
+    assert key[:6] not in run["error"] and len(run["error"]) <= 300
+
+
+def test_the_pack_says_the_call_had_already_failed_for_an_interrupted_error_run(env, monkeypatch):
+    # The pack must not describe a call that had already failed as "in flight" (review finding
+    # CG525-2's wording, carried through to the human-readable row).
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+
+    def fail(kwargs):
+        raise RuntimeError("boom: the API is down")
+
+    run, _ = one_run(env, case, FakeClient(fail))
+    from eval_report import _row_result
+    row = _row_result(run)
+    assert "already failed" in row and "in flight" not in row
 
 
 def test_a_call_cap_abort_wins_when_ctrl_c_lands_in_cleanup(env, monkeypatch):

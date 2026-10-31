@@ -1146,6 +1146,21 @@ def test_ctrl_c_in_cleanup_after_a_no_text_reply_records_the_call_and_the_pack_s
     assert "in flight" not in row and "no result was observed" not in row
 
 
+def test_a_no_text_reply_with_no_stop_reason_is_still_worded_as_a_completed_call_in_the_pack(env, monkeypatch):
+    """CL525-1: the pack must not tell an interrupted no-text reply from an in-flight call by `stop_reason`
+    alone; a response that carries no stop reason is still a completed call."""
+    case = dataset_case("inj-source-block-obfuscated")
+    _interrupt_cleanup_of(case["id"], monkeypatch)
+    run, budget = one_run(env, case, ShapedClient(lambda kwargs: _resp([], stop_reason=None)))
+    assert run["status"] == "interrupted" and run["live_calls"] == 1 and budget.calls == 1
+    assert run["stop_reason"] is None and run.get("output_text") is None
+    assert "returned no text" in run["error"]
+    from eval_report import _row_result
+    row = _row_result(run)
+    assert "after the call completed" in row and "no text" in row
+    assert "in flight" not in row and "no result was observed" not in row
+
+
 def test_an_api_error_in_flight_survives_a_ctrl_c_that_lands_in_cleanup(env, monkeypatch):
     case = dataset_case("fab-no-financials")
     _interrupt_cleanup_of("fab-no-financials", monkeypatch)

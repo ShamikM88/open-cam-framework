@@ -1077,6 +1077,129 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention (exposure weighting)
 - **Status:** Proposed, not implemented
 
+## Covenant cushion
+
+The read-only cushion report of issue #470 (`scripts/covenant_cushion.py`; see
+[financial-model.md](financial-model.md#the-covenant-cushion-report)). Its entries describe only the report's own
+derivations: every covenant row, status and limit the report prints is the policy engine's own result, reused
+through `scripts/policy_engine.py` — `evaluate_single_covenant()`, never re-implemented. The EBITDA basis is the
+house convention throughout (decision D-a of issue #504: before exceptional items, including other income); the
+DSCR is the EBITDA-based DSCR (decision D-d of issue #504; a cash-flow DSCR is issue #521). The report writes
+nothing; nothing here is stored in state.
+
+### F-059 — DSCR EBITDA break-even
+
+- **Name:** DSCR EBITDA break-even — the EBITDA at which the recorded DSCR covenant switches status
+- **Formula:** ebitda* = threshold × (interest_paid + scheduled_principal). The DSCR rises with EBITDA, so the
+  covenant passes at-or-above the boundary and equality is PASS
+- **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
+- **Edge rules:** debt service (interest_paid + scheduled_principal) zero or negative → the ratio is N/A and the
+  covenant is UNRESOLVABLE for every EBITDA; no break-even is reported (the zero/negative denominator rule, never
+  a numerical cushion). A threshold that is not a recorded number, a period with no recorded raw line items, or a
+  period whose figures are analyst-supplied (`financials_source` for FY-Current, `forecast_source` for a forward
+  year) reports the break-even as unavailable with its reason; forward-year rows are disclosure-only
+- **State keys:** `interest_paid` · `scheduled_principal` (the period's raw line items)
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the DSCR branch), reading the
+  covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
+- **Basis:** house convention (decisions D-a and D-d of issue #504)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-060 — Gross leverage EBITDA break-even
+
+- **Name:** Gross leverage EBITDA break-even — the EBITDA at which the recorded gross leverage covenant switches
+  status
+- **Formula:** ebitda* = (current_debt + overdraft + long_term_debt + loan_notes) / threshold. With a positive
+  threshold the ratio falls as EBITDA rises over positive debt, so the covenant passes at-or-above the boundary;
+  a negative threshold inverts the side (at-or-below); equality is PASS for either side
+- **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
+- **Edge rules:** a threshold of exactly zero → no EBITDA boundary exists (the ratio would have to equal zero);
+  reported as unavailable, not as infinity. A boundary at or below zero EBITDA → the ratio is defined only for
+  EBITDA > 0, so the covenant passes at every testable EBITDA and is UNRESOLVABLE at EBITDA ≤ 0 before it can
+  FAIL (positive threshold) or cannot pass at any testable EBITDA (negative threshold); both are reported as a
+  note, never as a numerical boundary. A threshold that is not a recorded number, a raw line item that is not a
+  number, a period with no recorded raw line items, or analyst-supplied figures report the break-even as
+  unavailable with the reason; forward-year rows are disclosure-only
+- **State keys:** `current_debt` · `overdraft` · `long_term_debt` · `loan_notes` (the period's raw line items)
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the maximum-covenant branch),
+  reading the covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
+- **Basis:** house convention (decision D-a of issue #504)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-061 — Net debt / EBITDA EBITDA break-even
+
+- **Name:** Net debt / EBITDA EBITDA break-even — the EBITDA at which the recorded net debt / EBITDA covenant
+  switches status
+- **Formula:** ebitda* = (current_debt + overdraft + long_term_debt + loan_notes − cash) / threshold. With a
+  positive threshold the covenant passes at-or-above the boundary; a negative threshold inverts the side
+  (at-or-below); equality is PASS for either side
+- **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
+- **Edge rules:** identical to the gross leverage break-even (F-060), with `cash` subtracted from the numerator:
+  a zero threshold → no boundary; a boundary at or below zero EBITDA → the pass-at-every-testable-EBITDA /
+  cannot-pass note per the threshold's sign; non-numeric threshold or raw line items, no recorded raw line items,
+  or analyst-supplied figures → unavailable with the reason; forward-year rows are disclosure-only
+- **State keys:** `current_debt` · `overdraft` · `long_term_debt` · `loan_notes` · `cash` (the period's raw
+  line items)
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the net-debt maximum-covenant
+  branch), reading the covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
+- **Basis:** house convention (decision D-a of issue #504)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-062 — EBITDA / interest cover EBITDA break-even
+
+- **Name:** EBITDA / interest cover EBITDA break-even — the EBITDA at which the recorded EBITDA / interest
+  covenant (the workbook's "EBITDA/Interest") switches status
+- **Formula:** ebitda* = threshold × interest_paid. The ratio rises with EBITDA, so the covenant passes
+  at-or-above the boundary and equality is PASS
+- **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
+- **Edge rules:** interest_paid zero or negative → the ratio is N/A and the covenant UNRESOLVABLE for every
+  EBITDA; no break-even is reported. A threshold that is not a recorded number, no recorded raw line items, or
+  analyst-supplied figures report the break-even as unavailable with the reason; forward-year rows are
+  disclosure-only
+- **State keys:** `interest_paid` (the period's raw line item)
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the EBITDA/interest branch),
+  reading the covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
+- **Basis:** house convention (decisions D-a and D-d of issue #504; EBIT/Interest is a different, EBIT-based
+  metric and is deliberately outside the four break-even covenants)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-063 — Single-shock reverse-stress bracket search
+
+- **Name:** Single-shock reverse-stress bracket search — the first non-PASS setting of one recorded shock, found
+  one shock at a time
+- **Formula:** a bracket [lo, hi] with the covenant PASS at lo and non-PASS (FAIL or UNRESOLVABLE alike) at hi,
+  found by geometric expansion from the scenario's start (offset doubled each round, capped at the documented
+  bound) and then bisection, narrowed until hi − lo ≤ tolerance. Two scenarios per shock: the base scenario starts
+  from all shocks at zero; the downside scenario holds the other shocks at their recorded settings and starts the
+  searched shock from its recorded setting (the reported cushion beyond the recorded setting is the interval
+  above that start). No crossing point is reported — only the bracket and its tolerance
+- **Unit and storage:** revenue haircut in percent of revenue (0–100, tolerance 0.01); opex increase in percent of
+  admin expenses (bound 10,000, tolerance 0.01); interest-rate bump in basis points (bound 10,000 bps, tolerance
+  0.5). Report-only, never stored; there is no cost-of-sales shock
+- **Edge rules:** only the three recorded shocks are searched. A baseline that is already FAIL or UNRESOLVABLE
+  reports zero remaining cushion with no search; a ratio the shock cannot move (for example gross leverage under
+  the interest bump) reports "not moved"; a PASS beyond the first non-PASS point is a non-monotone predicate and
+  is refused with its reason; a model point the spreading builder refuses, a crossing outside the documented
+  bound, or a period with no recorded raw line items or analyst-supplied figures is reported unavailable with the
+  reason, never as a cushion; forward-year rows are disclosure-only
+- **State keys:** `stress_assumptions` · `covenants` · `financials` · `ratios` · `multi_period_financials` ·
+  `financials_source` · `forecast_source` · `analyst_supplied_financials` · `downside_case` · `group_basis`
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/covenant_cushion.py` — `bracket_and_bisect()` (driven by `_scenario_search()`,
+  which re-evaluates each point through `scripts/spreading_builder.py` — `apply_stress_shocks()` and
+  `evaluate_financial_model()`)
+- **Basis:** house convention (issue #470 sign-off: single shock at a time, brackets not points, the three
+  recorded shocks only)
+- **Status:** Implemented, not yet reviewed by an analyst
+
 ## Known differences
 
 Disagreements found while writing this register. None is fixed in this PR; each is recorded here for the

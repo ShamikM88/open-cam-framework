@@ -487,3 +487,65 @@ def test_only_a_pytest_internal_error_is_a_malfunction_by_exit_code(checker):
     assert checker.pytest_exit_is_malfunction(3)
     for code in (0, 1, 2, 4, 5):
         assert not checker.pytest_exit_is_malfunction(code)
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (CL531-2, CL531-3, CL531-4)
+# ---------------------------------------------------------------------------
+
+def test_an_unparseable_file_alone_never_runs_pytest_and_is_cannot_run(tmp_path, monkeypatch, checker, capsys):
+    """CL531-2/CL531-4: with nothing selected, pytest must not be started with no node ids (that would run
+    the base's whole suite), and the verdict is CANNOT_RUN, not NO_TESTS_SELECTED."""
+    repo, base = _base_repo(tmp_path)
+    repo.write("tests/helper_x.py", "def broken(:\n")
+    head = repo.commit()
+    listing = repo.root / "changed-files.nul"
+    listing.write_bytes(repo.changed_files_list(base, head))
+    monkeypatch.chdir(repo.root)
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("pytest must not run when no test function is selected")
+
+    monkeypatch.setattr(checker, "run_selected_tests", must_not_run)
+    code = checker.main(["--base-sha", base, "--head-sha", head, "--changed-files", str(listing)])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Verdict: CANNOT_RUN — 1 changed test file could not be parsed at the head commit (kind: unparseable)." in out
+    assert "NO_TESTS_SELECTED — the PR adds" not in out
+    assert "tests/helper_x.py could not be parsed at the head commit" in out
+
+
+def test_an_unparseable_file_beside_a_passing_test_is_not_an_all_clear(checker):
+    rows = [{"id": "tests/test_a.py::test_a", "runs": 1, "failed": 0, "passed": 1, "skipped": 0,
+             "kind": "assertion", "category": "PASSES_ON_BASE"}]
+    assert checker.pr_verdict(rows, ["tests/broken.py"]) == "CANNOT_RUN"
+    assert checker.pr_verdict(rows) == "PASSES_ON_BASE"
+    red = [{**rows[0], "failed": 1, "passed": 0, "category": "RED_ON_BASE"}]
+    assert checker.pr_verdict(red, ["tests/broken.py"]) == "RED_ON_BASE"
+    line = checker.build_report(rows, ["tests/broken.py"])
+    assert ("Verdict: CANNOT_RUN — 1 selected test function, 0 could not run on the base commit; "
+            "1 changed test file could not be parsed at the head commit (kind: unparseable).") in line
+
+
+def test_a_skipped_new_test_is_not_reported_as_passed_on_base(tmp_path):
+    """CL531-3: a test that is skipped on the base never executed; it is neither red nor green evidence."""
+    repo, base = _base_repo(tmp_path)
+    repo.write("tests/test_new.py",
+               "import pytest\n\n\n@pytest.mark.skip(reason='not run')\ndef test_skipped():\n    assert False\n")
+    head = repo.commit()
+    result, _ = repo.run(base, head)
+    assert result.returncode == 0, result.stderr
+    assert "Verdict: CANNOT_RUN" in result.stdout and "kind: skipped" in result.stdout
+    assert "PASSES_ON_BASE" not in result.stdout.split("RED_ON_BASE:")[0]
+
+
+def test_skipped_cases_of_a_parametrized_test_do_not_count_as_passed(tmp_path):
+    repo, base = _base_repo(tmp_path)
+    repo.write("tests/test_new.py",
+               "import pytest\n\n\n@pytest.mark.parametrize('value', [1, pytest.param(2, marks=pytest.mark.skip)])\n"
+               "def test_values(value):\n    assert value\n")
+    head = repo.commit()
+    result, _ = repo.run(base, head)
+    assert result.returncode == 0, result.stderr
+    assert "Verdict: PASSES_ON_BASE — 1 selected test function, all passed on the base commit." in result.stdout
+    assert "| tests/test_new.py::test_values | 2 | 0 | 1 | assertion |" in result.stdout

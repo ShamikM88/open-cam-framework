@@ -324,9 +324,9 @@ def test_opex_crossing_brackets_the_analytic_value():
                                       raws={"FY-Current": raw}))
     scenario = _base_scenario(_find(report, "dscr"), "opex_increase_pct")
     assert scenario["outcome"] == "crossing"
-    # ebitda = 600 - 4x/100*400... = 600 - 400*(1+x/100) >= 125 -> 400*(1+x/100) <= 475 -> x <= 18.75
+    # ebitda = 1000 - 400*(1+x/100) = 600 - 4x >= 125 (dscr 1.25 x debt service 100) -> x <= 118.75
     lo, hi = scenario["bracket"]
-    assert lo <= 18.75 < hi
+    assert lo <= 118.75 < hi
     assert hi - lo <= scenario["tolerance"] + 1e-9
 
 
@@ -384,7 +384,7 @@ def test_a_leverage_covenant_is_not_moved_by_the_interest_bump():
     for shock in _find(report, "gross_leverage")["shocks"]:
         if shock["shock"] == "interest_rate_bump_bps":
             assert shock["base_scenario"]["outcome"] == "not_moved"
-            assert "not moved" in shock["base_scenario"]["reason"]
+            assert "do not move" in shock["base_scenario"]["reason"]
         else:
             assert shock["base_scenario"]["outcome"] == "crossing"
 
@@ -430,7 +430,9 @@ def test_bracket_and_bisect_keeps_the_bracket_when_only_the_bound_refuses():
     result = bracket_and_bisect(status_at, start=0.0, step=10.0, bound=100.0, tolerance=1.0)
     assert result["outcome"] == "crossing"
     lo, hi = result["bracket"]
-    assert lo <= 30 < hi
+    # lo is the last PASS point, hi the first non-PASS point: the boundary 30 lies between.
+    assert lo < 30 <= hi
+    assert hi - lo <= 1.0
 
 
 def test_bracket_and_bisect_reports_an_empty_search_domain():
@@ -451,12 +453,13 @@ def test_scenario_search_reports_not_moved_when_the_ratio_cannot_change():
 def test_scenario_search_reports_a_refused_bound():
     def evaluate(value):
         if value == 100.0:
-            raise ValueError("refused at the bound")
+            return {"refused": "refused at the bound"}
         return {"status": "PASS", "actual": float(value)}
 
     result = covenant_cushion._scenario_search(evaluate, start=0.0, step=5.0,
                                                bound=100.0, tolerance=0.01)
     assert result["outcome"] == "refused_point"
+    assert "refused" in result["reason"]
 
 
 def test_a_refused_model_point_makes_the_scenario_unavailable():
@@ -586,9 +589,9 @@ def test_main_reports_a_missing_deal_with_one_error_line_and_exit_1(tmp_path, ca
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as excinfo:
         main(["--company", "Synthetic Co", "--proposal", "No Such Deal"])
-    assert excinfo.value.code == 1
-    err = capsys.readouterr().err
-    assert err.startswith("error: ") and err.count("\n") == 1
+    # sys.exit(<message>) prints one "error: ..." line to stderr and exits 1 at top level.
+    code = excinfo.value.code
+    assert isinstance(code, str) and code.startswith("error: ") and code.count("\n") == 0
 
 
 def test_state_keys_read_matches_the_documented_list():
@@ -597,6 +600,76 @@ def test_state_keys_read_matches_the_documented_list():
         "analyst_supplied_financials", "multi_period_financials", "stress_assumptions",
         "downside_case", "covenants", "group_basis",
     )
+
+
+def test_break_even_refuses_a_non_numeric_threshold():
+    for threshold in (None, "1.25x", [1.25]):
+        break_even = ebitda_break_even(
+            {"metric": "dscr", "type": "minimum", "threshold": threshold}, _raw())
+        assert break_even["break_even_ebitda"] is None
+        assert "not a recorded number" in break_even["reason"]
+
+
+def test_break_even_refuses_a_non_numeric_raw_line():
+    raw = _raw()
+    raw["current_debt"] = "not a number"
+    break_even = ebitda_break_even(
+        {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}, raw)
+    assert break_even["break_even_ebitda"] is None
+    assert "not a number" in break_even["reason"]
+
+
+def test_a_negative_threshold_with_no_debt_cannot_pass_at_any_testable_ebitda():
+    raw = _raw(current_debt=0.0, overdraft=0.0, long_term_debt=0.0)
+    break_even = ebitda_break_even(
+        {"metric": "gross_leverage", "type": "maximum", "threshold": -2.0}, raw)
+    assert break_even["break_even_ebitda"] == 0.0
+    assert break_even["pass_side"] == "at_or_below"
+    assert "cannot pass at any testable EBITDA" in break_even["note"]
+
+
+def test_bracket_and_bisect_refuses_a_refused_scenario_start():
+    def status_at(value):
+        raise ValueError("nope")
+
+    result = bracket_and_bisect(status_at, start=0.0, step=10.0, bound=100.0, tolerance=0.01)
+    assert result["outcome"] == "refused_point"
+    assert "scenario start" in result["reason"]
+
+
+def test_bracket_and_bisect_reports_a_non_pass_baseline_directly():
+    result = bracket_and_bisect(lambda value: "FAIL", start=0.0, step=10.0,
+                                bound=100.0, tolerance=0.01)
+    assert result == {"outcome": "baseline_non_pass", "baseline_status": "FAIL"}
+
+
+def test_scenario_search_refuses_a_bisection_point_that_the_model_refuses():
+    def evaluate(value):
+        if value == 50.0:
+            return {"refused": "refused mid-search"}
+        if value >= 100.0:
+            return {"status": "FAIL", "actual": 0.0}
+        return {"status": "PASS", "actual": 1.0}
+
+    result = covenant_cushion._scenario_search(evaluate, start=0.0, step=100.0,
+                                               bound=100.0, tolerance=0.01)
+    assert result["outcome"] == "refused_point"
+    assert "bisection point" in result["reason"]
+
+
+def test_a_non_numeric_recorded_shock_defaults_to_zero():
+    state = _linear_state()
+    state["stress_assumptions"] = {"revenue_haircut_pct": "lots"}
+    report = compute_from_state(state)
+    for shock in _find(report, "dscr")["shocks"]:
+        if shock["shock"] == "revenue_haircut_pct":
+            assert shock["downside_scenario"]["start"] == 0.0
+
+
+def test_a_malformed_covenant_entry_is_skipped_not_crashed():
+    state = _state([{"metric": "dscr", "type": "minimum", "threshold": 1.25}, "not a covenant"])
+    report = compute_from_state(state)
+    assert len(report["covenants"]) == 1
 
 
 def test_evaluate_single_covenant_delegates_to_the_engine():

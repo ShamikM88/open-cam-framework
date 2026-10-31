@@ -149,6 +149,22 @@ def _slugify(value: object) -> str:
     return hashlib.sha256(str(value).encode("utf-8")).hexdigest()[:12].upper()
 
 
+def evaluate_single_covenant(
+    covenant: dict[str, Any], ratios: dict[str, Any], financials: dict[str, Any] | None = None,
+    recorded_view: str = DEFAULT_COVENANT_BASIS,
+) -> CovenantResult:
+    """Public single-covenant evaluation for one period's ratios.
+
+    A thin delegate to `_evaluate_covenant`, published for the read-only
+    cushion report (`scripts/covenant_cushion.py`, issue #470) so that script
+    reuses the engine's status and headroom rules verbatim instead of copying
+    them. It changes no behaviour: the same inputs give the same result as the
+    engine's own loop produces, and `evaluate_deal_policy()` keeps using the
+    private function directly.
+    """
+    return _evaluate_covenant(covenant, ratios, financials, recorded_view)
+
+
 def _evaluate_covenant(
     covenant: dict[str, Any], ratios: dict[str, Any], financials: dict[str, Any] | None = None,
     recorded_view: str = DEFAULT_COVENANT_BASIS,

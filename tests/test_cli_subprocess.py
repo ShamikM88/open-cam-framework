@@ -2507,9 +2507,12 @@ def test_covenant_cushion_prints_the_report_and_changes_nothing(cli):
     shocks = {shock["shock"]: shock for shock in entry["shocks"]}
     assert shocks["revenue_haircut_pct"]["base_scenario"]["outcome"] == "crossing"
     assert shocks["revenue_haircut_pct"]["downside_scenario"]["start"] == 5.0
-    # The bump moves the DSCR but cannot breach it inside the documented bound:
-    # dscr = 150/(20 + 100*bump/10000) >= 1.25 holds up to exactly the 10000 bps bound.
-    assert shocks["interest_rate_bump_bps"]["base_scenario"]["outcome"] == "no_crossing_in_bound"
+    # The bump moves the DSCR and breaches it inside the bound: with debt 100 and
+    # scheduled principal 5, dscr = 150/(20 + 100*bump/10000 + 5) < 1.25 at bump > 9500.
+    bump_scenario = shocks["interest_rate_bump_bps"]["base_scenario"]
+    assert bump_scenario["outcome"] == "crossing"
+    lo, hi = bump_scenario["bracket"]
+    assert lo <= 9500 < hi
 
 
 def test_covenant_cushion_refuses_a_missing_deal_with_one_error_line_and_writes_nothing(cli):

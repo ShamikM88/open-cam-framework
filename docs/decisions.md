@@ -615,7 +615,8 @@ so in its Related line) when a later decision supersedes it.
   #499, #498, #500 and #501. #500 is the temporary Not covered tracker only until real test-to-claim verification,
   after which each real gap gets its own issue; #501 adds the `CLAUDE.md` bullet, in the wording the sign-off
   approved: "A change to a registered governance rule updates docs/rules-register.md and the citing test docstring in
-  the same PR; code and the linked source remain authoritative." #503 decides, with a month's evidence, whether to
-  keep the register.
+  the same PR; code and the linked source remain authoritative." (The sign-off sets the two file names in code
+  formatting; it is dropped here only because the page does not exist yet.) #503 decides, with a month's evidence,
+  whether to keep the register.
 - **Related.** #495 (the plan, the design note, the critiques and the sign-off), #496 to #501 and #503, D13, D14, D18,
   D19.

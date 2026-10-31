@@ -389,6 +389,63 @@ def test_a_none_pointer_is_reserved_for_not_covered_rules(tmp_path):
     assert errors == ["Rule R-POL-001 is not Not covered, so 'Implemented in' cannot be none."]
 
 
+def test_an_implemented_in_pointer_that_escapes_the_repository_fails(tmp_path):
+    # The page's grammar is repository-relative: ../ traversal and absolute paths are
+    # rejected even when the named file exists (review finding CG528-1).
+    (tmp_path.parent / "outside.py").write_text(
+        "def _outside():\n    return None\n", encoding="utf-8")
+    (tmp_path / "inside.py").write_text(
+        "def _inside():\n    return None\n", encoding="utf-8")
+    for pointer in ("../outside.py::_outside", f"{tmp_path / 'inside.py'}::_inside"):
+        register = _valid_register().replace(
+            "scripts/synthetic_impl.py::_evaluate_covenant", pointer)
+        errors = _register_tree(tmp_path, register, {"test_cites.py": CITING_TEST})
+        assert errors == [
+            f"Rule R-POL-001: 'Implemented in' names {pointer!r}, "
+            "which is not a repository-relative path."
+        ]
+
+
+def test_an_implemented_in_field_with_extra_pointer_tokens_fails(tmp_path):
+    # The field is exactly one pointer; further backticked tokens are rejected, not
+    # ignored (review finding CG528-1).
+    register = _valid_register().replace(
+        "- **Implemented in:** `scripts/synthetic_impl.py::_evaluate_covenant`",
+        "- **Implemented in:** `scripts/synthetic_impl.py::_evaluate_covenant` "
+        "`scripts/synthetic_impl.py`")
+    errors = _register_tree(tmp_path, register, {"test_cites.py": CITING_TEST})
+    assert errors == [
+        "Rule R-POL-001: 'Implemented in' must name exactly one pointer; "
+        "found 2 backticked values."
+    ]
+
+
+def test_a_duplicate_issued_rule_id_fails(tmp_path):
+    # The duplicate-issued-id branch of the id checks has its own self-test (review
+    # finding CG528-2).
+    register = _valid_register().replace("- `R-POL-003`", "- `R-POL-003`\n- `R-POL-001`")
+    errors = _register_tree(tmp_path, register, {"test_cites.py": CITING_TEST})
+    assert errors == ["Duplicate rule ID R-POL-001 in docs/rules-register.md."]
+
+
+def test_an_entry_with_no_implemented_in_field_fails(tmp_path):
+    # An absent 'Implemented in' field is a missing pointer, not a pass (review finding
+    # CG528-3).
+    register = _valid_register().replace(
+        "- **Implemented in:** `scripts/synthetic_impl.py::_evaluate_covenant`\n", "")
+    errors = _register_tree(tmp_path, register, {"test_cites.py": CITING_TEST})
+    assert errors == ["Rule R-POL-001 has no 'Implemented in' pointer."]
+
+
+def test_an_entry_with_an_empty_implemented_in_field_fails(tmp_path):
+    # An empty backticked value is a missing pointer too (review finding CG528-3).
+    register = _valid_register().replace(
+        "- **Implemented in:** `scripts/synthetic_impl.py::_evaluate_covenant`",
+        "- **Implemented in:** ``")
+    errors = _register_tree(tmp_path, register, {"test_cites.py": CITING_TEST})
+    assert errors == ["Rule R-POL-001 has no 'Implemented in' pointer."]
+
+
 def test_an_unknown_status_fails(tmp_path):
     register = _valid_register().replace("- **Status:** Covered", "- **Status:** Coverred")
     errors = _register_tree(tmp_path, register, {"test_cites.py": CITING_TEST})

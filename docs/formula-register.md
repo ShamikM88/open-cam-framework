@@ -1091,11 +1091,14 @@ nothing; nothing here is stored in state.
 
 - **Name:** DSCR EBITDA break-even — the EBITDA at which the recorded DSCR covenant switches status
 - **Formula:** ebitda* = threshold × (interest_paid + scheduled_principal). The DSCR rises with EBITDA, so the
-  covenant passes at-or-above the boundary and equality is PASS
+  passing side follows the covenant's recorded type exactly as the policy engine evaluates it: a minimum covenant
+  passes at-or-above the boundary, a maximum at-or-below; equality is PASS for either type
 - **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
 - **Edge rules:** debt service (interest_paid + scheduled_principal) zero or negative → the ratio is N/A and the
   covenant is UNRESOLVABLE for every EBITDA; no break-even is reported (the zero/negative denominator rule, never
-  a numerical cushion). A threshold that is not a recorded number, a period with no recorded raw line items, or a
+  a numerical cushion). A threshold that is not a recorded number — the policy engine's own contract: an int or a
+  float, never a boolean or a numeric string, so the report never presents a boundary for a row the engine records
+  as UNRESOLVABLE — a period with no recorded raw line items, or a
   period whose figures are analyst-supplied (`financials_source` for FY-Current, `forecast_source` for a forward
   year) reports the break-even as unavailable with its reason; forward-year rows are disclosure-only
 - **State keys:** `interest_paid` · `scheduled_principal` (the period's raw line items)
@@ -1110,22 +1113,29 @@ nothing; nothing here is stored in state.
 
 - **Name:** Gross leverage EBITDA break-even — the EBITDA at which the recorded gross leverage covenant switches
   status
-- **Formula:** ebitda* = (current_debt + overdraft + long_term_debt + loan_notes) / threshold. With a positive
-  threshold the ratio falls as EBITDA rises over positive debt, so the covenant passes at-or-above the boundary;
-  a negative threshold inverts the side (at-or-below); equality is PASS for either side
+- **Formula:** ebitda* = (current_debt + overdraft + long_term_debt + loan_notes) / threshold. The passing side
+  follows the covenant's recorded type together with the ratio's direction as EBITDA rises (falling over positive
+  debt, rising over net cash — a negative numerator): a maximum covenant passes at-or-above the boundary over
+  positive debt and at-or-below over net cash; a minimum covenant is the mirror image; equality is PASS for every
+  combination, and the report never contradicts the policy engine's own evaluation of the recorded type
 - **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
 - **Edge rules:** a threshold of exactly zero → no EBITDA boundary exists (the ratio would have to equal zero);
   reported as unavailable, not as infinity. A boundary at or below zero EBITDA → the ratio is defined only for
-  EBITDA > 0, so the covenant passes at every testable EBITDA and is UNRESOLVABLE at EBITDA ≤ 0 before it can
-  FAIL (positive threshold) or cannot pass at any testable EBITDA (negative threshold); both are reported as a
-  note, never as a numerical boundary. A threshold that is not a recorded number, a raw line item that is not a
+  EBITDA > 0 and every testable point lies above the boundary, so the covenant passes at every testable EBITDA
+  (a minimum covenant over positive debt with a negative threshold, or a maximum covenant over net cash with a
+  positive threshold) or at none (the mirror combinations), reported as a note, never as a numerical boundary. A
+  zero numerator → the ratio is 0 at every EBITDA, so the boundary sits at zero EBITDA and the note says whether
+  the covenant passes at every testable EBITDA or at none, per the recorded type and the threshold's sign. A
+  threshold that is not a recorded number — the policy engine's own contract: an int or a float, never a boolean
+  or a numeric string, so the report never presents a boundary for a row the engine records as UNRESOLVABLE —
+  a raw line item that is not a
   number, a period with no recorded raw line items, or analyst-supplied figures report the break-even as
   unavailable with the reason; forward-year rows are disclosure-only
 - **State keys:** `current_debt` · `overdraft` · `long_term_debt` · `loan_notes` (the period's raw line items)
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the maximum-covenant branch),
-  reading the covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
+- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the leverage branch), reading the
+  covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
 - **Basis:** house convention (decision D-a of issue #504)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -1133,19 +1143,22 @@ nothing; nothing here is stored in state.
 
 - **Name:** Net debt / EBITDA EBITDA break-even — the EBITDA at which the recorded net debt / EBITDA covenant
   switches status
-- **Formula:** ebitda* = (current_debt + overdraft + long_term_debt + loan_notes − cash) / threshold. With a
-  positive threshold the covenant passes at-or-above the boundary; a negative threshold inverts the side
-  (at-or-below); equality is PASS for either side
+- **Formula:** ebitda* = (current_debt + overdraft + long_term_debt + loan_notes − cash) / threshold. The passing
+  side follows the covenant's recorded type together with the ratio's direction as EBITDA rises (falling over
+  positive net debt, rising over net cash — a negative numerator): a maximum covenant passes at-or-above the
+  boundary over positive net debt and at-or-below over net cash; a minimum covenant is the mirror image; equality
+  is PASS for every combination
 - **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
 - **Edge rules:** identical to the gross leverage break-even (F-060), with `cash` subtracted from the numerator:
-  a zero threshold → no boundary; a boundary at or below zero EBITDA → the pass-at-every-testable-EBITDA /
-  cannot-pass note per the threshold's sign; non-numeric threshold or raw line items, no recorded raw line items,
+  the type-aware pass side, a zero threshold → no boundary, the boundary-at-or-below-zero and zero-numerator
+  notes per the recorded type and the numerator's sign, the engine's int-or-float threshold contract,
+  non-numeric raw line items, no recorded raw line items,
   or analyst-supplied figures → unavailable with the reason; forward-year rows are disclosure-only
 - **State keys:** `current_debt` · `overdraft` · `long_term_debt` · `loan_notes` · `cash` (the period's raw
   line items)
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the net-debt maximum-covenant
+- **Implemented in:** `scripts/covenant_cushion.py` — `ebitda_break_even()` (the net-debt leverage
   branch), reading the covenant row through `scripts/policy_engine.py` — `evaluate_single_covenant()`
 - **Basis:** house convention (decision D-a of issue #504)
 - **Status:** Implemented, not yet reviewed by an analyst
@@ -1154,11 +1167,13 @@ nothing; nothing here is stored in state.
 
 - **Name:** EBITDA / interest cover EBITDA break-even — the EBITDA at which the recorded EBITDA / interest
   covenant (the workbook's "EBITDA/Interest") switches status
-- **Formula:** ebitda* = threshold × interest_paid. The ratio rises with EBITDA, so the covenant passes
-  at-or-above the boundary and equality is PASS
+- **Formula:** ebitda* = threshold × interest_paid. The ratio rises with EBITDA, so the passing side follows the
+  covenant's recorded type exactly as the policy engine evaluates it: a minimum covenant passes at-or-above the
+  boundary, a maximum at-or-below; equality is PASS for either type
 - **Unit and storage:** the currency units of the period's recorded raw line items; report-only, never stored
 - **Edge rules:** interest_paid zero or negative → the ratio is N/A and the covenant UNRESOLVABLE for every
-  EBITDA; no break-even is reported. A threshold that is not a recorded number, no recorded raw line items, or
+  EBITDA; no break-even is reported. A threshold that is not a recorded number — the policy engine's own
+  contract: an int or a float, never a boolean or a numeric string — no recorded raw line items, or
   analyst-supplied figures report the break-even as unavailable with the reason; forward-year rows are
   disclosure-only
 - **State keys:** `interest_paid` (the period's raw line item)
@@ -1183,7 +1198,10 @@ nothing; nothing here is stored in state.
 - **Unit and storage:** revenue haircut in percent of revenue (0–100, tolerance 0.01); opex increase in percent of
   admin expenses (bound 10,000, tolerance 0.01); interest-rate bump in basis points (bound 10,000 bps, tolerance
   0.5). Report-only, never stored; there is no cost-of-sales shock
-- **Edge rules:** only the three recorded shocks are searched. A baseline that is already FAIL or UNRESOLVABLE
+- **Edge rules:** only the three recorded shocks are searched, and the recorded stress vector must pass the
+  shared domain validator (`numeric_validation.validate_stress_assumptions()`, the write path's own contract):
+  a present malformed or negative assumption refuses the whole report with its reason rather than being read as
+  a zero shock; only an absent shock key defaults to zero. A baseline that is already FAIL or UNRESOLVABLE
   reports zero remaining cushion with no search; a ratio the shock cannot move (for example gross leverage under
   the interest bump) reports "not moved"; a PASS beyond the first non-PASS point is a non-monotone predicate and
   is refused with its reason; a model point the spreading builder refuses, a crossing outside the documented

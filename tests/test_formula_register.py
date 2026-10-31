@@ -364,7 +364,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "spreading_builder:_write_financial_spreading": "5d0ad93f82c6b64a",
     "spreading_builder:_write_collateral_sheet": "174bd3295f0b8109",
     "supplied_forecast:build_downside": "db2bd0b22dcbab55",
-    "covenant_cushion:ebitda_break_even": "6e0999ac00aff734",
+    "covenant_cushion:ebitda_break_even": "79a9709c24bc66c3",
     "covenant_cushion:bracket_and_bisect": "aa5ca4f6184fb0e4",
     "covenant_cushion:_scenario_search": "cea853891d9088a5",
 }

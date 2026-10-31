@@ -19,11 +19,13 @@ only):
   satisfies the covenant, or the reason no boundary exists (zero/negative ratio
   denominator, zero threshold on a maximum covenant, a metric outside the four,
   or no recorded raw line items for the period);
-- for each of the three recorded shocks (revenue haircut, opex increase,
-  interest-rate bump; there is no cost-of-sales shock), two single-shock
-  reverse-stress searches: the base scenario (all shocks at zero) and the
-  downside scenario (the other shocks held at their recorded settings, the
-  searched shock starting from its recorded setting). Each search brackets the
+- for each of the three recorded shocks (revenue haircut, opex increase, interest-rate
+  bump; there is no cost-of-sales shock), two single-shock reverse-stress searches: the
+  base scenario (all shocks at zero) and the downside scenario (the other shocks held at
+  their recorded settings, the searched shock starting from its recorded setting). The
+  recorded stress vector must pass the shared domain validator (the write path's own
+  contract): a present malformed or negative assumption refuses the whole report with
+  its reason rather than being read as a zero shock. Each search brackets the
   first non-PASS point (FAIL or UNRESOLVABLE alike) by expansion then
   bisection and reports the pass/non-pass bracket and its tolerance, never a
   point of false precision. A covenant whose ratio the shock cannot move is
@@ -51,6 +53,7 @@ import sys
 from collections.abc import Callable, Mapping
 
 from policy_engine import DEFAULT_COVENANT_BASIS, evaluate_single_covenant
+from numeric_validation import validate_stress_assumptions
 from spreading_builder import apply_stress_shocks, evaluate_financial_model
 from state_manager import (StateError, find_deal, read_state, sanitize_path_component,
                            state_path, validate_iso_date_str, validate_state)
@@ -120,13 +123,19 @@ def _total_debt(raw: Mapping[str, object]) -> float:
 def ebitda_break_even(covenant: Mapping[str, object], raw: Mapping[str, object] | None) -> dict[str, object]:
     """The exact EBITDA at which a covenant switches status, or the reason none exists.
 
-    For a minimum covenant (DSCR, EBITDA / interest cover) the ratio rises with EBITDA,
-    so the pass side is at-or-above the boundary. For a maximum covenant (gross or net
-    debt / EBITDA) the ratio falls as EBITDA rises when the numerator is positive, so a
-    positive threshold gives an at-or-above boundary and a negative threshold inverts it;
-    a boundary at or below zero EBITDA means every testable point (EBITDA > 0, where the
-    ratio is defined) passes and the covenant is UNRESOLVABLE at EBITDA <= 0 before it can
-    FAIL. Equality is PASS for either covenant type. Register entries F-059..F-062.
+    The passing side follows the covenant's recorded type, exactly as the policy engine
+    evaluates it (a minimum covenant passes when the ratio is at or above the threshold, a
+    maximum when it is at or below; equality is PASS for either), combined with the ratio's
+    direction as EBITDA rises: DSCR and EBITDA / interest cover rise with EBITDA, so a
+    minimum covenant passes at-or-above the boundary and a maximum at-or-below; the leverage
+    ratios fall over positive debt and rise over net cash (a negative numerator), mirroring
+    the two. A boundary at or below zero EBITDA is outside the meaningful region (the ratio
+    is defined only for EBITDA > 0), so the side names where the testable points sit and a
+    note says whether the covenant passes at every testable EBITDA or at none; a zero
+    numerator makes the ratio 0 at every EBITDA and is reported the same way. The threshold
+    uses the policy engine's own numeric contract: an int or float, never a boolean or a
+    numeric string, so the report never presents a boundary for a row the engine records as
+    UNRESOLVABLE. Register entries F-059..F-062.
     """
     metric = covenant.get("metric")
     type_ = covenant.get("type")
@@ -144,11 +153,12 @@ def ebitda_break_even(covenant: Mapping[str, object], raw: Mapping[str, object] 
         result["reason"] = (f"metric {metric!r} is not one of the four EBITDA break-even covenants "
                             "(dscr, gross leverage, net debt / EBITDA, EBITDA / interest)")
         return result
-    try:
-        threshold_value = float(threshold)
-    except (TypeError, ValueError):
-        result["reason"] = f"threshold {threshold!r} is not a recorded number; no boundary is defined"
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        result["reason"] = (f"threshold {threshold!r} is not a recorded number (the policy engine "
+                            "accepts only an int or a float, never a boolean or a numeric string); "
+                            "no boundary is defined")
         return result
+    threshold_value = float(threshold)
 
     try:
         if metric in ("dscr", "ebitda_interest_cover", "EBITDA/Interest"):
@@ -163,7 +173,9 @@ def ebitda_break_even(covenant: Mapping[str, object], raw: Mapping[str, object] 
                                     "is UNRESOLVABLE for every EBITDA; no break-even exists")
                 return result
             result["break_even_ebitda"] = threshold_value * denominator
-            result["pass_side"] = "at_or_above"  # noqa: S105 - a report field, not a credential
+            # The ratio rises with EBITDA, so a minimum covenant passes at-or-above the boundary
+            # and a maximum at-or-below, exactly as the engine evaluates the recorded type.
+            result["pass_side"] = "at_or_above" if type_ == "minimum" else "at_or_below"  # noqa: S105
             return result
 
         numerator = _total_debt(raw)
@@ -173,22 +185,45 @@ def ebitda_break_even(covenant: Mapping[str, object], raw: Mapping[str, object] 
         result["reason"] = f"a raw line item is not a number ({exc}); no boundary is defined"
         return result
     if threshold_value == 0:
-        result["reason"] = ("the threshold is zero; a maximum ratio of the form net debt / EBITDA "
+        result["reason"] = ("the threshold is zero; a ratio of the form (debt or net debt) / EBITDA "
                             "has no EBITDA boundary (the ratio would have to equal zero)")
         return result
     boundary = numerator / threshold_value
     result["break_even_ebitda"] = boundary
-    if threshold_value > 0:
-        result["pass_side"] = "at_or_above"  # noqa: S105 - a report field, not a credential
-        if boundary <= 0:
-            result["note"] = ("the boundary is at or below zero EBITDA: the ratio is defined only "
-                              "for EBITDA > 0, so the covenant passes at every testable EBITDA and "
-                              "is UNRESOLVABLE at EBITDA <= 0 before it can FAIL")
+    if numerator == 0:
+        # The ratio is 0 at every EBITDA, so no EBITDA switches the covenant's status; which
+        # side of the zero-EBITDA boundary passes depends only on the recorded type and the
+        # threshold's sign, never on a fixed direction.
+        passes_at_testable = (type_ == "minimum") == (threshold_value < 0)
+        result["pass_side"] = "at_or_above" if passes_at_testable else "at_or_below"  # noqa: S105
+        result["note"] = ("the numerator is zero, so the ratio is 0 at every EBITDA and the boundary "
+                          "is at zero EBITDA: the covenant "
+                          + ("passes at every testable EBITDA (EBITDA > 0)"
+                             if passes_at_testable
+                             else "cannot pass at any testable EBITDA (EBITDA > 0)"))
+        return result
+    if boundary > 0:
+        # Inside the meaningful region the ratio's direction in EBITDA is fixed by the numerator's
+        # sign, and the passing side follows the covenant's recorded type.
+        ratio_rises = numerator < 0
+        if type_ == "minimum":
+            result["pass_side"] = "at_or_above" if ratio_rises else "at_or_below"  # noqa: S105
+        else:
+            result["pass_side"] = "at_or_below" if ratio_rises else "at_or_above"  # noqa: S105
+        return result
+    # A boundary at or below zero EBITDA: every testable EBITDA (EBITDA > 0) lies above it, so
+    # the covenant passes at every testable point or at none, per the recorded type and the
+    # numerator's sign.
+    passes_at_testable = (type_ == "minimum") == (numerator > 0)
+    result["pass_side"] = "at_or_above" if passes_at_testable else "at_or_below"  # noqa: S105
+    if passes_at_testable:
+        result["note"] = ("the boundary is at or below zero EBITDA: the ratio is defined only "
+                          "for EBITDA > 0, so the covenant passes at every testable EBITDA and "
+                          "is UNRESOLVABLE at EBITDA <= 0 before it can FAIL")
     else:
-        result["pass_side"] = "at_or_below"  # noqa: S105 - a report field, not a credential
-        if boundary <= 0:
-            result["note"] = ("the boundary is at or below zero EBITDA: the ratio is non-negative "
-                              "for EBITDA > 0, so the covenant cannot pass at any testable EBITDA")
+        result["note"] = ("the boundary is at or below zero EBITDA: every testable EBITDA "
+                          "(EBITDA > 0) is on the failing side of it, so the covenant cannot "
+                          "pass at any testable EBITDA")
     return result
 
 
@@ -309,21 +344,20 @@ def _evaluate_at(
 
 def _shock_rows(
     covenant: Mapping[str, object], period: str, raw: Mapping[str, object],
-    recorded_view: str, stress_assumptions: Mapping[str, object],
+    recorded_view: str, stress_assumptions: Mapping[str, float],
 ) -> list[dict[str, object]]:
     """One row per recorded shock: the base scenario and the downside scenario.
 
     The base scenario holds every shock at zero. The downside scenario holds the other
     shocks at their recorded settings and starts the searched shock from its recorded
     setting, reporting both the cumulative crossing and the additional cushion beyond
-    that setting.
+    that setting. The recorded vector has already passed the shared domain validator
+    (compute_from_state), so a present value here is a number; only an absent key
+    defaults to zero.
     """
 
     def recorded(key: str) -> float:
-        try:
-            return float(stress_assumptions.get(key) or 0)
-        except (TypeError, ValueError):
-            return 0.0
+        return float(stress_assumptions.get(key) or 0)
 
     def scenario(key: str, fixed: dict[str, float], start: float) -> dict[str, object]:
         spec = SHOCK_SPECS[key]
@@ -395,6 +429,11 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
     financials = state.get("financials") if isinstance(state.get("financials"), Mapping) else {}
     covenants = state.get("covenants") if isinstance(state.get("covenants"), list) else []
     stress = state.get("stress_assumptions") if isinstance(state.get("stress_assumptions"), Mapping) else {}
+    # A present malformed or negative recorded shock is a domain error, never a silent zero
+    # shock: the shared write-path validator (numeric_validation) refuses the vector, so this
+    # report refuses with its reason instead of searching as though nothing had been recorded.
+    # Only an absent shock key defaults to zero.
+    validate_stress_assumptions(stress)
     recorded_view = "consolidated" if isinstance(state.get("group_basis"), Mapping) else "borrower"
 
     caveats: list[str] = []

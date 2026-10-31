@@ -212,7 +212,7 @@ def test_the_reported_side_matches_the_policy_engine_across_the_boundary():
         boundary = float(break_even["break_even_ebitda"])
         for factor, side in ((0.9, "below"), (1.1, "above")):
             ebitda = boundary * factor
-            shocked_raw = _raw(revenue=1000.0 - 100.0 + ebitda,  # EBITDA = revenue - 600 - 250
+            shocked_raw = _raw(revenue=850.0 + ebitda,  # EBITDA = revenue - 600 - 250 = ebitda
                                interest_paid=10.0, scheduled_principal=15.0)
             model = evaluate_financial_model({"FY-Current": shocked_raw})
             result = evaluate_single_covenant(

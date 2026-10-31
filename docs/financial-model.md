@@ -214,6 +214,44 @@ IDs are disambiguated with numeric suffixes (`DOWNSIDE-FY-1-DSCR`, `DOWNSIDE-FY-
 the existing unsuffixed ID. The draft must acknowledge each breach separately; acknowledging one does not acknowledge
 the other.
 
+## The covenant cushion report
+
+`scripts/covenant_cushion.py` (issue #470; read-only, JSON on stdout) reports the mechanical distance between each
+recorded covenant's PASS and its first non-PASS result. It computes nothing the policy engine owns: every covenant
+row is the engine's own result, reused through `policy_engine.evaluate_single_covenant()`, and every shock point
+re-runs the recorded raw line items through `apply_stress_shocks()` and `evaluate_financial_model()`.
+
+**Exact EBITDA break-evens** exist for the four EBITDA-driven covenants, per period, from that period's raw lines:
+`EBITDA* = threshold x (interest_paid + scheduled_principal)` for the DSCR,
+`EBITDA* = total_debt / threshold` for gross leverage,
+`EBITDA* = (total_debt - cash) / threshold` for net debt / EBITDA and
+`EBITDA* = threshold x interest_paid` for EBITDA / interest cover, each with the side that satisfies the covenant
+(at-or-above for the minimum covenants and for a positive threshold on the maximum covenants; a negative threshold
+on a maximum covenant inverts the side). The EBITDA basis is the one the model computes: before exceptional items and
+including other income (decision D-a, issue #504); the DSCR is the EBITDA-based DSCR (decision D-d; a cash-flow DSCR
+is issue #521). A zero or negative ratio denominator (debt service or interest paid) leaves the ratio N/A and the
+covenant UNRESOLVABLE, and no break-even is reported for it; a maximum covenant with a zero threshold has no
+boundary. A boundary at or below zero EBITDA means the ratio is N/A there, so the covenant is UNRESOLVABLE at
+EBITDA <= 0 before it can FAIL, and the report says so rather than fabricating a crossing.
+
+**Reverse stress** moves one shock at a time over the three recorded shocks only (there is no cost-of-sales shock):
+the base scenario starts from zero shock, the downside scenario from the recorded stress vector, reporting both the
+cumulative crossing and the additional cushion beyond the recorded setting. Each search brackets the first non-PASS
+point (FAIL or UNRESOLVABLE alike) by geometric expansion then bisection and reports the pass/non-pass bracket and
+its tolerance — never a point of false precision. A ratio the shock cannot move (for example gross leverage under
+the interest bump) is reported "not moved"; a non-monotone driver, a point the spreading builder refuses, or a
+crossing outside the documented bounds (revenue haircut 0–100%; opex increase and interest bump up to 10,000) is
+reported with its reason instead of a cushion. A baseline already FAIL or UNRESOLVABLE reports zero remaining
+cushion, and no search pretends an adverse shock first caused it.
+
+Because the searches re-evaluate the raw line items, a period whose figures are analyst-supplied
+(`financials_source` for FY-Current, `forecast_source` for a forward year) or absent from
+`multi_period_financials` reports its break-even and searches as unavailable with the reason; a recorded ratio that
+disagrees with a re-evaluation of the raw lines is flagged as a caveat. Forward-year rows are disclosure only,
+exactly as the policy engine records them. The formulas are register entries
+[F-059..F-063](formula-register.md); the report is not a credit decision, and `policy_check.py` remains
+authoritative.
+
 ## Analyst-supplied figures
 
 By default every subtotal and ratio is recomputed from raw line items. An institution may instead supply its own

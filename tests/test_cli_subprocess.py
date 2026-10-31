@@ -36,7 +36,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export", "draft_lint",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "covenant_cushion", "deal_export", "draft_lint",
     "export_readback", "mutation_report", "orchestrator", "pii_scan", "pr_scope_check", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
@@ -2455,6 +2455,82 @@ def test_committee_summary_refuses_a_missing_deal_with_one_error_line_and_writes
     assert result.returncode == 1 and result.stdout == ""
     assert result.stderr == "error: no existing state.json for company 'Synthetic Co' and proposal 'No Such Deal'\n"
     assert not (cli.workdir / "deals").exists()
+
+
+def _seed_covenant_cushion_deal(cli):
+    from state_manager import write_state
+
+    company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
+    raw = {
+        "revenue": 1000.0, "cost_of_sales": 600.0, "admin_expenses": 250.0,
+        "interest_paid": 20.0, "scheduled_principal": 5.0,
+        "cash": 30.0, "current_debt": 40.0, "overdraft": 10.0, "long_term_debt": 50.0,
+    }
+    write_state(company, proposal, date_str=date_str, base_dir=str(cli.workdir), deal_type="corporate_credit",
+                steps_completed=["spread"], financials_source="framework-computed",
+                inputs={"pd": "0.20%"},
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25}],
+                ratios={"FY-Current": {"dscr": 6.0}}, financials={"FY-Current": {"ebitda": 150.0}},
+                multi_period_financials={"FY-Current": raw},
+                stress_assumptions={"revenue_haircut_pct": 5.0})
+    return company, proposal, cli.workdir / "deals" / company / f"{proposal}_{date_str}"
+
+
+def test_covenant_cushion_cli_help_and_unknown_flag(cli):
+    help_result = cli("covenant_cushion", "--help")
+    assert help_result.returncode == 0, help_result.stderr
+    assert "--company" in help_result.stdout and "--proposal" in help_result.stdout
+    assert "--date-str" in help_result.stdout
+
+    bad = cli("covenant_cushion", "--company", "Synthetic Co", "--proposal", "Loan", "--made-up")
+    assert bad.returncode == 2
+    assert "usage:" in bad.stderr and "unrecognized arguments" in bad.stderr
+
+
+def test_covenant_cushion_prints_the_report_and_changes_nothing(cli):
+    company, proposal, folder = _seed_covenant_cushion_deal(cli)
+    before = {p: p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()}
+
+    result = cli("covenant_cushion", "--company", company, "--proposal", proposal)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+    assert {p: p.read_bytes() for p in sorted(folder.rglob("*")) if p.is_file()} == before
+    report = json.loads(result.stdout)
+    assert report["status"] == "ok"
+    assert report["selected_folder"].endswith(f"{proposal}_2026-01-05")
+    assert report["covenants"][0]["metric"] == "dscr"
+    entry = report["covenants"][0]["periods"][0]
+    assert entry["result"]["status"] == "PASS"
+    assert entry["result"]["actual"] == 6.0
+    assert entry["break_even_ebitda"]["break_even_ebitda"] == pytest.approx(31.25)
+    shocks = {shock["shock"]: shock for shock in entry["shocks"]}
+    assert shocks["revenue_haircut_pct"]["base_scenario"]["outcome"] == "crossing"
+    assert shocks["revenue_haircut_pct"]["downside_scenario"]["start"] == 5.0
+    # The bump moves the DSCR and breaches it inside the bound: with debt 100 and
+    # scheduled principal 5, dscr = 150/(20 + 100*bump/10000 + 5) < 1.25 at bump > 9500.
+    bump_scenario = shocks["interest_rate_bump_bps"]["base_scenario"]
+    assert bump_scenario["outcome"] == "crossing"
+    lo, hi = bump_scenario["bracket"]
+    assert lo <= 9500 < hi
+
+
+def test_covenant_cushion_refuses_a_missing_deal_with_one_error_line_and_writes_nothing(cli):
+    result = cli("covenant_cushion", "--company", "Synthetic Co", "--proposal", "No Such Deal")
+
+    assert result.returncode == 1 and result.stdout == ""
+    assert result.stderr == "error: no existing state.json for company 'Synthetic Co' and proposal 'No Such Deal'\n"
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_covenant_cushion_reports_a_malformed_state_cleanly(cli):
+    state_file = _write_state(cli.workdir, {"ratios": [1]})
+    before = state_file.read_bytes()
+
+    result = cli("covenant_cushion", "--company", "Acme", "--proposal", "Loan")
+
+    _assert_a_clean_state_error(result, '"ratios" must be an object keyed by period', "state.json")
+    assert state_file.read_bytes() == before
 
 
 def test_draft_lint_cli_help_and_unknown_flag(cli):

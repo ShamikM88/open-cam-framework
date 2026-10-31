@@ -150,10 +150,12 @@ stop and ask the analyst to confirm any UNRESOLVABLE result (decision of 2026-10
 
 A covenant is a condition in the facility: a **minimum** (the ratio must be at least the threshold) or a **maximum**
 (it must be at most the threshold), recorded as `{"metric": "dscr", "type": "minimum", "threshold": 1.25}`. Equality
-passes. Results: `PASS`, `FAIL` or `UNRESOLVABLE`, with `actual` and a **headroom** as a fraction of the threshold:
-for a minimum `(actual - threshold) / threshold`, for a maximum `(threshold - actual) / threshold`. In the example,
-DSCR 2.0 against a minimum of 1.25 has headroom 0.6; gross leverage 2.0 against a maximum of 3.5 has 0.4286. A
-threshold of exactly 0 has no percentage headroom (it is `null`), but the status is still decided by comparison.
+passes. Results: `PASS`, `FAIL` or `UNRESOLVABLE`, with `actual` and a **headroom** as a fraction of the threshold's
+absolute value: for a minimum `(actual - threshold) / abs(threshold)`, for a maximum `(threshold - actual) /
+abs(threshold)`, so the headroom is positive when the covenant passes and negative when it fails whatever the
+threshold's sign. In the example, DSCR 2.0 against a minimum of 1.25 has headroom 0.6; gross leverage 2.0 against a
+maximum of 3.5 has 0.4286. A threshold of exactly 0 has no percentage headroom (it is `null`), but the status is
+still decided by comparison.
 
 Covenants are tested in three places, with three different consequences:
 

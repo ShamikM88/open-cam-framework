@@ -682,10 +682,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-038 — Covenant test
 
 - **Name:** Covenant test — the per-covenant PASS/FAIL/UNRESOLVABLE evaluation
-- **Formula:** minimum covenant: PASS iff actual ≥ threshold; headroom_pct = (actual − threshold) / threshold.
-  maximum covenant: PASS iff actual ≤ threshold; headroom_pct = (threshold − actual) / threshold. Equality
-  passes for both directions
-- **Unit and storage:** status string plus `headroom_pct` as a fraction of the threshold; actual/threshold kept
+- **Formula:** minimum covenant: PASS iff actual ≥ threshold; headroom_pct = (actual − threshold) / |threshold|.
+  maximum covenant: PASS iff actual ≤ threshold; headroom_pct = (threshold − actual) / |threshold|. Equality
+  passes for both directions; the headroom is positive when the covenant passes and negative when it fails for
+  any non-zero threshold, whatever its sign
+- **Unit and storage:** status string plus `headroom_pct` as a fraction of the threshold's absolute value; actual/threshold kept
   at full precision
 - **Edge rules:** an N/A ratio (zero/negative denominator, the rule of [F-021](#f-021--dscr)) makes the covenant UNRESOLVABLE —
   never PASS, never FAIL — with a one-sentence reason naming the metric and denominator; an unrecognized

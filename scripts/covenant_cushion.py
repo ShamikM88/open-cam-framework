@@ -17,8 +17,10 @@ only):
 - the exact EBITDA break-even for the four EBITDA-driven covenants (DSCR, gross
   leverage, net debt / EBITDA, EBITDA / interest cover), with the side that
   satisfies the covenant, or the reason no boundary exists (zero/negative ratio
-  denominator, zero threshold on a maximum covenant, a metric outside the four,
-  or no recorded raw line items for the period);
+  denominator, zero threshold on either leverage covenant (minimum or maximum), a
+  metric outside the four, or no recorded raw line items for the period); the raw
+  figures follow the spreading model's own raw-figure contract, so a figure the model
+  refuses (a numeric string, a boolean, a non-finite float) gives no boundary either;
 - for each of the three recorded shocks (revenue haircut, opex increase, interest-rate
   bump; there is no cost-of-sales shock), two single-shock reverse-stress searches: the
   base scenario (all shocks at zero) and the downside scenario (the other shocks held at
@@ -53,8 +55,8 @@ import sys
 from collections.abc import Callable, Mapping
 
 from policy_engine import DEFAULT_COVENANT_BASIS, evaluate_single_covenant
-from numeric_validation import validate_stress_assumptions
-from spreading_builder import apply_stress_shocks, evaluate_financial_model
+from numeric_validation import validate_raw_line_items, validate_stress_assumptions
+from spreading_builder import FIELD_LABELS, apply_stress_shocks, evaluate_financial_model
 from state_manager import (StateError, find_deal, read_state, sanitize_path_component,
                            state_path, validate_iso_date_str, validate_state)
 
@@ -108,11 +110,19 @@ LIMITS = (
 
 
 def _raw_number(raw: Mapping[str, object], key: str) -> float:
-    """One raw line item as a float, defaulting to 0 exactly as the model's g() does."""
-    try:
-        return float(raw.get(key) or 0)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{key} is not a number: {exc}") from exc
+    """One raw line item as a float, defaulting to 0 exactly as the model's g() does.
+
+    The figure is checked with the spreading model's own raw-figure contract first
+    (numeric_validation.validate_raw_line_items over the recognised FIELD_LABELS,
+    the same validator the spreading model runs on its inputs): a recognised raw
+    line item must be a finite JSON number or null, so a numeric string, a boolean
+    or a non-finite float — a figure the model refuses — is refused here too, with
+    the model's reason, and no boundary is reported for that period. Null and
+    missing keys stay the model's spelling of an unavailable figure and read as 0.
+    """
+    validate_raw_line_items({"FY-Current": dict(raw)}, FIELD_LABELS,
+                            path="the period's raw line items")
+    return float(raw.get(key) or 0)
 
 
 def _total_debt(raw: Mapping[str, object]) -> float:

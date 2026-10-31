@@ -163,7 +163,7 @@ def ebitda_break_even(covenant: Mapping[str, object], raw: Mapping[str, object] 
                                     "is UNRESOLVABLE for every EBITDA; no break-even exists")
                 return result
             result["break_even_ebitda"] = threshold_value * denominator
-            result["pass_side"] = "at_or_above"
+            result["pass_side"] = "at_or_above"  # noqa: S105 - a report field, not a credential
             return result
 
         numerator = _total_debt(raw)
@@ -179,13 +179,13 @@ def ebitda_break_even(covenant: Mapping[str, object], raw: Mapping[str, object] 
     boundary = numerator / threshold_value
     result["break_even_ebitda"] = boundary
     if threshold_value > 0:
-        result["pass_side"] = "at_or_above"
+        result["pass_side"] = "at_or_above"  # noqa: S105 - a report field, not a credential
         if boundary <= 0:
             result["note"] = ("the boundary is at or below zero EBITDA: the ratio is defined only "
                               "for EBITDA > 0, so the covenant passes at every testable EBITDA and "
                               "is UNRESOLVABLE at EBITDA <= 0 before it can FAIL")
     else:
-        result["pass_side"] = "at_or_below"
+        result["pass_side"] = "at_or_below"  # noqa: S105 - a report field, not a credential
         if boundary <= 0:
             result["note"] = ("the boundary is at or below zero EBITDA: the ratio is non-negative "
                               "for EBITDA > 0, so the covenant cannot pass at any testable EBITDA")

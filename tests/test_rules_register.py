@@ -98,7 +98,7 @@ def _collect_citations(test_files, root):
     for path in sorted(test_files):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for name, docstring in _test_docstrings(tree):
-            location = f"{path.relative_to(root)}::{name}"
+            location = f"{path.relative_to(root).as_posix()}::{name}"
             for line in (docstring or "").splitlines():
                 citation_match = CITATION_LINE_RE.match(line.strip())
                 if not citation_match:

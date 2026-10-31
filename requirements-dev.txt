@@ -9,4 +9,4 @@ hypothesis>=6.168.5       # property-based tests (tests/test_properties.py, issu
 diff-cover>=10.6.0        # coverage of the lines a PR changes (issue #142; CI runs it with --config-file pyproject.toml)
 ruff>=0.17.0
 bandit>=1.9.4
-mypy>=2.4.0               # advisory type-check diagnostic (issue #424; .github/workflows/typecheck.yml), not a gate
+mypy>=2.4.0               # type check for the eleven governance modules (issue #424; .github/workflows/typecheck.yml); type errors fail the typecheck job

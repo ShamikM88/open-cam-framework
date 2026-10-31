@@ -242,12 +242,12 @@ open-cam-framework/
 ├── inputs/calibration_samples/  Historical CAM PDFs used as calibration input (gitignored/local)
 ├── requirements.txt
 ├── diff_cover_critical.toml     The stricter changed-lines coverage tier (98%) for the eleven governance modules; the 95% tier is `[tool.diff_cover]` in `pyproject.toml`
-├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage, the advisory mypy configuration -- see "Testing and static analysis" in `CLAUDE.md`
-├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit, mypy (advisory diagnostic only)
+├── pyproject.toml               Central tool configuration (no project metadata): ruff rules, pytest options, coverage, the mypy type-check configuration -- see "Testing and static analysis" in `CLAUDE.md`
+├── requirements-dev.txt         requirements.txt + pytest, pytest-cov/-timeout/-socket, hypothesis, diff-cover, ruff, bandit, mypy (development only; type errors fail the typecheck job)
 ├── requirements-security.txt    pip-audit + zizmor, installed only by CI's `security` job
 ├── requirements-mutation.txt    mutmut, installed only by the weekly mutation workflow
 ├── .github/CODEOWNERS           Names the maintainer as owner of `.claude/settings.json` and `.claude/hooks/`; it only protects them if the repository's external ruleset requires code-owner review -- see [Security](security.md#repository-shipped-claude-code-commit-guard)
-├── .github/workflows/typecheck.yml  Advisory mypy diagnostic (error count per module in the job summary; never a required check or a gate)
+├── .github/workflows/typecheck.yml  mypy type check for the eleven governance modules (error count per module in the job summary; type errors fail the job; not a required check)
 ├── .github/workflows/scope-check.yml  Advisory PR scope check: changed paths against the pull request's declared file scope; reports only, never a required check or a gate
 ├── .github/workflows/mutation.yml  Weekly + manual mutation testing of the eleven governance modules (diagnostic report, never a merge gate)
 ├── .github/workflows/model-freshness.yml  Weekly + manual diagnostic of SDK model/deprecation metadata; updates one tech-debt issue, never a required check

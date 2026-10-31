@@ -278,7 +278,7 @@ def classify_junit(xml_bytes, selection):
     try:
         # The XML is pytest's own JUnit output from this run, written by pytest with escaped names;
         # the script never resolves entities or external documents (S314).
-        root = ET.fromstring(xml_bytes)  # noqa: S314
+        root = ET.fromstring(xml_bytes)  # noqa: S314  # nosec B314 - pytest's own JUnit output (bandit's code for S314)
     except ET.ParseError as exc:
         raise CheckBroken("unreadable JUnit XML") from exc
     cases = [case for suite in root.iter("testsuite") for case in suite.iter("testcase")]
@@ -305,12 +305,17 @@ def classify_junit(xml_bytes, selection):
                 elif case.find("error") is not None:
                     failed += 1
                     kinds.add("import")
+                elif case.find("skipped") is not None:
+                    continue  # never executed: counted as a run, neither red nor green evidence (CL531-3)
                 else:
                     passed += 1
             if runs == 0:
                 kind = "import" if path in collection_error_files else "no-result"
                 rows.append({"id": _node_id(path, unit), "runs": 0, "failed": 0, "passed": 0,
                              "kind": kind, "category": "CANNOT_RUN"})
+            elif not failed and not passed:
+                rows.append({"id": _node_id(path, unit), "runs": runs, "failed": 0, "passed": 0,
+                             "kind": "skipped", "category": "CANNOT_RUN"})
             else:
                 category = "RED_ON_BASE" if failed else "PASSES_ON_BASE"
                 rows.append({"id": _node_id(path, unit), "runs": runs, "failed": failed,
@@ -319,15 +324,16 @@ def classify_junit(xml_bytes, selection):
     return rows
 
 
-def pr_verdict(rows):
+def pr_verdict(rows, unparseable=()):
     """The pull-request-level verdict from the per-unit rows: red evidence first, then a check that
-    could not fully run, then all-clear. No rows means nothing was selected."""
-    if not rows:
-        return "NO_TESTS_SELECTED"
+    could not fully run (a changed test file that does not parse at the head counts), then all-clear.
+    No rows and no unparseable file means nothing was selected."""
     if any(row["category"] == "RED_ON_BASE" for row in rows):
         return "RED_ON_BASE"
-    if any(row["category"] == "CANNOT_RUN" for row in rows):
+    if unparseable or any(row["category"] == "CANNOT_RUN" for row in rows):
         return "CANNOT_RUN"
+    if not rows:
+        return "NO_TESTS_SELECTED"
     return "PASSES_ON_BASE"
 
 
@@ -357,7 +363,7 @@ LEGEND = (
 _HEADING = "### New tests on the base commit (advisory; not a required check)"
 
 
-def _verdict_line(verdict, rows):
+def _verdict_line(verdict, rows, unparseable=()):
     selected = len(rows)
     plural = "s" if selected != 1 else ""
     if verdict == "NO_TESTS_SELECTED":
@@ -366,9 +372,15 @@ def _verdict_line(verdict, rows):
         return f"Verdict: PASSES_ON_BASE — {selected} selected test function{plural}, all passed on the base commit."
     if verdict == "CANNOT_RUN":
         blocked = sum(1 for row in rows if row["category"] == "CANNOT_RUN")
-        kinds = ", ".join(sorted({row["kind"] for row in rows if row["category"] == "CANNOT_RUN"}))
-        return (f"Verdict: CANNOT_RUN — {selected} selected test function{plural}, "
-                f"{blocked} could not run on the base commit (kind: {kinds}).")
+        kinds = {row["kind"] for row in rows if row["category"] == "CANNOT_RUN"}
+        parts = []
+        if rows:
+            parts.append(f"{selected} selected test function{plural}, {blocked} could not run on the base commit")
+        if unparseable:
+            parts.append(f"{len(unparseable)} changed test file{'s' if len(unparseable) != 1 else ''} "
+                         "could not be parsed at the head commit")
+            kinds.add("unparseable")
+        return f"Verdict: CANNOT_RUN — {'; '.join(parts)} (kind: {', '.join(sorted(kinds))})."
     red = sum(1 for row in rows if row["failed"])
     kinds = ", ".join(sorted({row["kind"] for row in rows if row["failed"]}))
     return (f"Verdict: RED_ON_BASE — {selected} selected test function{plural}, "
@@ -377,8 +389,8 @@ def _verdict_line(verdict, rows):
 
 def build_report(rows, unparseable):
     """The stable advisory Markdown report: heading, verdict, one row per selected unit, the legend."""
-    verdict = pr_verdict(rows)
-    report = [_HEADING, "", _verdict_line(verdict, rows)]
+    verdict = pr_verdict(rows, unparseable)
+    report = [_HEADING, "", _verdict_line(verdict, rows, unparseable)]
     if rows:
         report.extend((
             "",
@@ -442,8 +454,8 @@ def main(argv=None):
         if _git(repo, "rev-parse", "HEAD").decode("utf-8").strip() != head_sha:
             raise CheckBroken("HEAD is not the requested head commit")
         selection, overlay, unparseable = select_tests(repo, base_sha, head_sha, paths)
-        if not selection and not unparseable:
-            report = build_report([], [])
+        if not selection:   # nothing to run: never start pytest with no node ids (it would run the whole suite)
+            report = build_report([], unparseable)
         else:
             xml_bytes = run_selected_tests(repo, base_sha, head_sha, selection, overlay)
             rows = classify_junit(xml_bytes, selection)

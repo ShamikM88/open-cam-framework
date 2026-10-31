@@ -516,7 +516,7 @@ def test_an_unparseable_file_alone_never_runs_pytest_and_is_cannot_run(tmp_path,
 
 
 def test_an_unparseable_file_beside_a_passing_test_is_not_an_all_clear(checker):
-    rows = [{"id": "tests/test_a.py::test_a", "runs": 1, "failed": 0, "passed": 1, "skipped": 0,
+    rows = [{"id": "tests/test_a.py::test_a", "runs": 1, "failed": 0, "passed": 1,
              "kind": "assertion", "category": "PASSES_ON_BASE"}]
     assert checker.pr_verdict(rows, ["tests/broken.py"]) == "CANNOT_RUN"
     assert checker.pr_verdict(rows) == "PASSES_ON_BASE"

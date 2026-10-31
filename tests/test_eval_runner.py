@@ -1198,6 +1198,58 @@ def test_the_pack_says_the_call_had_already_failed_for_an_interrupted_error_run(
     assert "already failed" in row and "in flight" not in row
 
 
+def test_an_interrupt_in_cleanup_after_a_post_call_pipeline_failure_keeps_the_output_and_does_not_label_the_call_failed(env, monkeypatch):
+    # CG525-4: the recorded error may belong to a pipeline stage that ran after the response
+    # was saved, not to the model call. A response already in router.responses is a completed
+    # call, so the run must not be labelled call_had_failed or say the call had already
+    # failed; the output is kept and the error names the later pipeline failure.
+    import orchestrator as orchestrator_module
+
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    real_write_state = orchestrator_module.write_state
+    state = {"calls": 0}
+
+    def failing_later_write_state(*args, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:  # the pre-call checkpoint succeeds...
+            return real_write_state(*args, **kwargs)
+        raise RuntimeError("a pipeline stage failed after the call")  # ...the post-call stage fails
+
+    monkeypatch.setattr(orchestrator_module, "write_state", failing_later_write_state)
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    assert run["status"] == "interrupted" and not run["passed"]
+    assert run["live_calls"] == 1 and budget.calls == 1
+    assert run["output_text"] == good_maker_text(case)  # the paid-for output is kept
+    assert run.get("call_had_failed") is None  # a completed call, never labelled a failed one
+    assert "had already failed" not in run["error"]
+    assert "model call completed" in run["error"] and "later pipeline stage" in run["error"]
+    assert "RuntimeError: a pipeline stage failed after the call" in run["error"]
+
+
+def test_the_pack_names_a_post_call_pipeline_failure_as_a_completed_call(env, monkeypatch):
+    # CG525-4 carried through to the human-readable row: a pipeline failure after a saved
+    # response is a completed call whose output is kept, never "the call had already failed".
+    import orchestrator as orchestrator_module
+
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    real_write_state = orchestrator_module.write_state
+    state = {"calls": 0}
+
+    def failing_later_write_state(*args, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            return real_write_state(*args, **kwargs)
+        raise RuntimeError("a pipeline stage failed after the call")
+
+    monkeypatch.setattr(orchestrator_module, "write_state", failing_later_write_state)
+    run, _ = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    from eval_report import _row_result
+    row = _row_result(run)
+    assert "after the call completed" in row and "already failed" not in row
+
+
 def test_a_call_cap_abort_wins_when_ctrl_c_lands_in_cleanup(env, monkeypatch):
     case = dataset_case("fab-no-financials")
     _interrupt_cleanup_of("fab-no-financials", monkeypatch)

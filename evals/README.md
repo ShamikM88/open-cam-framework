@@ -208,12 +208,18 @@ points or more), its threshold is arbitrary until run-to-run variance is known, 
   - `no_text` -- the model returned no text (for example a refusal): a result in its own right, shown
     as such in the pack and never counted toward the error streak;
   - `interrupted` -- Ctrl-C arrived after a call was attempted but before its result was recorded.
-    If the call was still in flight, no model result was observed. If it had completed and Ctrl-C hit
-    during scoring or the work-directory cleanup, the output is kept in `output_text` but was never
-    scored (the review pack says which of the two happened). Either way the call is recorded and counted,
-    and the working directory is restored first. (Ctrl-C before any call is in flight records no run at
-    all, because nothing was spent.) Ctrl-C while a finished run is being appended to `runs.jsonl` or
-    reported as progress keeps that run in the record and stops the evaluation.
+    If the call was still in flight, no model result was observed (and when the call had already
+    failed with an error, that error text is kept in the run's `error` alongside the interrupt). If
+    it had completed and Ctrl-C hit during scoring or the work-directory cleanup, the output is kept
+    in `output_text` but was never scored -- unless the reply had no text (for example a refusal), in
+    which case there is no output to keep (the review pack says which of the three happened). An
+    error recorded after the response was saved belongs to a later pipeline stage, not the model
+    call: that run is still worded as a completed call whose output is kept, with the pipeline
+    failure named in `error`, and is never labelled a failed model call. Either
+    way the call is recorded and counted, and the working directory is restored first. (Ctrl-C before
+    any call is in flight records no run at all, because nothing was spent.) Ctrl-C while a finished
+    run is being appended to `runs.jsonl` or reported as progress keeps that run in the record and
+    stops the evaluation.
 
   Two related behaviours: a failure to append to
   `runs.jsonl` (for example a full disk; `abort_category: "write error"`; only that write is treated this

@@ -370,7 +370,7 @@ independently proven by the gate.
 
 - **Claim:** A forward-only `/project` update does not change an analyst-supplied deal's `financials_source` to `framework-computed`.
 - **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
-- **Implemented in:** `scripts/spreading_check.py::compute`
+- **Implemented in:** `scripts/spreading_check.py::plan_fields`
 - **Status:** Not covered
 - **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
 
@@ -419,7 +419,7 @@ independently proven by the gate.
 ### R-EXPORT-005 — export validates state before creating output
 
 - **Claim:** `export_deal()` reads and validates deal state before creating the output folder or auto-saving a template.
-- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
 - **Implemented in:** `scripts/deal_export.py::export_deal`
 - **Status:** Not covered
 - **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).

@@ -11,8 +11,11 @@ the citations drift apart, in either direction:
    deleted id), or an entry's id is missing from the "IDs ever issued" list;
 4. a Not covered rule has no issue link in Tracking;
 5. a citation names a Withdrawn rule;
-6. an "Implemented in" pointer does not resolve to an existing file and, when
-   a function or method is named, an existing definition in that file.
+6. an "Implemented in" field is not exactly one repository-relative pointer
+   (`<file>`, `<file>::<function>` or `none` per the page's grammar: absolute
+   paths, ../ traversal and extra backticked tokens are rejected), or the
+   pointer does not resolve to an existing file and, when a function or
+   method is named, an existing definition in that file.
 
 A citation declares which rule a test is responsible for; it does not prove
 the test is strong, that its assertions cover the Claim, or that it executes:
@@ -141,6 +144,9 @@ def _check_implemented_in(entry, repo_root):
     tokens = BACKTICKED_RE.findall(entry.get("Implemented in", ""))
     if not tokens:
         return [f"Rule {rule_id} has no 'Implemented in' pointer."]
+    if len(tokens) > 1:
+        return [f"Rule {rule_id}: 'Implemented in' must name exactly one pointer; "
+                f"found {len(tokens)} backticked values."]
     pointer = tokens[0]
     if pointer == "none":
         if entry.get("Status") == "Not covered":
@@ -148,6 +154,15 @@ def _check_implemented_in(entry, repo_root):
         return [f"Rule {rule_id} is not Not covered, so 'Implemented in' cannot be none."]
     file_part, separator, name_part = pointer.partition("::")
     file_path = repo_root / file_part
+    # The page's grammar is repository-relative: one pointer, inside the repository root.
+    # An absolute path, ../ traversal or a symlink that resolves outside repo_root is
+    # rejected before any existence check, so an outside file is never accepted. (The
+    # absolute test is on file_part: repo_root is absolute, so the joined path always is.)
+    root = repo_root.resolve()
+    if (Path(file_part).is_absolute() or ".." in file_path.parts
+            or root not in file_path.resolve().parents):
+        return [f"Rule {rule_id}: 'Implemented in' names {pointer!r}, "
+                "which is not a repository-relative path."]
     if not file_path.is_file():
         return [f"Rule {rule_id}: 'Implemented in' names {pointer!r}, which does not exist in the repository."]
     if not separator:
@@ -251,7 +266,7 @@ def _register_tree(tmp_path, register, test_sources, impl_sources=None):
     """Write a synthetic register, test tree and implementation files under
     tmp_path and run the same pure checker the real gate uses."""
     tests_dir = tmp_path / "tests"
-    tests_dir.mkdir()
+    tests_dir.mkdir(exist_ok=True)  # a self-test may build several trees under one tmp_path
     for name, source in test_sources.items():
         (tests_dir / name).write_text(source, encoding="utf-8")
     for name, source in (impl_sources or {"scripts/synthetic_impl.py": SYNTHETIC_IMPL}).items():

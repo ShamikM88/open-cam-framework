@@ -19,7 +19,7 @@ from covenant_cushion import (
     main,
 )
 from policy_engine import evaluate_single_covenant
-from numeric_validation import StressAssumptionsError
+from numeric_validation import InvalidFinancialInputError, StressAssumptionsError
 from spreading_builder import evaluate_financial_model
 
 
@@ -738,6 +738,43 @@ def test_break_even_refuses_a_non_numeric_raw_line():
         {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}, raw)
     assert break_even["break_even_ebitda"] is None
     assert "not a number" in break_even["reason"]
+
+
+def test_a_numeric_string_or_boolean_raw_figure_gives_no_boundary_and_matches_the_model_refusal():
+    # The raw figures use the spreading model's own contract (numeric_validation
+    # .validate_raw_line_items): a recognised raw line item is a finite JSON number or null,
+    # never a numeric string or a boolean, so a figure the model refuses gives no boundary
+    # and the reason names the model's contract (review finding CG526-4).
+    for figure in ("100", True, float("nan")):
+        raw = _raw()
+        raw["current_debt"] = figure
+        break_even = ebitda_break_even(
+            {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}, raw)
+        assert break_even["break_even_ebitda"] is None
+        assert break_even["pass_side"] is None
+        assert "must be a finite JSON number or null" in break_even["reason"]
+        with pytest.raises(InvalidFinancialInputError):
+            evaluate_financial_model({"FY-Current": raw})
+
+
+def test_a_numeric_string_raw_figure_in_the_debt_service_gives_no_boundary():
+    # The same contract on the denominator side of the DSCR break-even: the model refuses
+    # the period, so no boundary is reported for it (review finding CG526-4).
+    raw = _raw()
+    raw["scheduled_principal"] = "5"
+    break_even = ebitda_break_even(
+        {"metric": "dscr", "type": "minimum", "threshold": 1.25}, raw)
+    assert break_even["break_even_ebitda"] is None
+    assert break_even["pass_side"] is None
+    assert "must be a finite JSON number or null" in break_even["reason"]
+
+
+def test_the_zero_threshold_refusal_wording_covers_both_leverage_covenant_types():
+    # The break-even refuses a zero threshold for either leverage type (minimum or maximum),
+    # so the module docstring must not limit that refusal to maximum covenants (review
+    # finding CG526-5).
+    assert "zero threshold on a maximum covenant" not in (covenant_cushion.__doc__ or "")
+    assert "zero threshold on either leverage covenant" in (covenant_cushion.__doc__ or "")
 
 
 def test_a_negative_threshold_with_no_debt_cannot_pass_at_any_testable_ebitda():

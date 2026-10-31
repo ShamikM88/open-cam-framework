@@ -936,7 +936,7 @@ def test_the_mypy_step_fails_on_type_errors_and_when_mypy_cannot_run(
 
 
 def test_the_mypy_tool_bump_rule_is_documented_where_a_contributor_looks():
-    """A pull request that bumps the pinned `mypy` or a stub package must fix the new type errors it causes in the same
+    """A pull request that bumps the pinned mypy or a stub package must fix the new type errors it causes in the same
     pull request (the maintainer's decision of 2026-10-31, issue #424 Phase 3 option B). The rule lives in
     docs/testing.md; this pins its presence, not the maintainer's review, which no test can enforce."""
     text = " ".join((REPO_ROOT / "docs" / "testing.md").read_text(encoding="utf-8").split())

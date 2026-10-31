@@ -344,7 +344,7 @@ independently proven by the gate.
 
 ### R-SPREAD-001 — framework-computed figures derive from raw line items
 
-- **Claim:** Framework-computed spreading derives subtotals and ratios from the period's raw line items.
+- **Claim:** Framework-computed ratios are independently recomputed from the period's raw line items.
 - **Source:** [Context Window & State Management Protocol](../CLAUDE.md#context-window--state-management-protocol).
 - **Implemented in:** `scripts/spreading_builder.py::evaluate_financial_model`
 - **Status:** Not covered

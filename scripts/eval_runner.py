@@ -418,6 +418,8 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             raise KeyboardInterrupt
         # The call WAS attempted (and counted against the cap): record it as exactly that, so per-run call
         # counts still sum to the budget. Whether a result exists depends on WHEN the interrupt landed.
+        if first.get("no_text"):  # the reply arrived empty; say so explicitly, because a response may carry no
+            extra = {**extra, "call_returned_no_text": True}  # stop_reason and the pack must still not call it in flight
         if error:  # an error was recorded before the Ctrl-C landed in cleanup. It may belong to
             # the model call or to a pipeline stage that ran after the response was saved: only
             # a call with no response and no no-text result had already failed (CG525-4); for a

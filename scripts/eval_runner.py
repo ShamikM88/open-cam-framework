@@ -423,6 +423,8 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             why = "interrupted (Ctrl-C) after the model call completed (it returned no text)"
         else:
             why = "interrupted (Ctrl-C) while the call was in flight; no model result was observed"
+        if error:  # the call had already failed when the Ctrl-C landed in cleanup; keep both, redacted above
+            why = f"{why}; the call had already failed: {error}"
         return live_run(label, [], status="interrupted", extra=extra, output_text=router.responses.get(role),
                         error=why)
     if error or (role not in router.responses and not first.get("no_text")):

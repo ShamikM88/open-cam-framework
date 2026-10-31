@@ -11,7 +11,7 @@ import sys
 import pytest
 
 import eval_runner
-from eval_budget import BudgetedClient, CallBudget
+from eval_budget import BudgetedClient, CallBudget, CallCapExceeded
 from eval_fakes import (
     DECOYS,
     FakeClient,
@@ -1132,6 +1132,44 @@ def test_ctrl_c_during_post_call_cleanup_keeps_the_paid_output_and_records_the_c
     assert os.getcwd() == before
 
 
+def test_ctrl_c_in_cleanup_after_a_no_text_reply_records_the_call_and_the_pack_says_so(env, monkeypatch):
+    case = dataset_case("inj-source-block-obfuscated")
+    _interrupt_cleanup_of(case["id"], monkeypatch)
+    run, budget = one_run(env, case, ShapedClient(lambda kwargs: _resp([], stop_reason="refusal")))
+    assert run["status"] == "interrupted" and not run["passed"]   # paid for, recorded, non-passing
+    assert run["live_calls"] == 1 and budget.calls == 1 and run.get("output_text") is None
+    assert run["stop_reason"] == "refusal"
+    assert "returned no text" in run["error"]
+    from eval_report import _row_result  # the pack must say which of the three interrupt shapes it was
+    row = _row_result(run)
+    assert "after the call completed" in row and "no text" in row
+    assert "in flight" not in row and "no result was observed" not in row
+
+
+def test_an_api_error_in_flight_survives_a_ctrl_c_that_lands_in_cleanup(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+
+    def fail(kwargs):
+        raise RuntimeError("boom: the API is down")
+
+    run, budget = one_run(env, case, FakeClient(fail))
+    assert run["status"] == "interrupted" and not run["passed"]   # the interrupt still owns the status...
+    assert run["live_calls"] == 1 and budget.calls == 1
+    assert "Ctrl-C" in run["error"]
+    assert "RuntimeError: boom: the API is down" in run["error"]   # ...but the original, redacted error is kept
+
+
+def test_a_call_cap_abort_wins_when_ctrl_c_lands_in_cleanup(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    budget = CallBudget(1)
+    budget.spend()  # the cap is spent before this run: the very next call aborts the evaluation
+    with pytest.raises(CallCapExceeded):  # the cap, not the coincidental Ctrl-C, is what stops the run
+        run_case_once(case, "repeat-1", build_context(case),
+                      BudgetedClient(FakeClient(lambda k: "never"), budget), env["repo"], env["work"])
+
+
 def test_the_accounting_invariant_holds_when_ctrl_c_lands_in_the_cleanup_window(env, monkeypatch):
     dataset, cases = _dataset("fab-no-financials")
     _interrupt_cleanup_of("fab-no-financials", monkeypatch)
@@ -1165,9 +1203,12 @@ def test_ctrl_c_in_the_chdir_back_out_still_restores_the_working_directory(env, 
 def test_an_interrupted_post_call_run_is_described_truthfully_in_the_pack():
     from eval_report import _row_result
     after = {"kind": "live", "status": "interrupted", "passed": False, "output_text": "the whole draft"}
+    no_text = {"kind": "live", "status": "interrupted", "passed": False, "stop_reason": "refusal"}
     in_flight = {"kind": "live", "status": "interrupted", "passed": False}
     assert "after the call completed" in _row_result(after) and "was not scored" in _row_result(after)
     assert "no result" not in _row_result(after)
+    assert "after the call completed" in _row_result(no_text) and "no text" in _row_result(no_text)
+    assert "in flight" not in _row_result(no_text) and "no result was observed" not in _row_result(no_text)
     assert "while the call was in flight" in _row_result(in_flight) and "no result was observed" in _row_result(in_flight)
 
 

@@ -21,6 +21,12 @@ without the recorded fingerprints being refreshed.
 - **Non-finite inputs are refused.** NaN and infinity (and non-numeric values for recognised raw fields) are
   rejected with one error line before anything is written.
 - **No rounding in storage.** Figures are stored at full precision; rounding is display-only.
+- **Operating profit and EBITDA are before exceptional items and include other income.** This is a house
+  convention (decision D-a of issue #504). Exceptional costs are deducted only in profit before tax
+  ([F-007](#f-007--profit-before-tax)), never in operating profit ([F-004](#f-004--operating-profit-ebit)) or
+  EBITDA ([F-006](#f-006--ebitda)), and other income is added in operating profit. Every ratio and covenant
+  built on them is on that basis: operating margin (F-005), FCF and FCF conversion (F-009, F-010), DSCR (F-021),
+  EBIT and EBITDA interest cover (F-022, F-023), gross leverage (F-026) and net debt / EBITDA (F-027).
 - **Ids are stable.** `F-001`…`F-NNN` are never reused or renumbered; a withdrawn entry keeps its id with a
   status saying so, and a new entry takes the next number.
 
@@ -116,7 +122,10 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-a of issue #504): operating profit is **before exceptional items**,
+  which are deducted only in profit before tax (F-007), and it **includes other income**; every ratio and
+  covenant on operating profit is on that basis (see [Conventions](#conventions-used-by-every-entry)). The
+  [financial model](financial-model.md#statement-figures) states EBIT on the same basis
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-005 — Operating Margin %
@@ -130,7 +139,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — the `_ratio()` workbook formula in `PNL_ROWS` only;
   there is no computed state key (see [Known differences](#known-differences), KD-1)
-- **Basis:** standard definition
+- **Basis:** house convention (operating profit is before exceptional items and includes other income, decision D-a of
+  issue #504; see the Conventions section)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-006 — EBITDA
@@ -144,7 +154,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-a of issue #504): EBITDA is operating profit (F-004) plus
+  depreciation and amortisation, so it is **before exceptional items**, which are deducted only in profit before
+  tax (F-007), and it **includes other income**; every EBITDA-based ratio and covenant is on that basis (see
+  [Conventions](#conventions-used-by-every-entry)). The [financial model](financial-model.md#statement-figures)
+  states EBITDA on the same basis
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-007 — Profit Before Tax
@@ -158,7 +172,10 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-a of issue #504): exceptional costs are deducted here, at profit
+  before tax, and nowhere above it; operating profit and EBITDA (F-004, F-006) are before exceptional items and
+  include other income (see [Conventions](#conventions-used-by-every-entry)); net profit (F-008) inherits the
+  deduction through profit before tax
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-008 — Net Profit
@@ -177,7 +194,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 
 ### F-009 — Free Cash Flow (FCF)
 
-- **Name:** Free Cash Flow — workbook row "FCF"; CAM/state key `fcf`
+- **Name:** Free Cash Flow before working capital — workbook row "FCF"; CAM/state key `fcf` (the stored key
+  keeps its name)
 - **Formula:** fcf = ebitda − capex − tax_paid − interest_paid + interest_received (workbook: FCF = EBITDA − Capital Expenditure − Tax − Interest Paid + Interest Received). Scheduled principal repayment is deliberately NOT deducted: it is financing, and DSCR (F-021) already covers debt service
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** may be negative; no denominator
@@ -186,13 +204,17 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `RATIO_ROWS` (Key Ratios)
-- **Basis:** house convention (FCF excludes scheduled principal; see the
-  [financial model](financial-model.md#statement-figures))
+- **Basis:** house convention (decision D-b of issue #504): FCF **before working capital**, so a change in
+  trade debtors, stock or trade creditors does not move it; scheduled principal is deliberately excluded (DSCR,
+  F-021, covers debt service); EBITDA is before exceptional items and includes other income (F-006). A
+  working-capital-adjusted measure is a separate follow-up (issue #520); `fcf` and any covenant on it are
+  unchanged. See the [financial model](financial-model.md#statement-figures)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-010 — FCF Conversion %
 
-- **Name:** FCF Conversion — workbook row "FCF Conversion %"; CAM/state key `fcf_conversion_pct`
+- **Name:** FCF Conversion, on FCF before working capital (F-009) — workbook row "FCF Conversion %"; CAM/state
+  key `fcf_conversion_pct`
 - **Formula:** fcf_conversion_pct = fcf / ebitda (workbook: FCF Conversion % = FCF / EBITDA)
 - **Unit and storage:** **percent-type ratio stored as a fraction** (`0.35` = 35%); applies to the value and to
   any covenant threshold on it; full precision, no rounding in storage
@@ -205,7 +227,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `RATIO_ROWS` (Key Ratios); unit guard in `scripts/policy_engine.py` — `_evaluate_covenant()`
   and `scripts/financial_conventions.py` — `warn_percent_type_values()`
-- **Basis:** house convention (percent-type fraction storage, issue #357)
+- **Basis:** house convention (percent-type fraction storage, issue #357); the numerator is FCF before working
+  capital (F-009, decision D-b of issue #504), so the ratio does not reflect cash absorbed by working capital
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-011 — Total Fixed Assets
@@ -309,7 +332,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `BALANCE_SHEET_ROWS` (Balance Sheet)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-e of issue #504): equity has two input lines only. **Retained Profit
+  (`retained_profit`) includes all reserves and share premium**; there is no separate line for share premium or
+  other reserves. Total equity is therefore share capital plus retained profit
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-018 — Tangible Net Worth (TNW)
@@ -323,7 +348,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `KEY_METRIC_ROWS` (Key Credit Metrics)
-- **Basis:** standard definition
+- **Basis:** house convention: total equity less intangible assets, where total equity is share capital plus
+  a Retained Profit line that includes all reserves and share premium (F-017, decision D-e of issue #504)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-019 — TNW + Loan Notes / Preference Shares
@@ -338,7 +364,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — the `KEY_METRIC_ROWS` formula, written to the sheet by
   `_write_financial_spreading()`; there is no computed state key
-- **Basis:** house convention (a credit-agency-style tangible-equity adjustment; no external reference verified)
+- **Basis:** house convention (a credit-agency-style tangible-equity adjustment; no external reference verified).
+  Eligibility rule (decision D-f of issue #504): the combined Loan Notes / Preference Shares line counts **fully
+  as interest-bearing debt** in total debt (F-020), whatever the instrument's terms. This row is a
+  **workbook-only memo**: it has no state key, and no ratio or covenant uses it alongside F-020 (no other
+  workbook formula refers to this row, and a covenant tests only a key of the period's stored ratios)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-020 — Total Debt (interest-bearing)
@@ -353,14 +383,17 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; the same aggregate is
   written inline in the `KEY_METRIC_ROWS` ratio formulas
-- **Basis:** standard definition (interest-bearing debt)
+- **Basis:** house convention (interest-bearing debt). Eligibility rule (decision D-f of issue #504): the
+  combined Loan Notes / Preference Shares line counts **fully** as interest-bearing debt, whatever the
+  instrument's terms; no part of it is treated as equity in any ratio. Its quasi-equity view appears only in the
+  workbook-only memo F-019, which no ratio or covenant uses alongside this figure
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ## Coverage and leverage ratios
 
 ### F-021 — DSCR
 
-- **Name:** DSCR (debt service coverage ratio) — workbook row "DSCR"; CAM/state key `dscr`
+- **Name:** DSCR (debt service coverage ratio), EBITDA-based — workbook row "DSCR"; CAM/state key `dscr`
 - **Formula:** dscr = ebitda / (interest_paid + scheduled_principal) (workbook: DSCR = EBITDA / (Interest Paid + Scheduled Principal Repayment))
 - **Unit and storage:** ratio (x); full precision, no rounding in storage
 - **Edge rules:** denominator ≤ 0 → N/A (`None`) and any covenant on DSCR is UNRESOLVABLE, with the reason
@@ -371,7 +404,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`),
   `describe_undefined_ratio()` for the UNRESOLVABLE reason; workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-d of issue #504): **EBITDA-based** DSCR, EBITDA over interest paid
+  plus scheduled principal, not cash flow available for debt service; EBITDA is before exceptional items and
+  includes other income (F-006). A cash-flow-based DSCR is a follow-up metric (issue #521)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-022 — EBIT/Interest
@@ -433,7 +468,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `KEY_METRIC_ROWS` (Key Credit Metrics); unit guard in `scripts/policy_engine.py` —
   `_evaluate_covenant()` and `scripts/financial_conventions.py` — `warn_percent_type_values()`
-- **Basis:** house convention (percent-type fraction storage, issue #357)
+- **Basis:** house convention (percent-type fraction storage, issue #357). Total debt includes the whole loan-notes line
+  (D-f of issue #504, see F-020) and equity is on the D-e basis (Retained Profit includes all reserves, see F-017)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-026 — Gross Leverage
@@ -646,10 +682,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 ### F-038 — Covenant test
 
 - **Name:** Covenant test — the per-covenant PASS/FAIL/UNRESOLVABLE evaluation
-- **Formula:** minimum covenant: PASS iff actual ≥ threshold; headroom_pct = (actual − threshold) / threshold.
-  maximum covenant: PASS iff actual ≤ threshold; headroom_pct = (threshold − actual) / threshold. Equality
-  passes for both directions
-- **Unit and storage:** status string plus `headroom_pct` as a fraction of the threshold; actual/threshold kept
+- **Formula:** minimum covenant: PASS iff actual ≥ threshold; headroom_pct = (actual − threshold) / |threshold|.
+  maximum covenant: PASS iff actual ≤ threshold; headroom_pct = (threshold − actual) / |threshold|. Equality
+  passes for both directions; the headroom is positive when the covenant passes and negative when it fails for
+  any non-zero threshold, whatever its sign
+- **Unit and storage:** status string plus `headroom_pct` as a fraction of the threshold's absolute value; actual/threshold kept
   at full precision
 - **Edge rules:** an N/A ratio (zero/negative denominator, the rule of [F-021](#f-021--dscr)) makes the covenant UNRESOLVABLE —
   never PASS, never FAIL — with a one-sentence reason naming the metric and denominator; an unrecognized

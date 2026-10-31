@@ -549,3 +549,67 @@ def test_skipped_cases_of_a_parametrized_test_do_not_count_as_passed(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "Verdict: PASSES_ON_BASE — 1 selected test function, all passed on the base commit." in result.stdout
     assert "| tests/test_new.py::test_values | 2 | 0 | 1 | assertion |" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# In-process coverage of the input guards and the broken-check paths (the changed-line floor)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value", ["tests/x\x00.py", "tests/x\u202e.py", "/etc/passwd", "C:/x.py", "../x.py",
+                                   "tests/../../x.py", "tests/", ".", "", None, 5])
+def test_unsafe_changed_file_paths_are_refused(checker, value):
+    with pytest.raises(checker.BaseFailInputError):
+        checker.normalize_path(value)
+
+
+def test_a_path_is_normalised_the_same_way_on_every_platform(checker):
+    assert checker.normalize_path("tests\\sub\\.\\test_a.py") == "tests/sub/test_a.py"
+    assert checker.normalize_path("tests//test_a.py") == "tests/test_a.py"
+
+
+def test_a_changed_test_file_that_is_not_utf8_is_a_malformed_input(tmp_path, checker):
+    repo, base = _base_repo(tmp_path)
+    repo.write("tests/test_bad.py", b"\xff\xfe not utf-8")
+    head = repo.commit()
+    with pytest.raises(checker.BaseFailInputError):
+        checker.select_tests(repo.root, base, head, ["tests/test_bad.py"])
+
+
+def test_an_error_child_in_the_junit_is_an_import_kind_failure(checker):
+    selected = {"tests/test_x.py": [(None, "test_new")]}
+    rows = checker.classify_junit(_junit([("tests.test_x", "test_new", "error")]), selected)
+    assert rows[0]["category"] == "RED_ON_BASE" and rows[0]["kind"] == "import"
+
+
+def test_unreadable_junit_xml_is_a_broken_check(checker):
+    with pytest.raises(checker.CheckBroken):
+        checker.classify_junit(b"<testsuites><oops", {"tests/test_x.py": [(None, "test_new")]})
+
+
+@pytest.mark.parametrize("behaviour, message", [
+    ("timeout", "pytest timed out"),
+    ("internal-error", "pytest could not run"),
+    ("no-junit", "pytest wrote no JUnit XML"),
+])
+def test_pytest_failing_to_run_is_a_broken_check_never_a_verdict(tmp_path, monkeypatch, checker, behaviour, message):
+    worktree = tmp_path / "base"
+    worktree.mkdir()
+    monkeypatch.setattr(checker, "read_revision", lambda repo, sha, path: b"def test_new():\n    pass\n")
+    monkeypatch.setattr(checker, "_overlay_worktree", lambda *args: (tmp_path, worktree))
+    monkeypatch.setattr(checker, "_git", lambda *args: b"")
+
+    def fake_run(argv, **kwargs):
+        if behaviour == "timeout":
+            raise subprocess.TimeoutExpired(argv, 1)
+        return subprocess.CompletedProcess(argv, 3 if behaviour == "internal-error" else 1, b"", b"")
+
+    monkeypatch.setattr(checker.subprocess, "run", fake_run)
+    with pytest.raises(checker.CheckBroken, match=message):
+        checker.run_selected_tests(tmp_path, "a" * 40, "b" * 40, {"tests/test_x.py": [(None, "test_new")]},
+                                   ["tests/test_x.py"])
+
+
+def test_a_summary_file_that_cannot_be_written_does_not_hide_the_malfunction(tmp_path, checker):
+    checker._malfunction_summary(str(tmp_path / "missing-directory" / "summary.md"))   # must not raise
+    checker._malfunction_summary(None)
+

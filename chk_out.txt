@@ -1,0 +1,16 @@
+All checks passed!
+bandit exit 0
+pytest exit 0
+======================= 5160 passed in 125.81s (0:02:05) =======================
+overall: 98.73% (floor 95%)
+  state_manager: 98.79%
+  docx_builder: 99.50%
+Coverage floors met.
+diffcover95 exit 1
+Coverage: 94%
+-------------
+
+diffcover98 exit 0
+-------------
+No lines with coverage information in this diff.
+-------------

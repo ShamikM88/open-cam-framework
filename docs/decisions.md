@@ -43,6 +43,7 @@ so in its Related line) when a later decision supersedes it.
 - [D30. The PR scope check is advisory and separate from CI](#d30-the-pr-scope-check-is-advisory-and-separate-from-ci)
 - [D31. The headless pipeline stays on the Anthropic SDK 1.x](#d31-the-headless-pipeline-stays-on-the-anthropic-sdk-1x)
 - [D32. Test-suite speed: the lazy import was the fix, and splitting the CLI test file was rejected](#d32-test-suite-speed-the-lazy-import-was-the-fix-and-splitting-the-cli-test-file-was-rejected)
+- [D33. A rules register names the governance rules and the tests that cite them](#d33-a-rules-register-names-the-governance-rules-and-the-tests-that-cite-them)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -577,3 +578,45 @@ so in its Related line) when a later decision supersedes it.
 - **Why.** A split would not shorten the CI critical path.
 - **Consequences.** The current profile does not justify the split.
 - **Related.** #425 (closed 2026-10-27), PR #428, D14.
+
+## D33. A rules register names the governance rules and the tests that cite them
+
+- **Context.** The governance core has behavioural requirements stated as prose in `CLAUDE.md` and `docs/`, with no
+  stable id connecting each atomic claim to a test that asserts it. The formula register (D18) checks the inventory of
+  computed metrics and implementation drift; it does not map a claim to a test.
+- **Choice.** Decided on #495 (the design note, and the maintainer's sign-off of 2026-10-30 with four amendments). A
+  new register page in the documentation holds one entry per rule with a stable, never-reused id `R-<AREA>-NNN` (areas
+  `POL`, `STATE`, `SPREAD`, `EXPORT`), numbered sequentially within each area from `001`, three digits. Each entry has
+  one atomic claim, a link to its source sentence or heading in `CLAUDE.md` or `docs/` rather than a copy of it, the
+  implementing module or function, a status (Covered, Not covered or Withdrawn) and a `Tracking` field: `—` for a
+  Covered rule, the issue link for a Not covered rule, and the reason and successor id(s) for a Withdrawn rule. An
+  "IDs ever issued" list inside the register lets the gate catch an id renumbered or deleted from the entries alone;
+  that the list itself is append-only is enforced in review, because a coordinated deletion from both places cannot be
+  seen from the file. A test cites a rule only with a `Rule: R-...` line in its docstring, never in `scripts/`. A new
+  gate test in the suite fails when a Covered rule has no citing test, a test cites an unknown id, an id is
+  duplicated, an issued id has no retained entry, an entry's id is missing from the issued list, a Not covered rule
+  has no issue link, or a test cites a Withdrawn rule. A Not covered rule that carries an issue link does not fail the
+  build. The failure messages are the actionable ones proposed in the design note (section 5) and approved by the
+  sign-off. Diff-cover is vacuous for a test-only gate, so the gate is validated by self-tests on fixtures, and
+  nothing in the workflows or `pyproject.toml` changes. The scope is the governance core, starting with about 27
+  rules; the code remains the source of truth and the register describes it (D18).
+- **Why.** The register makes the governance claims reviewable and makes a missing claim-to-test link fail visibly,
+  without copying source prose or changing behaviour. A citation declares that a named test is responsible for a
+  claim; it does not prove the test is strong, which mutation testing and review still check (D13).
+- **Consequences.** Ids are retained on withdrawal; a module move changes only the implementation pointer; a split
+  withdraws the old entry and issues new ids, and a merge keeps one surviving id and withdraws the others. A change to
+  a registered rule updates the register and the citing docstring in the same pull request. The four amendments of the
+  sign-off are binding. A rule whose tests verify only part of a compound claim is not Covered for the whole claim: it
+  is split into atomic rules, or the rule is marked Not covered with an issue link for the missing half, and a cited
+  test name that does not exist as written is corrected. The docs-index link ships with the register. The grammar of
+  the "Implemented in" field, including what the gate checks for existence and how a row that names no function says
+  so, is defined before it is used. The register states what the gate cannot see (tests that are skipped, deselected
+  or generated in a loop), and the gate's fixtures live outside the scanned test glob. The work is staged as #497,
+  #499, #498, #500 and #501. #500 is the temporary Not covered tracker only until real test-to-claim verification,
+  after which each real gap gets its own issue; #501 adds the `CLAUDE.md` bullet, in the wording the sign-off
+  approved: "A change to a registered governance rule updates docs/rules-register.md and the citing test docstring in
+  the same PR; code and the linked source remain authoritative." (The sign-off sets the two file names in code
+  formatting; it is dropped here only because the page does not exist yet.) #503 decides, with a month's evidence,
+  whether to keep the register.
+- **Related.** #495 (the plan, the design note, the critiques and the sign-off), #496 to #501 and #503, D13, D14, D18,
+  D19.

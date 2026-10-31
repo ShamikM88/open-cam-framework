@@ -387,7 +387,9 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
     except SystemExit as exc:  # run_pipeline() exits on a REJECTED verdict; the runner stops it first,
         error = f"SystemExit: the pipeline exited unexpectedly (code {exc.code})"  # so this is an anomaly
     except Exception as exc:  # noqa: BLE001 - an API or runner failure is a recorded, non-passing run
-        error = redact(f"{type(exc).__name__}: {exc}")[:300]  # redact the WHOLE message, then cut it
+        error = redact(f"{type(exc).__name__}: {exc}")  # redact the WHOLE message, uncut: the cut applies to the
+        # final recorded value at each return site below, so combining wording with the error cannot exceed
+        # the 300-character cap or re-expose a straddling key fragment
     finally:
         # Ctrl-C can land here too, AFTER the call was paid for: the cwd is always restored first (retrying
         # once if the interrupt hit the chdir itself), and the interrupt is remembered, not lost.
@@ -416,19 +418,25 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
             raise KeyboardInterrupt
         # The call WAS attempted (and counted against the cap): record it as exactly that, so per-run call
         # counts still sum to the budget. Whether a result exists depends on WHEN the interrupt landed.
-        if role in router.responses:
+        if error:  # the call had already failed when the Ctrl-C landed in cleanup: say that once, never
+            # "in flight" next to "already failed" (CG525-2); the flag lets the pack name the same shape
+            extra = {**extra, "call_had_failed": True}
+            outcome = ("the output is kept but was not scored" if role in router.responses
+                       else "no model result was obtained")
+            why = (f"interrupted (Ctrl-C) during cleanup after the model call had already failed; "
+                   f"{outcome}; the recorded error: {error}")
+        elif role in router.responses:
             why = ("interrupted (Ctrl-C) after the model call completed (during scoring or cleanup); the output "
                    "is kept but was not scored")
         elif first.get("no_text"):
             why = "interrupted (Ctrl-C) after the model call completed (it returned no text)"
         else:
             why = "interrupted (Ctrl-C) while the call was in flight; no model result was observed"
-        if error:  # the call had already failed when the Ctrl-C landed in cleanup; keep both, redacted above
-            why = f"{why}; the call had already failed: {error}"
         return live_run(label, [], status="interrupted", extra=extra, output_text=router.responses.get(role),
-                        error=why)
+                        error=redact(why)[:300])  # the WHOLE final message is redacted, then cut once (CG525-1)
     if error or (role not in router.responses and not first.get("no_text")):
-        return live_run(label, [], status="error", error=error or "the live call produced no response", extra=extra)
+        return live_run(label, [], status="error",
+                        error=(error or "the live call produced no response")[:300], extra=extra)
     if first.get("no_text"):
         return live_run(label, [], status="no_text", extra=extra, output_text="",
                         error=f"the model returned no text (stop_reason: {first.get('stop_reason')})")

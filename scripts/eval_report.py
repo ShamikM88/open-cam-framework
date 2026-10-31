@@ -243,6 +243,9 @@ def _row_result(run):
         if run.get("output_text") is not None:  # the reply had arrived; the interrupt came later
             return ("INTERRUPTED after the call completed -- Ctrl-C during scoring, recording or cleanup; the "
                     "output is kept but was not scored (counted as a non-pass)")
+        if run.get("stop_reason") is not None:  # the reply had arrived but empty (e.g. a refusal); still a result
+            return ("INTERRUPTED after the call completed with no text -- Ctrl-C during scoring or cleanup; the "
+                    "model returned no text, so there was no output to keep or score (counted as a non-pass)")
         return ("INTERRUPTED while the call was in flight -- it counted against the cap but no result was "
                 "observed (counted as a non-pass)")
     if run.get("status") == "no_text":

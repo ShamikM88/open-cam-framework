@@ -85,7 +85,8 @@ and the prompts are the real ones; every run gets a fresh isolated working direc
 each finished run is appended to `runs.jsonl` immediately; a run that errors stays in the pass-rate
 denominator, and three errors in a row abort. Every non-`ok` run status (`error`, including a scoring
 failure after a paid-for call, whose output is still kept; `no_text`, e.g. a refusal; `interrupted`,
-Ctrl-C after a call was attempted -- in flight, or during scoring or cleanup with the output kept) is a
+Ctrl-C after a call was attempted -- in flight, or during scoring or cleanup with the output kept when
+the reply had text, and recorded as a no-text reply when it had none) is a
 recorded non-pass, so per-run call counts sum to the budget (a second Ctrl-C during handling of the
 first is the one unrecoverable window; `runs.jsonl` still holds every earlier run). A response's stop
 state (`complete` / `refusal` / `incomplete`) is recorded too: a refusal is a result in its own right

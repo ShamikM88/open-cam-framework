@@ -19,6 +19,7 @@ from covenant_cushion import (
     main,
 )
 from policy_engine import evaluate_single_covenant
+from numeric_validation import StressAssumptionsError
 from spreading_builder import evaluate_financial_model
 
 
@@ -117,6 +118,107 @@ def test_break_even_notes_when_the_boundary_is_outside_the_meaningful_region():
     assert break_even["break_even_ebitda"] == pytest.approx(-100.0 / 3.5)
     assert break_even["pass_side"] == "at_or_above"
     assert break_even["note"]
+
+
+# ---------------------------------------------------------------------------
+# The pass side follows the covenant's recorded type (review finding CG526-1)
+# ---------------------------------------------------------------------------
+
+def test_the_pass_side_follows_the_covenants_recorded_type_dscr():
+    # The engine evaluates a maximum DSCR as DSCR <= 1.25 being PASS, so the pass side is
+    # at-or-below the boundary, whatever the metric's usual direction (CG526-1).
+    raw = _raw(interest_paid=10.0, scheduled_principal=15.0)  # debt service 25
+    break_even = ebitda_break_even({"metric": "dscr", "type": "maximum", "threshold": 1.25}, raw)
+    assert break_even["break_even_ebitda"] == pytest.approx(1.25 * 25.0)
+    assert break_even["pass_side"] == "at_or_below"
+
+
+def test_the_pass_side_follows_the_covenants_recorded_type_ebitda_interest_cover():
+    raw = _raw(interest_paid=8.0)
+    break_even = ebitda_break_even(
+        {"metric": "ebitda_interest_cover", "type": "maximum", "threshold": 6.0}, raw)
+    assert break_even["break_even_ebitda"] == pytest.approx(48.0)
+    assert break_even["pass_side"] == "at_or_below"
+
+
+def test_the_pass_side_follows_the_covenants_recorded_type_gross_leverage():
+    # A gross leverage covenant recorded as a minimum: the ratio falls as EBITDA rises over
+    # positive debt, so the engine passes it at-or-below the boundary (CG526-1).
+    raw = _raw()  # total debt 100
+    break_even = ebitda_break_even(
+        {"metric": "gross_leverage", "type": "minimum", "threshold": 3.5}, raw)
+    assert break_even["break_even_ebitda"] == pytest.approx(100.0 / 3.5)
+    assert break_even["pass_side"] == "at_or_below"
+
+
+def test_the_pass_side_follows_the_covenants_recorded_type_over_net_cash():
+    # Net cash (negative numerator): the ratio rises as EBITDA rises, so a minimum covenant
+    # passes at-or-above the boundary (CG526-1).
+    raw = _raw(cash=200.0)  # net debt -100
+    break_even = ebitda_break_even(
+        {"metric": "net_debt_to_ebitda", "type": "minimum", "threshold": -2.0}, raw)
+    assert break_even["break_even_ebitda"] == pytest.approx((-100.0) / (-2.0))  # 50
+    assert break_even["pass_side"] == "at_or_above"
+
+
+def test_a_minimum_leverage_covenant_with_a_negative_threshold_passes_everywhere():
+    # A minimum covenant over positive debt with a negative threshold: the ratio is positive at
+    # every testable EBITDA, so the covenant passes at every testable point (CG526-1).
+    raw = _raw()  # total debt 100
+    break_even = ebitda_break_even(
+        {"metric": "gross_leverage", "type": "minimum", "threshold": -2.0}, raw)
+    assert break_even["break_even_ebitda"] == pytest.approx(100.0 / -2.0)  # -50
+    assert break_even["pass_side"] == "at_or_above"
+    assert "passes at every testable EBITDA" in break_even["note"]
+
+
+def test_a_minimum_leverage_covenant_can_fail_to_pass_at_any_testable_ebitda():
+    # Net cash with a positive threshold on a minimum covenant: the ratio is negative at every
+    # testable EBITDA, so no testable point passes (CG526-1).
+    raw = _raw(cash=200.0)  # net debt -100
+    break_even = ebitda_break_even(
+        {"metric": "net_debt_to_ebitda", "type": "minimum", "threshold": 2.0}, raw)
+    assert break_even["break_even_ebitda"] == pytest.approx(-100.0 / 2.0)  # -50
+    assert break_even["pass_side"] == "at_or_below"
+    assert "cannot pass at any testable EBITDA" in break_even["note"]
+
+
+def test_a_zero_numerator_leverage_boundary_follows_the_covenants_recorded_type():
+    # No debt at all: the ratio is 0 at every EBITDA, so which side passes depends only on the
+    # recorded type and the threshold's sign, never on a fixed direction (CG526-1).
+    raw = _raw(current_debt=0.0, overdraft=0.0, long_term_debt=0.0, loan_notes=0.0)
+    passes = ebitda_break_even(
+        {"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}, raw)
+    assert passes["break_even_ebitda"] == 0.0
+    assert passes["pass_side"] == "at_or_above"
+    assert "numerator is zero" in passes["note"]
+    fails = ebitda_break_even(
+        {"metric": "gross_leverage", "type": "minimum", "threshold": 3.5}, raw)
+    assert fails["break_even_ebitda"] == 0.0
+    assert fails["pass_side"] == "at_or_below"
+    assert "numerator is zero" in fails["note"]
+
+
+def test_the_reported_side_matches_the_policy_engine_across_the_boundary():
+    # The report must never contradict the engine's own result: evaluate the covenant just
+    # below and just above the reported boundary and check the reported side against it.
+    raw = _raw(interest_paid=10.0, scheduled_principal=15.0)  # debt service 25
+    cases = (
+        {"metric": "dscr", "type": "maximum", "threshold": 1.25},
+        {"metric": "gross_leverage", "type": "minimum", "threshold": 3.5},
+    )
+    for covenant in cases:
+        break_even = ebitda_break_even(covenant, raw)
+        boundary = float(break_even["break_even_ebitda"])
+        for factor, side in ((0.9, "below"), (1.1, "above")):
+            ebitda = boundary * factor
+            shocked_raw = _raw(revenue=1000.0 - 100.0 + ebitda,  # EBITDA = revenue - 600 - 250
+                               interest_paid=10.0, scheduled_principal=15.0)
+            model = evaluate_financial_model({"FY-Current": shocked_raw})
+            result = evaluate_single_covenant(
+                dict(covenant), model["ratios"]["FY-Current"], model["financials"]["FY-Current"],
+                "borrower")
+            assert (result["status"] == "PASS") == (break_even["pass_side"] == f"at_or_{side}")
 
 
 # ---------------------------------------------------------------------------
@@ -610,6 +712,25 @@ def test_break_even_refuses_a_non_numeric_threshold():
         assert "not a recorded number" in break_even["reason"]
 
 
+def test_a_numeric_string_threshold_gives_no_boundary_and_matches_the_engine_refusal():
+    # The policy engine accepts only an int or float threshold (never a boolean or a numeric
+    # string), so the break-even must not present a boundary the engine's row cannot use; the
+    # engine's own status for the same row is UNRESOLVABLE (review finding CG526-2).
+    for threshold in ("1.25", True):
+        covenant = {"metric": "dscr", "type": "minimum", "threshold": threshold}
+        break_even = ebitda_break_even(covenant, _raw())
+        assert break_even["break_even_ebitda"] is None
+        assert break_even["pass_side"] is None
+        assert "not a recorded number" in break_even["reason"]
+        assert "never a boolean or a numeric string" in break_even["reason"]
+        model = evaluate_financial_model({"FY-Current": _raw()})
+        result = evaluate_single_covenant(
+            dict(covenant), model["ratios"]["FY-Current"], model["financials"]["FY-Current"],
+            "borrower")
+        assert result["status"] == "UNRESOLVABLE"
+        assert "threshold is missing or not a number" in result["reason"]
+
+
 def test_break_even_refuses_a_non_numeric_raw_line():
     raw = _raw()
     raw["current_debt"] = "not a number"
@@ -657,10 +778,28 @@ def test_scenario_search_refuses_a_bisection_point_that_the_model_refuses():
     assert "bisection point" in result["reason"]
 
 
-def test_a_non_numeric_recorded_shock_defaults_to_zero():
+def test_a_present_malformed_recorded_shock_refuses_the_report_not_zero():
+    # A present but malformed stress assumption is a domain error, never a silent zero shock:
+    # the shared write-path validator refuses the vector, so the report refuses with its
+    # reason instead of searching as though no haircut had been recorded (review finding
+    # CG526-3). Only an absent shock key defaults to zero.
     state = _linear_state()
     state["stress_assumptions"] = {"revenue_haircut_pct": "lots"}
-    report = compute_from_state(state)
+    with pytest.raises(StressAssumptionsError) as excinfo:
+        compute_from_state(state)
+    assert "revenue_haircut_pct" in str(excinfo.value)
+
+
+def test_a_present_negative_recorded_shock_refuses_the_report_not_a_reverse_shock():
+    state = _linear_state()
+    state["stress_assumptions"] = {"opex_increase_pct": -10.0}
+    with pytest.raises(StressAssumptionsError):
+        compute_from_state(state)
+
+
+def test_an_absent_recorded_shock_still_defaults_to_zero():
+    state = _linear_state()
+    report = compute_from_state(state)  # no stress_assumptions key at all
     for shock in _find(report, "dscr")["shocks"]:
         if shock["shock"] == "revenue_haircut_pct":
             assert shock["downside_scenario"]["start"] == 0.0

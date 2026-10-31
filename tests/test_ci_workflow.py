@@ -837,7 +837,7 @@ def test_advisory_scope_workflow_does_not_change_ci_jobs_or_required_check_names
 
 
 # ---------------------------------------------------------------------------
-# The advisory mypy diagnostic (issue #424, Phase 1)
+# The mypy type check (issue #424, Phases 1-3: type errors fail the job since Phase 3 option B)
 # ---------------------------------------------------------------------------
 
 TYPECHECK_WORKFLOW = WORKFLOW.parent / "typecheck.yml"
@@ -859,7 +859,7 @@ def typecheck_run_block():
     return textwrap.dedent("\n".join(lines))
 
 
-def test_typecheck_workflow_is_advisory_read_only_and_leaves_ci_alone():
+def test_typecheck_workflow_fails_on_type_errors_and_leaves_ci_alone():
     text = typecheck_text()
     triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"workflow_dispatch", "pull_request"}
@@ -870,6 +870,9 @@ def test_typecheck_workflow_is_advisory_read_only_and_leaves_ci_alone():
     assert "timeout-minutes: 10" in jobs["typecheck"]
     assert "persist-credentials: false" in jobs["typecheck"]
     assert unpinned_actions(text) == []
+    # Phase 3 option B: type errors fail the job (mypy exit 1), and the workflow no longer calls itself advisory.
+    assert "advisory" not in text
+    assert '[ "$status" -ge 1 ]' in typecheck_run_block()
     # Neither required nor part of ci.yml: the three ruleset-required names are untouched.
     assert set(split_jobs(workflow_text())) == set(REQUIRED_JOBS)
     assert "typecheck" not in split_jobs(workflow_text())
@@ -902,13 +905,14 @@ def step_bash():
     (1, ["scripts/state_manager.py:10: error: bad  [arg-type]",
          "scripts/state_manager.py:11: error: worse  [return-value]",
          "scripts/policy_engine.py:3: error: also bad  [assignment]",
-         "scripts/policy_engine.py:4: note: not an error line"], 0),
+         "scripts/policy_engine.py:4: note: not an error line"], 1),
     (2, ["mypy: can't read file 'scripts/missing.py': No such file or directory"], 2),
 ])
-def test_the_mypy_step_reports_type_errors_without_failing_and_fails_only_when_mypy_cannot_run(
+def test_the_mypy_step_fails_on_type_errors_and_when_mypy_cannot_run(
         tmp_path, mypy_status, errors, expect_status):
-    """Type errors are the diagnostic's findings (exit status 1): the step must pass and report counts per module.
-    A mypy that crashed or could not read its configuration (status 2 or more) is a broken check and must fail."""
+    """Type errors fail the step (mypy exit status 1, issue #424 Phase 3 option B), after the summary has reported
+    the counts per module. A mypy that crashed or could not read its configuration (status 2 or more) is a broken
+    check and must also fail."""
     bash = step_bash()
     stubs = tmp_path / "bin"
     stubs.mkdir()
@@ -923,9 +927,18 @@ def test_the_mypy_step_reports_type_errors_without_failing_and_fails_only_when_m
                             text=True, encoding="utf-8", timeout=60)
     assert result.returncode == expect_status, result.stderr
     written = summary.read_text(encoding="utf-8")
-    assert "mypy diagnostic (advisory" in written
+    assert "mypy check (type errors fail this job" in written
     if mypy_status == 1:
         assert "3 errors" in written
         assert written.index("2 scripts/state_manager.py") < written.index("1 scripts/policy_engine.py")
     elif mypy_status == 0:
         assert "0 errors" in written
+
+
+def test_the_mypy_tool_bump_rule_is_documented_where_a_contributor_looks():
+    """A pull request that bumps the pinned `mypy` or a stub package must fix the new type errors it causes in the same
+    pull request (the maintainer's decision of 2026-10-31, issue #424 Phase 3 option B). The rule lives in
+    docs/testing.md; this pins its presence, not the maintainer's review, which no test can enforce."""
+    text = " ".join((REPO_ROOT / "docs" / "testing.md").read_text(encoding="utf-8").split())
+    assert "bumps the pinned `mypy` or a stub package" in text
+    assert "must fix, in the same pull request, any new type errors the bump causes" in text

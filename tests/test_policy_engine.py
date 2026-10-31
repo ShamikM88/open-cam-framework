@@ -14,10 +14,12 @@ import pytest
 from policy_engine import (
     STANDARD_CONDITIONS_PRECEDENT,
     STANDARD_CONDITIONS_SUBSEQUENT,
+    _evaluate_covenant,
     _evaluate_downside_covenants,
     _evaluate_forward_covenants,
     _period_dict,
     evaluate_deal_policy,
+    evaluate_single_covenant,
 )
 
 
@@ -81,6 +83,26 @@ def test_maximum_covenant_fail():
     covenant = evaluate_deal_policy(state)["covenant_results"][0]
     assert covenant["status"] == "FAIL"
     assert covenant["headroom_pct"] == pytest.approx((3.0 - 3.2) / 3.0)
+
+
+def test_evaluate_single_covenant_delegates_to_the_engine_rules():
+    # The public single-covenant function exists for the read-only cushion report
+    # (issue #470); it must delegate to _evaluate_covenant, never re-implement the rules.
+    covenant = {"metric": "dscr", "type": "minimum", "threshold": 1.25}
+    ratios = {"dscr": 1.5}
+    result = evaluate_single_covenant(covenant, ratios)
+    assert result["status"] == "PASS"
+    assert result["actual"] == 1.5
+    assert result["headroom_pct"] == pytest.approx((1.5 - 1.25) / 1.25)
+    # The delegation is exact: the engine's own private rule gives the identical row.
+    assert result == _evaluate_covenant(covenant, ratios)
+    # A percent-type ratio written as a bare number stays UNRESOLVABLE through it too.
+    mismatch = evaluate_single_covenant(
+        {"metric": "gearing", "type": "maximum", "threshold": 50}, {"gearing": 0.87})
+    assert mismatch["status"] == "UNRESOLVABLE"
+    # An unknown metric is reported, never crashed on.
+    unknown = evaluate_single_covenant(covenant, {})
+    assert unknown["status"] == "UNRESOLVABLE"
 
 
 @pytest.mark.parametrize(

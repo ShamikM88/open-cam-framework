@@ -526,6 +526,43 @@ def test_scope_check_is_documented_as_a_separate_advisory_workflow():
     assert "pr_scope_check.py" in cli and "#pr-scope-check" in cli
 
 
+# ---------------------------------------------------------------------------
+# The advisory new-tests-on-base workflow (issue #475, PR 3 of 3)
+# ---------------------------------------------------------------------------
+
+def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
+    workflow = read(".github/workflows/base-fail-check.yml")
+    script = read("scripts/pr_base_fail_check.py")
+    testing = read("docs/testing.md")
+    operations = read("docs/operations.md")
+    claude = read("CLAUDE.md")
+
+    assert "name: New tests on base check (advisory)" in workflow
+    assert "continue-on-error" not in workflow
+    for verdict in ("RED_ON_BASE", "PASSES_ON_BASE", "CANNOT_RUN", "NO_TESTS_SELECTED"):
+        assert verdict in script
+        assert f"`{verdict}`" in testing
+
+    assert ".github/workflows/base-fail-check.yml" in testing
+    assert "not a required check" in testing
+    assert "PASSES_ON_BASE appears in the summary only" in testing
+    assert "reviewer aid" in testing and "not a gate or a proof" in testing
+    assert "not a required check" in operations
+    assert "never becomes required" in operations
+    assert "continue-on-error" in operations
+    approved_claude_bullet = (
+        "- **Advisory new-tests-on-base check.** `scripts/pr_base_fail_check.py`, run by the "
+        "separate `.github/workflows/base-fail-check.yml` job, runs the tests a pull request adds "
+        "or changes against the base commit and reports in the job summary whether they fail there "
+        "(red-first evidence). It is not a required check and not a gate: every verdict exits 0, "
+        "it never posts comments, and the step fails only when the check itself is broken. Making "
+        "it required, adding `continue-on-error`, or changing the approved workflow text needs a "
+        "reviewed decision; the workflow text is pinned by `tests/test_ci_workflow.py`. In a "
+        "`pull_request` run the script comes from the PR's own merge commit, so the report is a "
+        "reviewer aid, not a proof."
+    )
+    assert approved_claude_bullet in claude
+
 # The guarantee-amount guidance authorised by the maintainer on issue #505, comment 6522121343 (review finding
 # PX516-1 on PR #516). An absent amount drafts "for an amount to be confirmed"; an uncapped guarantee is recorded as
 # the plain text `an unlimited amount` in the existing amount field. Any other change needs a fresh authorisation.

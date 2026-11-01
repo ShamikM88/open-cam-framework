@@ -28,6 +28,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
 | `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/`, and publishes it to the wiki with `--publish` | No | [Wiki publish](#wiki-publish) |
 | `pr_scope_check.py` | Compares changed paths with the PR's declared file scope; advisory only | No | [PR scope check](#pr-scope-check) |
+| `pr_base_fail_check.py` | Reports whether the tests a PR adds or changes fail on the base commit; advisory only | No | [New tests on the base commit](#new-tests-on-the-base-commit) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
 Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic and makes no
@@ -658,6 +659,37 @@ change is safe to merge.
 ```bash
 python scripts/pr_scope_check.py --changed-files changed-files.nul --scope-body scope-body.md
 python scripts/pr_scope_check.py --changed-files changed-files.nul --scope-body scope-body.md --summary-file summary.md
+```
+
+## New tests on the base commit
+
+`python scripts/pr_base_fail_check.py --base-sha SHA --head-sha SHA --changed-files changed-files.nul
+[--summary-file PATH]` is the advisory check behind issue #475's option C: it answers, for a pull
+request that adds or changes tests, whether those tests fail on the base commit — the red-first
+evidence a reviewer otherwise re-derives by hand. Run it from a checkout at the head commit (the
+workflow checks out the PR's own merge commit); `--changed-files` is the NUL-delimited
+`git diff --name-only -z base...head` output.
+
+It selects the top-level `test*` functions and `Test*` class methods that are new or changed between
+base and head (an AST comparison, decorators included, so a changed parametrization counts; an edit
+confined to non-test code selects nothing), overlays the PR's changed `tests/` paths — test files,
+fixtures and `conftest.py` alike — onto a `git worktree` of the base commit, and runs exactly those
+node IDs there with `pytest --junitxml`. Only `tests/` paths are ever overlaid or run. Parametrized
+tests are reported by function with their run counts.
+
+Each selected unit is classified `RED_ON_BASE` (a failing run, kind `assertion`), `PASSES_ON_BASE`
+(all runs passed), or `CANNOT_RUN` (kind `import` when its file failed collection on the base, the
+expected outcome when a PR adds a module); a PR that changes no test function is `NO_TESTS_SELECTED`.
+The report is Markdown — verdict line, one row per unit, the legend — appended to `--summary-file`
+and printed. `PASSES_ON_BASE` appears in the summary only.
+
+Exit `0` for every verdict, including `RED_ON_BASE`: a red result is the check working, not a failure,
+and the check is never a gate. Exit `2` means the check itself is broken — malformed input, a HEAD
+that is not `--head-sha`, a git or worktree failure, a pytest internal error, or a missing JUnit
+file — and then the summary says `CHECK MALFUNCTION` rather than anything verdict-shaped.
+
+```bash
+python scripts/pr_base_fail_check.py --base-sha "$BASE_SHA" --head-sha "$GITHUB_SHA" --changed-files changed-files.nul --summary-file "$GITHUB_STEP_SUMMARY"
 ```
 
 ## Model freshness check

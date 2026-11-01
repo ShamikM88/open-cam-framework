@@ -37,7 +37,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
     "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "deal_export", "draft_lint",
-    "export_readback", "mutation_report", "orchestrator", "pii_scan", "pr_scope_check", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
+    "export_readback", "mutation_report", "orchestrator", "pii_scan", "pr_base_fail_check", "pr_scope_check", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
 )
@@ -2547,6 +2547,55 @@ def test_pr_scope_check_cli_runs_valid_input_and_treats_hostile_body_as_data(cli
     assert malformed.returncode == 2
     assert "error:" in malformed.stderr
     assert "$(touch" not in malformed.stdout + malformed.stderr
+    assert not marker.exists()
+
+
+def test_pr_base_fail_check_cli_reports_the_verdict_and_treats_hostile_paths_as_data(cli, tmp_path):
+    """The advisory base-fail check (issue #475): one representative run on a synthetic repository,
+    and hostile path text in the changed-file list is data — never executed, never echoed."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init = subprocess.run(["git", "init", "-q"], cwd=repo, check=True, capture_output=True)
+
+    def git(*args):
+        subprocess.run(["git", "-c", "user.email=t@example.invalid", "-c", "user.name=t",
+                        "-c", "commit.gpgsign=false", *args], cwd=repo, check=True, capture_output=True)
+
+    (repo / "app.py").write_text("def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a + b\n",
+                                encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True,
+                          text=True).stdout.strip()
+    (repo / "app.py").write_text("def add(a, b):\n    return a + b\n\n\ndef subtract(a, b):\n    return a - b\n",
+                                 encoding="utf-8")
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_new.py").write_text(
+        "from app import subtract\n\n\ndef test_subtract():\n    assert subtract(2, 1) == 1\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "head")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+    changed = tmp_path / "changed-files.nul"
+    diff = subprocess.run(["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...{head}"],
+                          cwd=repo, check=True, capture_output=True).stdout
+    changed.write_bytes(diff)
+
+    result = cli("pr_base_fail_check", "--base-sha", base, "--head-sha", head,
+                 "--changed-files", changed, cwd=repo)
+    assert result.returncode == 0, result.stderr
+    assert "Verdict: RED_ON_BASE" in result.stdout
+    assert "tests/test_new.py::test_subtract" in result.stdout
+
+    hostile = tmp_path / "hostile.nul"
+    hostile.write_bytes(b"tests/$(touch pwned).py\0docs/`id`.md\0")
+    marker = tmp_path / "pwned"
+    hostile_result = cli("pr_base_fail_check", "--base-sha", base, "--head-sha", head,
+                         "--changed-files", hostile, cwd=repo)
+    assert hostile_result.returncode == 0, hostile_result.stderr        # unselectable paths are data
+    assert "Verdict: NO_TESTS_SELECTED" in hostile_result.stdout
+    assert "$(touch" not in hostile_result.stdout + hostile_result.stderr
     assert not marker.exists()
 
 

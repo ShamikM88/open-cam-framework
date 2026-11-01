@@ -23,6 +23,9 @@ from spreading_builder import (
     evaluate_financial_model,
     export_to_xlsx,
     validate_row_formulas,
+    PNL_ROWS,
+    RATIO_ROWS,
+    SUPPLIED_ROW_LABELS,
 )
 
 CELL_REF_RE = re.compile(r"([A-Z]+)(\d+)")
@@ -149,6 +152,27 @@ def test_dscr_is_in_key_ratios_and_gross_leverage_is_in_key_credit_metrics():
     assert "DSCR" in key_ratio_labels
     assert "Gross Leverage" not in key_ratio_labels
     assert "Gross Leverage" in key_metric_labels
+
+
+def test_computed_rows_state_their_basis_in_the_label():
+    """#518 (decision comment 6555374029, candidate A): every computed row's
+    label states its basis, so a workbook reader cannot mistake EBITDA for an
+    exceptions-adjusted figure or FCF for a post-working-capital figure. The
+    values, state keys and covenants do not move; only the labels do."""
+    pnl_labels = [label for label, _ in PNL_ROWS]
+    ratio_labels = [label for label, _ in RATIO_ROWS]
+
+    assert "EBITDA (before exceptionals, incl. other income)" in pnl_labels
+    assert "FCF (before working capital)" in ratio_labels
+    assert "FCF Conversion % (before working capital)" in ratio_labels
+    assert "DSCR (EBITDA-based)" in ratio_labels
+
+    # The analyst-supplied export maps state keys to workbook rows by label, so the
+    # basis wording follows the row labels there too (deal_export reads this dict).
+    assert SUPPLIED_ROW_LABELS["ebitda"] == "EBITDA (before exceptionals, incl. other income)"
+    assert SUPPLIED_ROW_LABELS["fcf"] == "FCF (before working capital)"
+    assert SUPPLIED_ROW_LABELS["dscr"] == "DSCR (EBITDA-based)"
+    assert SUPPLIED_ROW_LABELS["fcf_conversion_pct"] == "FCF Conversion % (before working capital)"
 
 
 def test_collateral_sheet_headers(workbook):

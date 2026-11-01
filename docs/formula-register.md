@@ -560,6 +560,36 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Basis:** standard definition
 - **Status:** Implemented, not yet reviewed by an analyst
 
+### F-064 — FCF after Working Capital
+
+- **Name:** FCF after Working Capital — FCF less the change in operating working capital; CAM/state key
+  `fcf_after_working_capital`. The operating working capital LEVEL is deliberately not stored as its own
+  state key or workbook row (decision on #520, comment 6555374790) — only this result is
+- **Formula:** fcf_after_working_capital = fcf − (OWC − OWC_prior), where OWC = trade_debtors + stock +
+  other_current_assets − trade_creditors − other_current_liabilities (workbook: FCF after Working Capital =
+  FCF (before working capital) − ((Accounts Receivable + Stock + Other Current Assets − Accounts Payable −
+  Other Current Liabilities) − (the same five rows in the prior period's column)))
+- **Unit and storage:** currency amount; full precision, no rounding in storage
+- **Edge rules:** the earliest supplied period, any period whose immediately preceding period key is not
+  present in the supplied data, and any period whose prior period records none of the five OWC lines
+  (present, non-null), is N/A (`None` in state, "N/A" in the workbook) — never zero: a fabricated
+  prior OWC would make the delta a fabricated number. An omitted OWC line reads as 0 (the file-wide
+  omitted-defaults rule), so an omitted line is not N/A. The downside case's delta equals the base case's
+  delta (the shock transforms a period's own figures, never its prior-period comparison). No conversion
+  ratio and no covenant on this metric in this change (explicitly deferred on #520)
+- **State keys:** `fcf_after_working_capital`
+- **Workbook rows:** FCF after Working Capital
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via
+  `_prior_operating_working_capital()`), `evaluate_downside_case()`; workbook formula in
+  `WORKING_CAPITAL_ROWS` (Working Capital); `SUPPLIED_SUBTOTALS`/`SUPPLIED_ROW_LABELS`;
+  `scripts/supplied_forecast.py` — `SUBTOTAL_DEPENDS`; `scripts/transcription_check.py` —
+  `SUBTOTAL_FIELDS` (reported as not_assessed by `cross_foot()`: it also reads the prior period's
+  working capital, which is never on the same transcription)
+- **Basis:** standard definition (issue #520 design note, comment 6536111534)
+- **Status:** Proposed, not implemented — this PR adds the implementation; the entry stays Proposed until the
+  maintainer reviews it (per the decision on #520), then flips to "Implemented, not yet reviewed by an analyst"
+
 ## Forward base case
 
 ### F-032 — Forward base case

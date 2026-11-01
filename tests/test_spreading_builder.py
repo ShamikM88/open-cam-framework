@@ -114,6 +114,10 @@ def _eval_arith(ws, expr, memo):
 
     expr = re.sub(r"COUNT\(([^()]+)\)", count_of, expr)
 
+    # The COUNT guard's condition is a comparison, `COUNT(...)=0` -- Excel's `=` is Python's `==`
+    # (no existing formula used a bare comparison before the COUNT guard, so this pass is new too).
+    expr = re.sub(r"(?<![<>=!])=(?!=)", "==", expr)
+
     def repl(match):
         col, row = match.group(1), int(match.group(2))
         return repr(_evaluate(ws, col, row, memo))
@@ -1742,8 +1746,8 @@ def test_sb_evaluate_financial_model_exactly_calculates_the_registered_subtotals
 
     assert set(financials) == {
         "raw", "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit",
-        "fcf", "current_assets", "current_liabilities", "total_assets", "total_liabilities",
-        "total_equity", "total_debt", "tangible_net_worth",
+        "fcf", "fcf_after_working_capital", "current_assets", "current_liabilities", "total_assets",
+        "total_liabilities", "total_equity", "total_debt", "tangible_net_worth",
     }
     assert financials["raw"] == raw
     assert financials["gross_profit"] == 600
@@ -1752,6 +1756,9 @@ def test_sb_evaluate_financial_model_exactly_calculates_the_registered_subtotals
     assert financials["profit_before_tax"] == 407
     assert financials["net_profit"] == 382
     assert financials["fcf"] == 419
+    # issue #520: a single-period deal has no recorded prior period, so the change in operating
+    # working capital is not a number -- None (N/A), never a fabricated zero delta.
+    assert financials["fcf_after_working_capital"] is None
     assert financials["current_assets"] == 140
     assert financials["current_liabilities"] == 32
     assert financials["total_assets"] == 410
@@ -2160,6 +2167,27 @@ def test_fcf_after_working_capital_omitted_owc_line_defaults_to_zero():
     assert result["financials"]["FY-Current"]["fcf_after_working_capital"] == 350 - (450 - 520)
 
 
+def test_fcf_after_working_capital_prior_without_owc_lines_recorded_is_none(tmp_path):
+    # A prior period recorded with NONE of the five OWC lines (or only null ones) leaves the
+    # prior OWC unknown: N/A, never a fabricated 0 -- the same call the workbook row's COUNT
+    # guard makes over the prior column's five (blank) cells. State and workbook agree.
+    prior = {key: value for key, value in FY1_WORKED.items()
+             if key not in ("trade_debtors", "stock", "other_current_assets",
+                            "trade_creditors", "other_current_liabilities")}
+    result = evaluate_financial_model({"FY-1": prior, "FY-Current": dict(CURRENT_WORKED)})
+    assert result["financials"]["FY-Current"]["fcf_after_working_capital"] is None
+
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path),
+                   financial_data={"FY-1": prior, "FY-Current": dict(CURRENT_WORKED)})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["FCF after Working Capital"]
+    memo = {}
+    # FY-Current is column C; its prior column B is blank in all five OWC rows -> N/A.
+    assert _evaluate(ws, "C", row, memo) == "N/A"
+
+
 def test_fcf_after_working_capital_downside_delta_equals_the_base_delta():
     # FY+1: revenue 1000 / cost of sales 800 -> ebitda 200, fcf 200; OWC 480
     # (trade debtors 630). A 10% revenue haircut shocks only the P&L, so the
@@ -2211,7 +2239,11 @@ def test_fcf_after_working_capital_workbook_row_is_suppliable_in_analyst_supplie
 
     out_path = tmp_path / "test_deal.xlsx"
     export_to_xlsx("Test Co", str(out_path),
-                   supplied_values={"FY+1": {"FCF after Working Capital": 120, "EBITDA": 500}})
+                   supplied_values={"FY+1": {"FCF after Working Capital": 120, "EBITDA": 500},
+                                   # FY+2 is an analyst-supplied column too, but omits the figure: the
+                                   # omit rule leaves the cell blank -- never a formula recomputing it
+                                   # from raw cells nobody supplied.
+                                   "FY+2": {"EBITDA": 520}})
     ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
     label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
     row = label_to_row["FCF after Working Capital"]

@@ -86,6 +86,12 @@ SUBTOTAL_DEPENDS = {
     "profit_before_tax": _BEFORE_TAX,
     "net_profit": (*_BEFORE_TAX, "tax_paid"),
     "fcf": _CASH_FLOW,
+    # issue #520 -- FCF after working capital: FCF's own chain plus the five
+    # operating working capital lines it reads (this period's and the prior
+    # period's, the workbook row reading them from the previous column).
+    # Deliberately lists the RAW lines only, never a stored OWC subtotal.
+    "fcf_after_working_capital": (*_CASH_FLOW, "trade_debtors", "stock", "other_current_assets",
+                                 "trade_creditors", "other_current_liabilities"),
     "current_assets": _CURRENT_ASSETS,
     "current_liabilities": _CURRENT_LIABILITIES,
     "total_assets": (*_CURRENT_ASSETS, "tangible_assets", "intangible_assets", "other_fixed_assets"),

@@ -1,4 +1,4 @@
-== sheet 'Financial Spreading' dims=A1:J64
+== sheet 'Financial Spreading' dims=A1:J65
 widths: {'A': 34.0, 'B': 14.0, 'C': 14.0, 'D': 14.0, 'E': 14.0, 'F': 14.0, 'G': 14.0, 'H': 14.0, 'I': 14.0, 'J': 14.0}
 A1: 'Metric'  [bold]
 B1: 'FY-2'  [bold]
@@ -414,12 +414,22 @@ G64: '=IFERROR(G61+G63-G62,"N/A")'
 H64: '=IFERROR(H61+H63-H62,"N/A")'
 I64: '=IFERROR(I61+I63-I62,"N/A")'
 J64: '=IFERROR(J61+J63-J62,"N/A")'
-chart barChart anchor=A66 display_blanks=gap
+A65: 'FCF after Working Capital'
+B65: '=IF(COUNT(A34,A35,A36,A39,A42)=0,"N/A",B26-((B34+B35+B36-B39-B42)-(A34+A35+A36-A39-A42)))'
+C65: '=IF(COUNT(B34,B35,B36,B39,B42)=0,"N/A",C26-((C34+C35+C36-C39-C42)-(B34+B35+B36-B39-B42)))'
+D65: '=IF(COUNT(C34,C35,C36,C39,C42)=0,"N/A",D26-((D34+D35+D36-D39-D42)-(C34+C35+C36-C39-C42)))'
+E65: '=IF(COUNT(D34,D35,D36,D39,D42)=0,"N/A",E26-((E34+E35+E36-E39-E42)-(D34+D35+D36-D39-D42)))'
+F65: '=IF(COUNT(E34,E35,E36,E39,E42)=0,"N/A",F26-((F34+F35+F36-F39-F42)-(E34+E35+E36-E39-E42)))'
+G65: '=IF(COUNT(F34,F35,F36,F39,F42)=0,"N/A",G26-((G34+G35+G36-G39-G42)-(F34+F35+F36-F39-F42)))'
+H65: '=IF(COUNT(G34,G35,G36,G39,G42)=0,"N/A",H26-((H34+H35+H36-H39-H42)-(G34+G35+G36-G39-G42)))'
+I65: '=IF(COUNT(H34,H35,H36,H39,H42)=0,"N/A",I26-((I34+I35+I36-I39-I42)-(H34+H35+H36-H39-H42)))'
+J65: '=IF(COUNT(I34,I35,I36,I39,I42)=0,"N/A",J26-((J34+J35+J36-J39-J42)-(I34+I35+I36-I39-I42)))'
+chart barChart anchor=A67 display_blanks=gap
   series title="'Financial Spreading'!A58" values="'Financial Spreading'!B58:G58" categories="'Financial Spreading'!B1:G1"
   series title="'Financial Spreading'!A59" values="'Financial Spreading'!B59:G59" categories="'Financial Spreading'!B1:G1"
-chart barChart anchor=A84 display_blanks=gap
+chart barChart anchor=A85 display_blanks=gap
   series title="'Financial Spreading'!A3" values="'Financial Spreading'!B3:G3" categories="'Financial Spreading'!B1:G1"
-chart barChart anchor=A102 display_blanks=gap
+chart barChart anchor=A103 display_blanks=gap
   series title="'Financial Spreading'!A58" values="'Financial Spreading'!H58:J58" categories="'Financial Spreading'!H1:J1"
   series title="'Financial Spreading'!A59" values="'Financial Spreading'!H59:J59" categories="'Financial Spreading'!H1:J1"
 == sheet 'Collateral & Exposure' dims=A1:I3

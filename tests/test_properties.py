@@ -438,7 +438,12 @@ def test_scaling_every_amount_scales_money_and_leaves_ratios_alone(raw, k):
     for name, value in base["financials"]["FY-Current"].items():
         if name == "raw":
             continue
-        assert scaled["financials"]["FY-Current"][name] == value * k, name
+        if value is None:
+            # issue #520: fcf_after_working_capital is None when there is no recorded prior period
+            # (here a single-period deal) -- scaled it stays None, never a fabricated zero delta.
+            assert scaled["financials"]["FY-Current"][name] is None, name
+        else:
+            assert scaled["financials"]["FY-Current"][name] == value * k, name
     for name, value in base["ratios"]["FY-Current"].items():
         other = scaled["ratios"]["FY-Current"][name]
         if value is None:

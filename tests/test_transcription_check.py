@@ -162,6 +162,11 @@ def test_every_subtotal_is_a_sum_of_raw_lines_so_the_weights_reproduce_the_frame
         raw = {field: (index * 37 + seed * 101 + 11) % 997 - 200 for index, field in enumerate(FIELD_LABELS)}
         derived = evaluate_financial_model({"FY-Current": raw})["financials"]["FY-Current"]
         for name in tc.SUBTOTAL_FIELDS:
+            if name == "fcf_after_working_capital":
+                # issue #520: this subtotal also reads the PRIOR period's operating working capital, which is
+                # never on the same transcription, so it has no single-period weight set (COEFFICIENTS entry
+                # empty; cross_foot reports it as not_assessed) and no single-period reproduction to assert.
+                continue
             weighted = sum(Decimal(raw[f]) * w for f, w in tc.COEFFICIENTS[name].items())
             assert weighted == Decimal(str(derived[name])), name
 

@@ -358,7 +358,7 @@ def _escape_markdown(text):
 LEGEND = (
     "RED_ON_BASE: the tests fail without the PR's change — the red-first evidence.",
     "PASSES_ON_BASE: no red-on-base evidence; expected for refactors, coverage and documentation PRs.",
-    "CANNOT_RUN: the tests could not run on the base (an import the base lacks; expected when the PR adds a module).",
+    "CANNOT_RUN: the tests did not fully run on the base (an import the base lacks, expected when the PR adds a module; or a skipped case, so the unit did not fully execute).",
     "NO_TESTS_SELECTED: the PR adds or changes no test function.",
 )
 

@@ -36,7 +36,7 @@ jobs:
           persist-credentials: false  # no later step needs the token
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -46,7 +46,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade -c constraints.txt pip==26.2.1
+          python -m pip install --upgrade -c constraints.txt pip==26.2.2
           pip install -c constraints.txt -r requirements-dev.txt
 
       - name: Lint with Ruff
@@ -115,7 +115,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -125,7 +125,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade -c constraints.txt pip==26.2.1
+          python -m pip install --upgrade -c constraints.txt pip==26.2.2
           pip install -c constraints.txt -r requirements-dev.txt
 
       - name: Run test suite
@@ -147,7 +147,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -157,7 +157,7 @@ jobs:
 
       - name: Install runtime dependencies only
         run: |
-          python -m pip install --upgrade -c constraints.txt pip==26.2.1
+          python -m pip install --upgrade -c constraints.txt pip==26.2.2
           pip install -c constraints.txt -r requirements.txt
 
       - name: Smoke check
@@ -192,7 +192,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.11"
           cache: 'pip'
@@ -202,7 +202,7 @@ jobs:
 
       - name: Install audit tools
         run: |
-          python -m pip install --upgrade -c constraints.txt pip==26.2.1
+          python -m pip install --upgrade -c constraints.txt pip==26.2.2
           pip install -c constraints.txt -r requirements-security.txt
 
       - name: Audit dependencies for known vulnerabilities

@@ -1815,7 +1815,6 @@ def test_an_unexportable_draft_creates_no_folder_and_saves_no_template(tmp_path)
     assert not (tmp_path / "templates").exists()
 
 
-
 def test_financial_data_from_state_does_not_fall_back_to_computed_store_for_missing_supplied_historical_period():
     """A missing historical period in the selected supplied store is not filled from computed raw figures.
     Rule: R-EXPORT-003"""

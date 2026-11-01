@@ -164,20 +164,20 @@ def test_negative_threshold_headroom_literal_values(covenant_type, actual, statu
 
 
 @pytest.mark.parametrize(
-    "case, actual, threshold, covenant_type, expected_status, mismatch_field",
+    "actual, threshold, covenant_type, expected_status, mismatch_field",
     [
-        ("actual-at-positive-boundary", 10.0, 1.0, "maximum", "FAIL", "actual"),
-        ("actual-above-positive-boundary", 10.0001, 1.0, "maximum", "UNRESOLVABLE", "actual"),
-        ("actual-at-negative-boundary", -10.0, -9.0, "maximum", "PASS", "actual"),
-        ("actual-below-negative-boundary", -10.0001, -9.0, "maximum", "UNRESOLVABLE", "actual"),
-        ("threshold-at-positive-boundary", 0.5, 10.0, "maximum", "PASS", "threshold"),
-        ("threshold-above-positive-boundary", 0.5, 10.0001, "maximum", "UNRESOLVABLE", "threshold"),
-        ("threshold-at-negative-boundary", -0.5, -10.0, "minimum", "PASS", "threshold"),
-        ("threshold-below-negative-boundary", -0.5, -10.0001, "minimum", "UNRESOLVABLE", "threshold"),
+        (10.0, 1.0, "maximum", "FAIL", "actual"),
+        (10.0001, 1.0, "maximum", "UNRESOLVABLE", "actual"),
+        (-10.0, -9.0, "maximum", "PASS", "actual"),
+        (-10.0001, -9.0, "maximum", "UNRESOLVABLE", "actual"),
+        (0.5, 10.0, "maximum", "PASS", "threshold"),
+        (0.5, 10.0001, "maximum", "UNRESOLVABLE", "threshold"),
+        (-0.5, -10.0, "minimum", "PASS", "threshold"),
+        (-0.5, -10.0001, "minimum", "UNRESOLVABLE", "threshold"),
     ],
     ids=["actual-at-positive-boundary", "actual-above-positive-boundary", "actual-at-negative-boundary", "actual-below-negative-boundary", "threshold-at-positive-boundary", "threshold-above-positive-boundary", "threshold-at-negative-boundary", "threshold-below-negative-boundary"],
 )
-def test_percent_type_ratio_unit_boundary_is_pinned(case, actual, threshold, covenant_type, expected_status,
+def test_percent_type_ratio_unit_boundary_is_pinned(actual, threshold, covenant_type, expected_status,
                                                      mismatch_field):
     """The ±10 boundary is inclusive for actuals and thresholds; values beyond it are unresolved.
     Rule: R-POL-010"""

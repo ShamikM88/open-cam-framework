@@ -47,7 +47,7 @@ as the temporary citation and verification tracker. During #500, candidate test 
 Claim; only tests whose assertions verify the whole Claim received a citation and a Covered status. The remaining
 Not covered entries each link their own gap issue, which asks for the missing test.
 
-**Inventory at this revision:** 35 IDs ever issued; 29 active Covered; 3 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 35 IDs ever issued; 32 active Covered; 0 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 

@@ -716,7 +716,7 @@ tests are reported by function with their run counts.
 
 Each selected unit is classified `RED_ON_BASE` (a failing run, kind `assertion`), `PASSES_ON_BASE`
 (all runs passed), or `CANNOT_RUN` (kind `import` when its file failed collection on the base, the
-expected outcome when a PR adds a module); a PR that changes no test function is `NO_TESTS_SELECTED`.
+expected outcome when a PR adds a module; kind `skipped` when any run was skipped and none failed, because a skipped run never executed); a PR that changes no test function is `NO_TESTS_SELECTED`.
 The report is Markdown — verdict line, one row per unit, the legend — appended to `--summary-file`
 and printed. `PASSES_ON_BASE` appears in the summary only.
 

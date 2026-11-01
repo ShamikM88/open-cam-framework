@@ -550,6 +550,7 @@ def test_a_skipped_new_test_is_not_reported_as_passed_on_base(tmp_path):
 
 
 def test_skipped_cases_of_a_parametrized_test_do_not_count_as_passed(tmp_path):
+    """CG531-1: one passing and one skipped case did not all run, so the verdict is not an all-clear."""
     repo, base = _base_repo(tmp_path)
     repo.write("tests/test_new.py",
                "import pytest\n\n\n@pytest.mark.parametrize('value', [1, pytest.param(2, marks=pytest.mark.skip)])\n"
@@ -557,8 +558,10 @@ def test_skipped_cases_of_a_parametrized_test_do_not_count_as_passed(tmp_path):
     head = repo.commit()
     result, _ = repo.run(base, head)
     assert result.returncode == 0, result.stderr
-    assert "Verdict: PASSES_ON_BASE — 1 selected test function, all passed on the base commit." in result.stdout
-    assert "| tests/test_new.py::test_values | 2 | 0 | 1 | assertion |" in result.stdout
+    assert "Verdict: CANNOT_RUN" in result.stdout and "PASSES_ON_BASE —" not in result.stdout
+    assert "| tests/test_new.py::test_values | 2 | 0 | 1 | skipped |" in result.stdout
+    # CG536-1: the legend printed with every report must name this cause too, not only a missing import
+    assert "a skipped case" in result.stdout.split("CANNOT_RUN: ")[-1].splitlines()[0]
 
 
 # ---------------------------------------------------------------------------

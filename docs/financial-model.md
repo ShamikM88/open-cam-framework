@@ -18,6 +18,8 @@ formula, unit, edge rules, implementation reference and status, under a stable i
 Each is computed from the raw line items you supply for a period (`revenue`, `cost_of_sales`, and so on; the field
 list is in the [command reference](commands.md#spread)). A missing line item counts as 0; it is never invented.
 
+`interest_paid` is the period's P&L charge: interest payable and similar charges, not cash interest paid in the period. `tax_paid` is the period's P&L charge: tax on profit, not cash tax paid in the period (decision D-c of issue #504). The names are retained for compatibility; these inputs do not describe cash payment timing.
+
 | Term | How it is computed | Plain meaning |
 | :--- | :--- | :--- |
 | Gross profit | revenue - cost of sales | What is left after the direct cost of what was sold |

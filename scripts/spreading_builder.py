@@ -495,7 +495,9 @@ def _operating_working_capital(raw: Mapping[str, Any]) -> float:
     decision: only the FCF-after-working-capital result is stored)."""
     def g(key: str) -> Any:
         return raw.get(key, 0) or 0
-    return (
+    # float(): the g() reads are Any (validated numeric upstream), and the sum is
+    # returned as the declared float, not Any.
+    return float(
         g("trade_debtors") + g("stock") + g("other_current_assets")
         - g("trade_creditors") - g("other_current_liabilities")
     )

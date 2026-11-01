@@ -943,7 +943,7 @@ def decode_base_fail_workflow_bytes(raw: bytes, *, is_windows: bool) -> str:
     if is_windows:
         # Git for Windows checkouts may use CRLF on the Windows runner. Normalise only that conversion;
         # lone CR remains visible, and Linux comparisons preserve every newline byte.
-        text = text.replace("\\r\\n", "\\n")
+        text = text.replace("\r\n", "\n")
     return text
 
 

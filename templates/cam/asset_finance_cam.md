@@ -166,6 +166,8 @@ Full line-by-line figures live in the accompanying spreading workbook (see `scri
 | Current Ratio | | | |
 | Working Capital Cycle (days) | | | |
 
+EBITDA is before exceptional items and includes other income; DSCR is EBITDA-based; FCF is before working capital.
+
 **Analyst commentary:** [Trend narrative on revenue, margin, leverage and liquidity — every figure must trace back to the audited accounts or management information used for the spreading.]
 
 ## 14. Ultimate Parent — Consolidated Key Figures & Credit Analysis

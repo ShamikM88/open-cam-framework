@@ -620,7 +620,6 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
     assert approved_claude_bullet in claude
 
 
-
 # The guarantee-amount guidance authorised by the maintainer on issue #505, comment 6522121343 (review finding
 # PX516-1 on PR #516). An absent amount drafts "for an amount to be confirmed"; an uncapped guarantee is recorded as
 # the plain text `an unlimited amount` in the existing amount field. Any other change needs a fresh authorisation.

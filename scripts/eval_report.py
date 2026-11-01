@@ -240,9 +240,16 @@ def _row_result(run):
             return "pass" if run["passed"] else "caught (expected)"
         return "UNEXPECTED " + ("pass" if run["passed"] else "FAIL")
     if run.get("status") == "interrupted":
+        if run.get("call_had_failed") and run.get("output_text") is None and run.get("stop_reason") is None:
+            # the call had already failed before the Ctrl-C landed in cleanup; the recorded error is kept
+            return ("INTERRUPTED after the call had already failed -- Ctrl-C during cleanup; no model result "
+                    "was obtained and the call's error is kept (counted as a non-pass)")
         if run.get("output_text") is not None:  # the reply had arrived; the interrupt came later
             return ("INTERRUPTED after the call completed -- Ctrl-C during scoring, recording or cleanup; the "
                     "output is kept but was not scored (counted as a non-pass)")
+        if run.get("call_returned_no_text") or run.get("stop_reason") is not None:  # the reply had arrived but empty (e.g. a refusal); still a result
+            return ("INTERRUPTED after the call completed with no text -- Ctrl-C during scoring or cleanup; the "
+                    "model returned no text, so there was no output to keep or score (counted as a non-pass)")
         return ("INTERRUPTED while the call was in flight -- it counted against the cap but no result was "
                 "observed (counted as a non-pass)")
     if run.get("status") == "no_text":

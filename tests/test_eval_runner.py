@@ -11,7 +11,7 @@ import sys
 import pytest
 
 import eval_runner
-from eval_budget import BudgetedClient, CallBudget
+from eval_budget import BudgetedClient, CallBudget, CallCapExceeded
 from eval_fakes import (
     DECOYS,
     FakeClient,
@@ -1132,6 +1132,149 @@ def test_ctrl_c_during_post_call_cleanup_keeps_the_paid_output_and_records_the_c
     assert os.getcwd() == before
 
 
+def test_ctrl_c_in_cleanup_after_a_no_text_reply_records_the_call_and_the_pack_says_so(env, monkeypatch):
+    case = dataset_case("inj-source-block-obfuscated")
+    _interrupt_cleanup_of(case["id"], monkeypatch)
+    run, budget = one_run(env, case, ShapedClient(lambda kwargs: _resp([], stop_reason="refusal")))
+    assert run["status"] == "interrupted" and not run["passed"]   # paid for, recorded, non-passing
+    assert run["live_calls"] == 1 and budget.calls == 1 and run.get("output_text") is None
+    assert run["stop_reason"] == "refusal"
+    assert "returned no text" in run["error"]
+    from eval_report import _row_result  # the pack must say which of the three interrupt shapes it was
+    row = _row_result(run)
+    assert "after the call completed" in row and "no text" in row
+    assert "in flight" not in row and "no result was observed" not in row
+
+
+def test_a_no_text_reply_with_no_stop_reason_is_still_worded_as_a_completed_call_in_the_pack(env, monkeypatch):
+    """CL525-1: the pack must not tell an interrupted no-text reply from an in-flight call by `stop_reason`
+    alone; a response that carries no stop reason is still a completed call."""
+    case = dataset_case("inj-source-block-obfuscated")
+    _interrupt_cleanup_of(case["id"], monkeypatch)
+    run, budget = one_run(env, case, ShapedClient(lambda kwargs: _resp([], stop_reason=None)))
+    assert run["status"] == "interrupted" and run["live_calls"] == 1 and budget.calls == 1
+    assert run["stop_reason"] is None and run.get("output_text") is None
+    assert "returned no text" in run["error"]
+    from eval_report import _row_result
+    row = _row_result(run)
+    assert "after the call completed" in row and "no text" in row
+    assert "in flight" not in row and "no result was observed" not in row
+
+
+def test_an_api_error_in_flight_survives_a_ctrl_c_that_lands_in_cleanup(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+
+    def fail(kwargs):
+        raise RuntimeError("boom: the API is down")
+
+    run, budget = one_run(env, case, FakeClient(fail))
+    assert run["status"] == "interrupted" and not run["passed"]   # the interrupt still owns the status...
+    assert run["live_calls"] == 1 and budget.calls == 1
+    assert "Ctrl-C" in run["error"]
+    assert "RuntimeError: boom: the API is down" in run["error"]   # ...but the original, redacted error is kept
+    # The wording says the call failed before the cleanup interrupt; it never says the call was
+    # in flight once it says it had already failed (review finding CG525-2).
+    assert "already failed" in run["error"] and "in flight" not in run["error"]
+    # The whole message is built, redacted, then cut, so the final error keeps the 300-character cap
+    # (review finding CG525-1).
+    assert len(run["error"]) <= 300
+
+
+def test_a_long_key_plus_a_cleanup_interrupt_keeps_the_cap_and_leaves_no_key_fragment(env, monkeypatch):
+    # The 300-character cap must survive the combination of a long redacted error with the
+    # cleanup-interrupt wording, and the final cut must not leave a fragment of the key
+    # (review finding CG525-1).
+    key = "an-odd-shaped-key-ABCDEFGHIJ0123456789"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", key)
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+
+    def fail(kwargs):
+        raise RuntimeError("x" * 270 + key + " tail")
+
+    run, _ = one_run(env, case, FakeClient(fail))
+    assert run["status"] == "interrupted"
+    assert key[:6] not in run["error"] and len(run["error"]) <= 300
+
+
+def test_the_pack_says_the_call_had_already_failed_for_an_interrupted_error_run(env, monkeypatch):
+    # The pack must not describe a call that had already failed as "in flight" (review finding
+    # CG525-2's wording, carried through to the human-readable row).
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+
+    def fail(kwargs):
+        raise RuntimeError("boom: the API is down")
+
+    run, _ = one_run(env, case, FakeClient(fail))
+    from eval_report import _row_result
+    row = _row_result(run)
+    assert "already failed" in row and "in flight" not in row
+
+
+def test_an_interrupt_in_cleanup_after_a_post_call_pipeline_failure_keeps_the_output_and_does_not_label_the_call_failed(env, monkeypatch):
+    # CG525-4: the recorded error may belong to a pipeline stage that ran after the response
+    # was saved, not to the model call. A response already in router.responses is a completed
+    # call, so the run must not be labelled call_had_failed or say the call had already
+    # failed; the output is kept and the error names the later pipeline failure.
+    import orchestrator as orchestrator_module
+
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    real_write_state = orchestrator_module.write_state
+    state = {"calls": 0}
+
+    def failing_later_write_state(*args, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:  # the pre-call checkpoint succeeds...
+            return real_write_state(*args, **kwargs)
+        raise RuntimeError("a pipeline stage failed after the call")  # ...the post-call stage fails
+
+    monkeypatch.setattr(orchestrator_module, "write_state", failing_later_write_state)
+    run, budget = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    assert run["status"] == "interrupted" and not run["passed"]
+    assert run["live_calls"] == 1 and budget.calls == 1
+    assert run["output_text"] == good_maker_text(case)  # the paid-for output is kept
+    assert run.get("call_had_failed") is None  # a completed call, never labelled a failed one
+    assert "had already failed" not in run["error"]
+    assert "model call completed" in run["error"] and "later pipeline stage" in run["error"]
+    assert "RuntimeError: a pipeline stage failed after the call" in run["error"]
+
+
+def test_the_pack_names_a_post_call_pipeline_failure_as_a_completed_call(env, monkeypatch):
+    # CG525-4 carried through to the human-readable row: a pipeline failure after a saved
+    # response is a completed call whose output is kept, never "the call had already failed".
+    import orchestrator as orchestrator_module
+
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    real_write_state = orchestrator_module.write_state
+    state = {"calls": 0}
+
+    def failing_later_write_state(*args, **kwargs):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            return real_write_state(*args, **kwargs)
+        raise RuntimeError("a pipeline stage failed after the call")
+
+    monkeypatch.setattr(orchestrator_module, "write_state", failing_later_write_state)
+    run, _ = one_run(env, case, FakeClient(lambda kwargs: good_maker_text(case)))
+    from eval_report import _row_result
+    row = _row_result(run)
+    assert "after the call completed" in row and "already failed" not in row
+
+
+def test_a_call_cap_abort_wins_when_ctrl_c_lands_in_cleanup(env, monkeypatch):
+    case = dataset_case("fab-no-financials")
+    _interrupt_cleanup_of("fab-no-financials", monkeypatch)
+    budget = CallBudget(1)
+    budget.spend()  # the cap is spent before this run: the very next call aborts the evaluation
+    with pytest.raises(CallCapExceeded):  # the cap, not the coincidental Ctrl-C, is what stops the run
+        run_case_once(case, "repeat-1", build_context(case),
+                      BudgetedClient(FakeClient(lambda k: "never"), budget), env["repo"], env["work"])
+
+
 def test_the_accounting_invariant_holds_when_ctrl_c_lands_in_the_cleanup_window(env, monkeypatch):
     dataset, cases = _dataset("fab-no-financials")
     _interrupt_cleanup_of("fab-no-financials", monkeypatch)
@@ -1165,9 +1308,12 @@ def test_ctrl_c_in_the_chdir_back_out_still_restores_the_working_directory(env, 
 def test_an_interrupted_post_call_run_is_described_truthfully_in_the_pack():
     from eval_report import _row_result
     after = {"kind": "live", "status": "interrupted", "passed": False, "output_text": "the whole draft"}
+    no_text = {"kind": "live", "status": "interrupted", "passed": False, "stop_reason": "refusal"}
     in_flight = {"kind": "live", "status": "interrupted", "passed": False}
     assert "after the call completed" in _row_result(after) and "was not scored" in _row_result(after)
     assert "no result" not in _row_result(after)
+    assert "after the call completed" in _row_result(no_text) and "no text" in _row_result(no_text)
+    assert "in flight" not in _row_result(no_text) and "no result was observed" not in _row_result(no_text)
     assert "while the call was in flight" in _row_result(in_flight) and "no result was observed" in _row_result(in_flight)
 
 

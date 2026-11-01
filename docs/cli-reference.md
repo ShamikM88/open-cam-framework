@@ -14,6 +14,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `draft_lint.py` | Lints a CAM or research brief for internal framework vocabulary and unfinished scaffolding | No | [Draft lint](#draft-lint) |
 | `committee_summary.py` | Writes a short committee summary (Markdown and Word) from a deal's recorded state and the policy check | No | [Committee summary](#committee-summary) |
 | `export_readback.py` | Compares a deal's exported `.xlsx` and `.docx` with what its record regenerates; read-only | No | [Export read-back](#export-read-back) |
+| `covenant_cushion.py` | Prints the covenant cushion report: exact EBITDA break-evens and single-shock reverse-stress brackets from a deal's recorded state; read-only | No | [Covenant cushion](#covenant-cushion) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
@@ -28,6 +29,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `check_coverage.py`, `check_test_count.py`, `mutation_report.py` | Test and CI tooling | No | [Test tooling](#test-tooling) |
 | `wiki_publish.py` | Generates the GitHub Wiki page tree from `docs/`, and publishes it to the wiki with `--publish` | No | [Wiki publish](#wiki-publish) |
 | `pr_scope_check.py` | Compares changed paths with the PR's declared file scope; advisory only | No | [PR scope check](#pr-scope-check) |
+| `pr_base_fail_check.py` | Reports whether the tests a PR adds or changes fail on the base commit; advisory only | No | [New tests on the base commit](#new-tests-on-the-base-commit) |
 | `run_evals.py` | The local live-model evaluation harness | Only for `--live` | [Evaluation harness](#evaluation-harness) |
 
 Only the first, second and last scripts can reach the Anthropic API; every other script is deterministic and makes no
@@ -288,6 +290,42 @@ paths resolve against the working directory.
 
 ```bash
 python scripts/export_readback.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
+```
+
+## Covenant cushion
+
+`scripts/covenant_cushion.py --company ... --proposal ... [--date-str YYYY-MM-DD]` prints the covenant cushion
+report for one deal as JSON on stdout. Without `--date-str` it uses the deal's newest dated folder that has a
+`state.json`; with it, that exact folder. It is read-only: it writes no deal file, state, draft, manifest or
+output file, and it makes no network call and needs no `ANTHROPIC_API_KEY`.
+
+- **Content:** for each recorded covenant and each period the policy engine also tests (`FY-Current` plus the
+  forward years with recorded ratios; forward years are disclosure only), the report carries: the covenant row
+  exactly as the policy engine records it (metric, type, threshold, actual, status, headroom, reason, basis when
+  present); the exact EBITDA break-even for the four EBITDA-driven covenants (DSCR, gross leverage, net debt /
+  EBITDA, EBITDA / interest cover) with the side that satisfies the covenant, or the reason no boundary exists;
+  and, for each of the three recorded shocks (revenue haircut, opex increase, interest-rate bump; there is no
+  cost-of-sales shock), two single-shock reverse-stress searches — the base scenario (all shocks at zero) and the
+  downside scenario (the other shocks held at their recorded settings, the searched shock starting from its
+  recorded setting, reporting both the cumulative crossing and the additional cushion beyond that setting).
+- **Searches return brackets, not points:** each search brackets the first non-PASS point (FAIL or UNRESOLVABLE
+  alike) by geometric expansion then bisection, and reports the pass/non-pass bracket with its tolerance and the
+  status beyond it. A covenant whose ratio a shock cannot move is reported "not moved"; a non-monotone driver, a
+  point the spreading builder refuses, or a crossing outside the documented bound (revenue haircut 0–100%; opex
+  increase and interest bump up to 10,000) is reported with its reason instead of a cushion. A baseline that is
+  already FAIL or UNRESOLVABLE reports zero remaining cushion with no search.
+- **Availability:** the searches re-evaluate the recorded raw line items through the spreading builder's own
+  shock and model functions, so a period whose figures are analyst-supplied (financials_source for FY-Current,
+  forecast_source for a forward year) or absent from `multi_period_financials` reports its break-even and
+  searches as unavailable with the reason; nothing is invented.
+- **Nothing is judged:** the report is the mechanical distance to a covenant's first non-PASS result under one
+  shock at a time; it is not a credit decision, and the policy check remains authoritative. A recorded ratio
+  that disagrees with a re-evaluation of the raw lines is flagged as a caveat rather than silently trusted.
+- **Output and exit codes:** one JSON object on stdout. A missing deal or dated folder, a malformed state key or
+  an unusable input gives one `error:` line on stderr and exit `1`; a usage error exits `2`.
+
+```bash
+python scripts/covenant_cushion.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan"
 ```
 
 ## Research export
@@ -658,6 +696,37 @@ change is safe to merge.
 ```bash
 python scripts/pr_scope_check.py --changed-files changed-files.nul --scope-body scope-body.md
 python scripts/pr_scope_check.py --changed-files changed-files.nul --scope-body scope-body.md --summary-file summary.md
+```
+
+## New tests on the base commit
+
+`python scripts/pr_base_fail_check.py --base-sha SHA --head-sha SHA --changed-files changed-files.nul
+[--summary-file PATH]` is the advisory check behind issue #475's option C: it answers, for a pull
+request that adds or changes tests, whether those tests fail on the base commit — the red-first
+evidence a reviewer otherwise re-derives by hand. Run it from a checkout at the head commit (the
+workflow checks out the PR's own merge commit); `--changed-files` is the NUL-delimited
+`git diff --name-only -z base...head` output.
+
+It selects the top-level `test*` functions and `Test*` class methods that are new or changed between
+base and head (an AST comparison, decorators included, so a changed parametrization counts; an edit
+confined to non-test code selects nothing), overlays the PR's changed `tests/` paths — test files,
+fixtures and `conftest.py` alike — onto a `git worktree` of the base commit, and runs exactly those
+node IDs there with `pytest --junitxml`. Only `tests/` paths are ever overlaid or run. Parametrized
+tests are reported by function with their run counts.
+
+Each selected unit is classified `RED_ON_BASE` (a failing run, kind `assertion`), `PASSES_ON_BASE`
+(all runs passed), or `CANNOT_RUN` (kind `import` when its file failed collection on the base, the
+expected outcome when a PR adds a module); a PR that changes no test function is `NO_TESTS_SELECTED`.
+The report is Markdown — verdict line, one row per unit, the legend — appended to `--summary-file`
+and printed. `PASSES_ON_BASE` appears in the summary only.
+
+Exit `0` for every verdict, including `RED_ON_BASE`: a red result is the check working, not a failure,
+and the check is never a gate. Exit `2` means the check itself is broken — malformed input, a HEAD
+that is not `--head-sha`, a git or worktree failure, a pytest internal error, or a missing JUnit
+file — and then the summary says `CHECK MALFUNCTION` rather than anything verdict-shaped.
+
+```bash
+python scripts/pr_base_fail_check.py --base-sha "$BASE_SHA" --head-sha "$GITHUB_SHA" --changed-files changed-files.nul --summary-file "$GITHUB_STEP_SUMMARY"
 ```
 
 ## Model freshness check

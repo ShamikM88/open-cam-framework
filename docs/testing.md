@@ -254,6 +254,23 @@ This job is **not a required check** and is not a fifth job in `ci.yml`: the exi
 the required names `test`, `test-windows` and `runtime-smoke` are unchanged. In a `pull_request` run,
 the script comes from the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
 
+### Advisory new-tests-on-base check
+
+The separate `.github/workflows/base-fail-check.yml` workflow runs the `base-fail-check` job on Ubuntu for `pull_request` events targeting `main` when a pull request is opened, synchronized or reopened. It calls `scripts/pr_base_fail_check.py` from the PR's own merge commit. The script compares the abstract syntax trees of the base and head versions of Python files under `tests/`, selecting new or changed top-level `test*` functions and `test*` methods on top-level `Test*` classes (decorators count as part of the change). It overlays every changed `tests/` path still present at the head — test files, fixtures and `conftest.py` alike — onto a detached worktree of the base, then runs the selected test node IDs there. It does not overlay or execute production-code paths.
+
+This is an advisory reviewer aid, not a proof or a gate. The job is **not a required check** and is not part of `.github/workflows/ci.yml`; the three required names (`test`, `test-windows`, `runtime-smoke`) are unchanged. The report uses the PR's own merge-commit version of the script and tests, so read it alongside ordinary CI and code review. Every verdict exits `0`; exit `2` means the check itself malfunctioned and the summary says `CHECK MALFUNCTION`. The workflow has no `continue-on-error`: a broken check must not look like a clean report.
+
+**Verdicts — all describe the selected tests on the base commit, not the PR head:**
+
+- **`RED_ON_BASE`** — at least one selected test run failed on the base. The row's `Kind` identifies an assertion failure or an execution/import error. This is red-first evidence that the selected test does not pass without the PR's changes; it does not prove the PR fixes the cause or that the PR as a whole is correct.
+- **`PASSES_ON_BASE`** — every run of every selected test function passed on the base. There is no red-on-base evidence. This is expected for refactors, coverage and documentation changes whose selected assertions already pass without the PR; it is not a failure verdict or proof that the rest of the PR is sound. PASSES_ON_BASE appears in the summary only; the workflow does not post a PR comment.
+- **`CANNOT_RUN`** — one or more selected tests did not fully execute on the base. A test file can fail collection because the base lacks a module the PR adds, a selected function can produce no JUnit result, or a changed test file can be unparseable at the head. A skipped run also counts: if a selected function has one or more skipped cases and no failures, its row is `CANNOT_RUN` (kind `skipped`), not a pass. This verdict is inconclusive, not green evidence.
+- **`NO_TESTS_SELECTED`** — no new or changed test function or `Test*` method was selected, for example when a PR changes only documentation or production code, or edits a helper without changing a test definition. It says no tests were selected by this check; it does not say the suite passed.
+
+If the PR has both red rows and rows that could not run, the PR-level verdict is `RED_ON_BASE` because a failing selected run takes precedence. Otherwise an incomplete run yields `CANNOT_RUN`; no selected rows yields `NO_TESTS_SELECTED`; only a complete set of passing rows yields `PASSES_ON_BASE`.
+
+**Read the job summary.** Find `### New tests on the base commit` and start with the `Verdict:` line — it is the PR-level result. The table has one row per selected test function or method: `Test function` is its pytest node ID, `Runs` counts the cases (so a parametrized function can have several runs), `Failed` and `Passed` are the counts, and `Kind` explains a failure or why a result is missing. Changed files that could not be parsed at the head are listed separately. The table is capped at 100 rows and says how many further rows were omitted. Use the row counts and kinds rather than reading only the top-line verdict; a `RED_ON_BASE` report can contain other functions that passed or could not run.
+
 ### Type checking (fails on type errors; not a required check)
 
 Static type checking covers the eleven governance modules (issue #424). `[tool.mypy]` in

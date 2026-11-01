@@ -51,6 +51,62 @@ CI keeps `coverage.xml`, `coverage.json`, `pytest_output.txt` and `pip freeze` f
 
 **CodeQL** runs from the repository's code-scanning settings, not from a workflow file, so no file here describes it. Treat an alert as real until shown otherwise. A green CodeQL check on a pull request is **not** proof that an alert is closed: pull-request analyses report on the code the change touches, so an alert on a line the pull request leaves alone can sit unchanged in a green check. To confirm a fix, check the alert's state on `main` after the merge, once `main` has been re-analysed, and read the alert's own `state` rather than the workflow's conclusion.
 
+## New tests on the base check (advisory)
+
+The `base-fail-check` job reports whether a pull request's new or changed test functions fail on its base commit. It is a reviewer aid, not a proof or a gate, and is **not a required check**. It runs the PR's merge-commit version of the script and tests, not a second full CI suite. Read the verdict meanings and summary format in [Testing and CI](testing.md#advisory-new-tests-on-base-check).
+
+**Reproduce the workflow locally.** Use a full-history checkout containing both commit objects, with the worktree at the PR merge commit. Supply the exact 40-character base and merge SHAs from the pull request run; the script verifies that `HEAD` is the supplied head SHA.
+
+```bash
+BASE_SHA="<full base SHA>"
+HEAD_SHA="<full PR merge-commit SHA>"
+test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" > changed-files.nul
+python scripts/pr_base_fail_check.py \
+    --base-sha "$BASE_SHA" \
+    --head-sha "$HEAD_SHA" \
+    --changed-files changed-files.nul \
+    --summary-file base-fail-summary.md
+```
+
+The CLI performs the selection, worktree, overlay and JUnit steps for you. To reproduce the underlying worktree-plus-overlay run by hand, start with the base tree and copy the head version of **every changed path under `tests/` that still exists at the head** into the same path in the worktree. Include test files, fixtures and `conftest.py`; do not copy deleted files or anything outside `tests/`. Then run exactly the selected node IDs (the `Test function` values in the report) in the worktree:
+
+```bash
+TMPROOT="$(mktemp -d)"
+WORKTREE="$TMPROOT/base"
+JUNIT="$TMPROOT/junit.xml"
+git worktree add --detach "$WORKTREE" "$BASE_SHA"
+
+while IFS= read -r -d '' path; do
+    case "$path" in
+        tests/*)
+            if git cat-file -e "$HEAD_SHA:$path" 2>/dev/null; then
+                mkdir -p "$WORKTREE/$(dirname "$path")"
+                git show "$HEAD_SHA:$path" > "$WORKTREE/$path"
+            fi
+            ;;
+    esac
+done < changed-files.nul
+
+# Replace these examples with the selected node IDs from the report.
+NODE_IDS=("tests/test_example.py::test_example")
+(cd "$WORKTREE" && python -m pytest --junitxml="$JUNIT" -p no:cacheprovider -q "${NODE_IDS[@]}")
+
+git worktree remove --force "$WORKTREE"
+rm -rf "$TMPROOT"
+```
+
+**When the verdict is `CANNOT_RUN`.** Read the row's `Kind` and any separate unparseable-file note:
+
+- `import` means the file failed collection on the base, often because a module introduced by the PR does not exist there. This may be expected for a test of a genuinely new module; confirm that the test and module run on the PR head and review the missing-base dependency.
+- `skipped` means at least one case was skipped and none failed. Since the skipped case did not execute, the unit is not a pass; investigate the skip reason and remove or resolve an unintended skip before relying on the test as evidence.
+- `no-result` means pytest produced no matching test case for the selected node ID. Check collection, imports and the node ID; do not infer a pass.
+- An unparseable changed test file is called out separately in the summary and also makes the PR-level result `CANNOT_RUN`.
+
+Treat `CANNOT_RUN` as inconclusive, never as green evidence. If another selected function failed, the PR-level result is still `RED_ON_BASE`; read every row. Check ordinary required CI on the PR head as well, but do not substitute its result for the base-run explanation.
+
+**Keep the assurance boundary.** This job never becomes a required check. Never add `continue-on-error` or make it required without a reviewed decision: every verdict is intentionally a report, while a broken check must still fail rather than look clean.
+
 ## Coverage: how to read it
 
 **Purpose.** Coverage answers "did a test run this line?", never "would a test notice if it were wrong?". It is a floor against untested governance code, not a score ([D13](decisions.md#d13-mutation-testing-and-coverage-are-diagnostics-and-floors-not-a-scoring-game)).

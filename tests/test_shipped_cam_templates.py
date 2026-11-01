@@ -25,7 +25,8 @@ def test_shipped_cam_guidance_uses_html_comments_and_blank_human_signature():
         assert lines[signature_index + 1] == signature_guidance, name
 
 
-# The exact CAM basis sentence is authorised by issue #518, comment 6555374029, item 3.
+# Issue #518, comment 6555374029 (item 3), authorised a basis sentence under the table; the maintainer accepted
+# this exact wording on PR #544 (recorded on #518, comment 6564716021).
 CAM_BASIS_SENTENCE = "EBITDA is before exceptional items and includes other income; DSCR is EBITDA-based; FCF is before working capital."
 
 

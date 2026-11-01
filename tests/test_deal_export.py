@@ -754,6 +754,7 @@ def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_s
 
 def test_financial_data_from_state_drops_supplied_forward_period_without_computed_counterpart():
     """A forward period only in the supplied store is dropped, never used as a fallback (PX354-2, #249).
+    Partial check only: this covers the computed-selected forward direction, not the analyst-supplied historical direction.
     Rule: R-EXPORT-003"""
     state = {
         "financials_source": "analyst-supplied",

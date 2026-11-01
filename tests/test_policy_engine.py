@@ -169,7 +169,8 @@ def test_negative_threshold_headroom_literal_values(covenant_type, actual, statu
     ids=["actual-written-as-percent", "threshold-written-as-percent"],
 )
 def test_percent_type_ratio_unit_mismatch_is_unresolvable(actual, threshold, bad_value):
-    """Rule: R-POL-010"""
+    """Partial check only: positive out-of-range actuals and thresholds are exercised; the ±10 boundary and negative cases are not.
+    Rule: R-POL-010"""
     state = {
         "ratios": {"FY-Current": {"gearing": actual}},
         "covenants": [{"metric": "gearing", "type": "maximum", "threshold": threshold}],

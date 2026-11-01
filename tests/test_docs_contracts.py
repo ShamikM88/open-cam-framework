@@ -664,18 +664,15 @@ SPREAD_DOCS_BASIS_NOTE = "In default mode, `interest_paid` and `tax_paid` are th
 
 def test_spread_inputs_pin_the_p_and_l_charge_basis():
     command = read(".claude/commands/spread.md")
-    default_mode = command.split("### Default: spread from raw P&L/Balance Sheet data", 1)[1].split(
-        "### Alternative: analyst-supplied pre-spread figures", 1
-    )[0]
-    analyst_supplied_mode = command.split("### Alternative: analyst-supplied pre-spread figures", 1)[1].split(
-        "## Source material", 1
-    )[0]
+    default_heading = "### Default: spread from raw P&L/Balance Sheet data"
+    assert_markdown_section_contains(
+        markdown_section(command, default_heading), default_heading, (SPREAD_INTEREST_BASIS, SPREAD_TAX_BASIS)
+    )
+    # Once in the whole file, and that once is in the default mode: the analyst-supplied mode records the analyst's
+    # own figures as given and does not get the sentences.
+    assert command.count(SPREAD_INTEREST_BASIS) == 1
+    assert command.count(SPREAD_TAX_BASIS) == 1
 
-    assert SPREAD_INTEREST_BASIS in default_mode
-    assert SPREAD_TAX_BASIS in default_mode
-    assert SPREAD_INTEREST_BASIS not in analyst_supplied_mode
-    assert SPREAD_TAX_BASIS not in analyst_supplied_mode
-
-    docs = read("docs/commands.md")
-    spread_section = docs.split("### /spread", 1)[1].split("\n### ", 1)[0]
-    assert SPREAD_DOCS_BASIS_NOTE in " ".join(spread_section.split())
+    docs_heading = "### /spread"
+    spread_section = " ".join(markdown_section(read("docs/commands.md"), docs_heading).split())
+    assert_markdown_section_contains(spread_section, docs_heading, (SPREAD_DOCS_BASIS_NOTE,))

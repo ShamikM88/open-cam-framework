@@ -189,6 +189,7 @@ def test_stress_validation_keeps_boundaries_basis_points_and_unbounded_values(as
 # ---------------------------------------------------------------------------
 
 def test_supplied_subtotals_and_ratios_are_stored_exactly_as_given_and_survive_a_reload(deal):
+    """    Rule: R-SPREAD-005"""
     record()
     on_disk = json.loads(state_file(deal).read_text(encoding="utf-8"))
     assert on_disk["financials"] == {"FY+1": {"ebitda": 300, "gross_profit": 500}, "FY+2": {"ebitda": 320}}
@@ -200,6 +201,7 @@ def test_supplied_subtotals_and_ratios_are_stored_exactly_as_given_and_survive_a
 
 
 def test_nothing_supplied_is_ever_recomputed_by_the_frameworks_formulas(deal, monkeypatch):
+    """    Rule: R-SPREAD-005"""
     def forbidden(*args, **kwargs):
         raise AssertionError("an analyst-supplied forecast must not be evaluated by the framework's formulas")
 

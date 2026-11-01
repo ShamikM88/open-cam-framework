@@ -147,6 +147,7 @@ def test_negative_threshold_headroom_literal_values(covenant_type, actual, statu
     ids=["actual-written-as-percent", "threshold-written-as-percent"],
 )
 def test_percent_type_ratio_unit_mismatch_is_unresolvable(actual, threshold, bad_value):
+    """    Rule: R-POL-010"""
     state = {
         "ratios": {"FY-Current": {"gearing": actual}},
         "covenants": [{"metric": "gearing", "type": "maximum", "threshold": threshold}],
@@ -209,6 +210,7 @@ def test_percent_type_threshold_mismatch_precedes_missing_actual():
 
 
 def test_boundary_actual_equals_threshold_is_pass_for_minimum():
+    """    Rule: R-POL-008"""
     state = {"ratios": RATIOS, "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.5}]}
     covenant = evaluate_deal_policy(state)["covenant_results"][0]
     assert covenant["status"] == "PASS"
@@ -216,6 +218,7 @@ def test_boundary_actual_equals_threshold_is_pass_for_minimum():
 
 
 def test_boundary_actual_equals_threshold_is_pass_for_maximum():
+    """    Rule: R-POL-008"""
     state = {"ratios": RATIOS, "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.2}]}
     covenant = evaluate_deal_policy(state)["covenant_results"][0]
     assert covenant["status"] == "PASS"
@@ -223,6 +226,7 @@ def test_boundary_actual_equals_threshold_is_pass_for_maximum():
 
 
 def test_unrecognized_metric_is_unresolvable_not_silently_skipped():
+    """    Rule: R-POL-017"""
     state = {"ratios": RATIOS, "covenants": [{"metric": "made_up_metric", "type": "minimum", "threshold": 1.0}]}
     result = evaluate_deal_policy(state)
     assert len(result["covenant_results"]) == 1
@@ -256,7 +260,8 @@ def test_zero_threshold_maximum_covenant_reports_headroom_as_none_not_a_misleadi
     """A maximum covenant of 0 with a real breach (actual=5) must still
     FAIL via direct comparison; headroom as a % of a zero threshold is
     undefined, not 0 -- 0 would misleadingly read as "right at the edge"
-    rather than "not computable"."""
+    rather than "not computable".
+    Rule: R-POL-009"""
     state = {
         "ratios": {"FY-Current": {"net_debt_ratio": 5}},
         "covenants": [{"metric": "net_debt_ratio", "type": "maximum", "threshold": 0}],
@@ -267,6 +272,7 @@ def test_zero_threshold_maximum_covenant_reports_headroom_as_none_not_a_misleadi
 
 
 def test_zero_threshold_minimum_covenant_reports_headroom_as_none():
+    """    Rule: R-POL-009"""
     state = {
         "ratios": {"FY-Current": {"some_ratio": 5}},
         "covenants": [{"metric": "some_ratio", "type": "minimum", "threshold": 0}],
@@ -785,6 +791,7 @@ def test_slugify_falls_back_to_a_stable_hash_for_symbol_only_input():
 # ---------------------------------------------------------------------------
 
 def test_base_pass_downside_fail_populates_downside_covenant_breaches():
+    """    Rule: R-POL-004"""
     state = {
         "ratios": {
             "FY-Current": {"dscr": 1.5},
@@ -912,6 +919,7 @@ def test_covenant_results_unaffected_by_downside_covenant_breach_logic():
 
 
 def test_no_downside_breach_when_covenant_passes_in_both_cases():
+    """    Rule: R-POL-004"""
     state = {
         "ratios": {"FY+2": {"dscr": 1.5}},
         "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
@@ -923,7 +931,8 @@ def test_no_downside_breach_when_covenant_passes_in_both_cases():
 def test_no_downside_breach_when_base_already_fails():
     """Base already FAILs -- covered by the ordinary covenant_results gate,
     not a "downside-specific" breach (the whole point of this list is
-    "passes today, fails only under stress")."""
+    "passes today, fails only under stress").
+    Rule: R-POL-004"""
     state = {
         "ratios": {"FY+2": {"dscr": 1.0}},
         "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
@@ -1189,7 +1198,8 @@ def test_two_covenants_on_one_metric_get_distinct_ids_when_downside_is_unavailab
 
 
 def test_a_downside_ratio_that_cannot_be_computed_is_an_unresolvable_breach_not_a_pass():
-    """Base PASS -> stressed UNRESOLVABLE is enforced exactly like FAIL, with the reason naming why the ratio is N/A."""
+    """Base PASS -> stressed UNRESOLVABLE is enforced exactly like FAIL, with the reason naming why the ratio is N/A.
+    Rule: R-POL-004"""
     breaches = _evaluate_downside_covenants(
         [LEVERAGE_MAX], {"FY+1": {"gross_leverage": 2.0}}, {"FY+1": {"gross_leverage": None}},
         base_financials={"FY+1": {"ebitda": 400}}, downside_financials={"FY+1": {"ebitda": -50}})
@@ -2001,6 +2011,7 @@ def test_an_explicit_borrower_basis_on_an_ordinary_deal_is_tested_and_names_its_
 
 
 def test_a_consolidated_covenant_on_an_ordinary_deal_is_unresolvable_with_the_reason_and_no_figures():
+    """    Rule: R-POL-006"""
     result = evaluate_deal_policy(_basis_state([_dscr("consolidated")]))["covenant_results"][0]
 
     assert result == {"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated",
@@ -2063,6 +2074,7 @@ def test_on_a_group_basis_deal_a_consolidated_covenant_is_tested_and_a_covenant_
 
 
 def test_a_group_basis_deal_with_an_explicit_borrower_covenant_is_unresolvable_too():
+    """    Rule: R-POL-006"""
     result = evaluate_deal_policy(_basis_state([_dscr("borrower")], GROUP_BASIS))["covenant_results"][0]
 
     assert (result["basis"], result["status"], result["reason"]) == ("borrower", "UNRESOLVABLE", BORROWER_ON_CONSOLIDATED)

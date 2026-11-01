@@ -128,6 +128,8 @@ def test_ground_truth_figures_and_collateral_cover_pct_importable():
     ],
 )
 def test_collateral_cover_pct_is_na_for_bad_asset_inputs(collateral, expected):
+    """    Rule: R-POL-011
+    Rule: R-POL-020"""
     actual = compute_collateral_cover_pct(collateral)
     if expected is None:
         assert actual is None
@@ -303,6 +305,7 @@ def test_check_draft_compliance_passes_when_every_required_cs_is_included():
 
 
 def test_check_draft_compliance_flags_covenant_failure_regardless_of_draft():
+    """    Rule: R-POL-013"""
     policy_state = _policy_state(covenant_results=[
         {"metric": "dscr", "type": "minimum", "threshold": 1.25, "actual": 1.0, "status": "FAIL", "headroom_pct": -0.2},
     ])
@@ -379,6 +382,7 @@ DOWNSIDE_BREACH = {
 
 
 def test_check_draft_compliance_flags_undisclosed_downside_breach():
+    """    Rule: R-POL-015"""
     draft = _compliant_draft(cp_ids=["KYC-AML"], downside_breaches_acknowledged=[])
     policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH])
 
@@ -399,6 +403,7 @@ def test_check_draft_compliance_passes_when_downside_breach_is_acknowledged():
 
 
 def test_acknowledging_one_of_two_same_metric_downside_breaches_leaves_the_other_undisclosed():
+    """    Rule: R-POL-016"""
     first_breach = {
         **DOWNSIDE_BREACH,
         "year": "FY+1",
@@ -916,6 +921,7 @@ def test_collateral_cover_pct_accepts_zero_and_fractional_asset_values(asset, ot
     ids=["negative-half-exposure", "negative-one-exposure", "negative-half-collateral", "negative-one-collateral"],
 )
 def test_collateral_cover_pct_refuses_each_negative_asset_value(field, value):
+    """    Rule: R-POL-020"""
     asset = {"exposure": 100, "collateral_value": 100}
     asset[field] = value
     assert compute_collateral_cover_pct([asset]) is None
@@ -939,6 +945,7 @@ def test_collateral_cover_pct_sums_at_least_three_assets_for_both_totals():
 
 
 def test_collateral_cover_pct_a_positive_total_exposure_below_one_is_valid_but_zero_is_na():
+    """    Rule: R-POL-011"""
     assert compute_collateral_cover_pct([{"exposure": 0.5, "collateral_value": 1}]) == 200.0
     assert compute_collateral_cover_pct([{"exposure": 0, "collateral_value": 100}]) is None
 

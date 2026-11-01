@@ -158,6 +158,7 @@ def test_financial_data_from_state_ignores_non_dict_period_value():
 # ---------------------------------------------------------------------------
 
 def test_financial_data_from_state_reads_analyst_supplied_store_when_flagged():
+    """    Rule: R-EXPORT-001"""
     state = {
         "financials_source": "analyst-supplied",
         "analyst_supplied_financials": {"FY-Current": {"revenue": 500}},
@@ -174,7 +175,8 @@ def test_financial_data_from_state_reads_framework_computed_store_by_default():
     """financials_source absent, or anything other than "analyst-supplied",
     must keep reading the pre-existing financials[period]["raw"] path --
     the framework-computed behavior this function already had before #121,
-    unchanged."""
+    unchanged.
+    Rule: R-EXPORT-001"""
     state = {"financials": {"FY-Current": {"raw": {"revenue": 500}}}}
     assert _financial_data_from_state(state) == {"FY-Current": {"revenue": 500}}
 
@@ -656,7 +658,8 @@ def test_bare_export_still_uses_auto_discovered_state(tmp_path):
 
 
 def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_path, monkeypatch):
-    """A computed /project forecast must use its own raw store even when history is analyst-supplied (#249)."""
+    """A computed /project forecast must use its own raw store even when history is analyst-supplied (#249).
+    Rule: R-EXPORT-002"""
     from spreading_check import main as spreading_check_main
 
     base = str(tmp_path)
@@ -730,6 +733,7 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
 
 
 def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_store():
+    """    Rule: R-EXPORT-002"""
     state = {
         "financials_source": "analyst-supplied",
         "forecast_source": "analyst-supplied",
@@ -749,7 +753,8 @@ def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_s
 
 
 def test_financial_data_from_state_drops_supplied_forward_period_without_computed_counterpart():
-    """A forward period only in the supplied store is dropped, never used as a fallback (PX354-2, #249)."""
+    """A forward period only in the supplied store is dropped, never used as a fallback (PX354-2, #249).
+    Rule: R-EXPORT-003"""
     state = {
         "financials_source": "analyst-supplied",
         "analyst_supplied_financials": {
@@ -1215,6 +1220,7 @@ def test_dx_export_deal_passes_each_component_to_the_sanitizer_with_its_exact_la
 
 
 def test_dx_export_deal_validates_state_before_creating_any_folder(tmp_path, monkeypatch):
+    """    Rule: R-EXPORT-005"""
     import deal_export
 
     monkeypatch.setattr(deal_export, "read_state", lambda *args, **kwargs: {"financials": {}})

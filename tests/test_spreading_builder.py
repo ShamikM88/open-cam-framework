@@ -518,6 +518,7 @@ SAMPLE_PERIOD = {
 
 
 def test_evaluate_financial_model_matches_hand_calculated_workbook_values():
+    """    Rule: R-SPREAD-001"""
     result = evaluate_financial_model({"FY-Current": SAMPLE_PERIOD})
 
     financials = result["financials"]["FY-Current"]

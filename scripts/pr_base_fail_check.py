@@ -296,7 +296,7 @@ def classify_junit(xml_bytes, selection):
                        if case.get("classname") == _classname(path, unit)
                        and (case.get("name") == function_name
                             or (case.get("name") or "").startswith(function_name + "["))]
-            runs = failed = passed = 0
+            runs = failed = passed = skipped = 0
             kinds = set()
             for case in matched:
                 runs += 1
@@ -307,15 +307,16 @@ def classify_junit(xml_bytes, selection):
                     failed += 1
                     kinds.add("import")
                 elif case.find("skipped") is not None:
-                    continue  # never executed: counted as a run, neither red nor green evidence (CL531-3)
+                    skipped += 1  # never executed: counted as a run, neither red nor green evidence (CL531-3)
                 else:
                     passed += 1
             if runs == 0:
                 kind = "import" if path in collection_error_files else "no-result"
                 rows.append({"id": _node_id(path, unit), "runs": 0, "failed": 0, "passed": 0,
                              "kind": kind, "category": "CANNOT_RUN"})
-            elif not failed and not passed:
-                rows.append({"id": _node_id(path, unit), "runs": runs, "failed": 0, "passed": 0,
+            elif not failed and (skipped or not passed):
+                # nothing failed, but not every run executed (all or some cases skipped): not an all-clear (CG531-1)
+                rows.append({"id": _node_id(path, unit), "runs": runs, "failed": 0, "passed": passed,
                              "kind": "skipped", "category": "CANNOT_RUN"})
             else:
                 category = "RED_ON_BASE" if failed else "PASSES_ON_BASE"

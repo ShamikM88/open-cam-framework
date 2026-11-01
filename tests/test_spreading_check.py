@@ -442,7 +442,7 @@ def test_historical_input_on_an_analyst_supplied_deal_is_refused_whatever_the_so
 def test_forward_only_input_on_an_analyst_supplied_deal_is_still_allowed_with_no_update_financials_source(
     tmp_path, monkeypatch,
 ):
-    """    Rule: R-SPREAD-004"""
+    """Rule: R-SPREAD-004"""
     path = _analyst_supplied_deal(tmp_path, monkeypatch)
 
     compute("Acme Corp", "Fleet Loan",

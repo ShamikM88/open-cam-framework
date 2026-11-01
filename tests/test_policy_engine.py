@@ -169,7 +169,7 @@ def test_negative_threshold_headroom_literal_values(covenant_type, actual, statu
     ids=["actual-written-as-percent", "threshold-written-as-percent"],
 )
 def test_percent_type_ratio_unit_mismatch_is_unresolvable(actual, threshold, bad_value):
-    """    Rule: R-POL-010"""
+    """Rule: R-POL-010"""
     state = {
         "ratios": {"FY-Current": {"gearing": actual}},
         "covenants": [{"metric": "gearing", "type": "maximum", "threshold": threshold}],
@@ -232,7 +232,7 @@ def test_percent_type_threshold_mismatch_precedes_missing_actual():
 
 
 def test_boundary_actual_equals_threshold_is_pass_for_minimum():
-    """    Rule: R-POL-008"""
+    """Rule: R-POL-008"""
     state = {"ratios": RATIOS, "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.5}]}
     covenant = evaluate_deal_policy(state)["covenant_results"][0]
     assert covenant["status"] == "PASS"
@@ -240,7 +240,7 @@ def test_boundary_actual_equals_threshold_is_pass_for_minimum():
 
 
 def test_boundary_actual_equals_threshold_is_pass_for_maximum():
-    """    Rule: R-POL-008"""
+    """Rule: R-POL-008"""
     state = {"ratios": RATIOS, "covenants": [{"metric": "gross_leverage", "type": "maximum", "threshold": 3.2}]}
     covenant = evaluate_deal_policy(state)["covenant_results"][0]
     assert covenant["status"] == "PASS"
@@ -248,7 +248,7 @@ def test_boundary_actual_equals_threshold_is_pass_for_maximum():
 
 
 def test_unrecognized_metric_is_unresolvable_not_silently_skipped():
-    """    Rule: R-POL-017"""
+    """Rule: R-POL-017"""
     state = {"ratios": RATIOS, "covenants": [{"metric": "made_up_metric", "type": "minimum", "threshold": 1.0}]}
     result = evaluate_deal_policy(state)
     assert len(result["covenant_results"]) == 1
@@ -294,7 +294,7 @@ def test_zero_threshold_maximum_covenant_reports_headroom_as_none_not_a_misleadi
 
 
 def test_zero_threshold_minimum_covenant_reports_headroom_as_none():
-    """    Rule: R-POL-009"""
+    """Rule: R-POL-009"""
     state = {
         "ratios": {"FY-Current": {"some_ratio": 5}},
         "covenants": [{"metric": "some_ratio", "type": "minimum", "threshold": 0}],
@@ -813,7 +813,7 @@ def test_slugify_falls_back_to_a_stable_hash_for_symbol_only_input():
 # ---------------------------------------------------------------------------
 
 def test_base_pass_downside_fail_populates_downside_covenant_breaches():
-    """    Rule: R-POL-004"""
+    """Rule: R-POL-004"""
     state = {
         "ratios": {
             "FY-Current": {"dscr": 1.5},
@@ -941,7 +941,7 @@ def test_covenant_results_unaffected_by_downside_covenant_breach_logic():
 
 
 def test_no_downside_breach_when_covenant_passes_in_both_cases():
-    """    Rule: R-POL-004"""
+    """Rule: R-POL-004"""
     state = {
         "ratios": {"FY+2": {"dscr": 1.5}},
         "covenants": [{"metric": "dscr", "type": "minimum", "threshold": 1.10}],
@@ -1354,7 +1354,9 @@ def test_a_skipped_unavailable_year_does_not_end_the_check_for_the_years_after_i
     ({"metric": "dscr", "type": "minimum", "threshold": 1.25}, {"dscr": "n/m"}, "dscr has no computed value for this period"),
 ])
 def test_a_covenant_that_cannot_be_tested_is_unresolvable_with_the_reason_that_says_why(covenant, ratios, reason):
-    """Never a PASS and never a silent skip: UNRESOLVABLE, no actual and no headroom, with one sentence for the cause."""
+    """Never a PASS and never a silent skip: UNRESOLVABLE, no actual and no headroom, with one sentence for the cause.
+    Rule: R-POL-018
+    Rule: R-POL-019"""
     (result,) = evaluate_deal_policy({"covenants": [covenant], "ratios": {"FY-Current": ratios}})["covenant_results"]
     assert (result["status"], result["actual"], result["headroom_pct"], result["reason"]) == ("UNRESOLVABLE", None, None, reason)
     assert (result["metric"], result["type"], result["threshold"]) == (covenant["metric"], covenant["type"], covenant.get("threshold"))
@@ -2033,7 +2035,7 @@ def test_an_explicit_borrower_basis_on_an_ordinary_deal_is_tested_and_names_its_
 
 
 def test_a_consolidated_covenant_on_an_ordinary_deal_is_unresolvable_with_the_reason_and_no_figures():
-    """    Rule: R-POL-006"""
+    """Rule: R-POL-006"""
     result = evaluate_deal_policy(_basis_state([_dscr("consolidated")]))["covenant_results"][0]
 
     assert result == {"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated",
@@ -2096,7 +2098,7 @@ def test_on_a_group_basis_deal_a_consolidated_covenant_is_tested_and_a_covenant_
 
 
 def test_a_group_basis_deal_with_an_explicit_borrower_covenant_is_unresolvable_too():
-    """    Rule: R-POL-006"""
+    """Rule: R-POL-006"""
     result = evaluate_deal_policy(_basis_state([_dscr("borrower")], GROUP_BASIS))["covenant_results"][0]
 
     assert (result["basis"], result["status"], result["reason"]) == ("borrower", "UNRESOLVABLE", BORROWER_ON_CONSOLIDATED)

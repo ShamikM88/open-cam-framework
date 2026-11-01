@@ -814,7 +814,7 @@ def test_apply_deterministic_policy_checks_overrides_on_covenant_failure():
 
 
 def test_apply_deterministic_policy_checks_overrides_on_unresolvable_covenant():
-    """    Rule: R-POL-014"""
+    """Rule: R-POL-014"""
     draft = _compliant_draft(cp_ids=["KYC-AML"])
     policy_state = _policy_state(covenant_results=[
         {"metric": "made_up_metric", "type": "minimum", "threshold": 1.0, "actual": None,
@@ -878,7 +878,7 @@ def test_apply_deterministic_policy_checks_combines_llm_notes_with_code_enforced
 
 
 def test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved():
-    """    Rule: R-POL-012"""
+    """Rule: R-POL-012"""
     draft = _compliant_draft(cp_ids=["KYC-AML"])  # fully compliant
     verdict, notes = _apply_deterministic_policy_checks("REJECTED", "Weak mitigants.", draft, _policy_state(), {})
     assert verdict == "REJECTED"

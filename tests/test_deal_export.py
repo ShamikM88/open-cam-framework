@@ -158,7 +158,7 @@ def test_financial_data_from_state_ignores_non_dict_period_value():
 # ---------------------------------------------------------------------------
 
 def test_financial_data_from_state_reads_analyst_supplied_store_when_flagged():
-    """    Rule: R-EXPORT-001"""
+    """Rule: R-EXPORT-001"""
     state = {
         "financials_source": "analyst-supplied",
         "analyst_supplied_financials": {"FY-Current": {"revenue": 500}},
@@ -733,7 +733,7 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
 
 
 def test_financial_data_from_state_keeps_supplied_forecast_periods_in_supplied_store():
-    """    Rule: R-EXPORT-002"""
+    """Rule: R-EXPORT-002"""
     state = {
         "financials_source": "analyst-supplied",
         "forecast_source": "analyst-supplied",
@@ -1220,7 +1220,7 @@ def test_dx_export_deal_passes_each_component_to_the_sanitizer_with_its_exact_la
 
 
 def test_dx_export_deal_validates_state_before_creating_any_folder(tmp_path, monkeypatch):
-    """    Rule: R-EXPORT-005"""
+    """Rule: R-EXPORT-005"""
     import deal_export
 
     monkeypatch.setattr(deal_export, "read_state", lambda *args, **kwargs: {"financials": {}})

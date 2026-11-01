@@ -110,7 +110,7 @@ PNL_ROWS: list[tuple[str, str | None]] = [
 RATIO_ROWS: list[tuple[str, str | None]] = [
     # The label states the row's basis (#518): the debt-service cover is computed
     # from the EBITDA row above (before exceptionals, incl. other income), not
-    # from an exceptions-adjusted earnings figure.
+    # from an earnings figure adjusted for exceptional items.
     ("DSCR (EBITDA-based)", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}+{Scheduled Principal Repayment}")),
     ("EBIT/Interest", _ratio("{Operating Profit}", "{Interest Paid}")),
     ("EBITDA/Interest", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}")),

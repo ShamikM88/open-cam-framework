@@ -43,7 +43,7 @@ markdown-it-py==4.2.0
 markupsafe==3.0.4
 mdit-py-plugins==0.6.1
 mdurl==0.1.2
-msgpack==1.2.3
+msgpack==1.2.4
 mutmut==3.8.0
 mypy==2.4.0
 mypy-extensions==1.1.0

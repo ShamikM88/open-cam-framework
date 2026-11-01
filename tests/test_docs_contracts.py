@@ -654,3 +654,28 @@ def test_no_command_guidance_says_to_omit_the_amount_for_an_uncapped_guarantee(p
     assert "unlimited/uncapped guarantee" not in text
     assert "for an uncapped guarantee — never" not in text
     assert "omit `amount` for an uncapped guarantee" not in text
+
+ 
+# The exact wording and matching /spread note are authorised by issue #519, comment 6555374430.
+SPREAD_INTEREST_BASIS = "Enter `interest_paid` as the period's interest charge in the profit and loss account (interest payable and similar charges), not the cash interest paid in the period."
+SPREAD_TAX_BASIS = "Enter `tax_paid` as the period's tax charge in the profit and loss account (tax on profit), not the cash tax paid in the period."
+SPREAD_DOCS_BASIS_NOTE = "In default mode, `interest_paid` and `tax_paid` are the period's P&L charges (interest payable and similar charges; tax on profit), not the cash interest or tax paid in the period."
+
+
+def test_spread_inputs_pin_the_p_and_l_charge_basis():
+    command = read(".claude/commands/spread.md")
+    default_mode = command.split("### Default: spread from raw P&L/Balance Sheet data", 1)[1].split(
+        "### Alternative: analyst-supplied pre-spread figures", 1
+    )[0]
+    analyst_supplied_mode = command.split("### Alternative: analyst-supplied pre-spread figures", 1)[1].split(
+        "## Source material", 1
+    )[0]
+
+    assert SPREAD_INTEREST_BASIS in default_mode
+    assert SPREAD_TAX_BASIS in default_mode
+    assert SPREAD_INTEREST_BASIS not in analyst_supplied_mode
+    assert SPREAD_TAX_BASIS not in analyst_supplied_mode
+
+    docs = read("docs/commands.md")
+    spread_section = docs.split("### /spread", 1)[1].split("\\n### ", 1)[0]
+    assert SPREAD_DOCS_BASIS_NOTE in " ".join(spread_section.split())

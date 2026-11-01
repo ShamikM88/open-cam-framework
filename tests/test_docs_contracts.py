@@ -578,14 +578,21 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
         "reviewer aid",
         "not a proof or a gate",
         "PR's own merge commit",
+        "### New tests on the base commit (advisory; not a required check)",
+        "No path outside `tests/` is overlaid; selected tests execute production code exactly as it exists on the base commit.",
     )
     operations_phrases = (
         "not a required check",
         "never becomes required",
         "continue-on-error",
+        'refs/pull/${PR_NUMBER}/merge',
+        "GitHub recomputes `refs/pull/<N>/merge` when `main` moves",
+        "The pytest console output is the result",
+        "pytest exit status: %s",
     )
     assert_markdown_section_contains(testing_section, testing_heading, testing_phrases)
     assert_markdown_section_contains(operations_section, operations_heading, operations_phrases)
+    assert 'exit "$pytest_status"' not in operations_section
 
     # Demonstrate that deleting either new section makes this contract fail rather than
     # allowing older scope-check/runbook wording elsewhere on the page to satisfy it.

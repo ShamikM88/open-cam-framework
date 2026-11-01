@@ -280,7 +280,8 @@ def test_json_tagged_fence_is_still_skipped_entirely(tmp_path):
     only the ```json tag triggers the skip-for-export behavior; anything
     else renders. Uses an untagged fence immediately before a json-tagged
     one to confirm the tag check, not just fence position, is what decides
-    this."""
+    this.
+    Rule: R-EXPORT-006"""
     markdown = (
         "```\n"
         "RENDER ME\n"

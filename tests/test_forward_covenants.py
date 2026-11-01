@@ -259,6 +259,7 @@ def test_downside_output_is_identical_with_and_without_the_forward_layer():
 # ---------------------------------------------------------------------------
 
 def test_forward_failures_add_no_reject_reason_to_a_compliant_draft():
+    """Rule: R-POL-003"""
     periods = {"FY-Current": HEALTHY, "FY+1": LOSS, "FY+2": HEAVY_DEBT}
     state = state_for(periods, [MAX_LEVERAGE, MIN_DSCR])
     policy = policy_engine.evaluate_deal_policy(state)

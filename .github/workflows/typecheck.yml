@@ -1,13 +1,14 @@
-name: Type check (advisory)
+name: Type check
 
-# A diagnostic, never a gate (issue #424, Phase 1). It runs `mypy` as configured in pyproject.toml ([tool.mypy]) and
-# reports the number of type errors per module in the job summary, so each later annotation pull request (Phase 2)
-# can show a before and an after. It is not one of the ruleset-required checks (`test`, `test-windows`,
-# `runtime-smoke`) and is not part of ci.yml.
+# A gate on the eleven governance modules, not one of the ruleset-required checks (issue #424, Phase 3 option B; the
+# required question is #527). It runs `mypy` as configured in pyproject.toml ([tool.mypy]) and reports the number of
+# type errors per module in the job summary, so a failing run shows exactly which module regressed. It is not one of
+# the ruleset-required checks (`test`, `test-windows`, `runtime-smoke`) and is not part of ci.yml.
 #
-# - Type errors never fail the job: mypy exits 1 when it finds any, and the step reports that as a finding. The step
-#   fails only when mypy could not run at all (exit status 2 or more: a crash, an unreadable file in `files`, a bad
-#   configuration), because a broken check must not look like a clean one.
+# - Type errors fail the job (issue #424, Phase 3 option B): mypy exits 1 when it finds any, and the step fails with
+#   that status after the per-module counts have been written to the job summary.
+# - A mypy that cannot run at all (exit status 2 or more: a crash, an unreadable file in `files`, a bad
+#   configuration) also fails the job, because a broken check must not look like a clean one.
 # - Runs on pull requests that touch the code, the configuration or the pinned tool set, and by hand.
 on:
   workflow_dispatch:
@@ -57,7 +58,7 @@ jobs:
           cat mypy_output.txt
           errors="$(awk '/^scripts\/[A-Za-z0-9_]+\.py:[0-9]+: error:/ { n++ } END { print n + 0 }' mypy_output.txt)"
           {
-            echo "### mypy diagnostic (advisory; not a required check)"
+            echo "### mypy check (type errors fail this job; not a required check)"
             echo
             echo "mypy exit status $status (0 clean, 1 type errors found, 2 or more mypy could not run): $errors errors."
             echo
@@ -65,6 +66,6 @@ jobs:
             awk -F: '/^scripts\/[A-Za-z0-9_]+\.py:[0-9]+: error:/ { n[$1]++ } END { for (f in n) print n[f], f }' mypy_output.txt | sort -rn
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$status" -gt 1 ]; then
+          if [ "$status" -ge 1 ]; then
             exit "$status"
           fi

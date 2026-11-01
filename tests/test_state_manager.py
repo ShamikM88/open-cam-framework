@@ -118,6 +118,7 @@ def test_parse_schema_version_rejects_anything_that_is_not_major_minor_patch_dig
 
 
 def test_a_newer_schema_version_is_refused_and_the_file_is_left_byte_for_byte_unchanged(tmp_path):
+    """Rule: R-STATE-001"""
     path, before = _write_raw_state(str(tmp_path), "9.9.9", future_key={"nested": [1, 2]})
     with pytest.raises(SchemaVersionError) as caught:
         write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path), inputs={"pd": "0.2%"})
@@ -159,7 +160,8 @@ def test_unknown_fields_survive_a_permitted_write(tmp_path):
 
 @pytest.mark.parametrize("value", [v for v in MALFORMED_VERSIONS if v is not None] + [None], ids=repr)
 def test_a_malformed_recorded_version_is_refused_not_overwritten(tmp_path, value):
-    """It cannot be compared, so it cannot be shown to be older: overwriting it could be the same silent downgrade."""
+    """It cannot be compared, so it cannot be shown to be older: overwriting it could be the same silent downgrade.
+    Rule: R-STATE-003"""
     path, before = _write_raw_state(str(tmp_path), value)
     with pytest.raises(SchemaVersionError, match="not a MAJOR.MINOR.PATCH"):
         write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=str(tmp_path), deal_type="x")
@@ -168,6 +170,7 @@ def test_a_malformed_recorded_version_is_refused_not_overwritten(tmp_path, value
 
 
 def test_append_review_trail_refuses_a_newer_schema_too(tmp_path):
+    """Rule: R-STATE-002"""
     path, before = _write_raw_state(str(tmp_path), "2.0.0")
     with pytest.raises(SchemaVersionError):
         append_review_trail("Acme Corp", "Fleet Loan", "APPROVED", date_str="2026-01-15", base_dir=str(tmp_path))
@@ -1484,6 +1487,7 @@ def test_review_trail_rejects_a_malformed_existing_history_without_changing_any_
 def test_review_trail_refuses_a_malformed_schema_version_without_changing_any_file(
     tmp_path, version,
 ):
+    """Rule: R-STATE-004"""
     base = str(tmp_path)
     path, before = _write_raw_state(base, version, future_extension={"synthetic": True})
     parent = os.path.dirname(path)

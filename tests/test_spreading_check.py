@@ -64,7 +64,8 @@ def test_compute_merges_new_periods_without_erasing_existing_ones(tmp_path, monk
     """The core correctness property this wrapper adds over a naive
     "write whatever evaluate_financial_model() returns" -- /project supplying
     forward years must not erase /spread's already-recorded historical
-    periods, since write_state()'s own merge is a shallow dict.update()."""
+    periods, since write_state()'s own merge is a shallow dict.update().
+    Rule: R-SPREAD-002"""
     monkeypatch.chdir(tmp_path)
     compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": {"revenue": 1000}})
 
@@ -89,7 +90,8 @@ def test_compute_merges_a_partial_period_correction_field_by_field(tmp_path, mon
     """Regression guard: correcting just one raw field for an already-
     recorded period must not silently discard every other field already on
     file for that period -- the merge must be two levels deep (period, then
-    field), not a whole-period replace."""
+    field), not a whole-period replace.
+    Rule: R-SPREAD-003"""
     monkeypatch.chdir(tmp_path)
     compute("Acme Corp", "Fleet Loan",
             multi_period_financials={"FY-Current": {"revenue": 1000, "cost_of_sales": 600}})
@@ -440,6 +442,7 @@ def test_historical_input_on_an_analyst_supplied_deal_is_refused_whatever_the_so
 def test_forward_only_input_on_an_analyst_supplied_deal_is_still_allowed_with_no_update_financials_source(
     tmp_path, monkeypatch,
 ):
+    """Rule: R-SPREAD-004"""
     path = _analyst_supplied_deal(tmp_path, monkeypatch)
 
     compute("Acme Corp", "Fleet Loan",

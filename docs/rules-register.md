@@ -27,8 +27,8 @@ records it.
   prove that a coordinated edit did not remove both an old entry and its history item. Reviewers must therefore
   treat this list as append-only.
 - **No test inventory here.** There is no Citing tests field. The gate derives citations from literal `Rule: R-...`
-  lines in pytest test-function docstrings. The citations are added and verified in the separate work tracked by
-  [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500); until #500, no test carries a citation.
+  lines in pytest test-function docstrings. Issue #500 performed the initial claim-to-test audit; citations live in
+  the individual test docstrings rather than a duplicate inventory on this page.
 
 ## Status forms
 
@@ -41,13 +41,13 @@ Every rule has exactly one of these statuses:
 - **Withdrawn** — the obligation has been retired or split. Tracking records why and, for a split, the successor
   IDs. Withdrawn IDs remain in this page and cannot be reused.
 
-The active rules in this register are initially Not covered with
+The active rules in this register began as Not covered with
 [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500)
-as the temporary citation and verification tracker. Candidate tests were inspected while preparing this page, but
-a test name or a static reading is not a test citation and does not make a rule Covered. When #500 completes the
-claim-to-test check, any actual gap is to receive its own issue.
+as the temporary citation and verification tracker. During #500, candidate test bodies were checked against each
+Claim; only tests whose assertions verify the whole Claim received a citation and a Covered status. The remaining
+Not covered entries retain #500 as a temporary tracker until the maintainer files their dedicated gap issues.
 
-**Inventory at this revision:** 35 IDs ever issued; 32 active Not covered; 3 Withdrawn; 0 Covered.
+**Inventory at this revision:** 35 IDs ever issued; 29 active Covered; 3 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -120,9 +120,8 @@ independently proven by the gate.
 - **Claim:** A covenant on an N/A ratio is UNRESOLVABLE for both minimum and maximum covenants.
 - **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-002 — Current-year FAIL or UNRESOLVABLE rejects the draft
 
@@ -139,9 +138,8 @@ independently proven by the gate.
   rejection.
 - **Source:** [D6](decisions.md#d6-forward-year-covenant-results-are-disclosure-only).
 - **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-004 — A downside breach requires a passing base case
 
@@ -149,9 +147,8 @@ independently proven by the gate.
   UNRESOLVABLE.
 - **Source:** [Covenants](financial-model.md#covenants).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_downside_covenants`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-005 — A downside breach must be acknowledged by its own ID
 
@@ -168,9 +165,8 @@ independently proven by the gate.
 - **Source:**
   [D19](decisions.md#d19-group-accounts-case-a-first-and-a-credit-aggregation-is-never-called-a-consolidation) .
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-007 — An invalid covenant metric, type or threshold is UNRESOLVABLE
 
@@ -187,9 +183,8 @@ independently proven by the gate.
 - **Claim:** An actual equal to its threshold passes for both minimum and maximum covenants.
 - **Source:** [Covenants](financial-model.md#covenants).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-009 — A zero threshold has no percentage headroom
 
@@ -197,9 +192,8 @@ independently proven by the gate.
   comparison.
 - **Source:** [Covenants](financial-model.md#covenants).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-010 — Percent-type ratios reject likely unit mismatches
 
@@ -209,8 +203,7 @@ independently proven by the gate.
   [Percent-type ratios are stored as fractions](financial-model.md#percent-type-ratios-are-stored-as-fractions) .
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
 - **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker). Missing test: percent-type covenant actuals and thresholds at ±10 and just beyond those boundaries, including negative values.
 
 ### R-POL-011 — Non-positive aggregate exposure makes collateral cover N/A
 
@@ -218,81 +211,72 @@ independently proven by the gate.
 - **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable) (the “Collateral cover percentage”
   paragraph).
 - **Implemented in:** `scripts/policy_checks.py::compute_collateral_cover_pct`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-012 — An existing rejection cannot be changed to approval
 
 - **Claim:** The deterministic policy check never changes an existing REJECTED verdict to APPROVED.
 - **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
 - **Implemented in:** `scripts/orchestrator.py::_apply_deterministic_policy_checks`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-013 — A current-year FAIL rejects the draft
 
 - **Claim:** A current-year covenant FAIL produces a code-enforced rejection reason.
 - **Source:** [Covenants](financial-model.md#covenants).
 - **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-014 — A current-year UNRESOLVABLE result rejects the draft
 
 - **Claim:** A current-year covenant UNRESOLVABLE produces a code-enforced rejection reason.
 - **Source:** [Covenants](financial-model.md#covenants).
 - **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-015 — An unacknowledged downside breach is a rejection reason
 
 - **Claim:** A downside breach without a matching acknowledgement produces an undisclosed-breach rejection reason.
 - **Source:** [Covenants](financial-model.md#covenants).
 - **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-016 — One breach acknowledgement does not cover another
 
 - **Claim:** Acknowledging one downside `breach_id` does not acknowledge a second breach with a different ID.
 - **Source:** [The downside case](financial-model.md#the-downside-case).
 - **Implemented in:** `scripts/policy_checks.py::check_draft_compliance`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-017 — An unknown covenant metric is not silently skipped
 
 - **Claim:** An unrecognised covenant metric remains in the results as UNRESOLVABLE.
 - **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-018 — An unknown covenant type is UNRESOLVABLE
 
 - **Claim:** A covenant type other than minimum or maximum is UNRESOLVABLE with a reason.
 - **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-019 — A missing or non-numeric threshold is UNRESOLVABLE
 
 - **Claim:** A missing or non-numeric covenant threshold is UNRESOLVABLE with a reason.
 - **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 
 ### R-POL-020 — Negative or non-finite asset inputs make collateral cover N/A
@@ -302,9 +286,8 @@ independently proven by the gate.
 - **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable) (the “Collateral cover percentage”
   paragraph).
 - **Implemented in:** `scripts/policy_checks.py::compute_collateral_cover_pct`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
-  verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ## State persistence and validation (STATE)
 
@@ -313,32 +296,32 @@ independently proven by the gate.
 - **Claim:** `write_state()` refuses to overwrite a state whose `schema_version` is newer than the framework's supported version.
 - **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
 - **Implemented in:** `scripts/state_manager.py::write_state`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-STATE-002 — append_review_trail refuses a newer schema version
 
 - **Claim:** `append_review_trail()` refuses to overwrite a state whose `schema_version` is newer than the framework's supported version.
 - **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
 - **Implemented in:** `scripts/state_manager.py::append_review_trail`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-STATE-003 — write_state refuses a malformed schema version
 
 - **Claim:** `write_state()` refuses to overwrite a state whose `schema_version` is not a valid `MAJOR.MINOR.PATCH` string.
 - **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
 - **Implemented in:** `scripts/state_manager.py::write_state`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-STATE-004 — append_review_trail refuses a malformed schema version
 
 - **Claim:** `append_review_trail()` refuses to overwrite a state whose `schema_version` is not a valid `MAJOR.MINOR.PATCH` string.
 - **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
 - **Implemented in:** `scripts/state_manager.py::append_review_trail`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ## Spreading and financial calculations (SPREAD)
 
@@ -347,40 +330,40 @@ independently proven by the gate.
 - **Claim:** Framework-computed ratios are independently recomputed from the period's raw line items.
 - **Source:** [Context Window & State Management Protocol](../CLAUDE.md#context-window--state-management-protocol).
 - **Implemented in:** `scripts/spreading_builder.py::evaluate_financial_model`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-SPREAD-002 — adding a period preserves previously recorded periods
 
 - **Claim:** A spreading update for a new period preserves the other periods already recorded in the deal.
 - **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
 - **Implemented in:** `scripts/spreading_check.py::plan_fields`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-SPREAD-003 — a partial period correction merges raw fields
 
 - **Claim:** A partial correction to a recorded period merges the supplied raw fields with that period's existing raw fields.
 - **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
 - **Implemented in:** `scripts/spreading_check.py::plan_fields`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-SPREAD-004 — /project does not relabel analyst-supplied history
 
 - **Claim:** A forward-only `/project` update does not change an analyst-supplied deal's `financials_source` to `framework-computed`.
 - **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
 - **Implemented in:** `scripts/spreading_check.py::plan_fields`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-SPREAD-005 — an analyst-supplied forecast is not recomputed
 
 - **Claim:** A forward forecast marked analyst-supplied is recorded without recomputing its supplied figures through the framework formulas.
 - **Source:** [state.json at a glance](data-model.md#statejson-at-a-glance).
 - **Implemented in:** `scripts/supplied_forecast.py::record`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ## Export and rendered output (EXPORT)
 
@@ -389,16 +372,16 @@ independently proven by the gate.
 - **Claim:** For historical periods, the workbook exporter selects raw figures from `analyst_supplied_financials` when `financials_source` is `analyst-supplied`, and from `financials[period]["raw"]` otherwise.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-EXPORT-002 — forward raw figures follow forecast_source
 
 - **Claim:** For forward periods, the workbook exporter selects raw figures from `analyst_supplied_financials` when `forecast_source` is `analyst-supplied`, and from `financials[period]["raw"]` otherwise.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-EXPORT-003 — a missing selected store is not replaced by the other store
 
@@ -406,7 +389,7 @@ independently proven by the gate.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
 - **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker). Missing test: an analyst-supplied deal whose supplied store lacks a historical period that `financials[period]["raw"]` has.
 
 ### R-EXPORT-004 — raw stores are not blended within a period
 
@@ -414,21 +397,21 @@ independently proven by the gate.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
 - **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker). Missing test: a single period with different fields in each raw store, asserting the exporter does not combine the two stores.
 
 ### R-EXPORT-005 — export validates state before creating output
 
 - **Claim:** `export_deal()` reads and validates deal state before creating the output folder or auto-saving a template.
 - **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
 - **Implemented in:** `scripts/deal_export.py::export_deal`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-EXPORT-006 — JSON-tagged fences are omitted from DOCX output
 
 - **Claim:** `docx_builder` omits fenced code blocks tagged `json` from the exported DOCX.
 - **Source:** [Context Window & State Management Protocol](../CLAUDE.md#context-window--state-management-protocol).
 - **Implemented in:** `scripts/docx_builder.py::export_to_docx`
-- **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+- **Status:** Covered
+- **Tracking:** —
 

@@ -27,8 +27,8 @@ records it.
   prove that a coordinated edit did not remove both an old entry and its history item. Reviewers must therefore
   treat this list as append-only.
 - **No test inventory here.** There is no Citing tests field. The gate derives citations from literal `Rule: R-...`
-  lines in pytest test-function docstrings. The citations are added and verified in the separate work tracked by
-  [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500); until #500, no test carries a citation.
+  lines in pytest test-function docstrings. Issue #500 performed the initial claim-to-test audit; citations live in
+  the individual test docstrings rather than a duplicate inventory on this page.
 
 ## Status forms
 
@@ -41,11 +41,11 @@ Every rule has exactly one of these statuses:
 - **Withdrawn** — the obligation has been retired or split. Tracking records why and, for a split, the successor
   IDs. Withdrawn IDs remain in this page and cannot be reused.
 
-The active rules in this register are initially Not covered with
+The active rules in this register began as Not covered with
 [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500)
-as the temporary citation and verification tracker. Candidate tests were inspected while preparing this page, but
-a test name or a static reading is not a test citation and does not make a rule Covered. When #500 completes the
-claim-to-test check, any actual gap is to receive its own issue.
+as the temporary citation and verification tracker. During #500, candidate test bodies were checked against each
+Claim; only tests whose assertions verify the whole Claim received a citation and a Covered status. The remaining
+Not covered entries retain #500 as a temporary tracker until the maintainer files their dedicated gap issues.
 
 **Inventory at this revision:** 35 IDs ever issued; 29 active Covered; 3 active Not covered; 3 Withdrawn.
 

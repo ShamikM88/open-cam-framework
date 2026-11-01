@@ -230,6 +230,16 @@ def test_a_collection_error_is_cannot_run_with_the_import_kind(checker):
     assert by_id["tests/test_y.py::test_other"]["kind"] == "no-result"
 
 
+def test_a_collection_error_naming_a_windows_path_is_still_the_import_kind(checker):
+    """CL531-5: pytest on Windows names the failing file with backslashes; the match must not depend on `/`."""
+    selected = {"tests/test_x.py": [(None, "test_new")]}
+    xml = _junit([], errors=1, suites=(
+        b'<testsuite name="suite2"><error type="pytest.errors">ERROR collecting tests\\test_x.py\n'
+        b"ImportError while importing test module 'D:\\a\\repo\\tests\\test_x.py'</error></testsuite>",))
+    rows = checker.classify_junit(xml, selected)
+    assert rows[0]["category"] == "CANNOT_RUN" and rows[0]["kind"] == "import"
+
+
 def test_class_methods_are_classified_under_their_class(checker):
     selected = {"tests/test_x.py": [("TestMath", "test_new")]}
     xml = _junit([("tests.test_x.TestMath", "test_new", "failure")])

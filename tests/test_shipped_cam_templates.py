@@ -23,3 +23,22 @@ def test_shipped_cam_guidance_uses_html_comments_and_blank_human_signature():
         assert signature in lines, name
         signature_index = lines.index(signature)
         assert lines[signature_index + 1] == signature_guidance, name
+
+
+# Issue #518, comment 6555374029 (item 3), authorised a basis sentence under the table; the maintainer accepted
+# this exact wording on PR #544 (recorded on #518, comment 6564716021).
+CAM_BASIS_SENTENCE = "EBITDA is before exceptional items and includes other income; DSCR is EBITDA-based; FCF is before working capital."
+
+
+def test_financial_analysis_templates_disclose_the_metric_bases():
+    root = Path(__file__).resolve().parents[1]
+    templates = {
+        "asset_finance_cam.md": "## 13. Financial Analysis",
+        "corporate_credit_cam.md": "## 11. Financial Analysis",
+    }
+    for name, heading in templates.items():
+        text = (root / "templates" / "cam" / name).read_text(encoding="utf-8")
+        assert text.count(CAM_BASIS_SENTENCE) == 1, name
+        section = text.split(heading, 1)[1].split("\n## ", 1)[0]
+        assert section.index(CAM_BASIS_SENTENCE) > section.index("| Working Capital Cycle (days) |"), name
+        assert section.index(CAM_BASIS_SENTENCE) < section.index("**Analyst commentary:**"), name

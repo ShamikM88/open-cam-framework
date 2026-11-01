@@ -930,6 +930,7 @@ def test_the_mypy_step_reports_type_errors_without_failing_and_fails_only_when_m
     elif mypy_status == 0:
         assert "0 errors" in written
 
+
 # ---------------------------------------------------------------------------
 # The advisory new-tests-on-base workflow (issue #475, PR 2 of 3)
 # ---------------------------------------------------------------------------
@@ -948,7 +949,7 @@ def test_base_fail_workflow_matches_the_maintainer_approved_yaml_verbatim():
 
 def test_base_fail_workflow_is_pull_request_only_and_not_a_required_check():
     text = base_fail_workflow_text()
-    triggers = text.split("\\non:\\n", 1)[1].split("\\npermissions:", 1)[0]
+    triggers = text.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
     assert set(re.findall(r"^  ([a-z_]+):", triggers, re.M)) == {"pull_request"}
     assert 'branches: ["main"]' in triggers
     assert "types: [opened, synchronize, reopened]" in triggers
@@ -961,7 +962,7 @@ def test_base_fail_workflow_is_pull_request_only_and_not_a_required_check():
 
 def test_base_fail_workflow_uses_version_commented_sha_pins_and_read_only_permissions():
     text = base_fail_workflow_text()
-    assert re.search(r"^permissions:\\s*\\{\\}\\s*$", text, re.M)
+    assert re.search(r"^permissions:\s*\{\}\s*$", text, re.M)
     jobs = split_jobs(text)
     assert set(jobs) == {"base-fail-check"}
     body = jobs["base-fail-check"]
@@ -973,7 +974,7 @@ def test_base_fail_workflow_uses_version_commented_sha_pins_and_read_only_permis
     assert unpinned_actions(text) == []
     for reference, version_comment in actions:
         assert "@" in reference and SHA_RE.fullmatch(reference.split("@", 1)[1]), reference
-        assert re.fullmatch(r"v\\d+\\.\\d+\\.\\d+", version_comment or ""), (reference, version_comment)
+        assert re.fullmatch(r"v\d+\.\d+\.\d+", version_comment or ""), (reference, version_comment)
 
     checkouts = body.count("actions/checkout@")
     assert checkouts == 1
@@ -984,12 +985,12 @@ def test_base_fail_workflow_keeps_shell_inputs_out_of_run_expressions_and_is_nev
     text = base_fail_workflow_text()
     assert "continue-on-error" not in text
     body = split_jobs(text)["base-fail-check"]
-    for step in body.split("\\n      - name: "):
-        if "\\n        run:" in step:
-            run_part = step.split("\\n        run:", 1)[1]
-            assert "\\${{" not in run_part, step.splitlines()[0]
+    for step in body.split("\n      - name: "):
+        if "\n        run:" in step:
+            run_part = step.split("\n        run:", 1)[1]
+            assert (chr(36) + "{{") not in run_part, step.splitlines()[0]
 
-    assert 'BASE_SHA: \${{ github.event.pull_request.base.sha }}' in text
+    assert "BASE_SHA: " + chr(36) + "{{ github.event.pull_request.base.sha }}" in text
     assert "python scripts/pr_base_fail_check.py" in text
     assert '--base-sha "$BASE_SHA"' in text
     assert '--head-sha "$GITHUB_SHA"' in text

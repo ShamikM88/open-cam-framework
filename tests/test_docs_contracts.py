@@ -655,7 +655,7 @@ def test_no_command_guidance_says_to_omit_the_amount_for_an_uncapped_guarantee(p
     assert "for an uncapped guarantee — never" not in text
     assert "omit `amount` for an uncapped guarantee" not in text
 
- 
+
 # The exact wording and matching /spread note are authorised by issue #519, comment 6555374430.
 SPREAD_INTEREST_BASIS = "Enter `interest_paid` as the period's interest charge in the profit and loss account (interest payable and similar charges), not the cash interest paid in the period."
 SPREAD_TAX_BASIS = "Enter `tax_paid` as the period's tax charge in the profit and loss account (tax on profit), not the cash tax paid in the period."

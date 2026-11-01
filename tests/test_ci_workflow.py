@@ -938,6 +938,15 @@ def test_the_mypy_step_reports_type_errors_without_failing_and_fails_only_when_m
 BASE_FAIL_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "base-fail-check.yml"
 EXPECTED_BASE_FAIL_WORKFLOW = "name: New tests on base check (advisory)\n\n# Advisory only (issue #475, option C): runs the tests a pull request adds or changes against the\n# base commit and reports whether they fail there, in the job summary. It is not one of the\n# ruleset-required checks (`test`, `test-windows`, `runtime-smoke`), is not part of ci.yml, and\n# never posts comments. As with the scope check, on a `pull_request` event this job checks out the\n# PR's own merge commit and runs scripts/pr_base_fail_check.py from it, so the report is a reviewer\n# aid and not a gate or a proof.\n#\n# - Every verdict exits 0; the step fails (exit 2) only when the check itself is broken, because a\n#   broken check must not look like a clean one.\n# - Linux only: the verdict is a deterministic property of the base code plus the test.\non:\n  pull_request:\n    branches: [\"main\"]\n    types: [opened, synchronize, reopened]\n\npermissions: {}\n\nconcurrency:\n  group: base-fail-check-${{ github.event.pull_request.number }}\n  cancel-in-progress: true\n\njobs:\n  base-fail-check:\n    name: base-fail-check\n    if: github.event_name == 'pull_request'\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    permissions:\n      contents: read\n\n    steps:\n      - name: Check out repository\n        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1\n        with:\n          # Full history: the script diffs base...merge-commit and checks out the base commit into\n          # a worktree, and a shallow checkout would not contain those objects.\n          fetch-depth: 0\n          persist-credentials: false\n\n      - name: Set up Python\n        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0\n        with:\n          python-version: \"3.11\"\n          cache: 'pip'\n          cache-dependency-path: |\n            requirements-dev.txt\n            constraints.txt\n\n      - name: Install development dependencies\n        run: |\n          python -m pip install --upgrade -c constraints.txt pip==26.2.1\n          pip install -c constraints.txt -r requirements-dev.txt\n\n      - name: Collect changed-file list\n        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha }}\n        run: git diff --name-only --no-renames -z \"$BASE_SHA...$GITHUB_SHA\" > changed-files.nul\n\n      - name: Run the PR's new or changed tests on the base commit\n        env:\n          BASE_SHA: ${{ github.event.pull_request.base.sha }}\n        run: >-\n          python scripts/pr_base_fail_check.py\n          --base-sha \"$BASE_SHA\"\n          --head-sha \"$GITHUB_SHA\"\n          --changed-files changed-files.nul\n          --summary-file \"$GITHUB_STEP_SUMMARY\"\n"
 
+def decode_base_fail_workflow_bytes(raw: bytes, *, is_windows: bool) -> str:
+    text = raw.decode("utf-8")
+    if is_windows:
+        # Git for Windows checkouts may use CRLF on the Windows runner. Normalise only that conversion;
+        # lone CR remains visible, and Linux comparisons preserve every newline byte.
+        text = text.replace("\\r\\n", "\\n")
+    return text
+
+
 @pytest.mark.parametrize(
     ("is_windows", "line_ending", "matches_approved_text"),
     [
@@ -959,7 +968,9 @@ def test_base_fail_workflow_text_only_normalises_crlf_on_windows(
 
 
 def base_fail_workflow_text():
-    return BASE_FAIL_WORKFLOW.read_text(encoding="utf-8")
+    return decode_base_fail_workflow_bytes(
+        BASE_FAIL_WORKFLOW.read_bytes(), is_windows=sys.platform == "win32"
+    )
 
 
 def test_base_fail_workflow_matches_the_maintainer_approved_yaml_verbatim():

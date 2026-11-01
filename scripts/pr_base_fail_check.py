@@ -285,8 +285,9 @@ def classify_junit(xml_bytes, selection):
     collection_error_files = set()
     for suite in root.iter("testsuite"):
         for error in suite.iter("error"):
-            for match in re.finditer(r"tests/[A-Za-z0-9_./-]+\.py", "".join(error.itertext())):
-                collection_error_files.add(match.group(0))
+            # pytest names the file with the platform's separator (backslashes on Windows): CL531-5
+            for match in re.finditer(r"tests[/\\][A-Za-z0-9_./\\-]+\.py", "".join(error.itertext())):
+                collection_error_files.add(match.group(0).replace("\\", "/"))
     rows = []
     for path, units in sorted(selection.items()):
         for unit in units:

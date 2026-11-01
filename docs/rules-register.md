@@ -41,11 +41,13 @@ Every rule has exactly one of these statuses:
 - **Withdrawn** — the obligation has been retired or split. Tracking records why and, for a split, the successor
   IDs. Withdrawn IDs remain in this page and cannot be reused.
 
-The active rules in this first register are initially Not covered with
+The active rules in this register are initially Not covered with
 [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500)
 as the temporary citation and verification tracker. Candidate tests were inspected while preparing this page, but
 a test name or a static reading is not a test citation and does not make a rule Covered. When #500 completes the
 claim-to-test check, any actual gap is to receive its own issue.
+
+**Inventory at this revision:** 35 IDs ever issued; 32 active Not covered; 3 Withdrawn; 0 Covered.
 
 ## The `Implemented in` field
 
@@ -95,6 +97,21 @@ independently proven by the gate.
 - `R-POL-018`
 - `R-POL-019`
 - `R-POL-020`
+- `R-STATE-001`
+- `R-STATE-002`
+- `R-STATE-003`
+- `R-STATE-004`
+- `R-SPREAD-001`
+- `R-SPREAD-002`
+- `R-SPREAD-003`
+- `R-SPREAD-004`
+- `R-SPREAD-005`
+- `R-EXPORT-001`
+- `R-EXPORT-002`
+- `R-EXPORT-003`
+- `R-EXPORT-004`
+- `R-EXPORT-005`
+- `R-EXPORT-006`
 
 ## Policy engine and checks (POL)
 
@@ -288,3 +305,130 @@ independently proven by the gate.
 - **Status:** Not covered
 - **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and
   verification tracker).
+
+## State persistence and validation (STATE)
+
+### R-STATE-001 — write_state refuses a newer schema version
+
+- **Claim:** `write_state()` refuses to overwrite a state whose `schema_version` is newer than the framework's supported version.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::write_state`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-STATE-002 — append_review_trail refuses a newer schema version
+
+- **Claim:** `append_review_trail()` refuses to overwrite a state whose `schema_version` is newer than the framework's supported version.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::append_review_trail`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-STATE-003 — write_state refuses a malformed schema version
+
+- **Claim:** `write_state()` refuses to overwrite a state whose `schema_version` is not a valid `MAJOR.MINOR.PATCH` string.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::write_state`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-STATE-004 — append_review_trail refuses a malformed schema version
+
+- **Claim:** `append_review_trail()` refuses to overwrite a state whose `schema_version` is not a valid `MAJOR.MINOR.PATCH` string.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::append_review_trail`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+## Spreading and financial calculations (SPREAD)
+
+### R-SPREAD-001 — framework-computed figures derive from raw line items
+
+- **Claim:** Framework-computed ratios are independently recomputed from the period's raw line items.
+- **Source:** [Context Window & State Management Protocol](../CLAUDE.md#context-window--state-management-protocol).
+- **Implemented in:** `scripts/spreading_builder.py::evaluate_financial_model`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-SPREAD-002 — adding a period preserves previously recorded periods
+
+- **Claim:** A spreading update for a new period preserves the other periods already recorded in the deal.
+- **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
+- **Implemented in:** `scripts/spreading_check.py::plan_fields`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-SPREAD-003 — a partial period correction merges raw fields
+
+- **Claim:** A partial correction to a recorded period merges the supplied raw fields with that period's existing raw fields.
+- **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
+- **Implemented in:** `scripts/spreading_check.py::plan_fields`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-SPREAD-004 — /project does not relabel analyst-supplied history
+
+- **Claim:** A forward-only `/project` update does not change an analyst-supplied deal's `financials_source` to `framework-computed`.
+- **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
+- **Implemented in:** `scripts/spreading_check.py::plan_fields`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-SPREAD-005 — an analyst-supplied forecast is not recomputed
+
+- **Claim:** A forward forecast marked analyst-supplied is recorded without recomputing its supplied figures through the framework formulas.
+- **Source:** [state.json at a glance](data-model.md#statejson-at-a-glance).
+- **Implemented in:** `scripts/supplied_forecast.py::record`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+## Export and rendered output (EXPORT)
+
+### R-EXPORT-001 — historical raw figures follow financials_source
+
+- **Claim:** For historical periods, the workbook exporter selects raw figures from `analyst_supplied_financials` when `financials_source` is `analyst-supplied`, and from `financials[period]["raw"]` otherwise.
+- **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
+- **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-EXPORT-002 — forward raw figures follow forecast_source
+
+- **Claim:** For forward periods, the workbook exporter selects raw figures from `analyst_supplied_financials` when `forecast_source` is `analyst-supplied`, and from `financials[period]["raw"]` otherwise.
+- **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
+- **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-EXPORT-003 — a missing selected store is not replaced by the other store
+
+- **Claim:** The workbook exporter does not fall back to the other raw-figure store when the selected store has no record for a period.
+- **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
+- **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-EXPORT-004 — raw stores are not blended within a period
+
+- **Claim:** The workbook exporter never combines raw fields from both raw-figure stores within one period.
+- **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
+- **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-EXPORT-005 — export validates state before creating output
+
+- **Claim:** `export_deal()` reads and validates deal state before creating the output folder or auto-saving a template.
+- **Source:** [Execution scripts](../CLAUDE.md#execution-scripts).
+- **Implemented in:** `scripts/deal_export.py::export_deal`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+
+### R-EXPORT-006 — JSON-tagged fences are omitted from DOCX output
+
+- **Claim:** `docx_builder` omits fenced code blocks tagged `json` from the exported DOCX.
+- **Source:** [Context Window & State Management Protocol](../CLAUDE.md#context-window--state-management-protocol).
+- **Implemented in:** `scripts/docx_builder.py::export_to_docx`
+- **Status:** Not covered
+- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker).
+

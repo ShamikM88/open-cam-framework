@@ -1813,3 +1813,37 @@ def test_an_unexportable_draft_creates_no_folder_and_saves_no_template(tmp_path)
 
     assert not (tmp_path / "deals").exists()
     assert not (tmp_path / "templates").exists()
+
+
+def test_financial_data_from_state_does_not_fall_back_to_computed_store_for_missing_supplied_historical_period():
+    """A missing historical period in the selected supplied store is not filled from computed raw figures.
+    Rule: R-EXPORT-003"""
+    state = {
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000},
+        },
+        # FY-1 exists only in the other store; a historical fallback would wrongly export it.
+        "financials": {"FY-1": {"raw": {"revenue": 4600}}},
+    }
+
+    assert _financial_data_from_state(state) == {
+        "FY-Current": {"revenue": 5000},
+    }
+
+
+def test_financial_data_from_state_does_not_merge_raw_fields_from_both_stores_within_a_period():
+    """The selected historical store supplies the whole period; fields from the other store are not added.
+    Rule: R-EXPORT-004"""
+    state = {
+        "financials_source": "analyst-supplied",
+        "analyst_supplied_financials": {
+            "FY-Current": {"revenue": 5000},
+        },
+        # A field absent from the selected store must not be filled from the computed store.
+        "financials": {"FY-Current": {"raw": {"cost_of_sales": 3300}}},
+    }
+
+    assert _financial_data_from_state(state) == {
+        "FY-Current": {"revenue": 5000},
+    }

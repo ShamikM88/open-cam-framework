@@ -3,7 +3,7 @@
 openpyxl only stores formula strings -- it does not calculate them -- so the
 formula-correctness tests below include a small recursive evaluator that
 resolves cell references and re-implements the handful of Excel functions
-the workbook actually uses (SUM, IFERROR, IF). It exists only to let tests
+the workbook actually uses (SUM, IFERROR, IF, COUNT). It exists only to let tests
 assert on computed values without depending on Excel or LibreOffice being
 installed in CI.
 """
@@ -26,6 +26,8 @@ from spreading_builder import (
     PNL_ROWS,
     RATIO_ROWS,
     SUPPLIED_ROW_LABELS,
+    SUPPLIED_SUBTOTALS,
+    WORKING_CAPITAL_ROWS,
 )
 
 CELL_REF_RE = re.compile(r"([A-Z]+)(\d+)")
@@ -101,6 +103,17 @@ def _split_top_level_args(arguments):
 
 
 def _eval_arith(ws, expr, memo):
+    # COUNT over bare cell refs (the workbook's formulas never nest it): counts numeric cells
+    # exactly like Excel -- blank (None) and text cells are not numbers and never count. Substituted
+    # before the cell-ref pass below, which would otherwise read the label-column cells COUNT guards.
+    def count_of(match):
+        refs = match.group(1).split(",")
+        return str(sum(1 for ref in refs
+                      if isinstance(ws[ref.strip()].value, (int, float))
+                      and not isinstance(ws[ref.strip()].value, bool)))
+
+    expr = re.sub(r"COUNT\(([^()]+)\)", count_of, expr)
+
     def repl(match):
         col, row = match.group(1), int(match.group(2))
         return repr(_evaluate(ws, col, row, memo))
@@ -2077,3 +2090,133 @@ def test_each_chart_plots_the_row_named_by_its_series_label_over_the_period_head
     assert _plotted_ranges(charts[2]) == [
         (f"{sheet}$A${leverage}", f"{sheet}$H${leverage}:$J${leverage}", f"{sheet}$H$1:$J$1"),
         (f"{sheet}$A${net_debt}", f"{sheet}$H${net_debt}:$J${net_debt}", f"{sheet}$H$1:$J$1")]
+
+
+# ---------------------------------------------------------------------------
+# FCF after working capital (#520): fcf_after_working_capital = FCF less the
+# change in operating working capital (trade debtors + stock + other current
+# assets - trade creditors - other current liabilities). The OWC level itself
+# is never stored -- an intermediate. The earliest supplied period, and any
+# period with no recorded prior, is N/A (None), never zero.
+# ---------------------------------------------------------------------------
+
+# The design note's worked example (issue #520, comment 6536111534): a two-period
+# deal where the OWC build costs 30 (420 -> 450) and FCF is 250 / 350.
+FY1_WORKED = {
+    "revenue": 500, "cost_of_sales": 250,
+    "trade_debtors": 560, "stock": 380, "other_current_assets": 0,
+    "trade_creditors": 430, "other_current_liabilities": 90,
+}
+# ebitda 250, no capex/tax/interest -> fcf 250; OWC 560 + 380 + 0 - 430 - 90 = 420.
+CURRENT_WORKED = {
+    "revenue": 500, "cost_of_sales": 150,
+    "trade_debtors": 600, "stock": 400, "other_current_assets": 0,
+    "trade_creditors": 450, "other_current_liabilities": 100,
+}
+# ebitda 350 -> fcf 350; OWC 600 + 400 + 0 - 450 - 100 = 450.
+
+
+def test_fcf_after_working_capital_worked_example_and_earliest_period_is_none():
+    result = evaluate_financial_model({"FY-1": dict(FY1_WORKED), "FY-Current": dict(CURRENT_WORKED)})
+
+    financials = result["financials"]
+    # The earliest supplied period has no prior: N/A (None), never zero.
+    assert financials["FY-1"]["fcf_after_working_capital"] is None
+    assert financials["FY-1"]["fcf"] == 250 and financials["FY-1"]["ebitda"] == 250
+    # FY-Current: FCF 350 less the 30 build (420 -> 450) = 320.
+    assert financials["FY-Current"]["fcf_after_working_capital"] == 320
+    assert financials["FY-Current"]["fcf"] == 350
+    # The OWC level is an intermediate and is never stored.
+    assert set(financials["FY-Current"]) - {"raw"} >= {"fcf", "fcf_after_working_capital"}
+    assert all("working_capital" not in key or key == "fcf_after_working_capital"
+               for key in financials["FY-Current"])
+
+
+def test_fcf_after_working_capital_is_none_for_a_single_period_deal():
+    result = evaluate_financial_model({"FY-Current": dict(CURRENT_WORKED)})
+    assert result["financials"]["FY-Current"]["fcf_after_working_capital"] is None
+
+
+def test_fcf_after_working_capital_forward_year_with_and_without_a_recorded_prior():
+    # FY-Current and FY+1 only: FY-Current is the earliest supplied period (N/A),
+    # FY+1 has a recorded prior and gets a value (OWC 450 -> 500 costs 50 of the 350 FCF).
+    result = evaluate_financial_model({"FY-Current": dict(CURRENT_WORKED),
+                                       "FY+1": dict(CURRENT_WORKED, trade_debtors=650)})
+    assert result["financials"]["FY-Current"]["fcf_after_working_capital"] is None
+    assert result["financials"]["FY+1"]["fcf_after_working_capital"] == 300
+
+    # A forward year with no recorded prior (FY+1 absent) is N/A, not extrapolated.
+    gap = evaluate_financial_model({"FY-Current": dict(CURRENT_WORKED), "FY+2": dict(CURRENT_WORKED)})
+    assert gap["financials"]["FY+2"]["fcf_after_working_capital"] is None
+
+
+def test_fcf_after_working_capital_omitted_owc_line_defaults_to_zero():
+    # F-001 convention: an omitted raw line reads as 0, so the prior period's
+    # other_current_assets (100 here) simply drops out of its OWC level.
+    prior = dict(FY1_WORKED, other_current_assets=100)          # OWC 520
+    later = {key: value for key, value in CURRENT_WORKED.items()  # no other_current_assets key -> 0; OWC 450
+             if key != "other_current_assets"}
+    result = evaluate_financial_model({"FY-1": prior, "FY-Current": later})
+    assert result["financials"]["FY-Current"]["fcf_after_working_capital"] == 350 - (450 - 520)
+
+
+def test_fcf_after_working_capital_downside_delta_equals_the_base_delta():
+    # FY+1: revenue 1000 / cost of sales 800 -> ebitda 200, fcf 200; OWC 480
+    # (trade debtors 630). A 10% revenue haircut shocks only the P&L, so the
+    # downside keeps the base case's OWC and its delta (450 -> 480 costs 30):
+    # downside fcf_after_working_capital = 100 - 30 = 70, not None (the prior
+    # period is the same period the base case used).
+    data = {"FY-Current": dict(CURRENT_WORKED),
+            "FY+1": dict(CURRENT_WORKED, revenue=1000, cost_of_sales=800, trade_debtors=630)}
+    base = evaluate_financial_model(data)
+    downside = evaluate_downside_case(data, {"revenue_haircut_pct": 10})
+
+    assert base["financials"]["FY+1"]["fcf_after_working_capital"] == 170
+    assert downside["financials"]["FY+1"]["fcf_after_working_capital"] == 70
+    assert (downside["financials"]["FY+1"]["fcf_after_working_capital"] - downside["financials"]["FY+1"]["fcf"]
+            == base["financials"]["FY+1"]["fcf_after_working_capital"] - base["financials"]["FY+1"]["fcf"])
+
+
+def test_fcf_after_working_capital_workbook_row_shows_na_where_there_is_no_recorded_prior(tmp_path):
+    """The workbook row: "FCF after Working Capital" in the Working Capital section, reading the
+    FCF row and the five balance-sheet OWC lines in its own and the prior column. The first period
+    column and a column whose prior column carries no figures read "N/A", matching state.json's
+    None -- never a zero the prior period never recorded."""
+    assert "FCF after Working Capital" in [label for label, _ in WORKING_CAPITAL_ROWS]
+    validate_row_formulas()  # the new row's references resolve and point only at earlier rows
+
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path),
+                   financial_data={"FY-1": dict(FY1_WORKED), "FY-Current": dict(CURRENT_WORKED)})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["FCF after Working Capital"]
+
+    memo = {}
+    # Column B (FY-2, the earliest column -- its prior refs read the label column): N/A.
+    assert _evaluate(ws, "B", row, memo) == "N/A"
+    # Column C (FY-1): 250 less the OWC build (0 -> 420) = -170. The prior column
+    # (B) is blank in this export, so there is no recorded prior: N/A, not -170.
+    assert _evaluate(ws, "C", row, memo) == "N/A"
+    # Column D (FY-Current): 350 less the build (420 -> 450) = 320.
+    assert _evaluate(ws, "D", row, memo) == 320
+
+
+def test_fcf_after_working_capital_workbook_row_is_suppliable_in_analyst_supplied_columns(tmp_path):
+    """Decision 4 on #520: an analyst-supplied forward year can carry the figure; the existing
+    "omit a subtotal the template does not break out" rule means a template that does not
+    break it out simply leaves the cell blank."""
+    assert "fcf_after_working_capital" in SUPPLIED_SUBTOTALS
+    assert SUPPLIED_ROW_LABELS["fcf_after_working_capital"] == "FCF after Working Capital"
+
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path),
+                   supplied_values={"FY+1": {"FCF after Working Capital": 120, "EBITDA": 500}})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["FCF after Working Capital"]
+    # The supplied column E (FY+1) holds the value the analyst gave, not a formula.
+    assert ws[f"E{row}"].value == 120
+    # An analyst-supplied deal that omits it (FY+2, column F) gets a blank cell, never a formula
+    # recomputing it from raw cells nobody supplied.
+    assert ws[f"F{row}"].value is None

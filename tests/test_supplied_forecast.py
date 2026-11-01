@@ -583,6 +583,22 @@ def test_the_forward_years_are_the_frameworks():
     assert tuple(FORWARD_PERIOD_KEYS) == ("FY+1", "FY+2", "FY+3")
 
 
+def test_fcf_after_working_capital_is_a_suppliable_subtotal(deal):
+    """Decision 4 on #520: an institution's template can supply the working-capital-adjusted FCF
+    for a forward year; it is recorded exactly as given, never recomputed or back-derived. The
+    existing "omit a subtotal the template does not break out" rule is what a template that does
+    not carry the figure relies on: omission leaves the key simply absent."""
+    forecast = {
+        "FY+1": {"subtotals": {"ebitda": 300, "fcf_after_working_capital": 210},
+                 "ratios": {"dscr": 1.4, "gross_leverage": 2.0}},
+        "FY+2": {"subtotals": {"ebitda": 320}, "ratios": {"dscr": 1.5, "gross_leverage": None}},
+    }
+    record(forecast=forecast)
+
+    assert state()["financials"]["FY+1"]["fcf_after_working_capital"] == 210
+    assert "fcf_after_working_capital" not in state()["financials"]["FY+2"]
+
+
 # ---------------------------------------------------------------------------
 # main()
 # ---------------------------------------------------------------------------

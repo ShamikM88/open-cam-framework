@@ -314,6 +314,18 @@ def test_a_check_is_made_only_when_every_feeding_line_was_transcribed(tmp_path):
     assert report["ready"], "not assessable is reported, never silently treated as a pass or a block"
 
 
+def test_fcf_after_working_capital_has_no_single_period_cross_foot(tmp_path):
+    """The metric also reads the prior period's working capital, which is never on the same
+    transcription, so no single-period weight set exists for it. A stated figure is recorded as
+    not assessed with the reason -- never compared against zero (an unavoidable mismatch), never
+    a silent pass, and never a block on the commit."""
+    rows, report = results(tmp_path, periods={"FY-Current": {"lines": dict(LINES),
+                                                            "subtotals": {**SUBTOTALS, "fcf_after_working_capital": "120"}}})
+    assert rows["fcf_after_working_capital"]["status"] == "not_assessed"
+    assert "prior period" in rows["fcf_after_working_capital"]["reason"]
+    assert report["ready"]
+
+
 def test_an_explicit_zero_is_a_transcribed_line_but_an_omitted_one_is_unknown(tmp_path):
     zero, _ = results(tmp_path, periods={"FY-Current": {"lines": {"revenue": "10", "cost_of_sales": "0"},
                                                          "subtotals": {"gross_profit": "10"}}})

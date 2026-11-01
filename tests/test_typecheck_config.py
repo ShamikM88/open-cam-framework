@@ -1,6 +1,6 @@
-"""The mypy diagnostic's configuration and pinning (issue #424, Phase 0).
+"""The mypy type check's configuration and pinning (issue #424, Phase 0).
 
-Phase 0 adds the checker and its configuration only: no annotation changes, no gate. These tests pin what is easy to
+Phase 0 added the checker and its configuration; since Phase 3 option B, type errors fail the typecheck job. These tests pin what is easy to
 get wrong quietly: the target list drifting from the governance-critical modules, the strict override reaching modules
 that were never meant to be strict, the checker leaking into the runtime requirements, and a missing-imports
 suppression widening past the two third-party libraries the design note names.

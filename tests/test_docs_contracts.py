@@ -677,5 +677,5 @@ def test_spread_inputs_pin_the_p_and_l_charge_basis():
     assert SPREAD_TAX_BASIS not in analyst_supplied_mode
 
     docs = read("docs/commands.md")
-    spread_section = docs.split("### /spread", 1)[1].split("\\n### ", 1)[0]
+    spread_section = docs.split("### /spread", 1)[1].split("\n### ", 1)[0]
     assert SPREAD_DOCS_BASIS_NOTE in " ".join(spread_section.split())

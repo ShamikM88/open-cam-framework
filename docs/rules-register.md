@@ -202,8 +202,8 @@ independently proven by the gate.
 - **Source:**
   [Percent-type ratios are stored as fractions](financial-model.md#percent-type-ratios-are-stored-as-fractions) .
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
-- **Status:** Not covered
-- **Tracking:** [Issue #539](https://github.com/ShamikM88/open-cam-framework/issues/539) — Missing test: percent-type covenant actuals and thresholds at ±10 and just beyond those boundaries, including negative values.
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-POL-011 — Non-positive aggregate exposure makes collateral cover N/A
 
@@ -388,16 +388,16 @@ independently proven by the gate.
 - **Claim:** The workbook exporter does not fall back to the other raw-figure store when the selected store has no record for a period.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
-- **Status:** Not covered
-- **Tracking:** [Issue #537](https://github.com/ShamikM88/open-cam-framework/issues/537) — Missing test: an analyst-supplied deal whose supplied store lacks a historical period that `financials[period]["raw"]` has.
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-EXPORT-004 — raw stores are not blended within a period
 
 - **Claim:** The workbook exporter never combines raw fields from both raw-figure stores within one period.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
-- **Status:** Not covered
-- **Tracking:** [Issue #538](https://github.com/ShamikM88/open-cam-framework/issues/538) — Missing test: a single period with different fields in each raw store, asserting the exporter does not combine the two stores.
+- **Status:** Covered
+- **Tracking:** —
 
 ### R-EXPORT-005 — export validates state before creating output
 

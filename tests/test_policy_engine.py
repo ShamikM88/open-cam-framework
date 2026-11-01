@@ -175,7 +175,7 @@ def test_negative_threshold_headroom_literal_values(covenant_type, actual, statu
         ("threshold-at-negative-boundary", -0.5, -10.0, "minimum", "PASS", "threshold"),
         ("threshold-below-negative-boundary", -0.5, -10.0001, "minimum", "UNRESOLVABLE", "threshold"),
     ],
-    ids=lambda case: case,
+    ids=["actual-at-positive-boundary", "actual-above-positive-boundary", "actual-at-negative-boundary", "actual-below-negative-boundary", "threshold-at-positive-boundary", "threshold-above-positive-boundary", "threshold-at-negative-boundary", "threshold-below-negative-boundary"],
 )
 def test_percent_type_ratio_unit_boundary_is_pinned(case, actual, threshold, covenant_type, expected_status,
                                                      mismatch_field):

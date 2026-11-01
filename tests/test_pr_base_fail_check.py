@@ -560,6 +560,8 @@ def test_skipped_cases_of_a_parametrized_test_do_not_count_as_passed(tmp_path):
     assert result.returncode == 0, result.stderr
     assert "Verdict: CANNOT_RUN" in result.stdout and "PASSES_ON_BASE —" not in result.stdout
     assert "| tests/test_new.py::test_values | 2 | 0 | 1 | skipped |" in result.stdout
+    # CG536-1: the legend printed with every report must name this cause too, not only a missing import
+    assert "a skipped case" in result.stdout.split("CANNOT_RUN: ")[-1].splitlines()[0]
 
 
 # ---------------------------------------------------------------------------

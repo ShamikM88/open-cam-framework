@@ -117,7 +117,8 @@ def test_the_reason_names_the_metric_and_the_denominator():
 
 @pytest.mark.parametrize("covenant_type, threshold", [("maximum", 3.5), ("minimum", 0.5), ("maximum", 0), ("minimum", -5)])
 def test_minimum_and_maximum_covenants_are_handled_the_same_way(covenant_type, threshold):
-    """Whatever the type or threshold (even zero or negative), a ratio that is N/A cannot pass or fail."""
+    """Whatever the type or threshold (even zero or negative), a ratio that is N/A cannot pass or fail.
+    Rule: R-POL-001"""
     covenant = {"metric": "gross_leverage", "type": covenant_type, "threshold": threshold}
     result = covenant_results(NEGATIVE_EBITDA, [covenant])[0]
     assert result["status"] == "UNRESOLVABLE" and result["reason"] == "gross leverage not meaningful: EBITDA is negative"

@@ -541,7 +541,8 @@ def test_a_null_value_is_not_recorded_for_every_key_the_orchestrator_reads(proje
 
 def test_a_loss_making_borrower_reaches_the_maker_as_unresolvable_with_the_reason(project_root):
     """The orchestrator must pass its freshly computed `financials` to the policy engine, or the reason for an N/A
-    ratio degrades to 'no financials are recorded'. The unresolvable covenant also forces a code-enforced REJECTED."""
+    ratio degrades to 'no financials are recorded'. The unresolvable covenant also forces a code-enforced REJECTED.
+    Rule: R-POL-014"""
     write_state("Acme Corp", "Fleet Loan",
                 covenants=[{"metric": "gross_leverage", "type": "maximum", "threshold": 3.5}])
     loss_making = {"revenue": 500, "cost_of_sales": 400, "admin_expenses": 200, "long_term_debt": 500,
@@ -813,6 +814,7 @@ def test_apply_deterministic_policy_checks_overrides_on_covenant_failure():
 
 
 def test_apply_deterministic_policy_checks_overrides_on_unresolvable_covenant():
+    """Rule: R-POL-014"""
     draft = _compliant_draft(cp_ids=["KYC-AML"])
     policy_state = _policy_state(covenant_results=[
         {"metric": "made_up_metric", "type": "minimum", "threshold": 1.0, "actual": None,
@@ -876,6 +878,7 @@ def test_apply_deterministic_policy_checks_combines_llm_notes_with_code_enforced
 
 
 def test_apply_deterministic_policy_checks_never_overrides_rejected_to_approved():
+    """Rule: R-POL-012"""
     draft = _compliant_draft(cp_ids=["KYC-AML"])  # fully compliant
     verdict, notes = _apply_deterministic_policy_checks("REJECTED", "Weak mitigants.", draft, _policy_state(), {})
     assert verdict == "REJECTED"

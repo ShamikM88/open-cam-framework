@@ -7,6 +7,6 @@ pytest-timeout>=2.4.0     # a hung test fails instead of eating the CI job limit
 pytest-socket>=0.8.1      # no test may open a network connection
 hypothesis>=6.168.5       # property-based tests (tests/test_properties.py, issue #143)
 diff-cover>=10.6.0        # coverage of the lines a PR changes (issue #142; CI runs it with --config-file pyproject.toml)
-ruff>=0.17.0
+ruff>=0.17.3
 bandit>=1.9.4
 mypy>=2.4.0               # advisory type-check diagnostic (issue #424; .github/workflows/typecheck.yml), not a gate

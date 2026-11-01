@@ -690,3 +690,25 @@ def test_d_c_pins_interest_and_tax_to_the_p_and_l_charge_basis():
         financial_model_heading,
         (INTEREST_PAID_D_C_BASIS, TAX_PAID_D_C_BASIS),
     )
+
+
+# The exact wording and matching /spread note are authorised by issue #519, comment 6555374430.
+SPREAD_INTEREST_BASIS = "Enter `interest_paid` as the period's interest charge in the profit and loss account (interest payable and similar charges), not the cash interest paid in the period."
+SPREAD_TAX_BASIS = "Enter `tax_paid` as the period's tax charge in the profit and loss account (tax on profit), not the cash tax paid in the period."
+SPREAD_DOCS_BASIS_NOTE = "In default mode, `interest_paid` and `tax_paid` are the period's P&L charges (interest payable and similar charges; tax on profit), not the cash interest or tax paid in the period."
+
+
+def test_spread_inputs_pin_the_p_and_l_charge_basis():
+    command = read(".claude/commands/spread.md")
+    default_heading = "### Default: spread from raw P&L/Balance Sheet data"
+    assert_markdown_section_contains(
+        markdown_section(command, default_heading), default_heading, (SPREAD_INTEREST_BASIS, SPREAD_TAX_BASIS)
+    )
+    # Once in the whole file, and that once is in the default mode: the analyst-supplied mode records the analyst's
+    # own figures as given and does not get the sentences.
+    assert command.count(SPREAD_INTEREST_BASIS) == 1
+    assert command.count(SPREAD_TAX_BASIS) == 1
+
+    docs_heading = "### /spread"
+    spread_section = " ".join(markdown_section(read("docs/commands.md"), docs_heading).split())
+    assert_markdown_section_contains(spread_section, docs_heading, (SPREAD_DOCS_BASIS_NOTE,))

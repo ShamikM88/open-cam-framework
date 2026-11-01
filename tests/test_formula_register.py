@@ -354,6 +354,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:_evaluate_forward_covenants": "1afcd7ab3e5a1533",
     "policy_engine:_period_dict": "a1a4da69cf17df81",
     "policy_engine:evaluate_deal_policy": "0b95f024cda35cb4",
+    "policy_engine:evaluate_single_covenant": "163771ed0ae9b371",
     "spreading_builder:_ratio": "5e5bfd2f5fc6f866",
     "spreading_builder:describe_undefined_ratio": "11e8e969fce62bd8",
     "spreading_builder:evaluate_financial_model": "7514cb91f9cd09d0",
@@ -363,6 +364,9 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "spreading_builder:_write_financial_spreading": "5d0ad93f82c6b64a",
     "spreading_builder:_write_collateral_sheet": "174bd3295f0b8109",
     "supplied_forecast:build_downside": "db2bd0b22dcbab55",
+    "covenant_cushion:ebitda_break_even": "79a9709c24bc66c3",
+    "covenant_cushion:bracket_and_bisect": "aa5ca4f6184fb0e4",
+    "covenant_cushion:_scenario_search": "cea853891d9088a5",
 }
 
 

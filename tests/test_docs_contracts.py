@@ -530,6 +530,29 @@ def test_scope_check_is_documented_as_a_separate_advisory_workflow():
 # The advisory new-tests-on-base workflow (issue #475, PR 3 of 3)
 # ---------------------------------------------------------------------------
 
+def markdown_section(text, heading):
+    """Return one Markdown section through the next heading of the same level."""
+    lines = text.splitlines()
+    try:
+        start = lines.index(heading)
+    except ValueError:
+        return ""
+    level = len(heading) - len(heading.lstrip("#"))
+    next_heading_prefix = "#" * level + " "
+    end = next(
+        (index for index in range(start + 1, len(lines))
+         if lines[index].startswith(next_heading_prefix)),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def assert_markdown_section_contains(section, heading, phrases):
+    assert section.strip(), f"missing markdown section: {heading}"
+    missing = [phrase for phrase in phrases if phrase not in section]
+    assert not missing, f"{heading} is missing section-specific wording: {missing}"
+
+
 def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
     workflow = read(".github/workflows/base-fail-check.yml")
     script = read("scripts/pr_base_fail_check.py")
@@ -537,19 +560,45 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
     operations = read("docs/operations.md")
     claude = read("CLAUDE.md")
 
+    testing_heading = "### Advisory new-tests-on-base check"
+    operations_heading = "## New tests on the base check (advisory)"
+    testing_section = markdown_section(testing, testing_heading)
+    operations_section = markdown_section(operations, operations_heading)
+
     assert "name: New tests on base check (advisory)" in workflow
     assert "continue-on-error" not in workflow
     for verdict in ("RED_ON_BASE", "PASSES_ON_BASE", "CANNOT_RUN", "NO_TESTS_SELECTED"):
         assert verdict in script
-        assert f"`{verdict}`" in testing
+        assert f"`{verdict}`" in testing_section
 
-    assert ".github/workflows/base-fail-check.yml" in testing
-    assert "not a required check" in testing
-    assert "PASSES_ON_BASE appears in the summary only" in testing
-    assert "reviewer aid" in testing and "not a gate or a proof" in testing
-    assert "not a required check" in operations
-    assert "never becomes required" in operations
-    assert "continue-on-error" in operations
+    testing_phrases = (
+        ".github/workflows/base-fail-check.yml",
+        "not a required check",
+        "PASSES_ON_BASE appears in the summary only",
+        "reviewer aid",
+        "not a proof or a gate",
+        "PR's own merge commit",
+    )
+    operations_phrases = (
+        "not a required check",
+        "never becomes required",
+        "continue-on-error",
+    )
+    assert_markdown_section_contains(testing_section, testing_heading, testing_phrases)
+    assert_markdown_section_contains(operations_section, operations_heading, operations_phrases)
+
+    # Demonstrate that deleting either new section makes this contract fail rather than
+    # allowing older scope-check/runbook wording elsewhere on the page to satisfy it.
+    for page, heading, phrases in (
+        (testing, testing_heading, testing_phrases),
+        (operations, operations_heading, operations_phrases),
+    ):
+        without_section = page.replace(heading, "", 1)
+        with pytest.raises(AssertionError, match="missing markdown section"):
+            assert_markdown_section_contains(
+                markdown_section(without_section, heading), heading, phrases
+            )
+
     approved_claude_bullet = (
         "- **Advisory new-tests-on-base check.** `scripts/pr_base_fail_check.py`, run by the "
         "separate `.github/workflows/base-fail-check.yml` job, runs the tests a pull request adds "
@@ -562,6 +611,8 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
         "reviewer aid, not a proof."
     )
     assert approved_claude_bullet in claude
+
+
 
 # The guarantee-amount guidance authorised by the maintainer on issue #505, comment 6522121343 (review finding
 # PX516-1 on PR #516). An absent amount drafts "for an amount to be confirmed"; an uncapped guarantee is recorded as

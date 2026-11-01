@@ -90,10 +90,12 @@ done < changed-files.nul
 
 # Replace these examples with the selected node IDs from the report.
 NODE_IDS=("tests/test_example.py::test_example")
-(cd "$WORKTREE" && python -m pytest --junitxml="$JUNIT" -p no:cacheprovider -q "${NODE_IDS[@]}")
+pytest_status=0
+(cd "$WORKTREE" && python -m pytest --junitxml="$JUNIT" -p no:cacheprovider -q "${NODE_IDS[@]}") || pytest_status=$?
 
 git worktree remove --force "$WORKTREE"
 rm -rf "$TMPROOT"
+exit "$pytest_status"
 ```
 
 **When the verdict is `CANNOT_RUN`.** Read the row's `Kind` and any separate unparseable-file note:
@@ -105,7 +107,7 @@ rm -rf "$TMPROOT"
 
 Treat `CANNOT_RUN` as inconclusive, never as green evidence. If another selected function failed, the PR-level result is still `RED_ON_BASE`; read every row. Check ordinary required CI on the PR head as well, but do not substitute its result for the base-run explanation.
 
-**Keep the assurance boundary.** This job never becomes a required check. Never add `continue-on-error` or make it required without a reviewed decision: every verdict is intentionally a report, while a broken check must still fail rather than look clean.
+**Keep the assurance boundary.** This job never becomes required; it remains advisory and is never a required check. Never add `continue-on-error` or make it required without a reviewed decision: every verdict is intentionally a report, while a broken check must still fail rather than look clean.
 
 ## Coverage: how to read it
 

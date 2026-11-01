@@ -45,7 +45,7 @@ The active rules in this register began as Not covered with
 [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500)
 as the temporary citation and verification tracker. During #500, candidate test bodies were checked against each
 Claim; only tests whose assertions verify the whole Claim received a citation and a Covered status. The remaining
-Not covered entries retain #500 as a temporary tracker until the maintainer files their dedicated gap issues.
+Not covered entries each link their own gap issue, which asks for the missing test.
 
 **Inventory at this revision:** 35 IDs ever issued; 29 active Covered; 3 active Not covered; 3 Withdrawn.
 
@@ -203,7 +203,7 @@ independently proven by the gate.
   [Percent-type ratios are stored as fractions](financial-model.md#percent-type-ratios-are-stored-as-fractions) .
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_covenant`
 - **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker). Missing test: percent-type covenant actuals and thresholds at ±10 and just beyond those boundaries, including negative values.
+- **Tracking:** [Issue #539](https://github.com/ShamikM88/open-cam-framework/issues/539) — Missing test: percent-type covenant actuals and thresholds at ±10 and just beyond those boundaries, including negative values.
 
 ### R-POL-011 — Non-positive aggregate exposure makes collateral cover N/A
 
@@ -389,7 +389,7 @@ independently proven by the gate.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
 - **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker). Missing test: an analyst-supplied deal whose supplied store lacks a historical period that `financials[period]["raw"]` has.
+- **Tracking:** [Issue #537](https://github.com/ShamikM88/open-cam-framework/issues/537) — Missing test: an analyst-supplied deal whose supplied store lacks a historical period that `financials[period]["raw"]` has.
 
 ### R-EXPORT-004 — raw stores are not blended within a period
 
@@ -397,7 +397,7 @@ independently proven by the gate.
 - **Source:** [Two raw-figure stores, never blended within a period](data-model.md#two-raw-figure-stores-never-blended-within-a-period).
 - **Implemented in:** `scripts/deal_export.py::_financial_data_from_state`
 - **Status:** Not covered
-- **Tracking:** [Issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500) (temporary citation and verification tracker). Missing test: a single period with different fields in each raw store, asserting the exporter does not combine the two stores.
+- **Tracking:** [Issue #538](https://github.com/ShamikM88/open-cam-framework/issues/538) — Missing test: a single period with different fields in each raw store, asserting the exporter does not combine the two stores.
 
 ### R-EXPORT-005 — export validates state before creating output
 

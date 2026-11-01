@@ -580,6 +580,8 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
         "PR's own merge commit",
         "### New tests on the base commit (advisory; not a required check)",
         "No path outside `tests/` is overlaid; selected tests execute production code exactly as it exists on the base commit.",
+        "A row that passed on every run also shows `assertion`",
+        "exits `2` from argument parsing without writing it",
     )
     operations_phrases = (
         "not a required check",
@@ -594,8 +596,9 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
     assert_markdown_section_contains(operations_section, operations_heading, operations_phrases)
     assert 'exit "$pytest_status"' not in operations_section
 
-    # Demonstrate that deleting either new section makes this contract fail rather than
-    # allowing older scope-check/runbook wording elsewhere on the page to satisfy it.
+    # The phrases are looked for only inside each new section, so older scope-check or runbook
+    # wording elsewhere on the page cannot satisfy them. Without its heading a section is not
+    # found at all, and the contract fails instead of passing.
     for page, heading, phrases in (
         (testing, testing_heading, testing_phrases),
         (operations, operations_heading, operations_phrases),
@@ -617,7 +620,10 @@ def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
         "`pull_request` run the script comes from the PR's own merge commit, so the report is a "
         "reviewer aid, not a proof."
     )
-    assert approved_claude_bullet in claude
+    claude_heading = "## Testing and static analysis"
+    assert_markdown_section_contains(
+        markdown_section(claude, claude_heading), claude_heading, (approved_claude_bullet,)
+    )
 
 
 # The guarantee-amount guidance authorised by the maintainer on issue #505, comment 6522121343 (review finding

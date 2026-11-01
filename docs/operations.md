@@ -55,7 +55,16 @@ CI keeps `coverage.xml`, `coverage.json`, `pytest_output.txt` and `pip freeze` f
 
 The `base-fail-check` job reports whether a pull request's new or changed test functions fail on its base commit. It is a reviewer aid, not a proof or a gate, and is **not a required check**. It runs the PR's merge-commit version of the script and tests, not a second full CI suite. Read the verdict meanings and summary format in [Testing and CI](testing.md#advisory-new-tests-on-base-check).
 
-**Reproduce the workflow locally.** Use a full-history checkout containing both commit objects, with the worktree at the PR merge commit. Supply the exact 40-character base and merge SHAs from the pull request run; the script verifies that `HEAD` is the supplied head SHA.
+**Reproduce the workflow locally.** Use a clean, full-history clone of the repository. To fetch the current GitHub-generated merge commit for a pull request and check it out detached, run:
+
+```bash
+PR_NUMBER="<PR number>"
+git fetch origin "refs/pull/${PR_NUMBER}/merge"
+HEAD_SHA="$(git rev-parse FETCH_HEAD)"
+git switch --detach "$HEAD_SHA"
+```
+
+GitHub recomputes `refs/pull/<N>/merge` when `main` moves, so a fresh fetch may resolve to a different SHA than a past Actions run. To reproduce a historical run exactly, use the 40-character base and merge SHAs recorded by that run, not a newly fetched ref; the script verifies that `HEAD` is the supplied head SHA.
 
 ```bash
 BASE_SHA="<full base SHA>"
@@ -69,7 +78,7 @@ python scripts/pr_base_fail_check.py \
     --summary-file base-fail-summary.md
 ```
 
-The CLI performs the selection, worktree, overlay and JUnit steps for you. To reproduce the underlying worktree-plus-overlay run by hand, start with the base tree and copy the head version of **every changed path under `tests/` that still exists at the head** into the same path in the worktree. Include test files, fixtures and `conftest.py`; do not copy deleted files or anything outside `tests/`. Then run exactly the selected node IDs (the `Test function` values in the report) in the worktree:
+The CLI performs the selection, worktree, overlay and JUnit steps for you. To reproduce the underlying worktree-plus-overlay run by hand, start with the base tree and copy the head version of **every changed path under `tests/` that still exists at the head** into the same path in the worktree. Include test files, fixtures and `conftest.py`; do not copy deleted files or anything outside `tests/`. Then run exactly the selected node IDs (the `Test function` values in the report) in the worktree: The pytest console output is the result; the temporary JUnit XML is removed with `TMPROOT` during cleanup.
 
 ```bash
 TMPROOT="$(mktemp -d)"
@@ -95,7 +104,7 @@ pytest_status=0
 
 git worktree remove --force "$WORKTREE"
 rm -rf "$TMPROOT"
-exit "$pytest_status"
+printf 'pytest exit status: %s\n' "$pytest_status"
 ```
 
 **When the verdict is `CANNOT_RUN`.** Read the row's `Kind` and any separate unparseable-file note:

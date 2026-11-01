@@ -176,7 +176,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Basis:** house convention (decisions D-a and D-c of issue #504): exceptional costs are deducted here, at profit
   before tax, and nowhere above it; operating profit and EBITDA (F-004, F-006) are before exceptional items and
   include other income (see [Conventions](#conventions-used-by-every-entry)). `interest_paid` is the P&L charge, not
-  cash interest paid; net profit (F-008) inherits the tax charge through profit before tax.
+  cash interest paid; net profit (F-008) inherits the exceptional-items deduction through profit before tax and
+  then deducts the tax charge itself.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-008 — Net Profit

@@ -104,11 +104,11 @@ also_copy = [".github", "docs/examples"]    # selected tests read the workflow f
 [tool.opencam.mutation]
 target_critical = 75
 
-# Static type checking (issue #424), Phase 0/1: a DIAGNOSTIC. .github/workflows/typecheck.yml runs `mypy` and reports
-# the error count per module in the job summary; it is not a required check and no result blocks a merge. The strict
-# override applies to the eleven governance modules only (the list equals [tool.opencam.coverage] critical_modules,
-# pinned by tests/test_typecheck_config.py), so on the first run it reports every missing annotation; each module is
-# annotated in its own behaviour-preserving pull request (Phase 2), in the order of the design note on the issue.
+# Static type checking (issue #424), Phases 0 to 3: .github/workflows/typecheck.yml runs `mypy`, reports the error
+# count per module in the job summary, and fails the job on a type error; it is not a required check (whether it
+# becomes one is #527). The strict override applies to the eleven governance modules only (the list equals
+# [tool.opencam.coverage] critical_modules, pinned by tests/test_typecheck_config.py); each module was annotated in its
+# own behaviour-preserving pull request (Phase 2), in the order of the design note on the issue.
 # Global ignore_missing_imports stays false so a missing first-party import is visible. The last override is
 # provisional: openpyxl 3.1.5 ships no py.typed marker (mypy reports import-untyped without it); python-docx 1.2.0 does
 # ship one, so it needs no suppression. Remove the override if a typed openpyxl is ever pinned.

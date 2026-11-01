@@ -254,9 +254,9 @@ This job is **not a required check** and is not a fifth job in `ci.yml`: the exi
 the required names `test`, `test-windows` and `runtime-smoke` are unchanged. In a `pull_request` run,
 the script comes from the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
 
-### Type checking (advisory diagnostic)
+### Type checking (fails on type errors; not a required check)
 
-Static type checking is introduced as a **diagnostic, never a gate** (issue #424, Phase 0/1). `[tool.mypy]` in
+Static type checking covers the eleven governance modules (issue #424). `[tool.mypy]` in
 `pyproject.toml` lists the eleven governance modules as the files to check and applies a strict override to exactly
 those modules (`disallow_untyped_defs`, `check_untyped_defs`, `warn_return_any`, `no_implicit_optional` and
 `strict_equality`); the global `ignore_missing_imports` stays `false`, and the only suppression is for `openpyxl`,
@@ -265,13 +265,17 @@ which ships no type marker (`py.typed`) in the pinned 3.1.5 (python-docx does, s
 
 The separate `.github/workflows/typecheck.yml` workflow runs bare `mypy` on pull requests that touch `scripts/`, the
 configuration or the pinned tool set, and by hand (`gh workflow run typecheck.yml --ref <branch>`). It writes the
-error count per module to the job summary. Type errors **do not fail the job** (mypy's exit status 1 is the finding);
-the job fails only when mypy could not run at all (exit status 2 or more), so a broken check cannot look clean. It is
+error count per module to the job summary, and **type errors fail the job** (mypy's exit status 1; issue #424,
+Phase 3 option B, the maintainer's decision of 2026-10-31): the per-module counts are written first, so a red run
+shows exactly which module regressed. The job also fails when mypy cannot run at all (exit status 2 or more),
+so a broken check cannot look clean. It is
 not a required check and not a job in `ci.yml`: the required names `test`, `test-windows` and `runtime-smoke` are
-unchanged. At its introduction mypy reported 237 errors in the eleven modules (206 missing annotations, 13 needing a
-variable annotation, 12 possible `None` accesses, and 6 others); no source file was changed. Each module is then
+unchanged, and whether the typecheck becomes required is a separate ruleset decision tracked in #527. A pull request
+that bumps the pinned `mypy` or a stub package must fix, in the same pull request, any new type errors the bump
+causes, so `main` never goes red from a tool upgrade. At its introduction mypy reported 237 errors in the eleven modules (206 missing annotations, 13 needing a
+variable annotation, 12 possible `None` accesses, and 6 others); no source file was changed. Each module was then
 annotated in its own behaviour-preserving pull request (Phase 2, one module at a time), and the count in the summary
-is that pull request's before and after. The shared `JsonValue` type alias has one home, `scripts/state_manager.py`, and every annotated module imports it
+was that pull request's before and after. The shared `JsonValue` type alias has one home, `scripts/state_manager.py`, and every annotated module imports it
 instead of defining its own. `tests/test_typecheck_config.py` pins the target list, the override scope, the pinning and
 that single home; `tests/test_ci_workflow.py` pins the workflow, including a run of the step against a stub `mypy`.
 

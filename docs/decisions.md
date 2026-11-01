@@ -44,6 +44,7 @@ so in its Related line) when a later decision supersedes it.
 - [D31. The headless pipeline stays on the Anthropic SDK 1.x](#d31-the-headless-pipeline-stays-on-the-anthropic-sdk-1x)
 - [D32. Test-suite speed: the lazy import was the fix, and splitting the CLI test file was rejected](#d32-test-suite-speed-the-lazy-import-was-the-fix-and-splitting-the-cli-test-file-was-rejected)
 - [D33. A rules register names the governance rules and the tests that cite them](#d33-a-rules-register-names-the-governance-rules-and-the-tests-that-cite-them)
+- [D34. Type errors fail the typecheck job; required status is a separate later decision](#d34-type-errors-fail-the-typecheck-job-required-status-is-a-separate-later-decision)
 
 ## D1. The Maker and the Checker are independent prompts
 
@@ -347,8 +348,8 @@ so in its Related line) when a later decision supersedes it.
   were of exactly that kind (a wrong key, a null where an object was expected). A language migration was estimated at
   months and nothing in the project needs it; types are the cheapest way to add most of the remaining safety.
 - **Choice.** The eleven governance modules are annotated with mypy in small, behaviour-preserving pull requests, one
-  per module. The check is advisory: `[tool.mypy]` and the separate `typecheck.yml` report errors per module and are
-  not a required check. The shared `JsonValue` alias lives only in `scripts/state_manager.py` and every other module
+  per module. The check was advisory in Phases 0 to 2; since Phase 3 option B (D34, decision of 2026-10-31) type errors
+  fail the `typecheck` job, which is still not a required check. The shared `JsonValue` alias lives only in `scripts/state_manager.py` and every other module
   imports it (a test pins that); module-specific shapes stay with the module that owns the data. An annotation PR
   may also carry minimal narrowing that mypy needs once a parameter is typed (bind a value once, test it with
   `isinstance`), but every non-annotation change is listed line by line in the PR, and none uses `# type: ignore`,
@@ -362,10 +363,10 @@ so in its Related line) when a later decision supersedes it.
   `python -O`, so it cannot be the narrowing.
 - **Consequences.** The formula-register fingerprints (raw source lines, unchanged scheme) are refreshed in each PR
   that annotates a registered function. Phase 2 is complete: all eleven modules report zero errors. Phase 3, a
-  failing type check, is not started: making a check required is a ruleset change that stays the maintainer's, and
-  it needs its own plan and sign-off, so #424 stays open for it.
-- **Related.** #424 (comments of 2026-10-25, 2026-10-26 and 2026-10-27), PRs #465, #474, #476 to #482 and #484 to #489,
-  D13, D18.
+  failing type check, is option B in its two-step form (D34): type errors fail the job. Making it required is a
+  ruleset change that stays the maintainer's and is tracked in #527, so #424 stays open until step 1 has merged.
+- **Related.** #424 (comments of 2026-10-25, 2026-10-26, 2026-10-27 and 2026-10-31), PRs #465, #474, #476 to #482 and #484 to #489,
+  D13, D18, D34.
 
 ## D21. The policy engine's results are typed contracts, pinned byte for byte
 
@@ -620,3 +621,22 @@ so in its Related line) when a later decision supersedes it.
   whether to keep the register.
 - **Related.** #495 (the plan, the design note, the critiques and the sign-off), #496 to #501 and #503, D13, D14, D18,
   D19.
+
+## D34. Type errors fail the typecheck job; required status is a separate later decision
+
+- **Context.** Phase 2 left the eleven governance modules at zero mypy errors, but the advisory job reported type
+  errors without failing, so the investment was observed, not enforced (#424, the Phase 3 design note and its four
+  options).
+- **Choice.** Option B in its two-step form (maintainer decision of 2026-10-31): a reviewed pull request makes a type
+  error in the eleven governance modules fail the typecheck job, which stays not required; the job still reports the
+  per-module error counts in the summary, and a mypy that cannot run (exit status 2 or more) still fails. Whether the
+  check becomes required is a separate ruleset change, the maintainer's alone, tracked in #527. A pull request that
+  bumps the pinned `mypy` or a stub package must fix any new type errors it causes in the same pull request.
+- **Why.** Enforcement converts the finished Phase 2 investment into protection, and failing-but-not-required first
+  observes the failure mode in practice before it can block merges.
+- **Consequences.** Options C (stricter settings) and D (ratchet, supporting scripts) are not started and are worth
+  doing only on top of the gate. The workflow's path filter means a pull request that touches none of `scripts/**`,
+  `pyproject.toml`, `requirements-dev.txt`, `constraints.txt` or the workflow itself produces no typecheck run at
+  all; if the check is later made required, that must be resolved in #527 (remove the filter or add a gate job).
+  Rollback is a revert of the one pull request.
+- **Related.** #424 (the Phase 3 design note and the decision comment), #527, D20.

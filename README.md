@@ -253,8 +253,8 @@ pytest
 ```
 
 The suite needs no `ANTHROPIC_API_KEY` and no network. CI also runs `ruff check .`, `bandit -r scripts/ -ll`,
-coverage floors, a Windows job and a security job; a separate, non-required `typecheck` workflow reports `mypy`
-errors for the governance modules as an advisory diagnostic. Details, including how to keep `badges/test-count.json`
+coverage floors, a Windows job and a security job; a separate, non-required `typecheck` workflow runs `mypy`
+on the governance modules and fails on type errors. Details, including how to keep `badges/test-count.json`
 correct: [testing and CI](docs/testing.md).
 
 ## Documentation

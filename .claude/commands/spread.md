@@ -156,6 +156,9 @@ have -- it defaults to `0`, never invented): `revenue`, `cost_of_sales`, `admin_
 `trade_creditors`, `other_current_liabilities`, `overdraft`, `current_debt`, `long_term_debt`,
 `loan_notes`, `other_long_term_liabilities`, `provisions`, `share_capital`, `retained_profit`.
 
+Enter `interest_paid` as the period's interest charge in the profit and loss account (interest payable and similar charges), not the cash interest paid in the period.
+Enter `tax_paid` as the period's tax charge in the profit and loss account (tax on profit), not the cash tax paid in the period.
+
 Write them to a temporary JSON file, e.g. `deals/<company>/<proposal>_financials_input.json`:
 ```json
 {"FY-Current": {"revenue": 0, "cost_of_sales": 0, "...": "..."}}

@@ -78,7 +78,9 @@ python scripts/pr_base_fail_check.py \
     --summary-file base-fail-summary.md
 ```
 
-The CLI performs the selection, worktree, overlay and JUnit steps for you. To reproduce the underlying worktree-plus-overlay run by hand, start with the base tree and copy the head version of **every changed path under `tests/` that still exists at the head** into the same path in the worktree. Include test files, fixtures and `conftest.py`; do not copy deleted files or anything outside `tests/`. Then run exactly the selected node IDs (the `Test function` values in the report) in the worktree: The pytest console output is the result; the temporary JUnit XML is removed with `TMPROOT` during cleanup.
+The CLI performs the selection, worktree, overlay and JUnit steps for you. To reproduce the underlying worktree-plus-overlay run by hand, start with the base tree and copy the head version of **every changed path under `tests/` that still exists at the head** into the same path in the worktree. Include test files, fixtures and `conftest.py`; do not copy deleted files or anything outside `tests/`. Then run exactly the selected node IDs (the `Test function` values in the report) in the worktree:
+
+The pytest console output is the result; the temporary JUnit XML is removed with `TMPROOT` during cleanup.
 
 ```bash
 TMPROOT="$(mktemp -d)"

@@ -526,6 +526,106 @@ def test_scope_check_is_documented_as_a_separate_advisory_workflow():
     assert "pr_scope_check.py" in cli and "#pr-scope-check" in cli
 
 
+# ---------------------------------------------------------------------------
+# The advisory new-tests-on-base workflow (issue #475, PR 3 of 3)
+# ---------------------------------------------------------------------------
+
+def markdown_section(text, heading):
+    """Return one Markdown section through the next heading of the same level."""
+    lines = text.splitlines()
+    try:
+        start = lines.index(heading)
+    except ValueError:
+        return ""
+    level = len(heading) - len(heading.lstrip("#"))
+    next_heading_prefix = "#" * level + " "
+    end = next(
+        (index for index in range(start + 1, len(lines))
+         if lines[index].startswith(next_heading_prefix)),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def assert_markdown_section_contains(section, heading, phrases):
+    assert section.strip(), f"missing markdown section: {heading}"
+    missing = [phrase for phrase in phrases if phrase not in section]
+    assert not missing, f"{heading} is missing section-specific wording: {missing}"
+
+
+def test_new_tests_on_base_check_is_documented_as_advisory_and_summary_only():
+    workflow = read(".github/workflows/base-fail-check.yml")
+    script = read("scripts/pr_base_fail_check.py")
+    testing = read("docs/testing.md")
+    operations = read("docs/operations.md")
+    claude = read("CLAUDE.md")
+
+    testing_heading = "### Advisory new-tests-on-base check"
+    operations_heading = "## New tests on the base check (advisory)"
+    testing_section = markdown_section(testing, testing_heading)
+    operations_section = markdown_section(operations, operations_heading)
+
+    assert "name: New tests on base check (advisory)" in workflow
+    assert "continue-on-error" not in workflow
+    for verdict in ("RED_ON_BASE", "PASSES_ON_BASE", "CANNOT_RUN", "NO_TESTS_SELECTED"):
+        assert verdict in script
+        assert f"`{verdict}`" in testing_section
+
+    testing_phrases = (
+        ".github/workflows/base-fail-check.yml",
+        "not a required check",
+        "PASSES_ON_BASE appears in the summary only",
+        "reviewer aid",
+        "not a proof or a gate",
+        "PR's own merge commit",
+        "### New tests on the base commit (advisory; not a required check)",
+        "No path outside `tests/` is overlaid; selected tests execute production code exactly as it exists on the base commit.",
+        "A row that passed on every run also shows `assertion`",
+        "exits `2` from argument parsing without writing it",
+    )
+    operations_phrases = (
+        "not a required check",
+        "never becomes required",
+        "continue-on-error",
+        'refs/pull/${PR_NUMBER}/merge',
+        "GitHub recomputes `refs/pull/<N>/merge` when `main` moves",
+        "The pytest console output is the result",
+        "pytest exit status: %s",
+    )
+    assert_markdown_section_contains(testing_section, testing_heading, testing_phrases)
+    assert_markdown_section_contains(operations_section, operations_heading, operations_phrases)
+    assert 'exit "$pytest_status"' not in operations_section
+
+    # The phrases are looked for only inside each new section, so older scope-check or runbook
+    # wording elsewhere on the page cannot satisfy them. Without its heading a section is not
+    # found at all, and the contract fails instead of passing.
+    for page, heading, phrases in (
+        (testing, testing_heading, testing_phrases),
+        (operations, operations_heading, operations_phrases),
+    ):
+        without_section = page.replace(heading, "", 1)
+        with pytest.raises(AssertionError, match="missing markdown section"):
+            assert_markdown_section_contains(
+                markdown_section(without_section, heading), heading, phrases
+            )
+
+    approved_claude_bullet = (
+        "- **Advisory new-tests-on-base check.** `scripts/pr_base_fail_check.py`, run by the "
+        "separate `.github/workflows/base-fail-check.yml` job, runs the tests a pull request adds "
+        "or changes against the base commit and reports in the job summary whether they fail there "
+        "(red-first evidence). It is not a required check and not a gate: every verdict exits 0, "
+        "it never posts comments, and the step fails only when the check itself is broken. Making "
+        "it required, adding `continue-on-error`, or changing the approved workflow text needs a "
+        "reviewed decision; the workflow text is pinned by `tests/test_ci_workflow.py`. In a "
+        "`pull_request` run the script comes from the PR's own merge commit, so the report is a "
+        "reviewer aid, not a proof."
+    )
+    claude_heading = "## Testing and static analysis"
+    assert_markdown_section_contains(
+        markdown_section(claude, claude_heading), claude_heading, (approved_claude_bullet,)
+    )
+
+
 # The guarantee-amount guidance authorised by the maintainer on issue #505, comment 6522121343 (review finding
 # PX516-1 on PR #516). An absent amount drafts "for an amount to be confirmed"; an uncapped guarantee is recorded as
 # the plain text `an unlimited amount` in the existing amount field. Any other change needs a fresh authorisation.

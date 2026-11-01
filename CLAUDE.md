@@ -543,6 +543,7 @@ must meet; the full description of each (what it checks, how it is tested, why) 
   `.github/workflows/scope-check.yml` job is not a required check; the required names `test`,
   `test-windows` and `runtime-smoke` remain unchanged. In a `pull_request` run, the script comes from
   the PR's own merge commit, so the report is a reviewer aid and not a gate or a proof.
+- **Advisory new-tests-on-base check.** `scripts/pr_base_fail_check.py`, run by the separate `.github/workflows/base-fail-check.yml` job, runs the tests a pull request adds or changes against the base commit and reports in the job summary whether they fail there (red-first evidence). It is not a required check and not a gate: every verdict exits 0, it never posts comments, and the step fails only when the check itself is broken. Making it required, adding `continue-on-error`, or changing the approved workflow text needs a reviewed decision; the workflow text is pinned by `tests/test_ci_workflow.py`. In a `pull_request` run the script comes from the PR's own merge commit, so the report is a reviewer aid, not a proof.
 - **Type check.** `[tool.mypy]` in `pyproject.toml` and the separate `.github/workflows/typecheck.yml`
   check mypy errors per module for the eleven governance modules (issue #424; type errors fail the job since Phase 3
   option B). It is not a required check and not a job in `ci.yml`: type errors fail it (mypy exit status 1), and so

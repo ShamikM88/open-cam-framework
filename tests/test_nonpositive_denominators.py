@@ -346,8 +346,8 @@ def test_an_ordinary_downside_fail_keeps_the_breaches_threshold_wording():
 # ---------------------------------------------------------------------------
 
 WORKBOOK_ROWS = {
-    "DSCR": "dscr", "EBIT/Interest": "ebit_interest_cover", "EBITDA/Interest": "ebitda_interest_cover",
-    "FCF Conversion %": "fcf_conversion_pct", "Gearing % (Interest-Bearing Debt / Equity)": "gearing",
+    "DSCR (EBITDA-based)": "dscr", "EBIT/Interest": "ebit_interest_cover", "EBITDA/Interest": "ebitda_interest_cover",
+    "FCF Conversion % (before working capital)": "fcf_conversion_pct", "Gearing % (Interest-Bearing Debt / Equity)": "gearing",
     "Current Ratio": "current_ratio", "Gross Leverage": "gross_leverage", "Net Debt / EBITDA": "net_debt_to_ebitda",
     "Trade Debtor Days": "trade_debtor_days", "Trade Creditor Days": "trade_creditor_days", "Stock Days": "stock_days",
     "Working Capital Cycle (days)": "working_capital_cycle_days",

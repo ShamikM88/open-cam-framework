@@ -533,7 +533,7 @@ def test_an_analyst_supplied_forecast_is_exported_as_values_with_labelled_column
     assert headers[4] == "FY+1 (analyst-supplied)" and headers[5] == "FY+2 (analyst-supplied)"
     assert headers[6] == "FY+3", "a year with nothing supplied keeps its ordinary header"
     assert headers[7] == "FY+1 (Downside, analyst-supplied)" and headers[8] == "FY+2 (Downside, unavailable)"
-    ebitda, dscr = row_of(sheet, "EBITDA"), row_of(sheet, "DSCR")
+    ebitda, dscr = row_of(sheet, "EBITDA (before exceptionals, incl. other income)"), row_of(sheet, "DSCR (EBITDA-based)")
     assert ebitda[4].value == 300 and ebitda[5].value == 320 and ebitda[7].value == 240
     assert dscr[4].value == 1.4 and dscr[7].value == 1.1
     assert row_of(sheet, "Gross Leverage")[5].value == "N/A", "a ratio supplied as null is N/A, as everywhere else"
@@ -542,7 +542,7 @@ def test_an_analyst_supplied_forecast_is_exported_as_values_with_labelled_column
     for column in (4, 5, 7, 8):
         assert not str(gross_profit[column].value or "").startswith("="), column
     assert str(gross_profit[6].value).startswith("="), "FY+3 was not supplied, so it keeps its ordinary formula"
-    assert row_of(sheet, "EBITDA")[8].value is None, "an unavailable downside column is blank, not a formula"
+    assert row_of(sheet, "EBITDA (before exceptionals, incl. other income)")[8].value is None, "an unavailable downside column is blank, not a formula"
     assert row_of(sheet, "Net Profit")[4].value is None, "a figure nobody supplied is blank, not computed"
 
 
@@ -551,7 +551,7 @@ def test_a_framework_derived_downside_still_uses_its_raw_lines_in_the_workbook(d
     sheet = export(deal)
     assert [c.value for c in sheet[1]][7] == "FY+1 (Downside)"
     assert row_of(sheet, "Revenue")[7].value == 900, "the shocked revenue is written to the raw-input cell"
-    assert str(row_of(sheet, "EBITDA")[7].value).startswith("="), "its subtotals stay formulas over those cells"
+    assert str(row_of(sheet, "EBITDA (before exceptionals, incl. other income)")[7].value).startswith("="), "its subtotals stay formulas over those cells"
 
 
 def test_every_other_deals_workbook_is_unchanged(deal):
@@ -560,7 +560,7 @@ def test_every_other_deals_workbook_is_unchanged(deal):
                             stress_assumptions={"revenue_haircut_pct": 10})
     sheet = export(deal)
     assert [c.value for c in sheet[1]] == PERIOD_HEADERS
-    assert str(row_of(sheet, "EBITDA")[4].value).startswith("=")
+    assert str(row_of(sheet, "EBITDA (before exceptionals, incl. other income)")[4].value).startswith("=")
 
 
 # ---------------------------------------------------------------------------
@@ -893,8 +893,8 @@ COMPLETE_LINES = {**LINES, "exceptional_costs": 0, "intangible_assets": 0, "othe
 UNSUPPORTED_ROWS = ("Profit Before Tax", "Net Profit", "Total Fixed Assets", "Total Assets",
                     "Total Long Term Liabilities", "Total Liabilities", "Tangible Net Worth (TNW)",
                     "TNW + Loan Notes / Preference Shares")
-SUPPORTED_ROWS = ("Gross Profit", "Gross Profit Margin %", "Operating Profit", "EBITDA", "FCF", "FCF Conversion %",
-                  "Total Current Assets", "Total Current Liabilities", "Total Equity", "DSCR", "EBIT/Interest",
+SUPPORTED_ROWS = ("Gross Profit", "Gross Profit Margin %", "Operating Profit", "EBITDA (before exceptionals, incl. other income)", "FCF (before working capital)", "FCF Conversion % (before working capital)",
+                  "Total Current Assets", "Total Current Liabilities", "Total Equity", "DSCR (EBITDA-based)", "EBIT/Interest",
                   "EBITDA/Interest", "Gearing % (Interest-Bearing Debt / Equity)", "Current Ratio", "Gross Leverage",
                   "Net Debt / EBITDA", "Trade Debtor Days", "Working Capital Cycle (days)")
 DOWNSIDE_FY1 = 7        # the "FY+1 (Downside)" column
@@ -912,7 +912,7 @@ def test_the_workbook_leaves_a_derived_downside_row_blank_when_a_line_it_reads_w
     assert not UNSUPPORTED_OUTPUTS & set(figures), "the state omits the same figures"
     assert {"ebitda", "gross_profit", "operating_profit", "fcf", "current_assets", "total_equity"} <= set(figures)
     assert row_of(sheet, "Revenue")[DOWNSIDE_FY1].value == 900, "the shocked raw lines are still written"
-    assert row_of(sheet, "EBITDA")[DOWNSIDE_FY1].value.startswith("=")
+    assert row_of(sheet, "EBITDA (before exceptionals, incl. other income)")[DOWNSIDE_FY1].value.startswith("=")
 
 
 def test_the_workbook_shows_those_rows_once_every_line_they_read_is_supplied(deal):
@@ -952,9 +952,9 @@ def test_the_workbooks_formula_chain_and_the_recorders_dependency_tables_agree()
 
 def test_supported_rows_follows_references_through_other_computed_rows():
     from spreading_builder import supported_rows
-    assert "EBITDA" in supported_rows(set(sf.RAW_FIELDS))
+    assert "EBITDA (before exceptionals, incl. other income)" in supported_rows(set(sf.RAW_FIELDS))
     nothing = supported_rows(set())
-    assert "EBITDA" not in nothing and "Total Assets" not in nothing
+    assert "EBITDA (before exceptionals, incl. other income)" not in nothing and "Total Assets" not in nothing
     only_revenue_and_cost = supported_rows({"revenue", "cost_of_sales"})
     assert "Gross Profit" in only_revenue_and_cost and "Gross Profit Margin %" in only_revenue_and_cost
     assert "Operating Profit" not in only_revenue_and_cost, "it also reads admin expenses, depreciation and so on"
@@ -966,7 +966,7 @@ def test_a_framework_computed_deals_workbook_keeps_every_downside_formula(deal):
                                                 "FY+1": {"revenue": 110, "cost_of_sales": 60}},
                             stress_assumptions={"revenue_haircut_pct": 10})
     sheet = export(deal)
-    for label in ("EBITDA", "Profit Before Tax", "Total Assets", "Tangible Net Worth (TNW)"):
+    for label in ("EBITDA (before exceptionals, incl. other income)", "Profit Before Tax", "Total Assets", "Tangible Net Worth (TNW)"):
         assert str(row_of(sheet, label)[DOWNSIDE_FY1].value).startswith("="), label
 
 

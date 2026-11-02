@@ -212,6 +212,15 @@ WORKING_CAPITAL_ROWS: list[tuple[str, str | None]] = [
     # check that the prior period was actually recorded.
     ("FCF after Working Capital",
      '=IF(COUNT({prior:Accounts Receivable},{prior:Stock},{prior:Other Current Assets},{prior:Accounts Payable},{prior:Other Current Liabilities})=0,"N/A",{FCF (before working capital)}-(({Accounts Receivable}+{Stock}+{Other Current Assets}-{Accounts Payable}-{Other Current Liabilities})-({prior:Accounts Receivable}+{prior:Stock}+{prior:Other Current Assets}-{prior:Accounts Payable}-{prior:Other Current Liabilities})))'),
+    # The cash-flow DSCR (issue #521, decision on its design note: option A):
+    # CFADS is FCF after working capital grossed back up for net interest, so
+    # interest is deducted once (in the denominator), not twice. A first period
+    # whose FCF after Working Capital reads "N/A" makes the numerator #VALUE!,
+    # which _ratio's IFERROR turns into "N/A" -- the same None as
+    # evaluate_financial_model(). Balloon and lease principal have no raw line
+    # and are outside debt service (a known limitation, not modelled).
+    ("DSCR (Cash Flow)", _ratio("{FCF after Working Capital}+{Interest Paid}-{Interest Received}",
+                                "{Interest Paid}+{Scheduled Principal Repayment}")),
 ]
 
 SECTIONS: list[tuple[str, list[tuple[str, str | None]]]] = [
@@ -234,7 +243,7 @@ SUPPLIED_SUBTOTALS = (
 )
 SUPPLIED_RATIOS = (
     "dscr", "gross_leverage", "net_debt_to_ebitda", "current_ratio", "gearing", "ebit_interest_cover",
-    "ebitda_interest_cover", "fcf_conversion_pct",
+    "ebitda_interest_cover", "fcf_conversion_pct", "cash_flow_dscr",
 )
 SUPPLIED_ROW_LABELS = {
     "gross_profit": "Gross Profit", "operating_profit": "Operating Profit",
@@ -248,6 +257,7 @@ SUPPLIED_ROW_LABELS = {
     "current_ratio": "Current Ratio", "gearing": "Gearing % (Interest-Bearing Debt / Equity)",
     "ebit_interest_cover": "EBIT/Interest", "ebitda_interest_cover": "EBITDA/Interest",
     "fcf_conversion_pct": "FCF Conversion % (before working capital)",
+    "cash_flow_dscr": "DSCR (Cash Flow)",
 }
 
 COLLATERAL_HEADERS = [
@@ -444,6 +454,9 @@ def _sum_or_none(*figures: float | None) -> float | None:
 RATIO_DENOMINATORS = {
     "dscr": ("DSCR", [("debt service (interest paid + scheduled principal)",
                        lambda f: _sum_or_none(_raw_figure(f, "interest_paid"), _raw_figure(f, "scheduled_principal")))]),
+    "cash_flow_dscr": ("cash flow DSCR", [("debt service (interest paid + scheduled principal)",
+                                         lambda f: _sum_or_none(_raw_figure(f, "interest_paid"),
+                                                                _raw_figure(f, "scheduled_principal")))]),
     "gross_leverage": ("gross leverage", [("EBITDA", lambda f: _subtotal_figure(f, "ebitda"))]),
     "net_debt_to_ebitda": ("net debt / EBITDA", [("EBITDA", lambda f: _subtotal_figure(f, "ebitda"))]),
     "fcf_conversion_pct": ("FCF conversion", [("EBITDA", lambda f: _subtotal_figure(f, "ebitda"))]),
@@ -708,6 +721,15 @@ def evaluate_financial_model(
             return ratio * 365 if ratio is not None else None
 
         dscr = safe_div(ebitda, interest_paid + scheduled_principal)
+        # The cash-flow DSCR (issue #521, option A): CFADS = FCF after working
+        # capital grossed back up for net interest, over the same debt service as
+        # the EBITDA-based DSCR. N/A wherever fcf_after_working_capital is N/A
+        # (no recorded prior period), never a fabricated zero.
+        cash_flow_dscr = (
+            safe_div(fcf_after_working_capital + interest_paid - interest_received,
+                     interest_paid + scheduled_principal)
+            if fcf_after_working_capital is not None else None
+        )
         gross_leverage = safe_div(total_debt, ebitda)
         # Same interest-bearing debt aggregate as gross_leverage, netted
         # against cash -- see the matching comment on the "Net Debt / EBITDA"
@@ -751,6 +773,7 @@ def evaluate_financial_model(
         }
         ratios[period] = {
             "dscr": dscr,
+            "cash_flow_dscr": cash_flow_dscr,
             "gross_leverage": gross_leverage,
             "net_debt_to_ebitda": net_debt_to_ebitda,
             "current_ratio": current_ratio,

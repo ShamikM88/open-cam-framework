@@ -81,7 +81,7 @@ SUBTOTAL_FIELDS = (
 )
 RATIO_FIELDS = (
     "dscr", "gross_leverage", "net_debt_to_ebitda", "current_ratio", "gearing", "ebit_interest_cover",
-    "ebitda_interest_cover", "fcf_conversion_pct",
+    "ebitda_interest_cover", "fcf_conversion_pct", "cash_flow_dscr",
 )
 
 # The raw lines whose sign a source may present the opposite way to the framework's input convention (costs, cash

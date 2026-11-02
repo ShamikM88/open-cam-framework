@@ -38,7 +38,8 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 
 | Ratio (state key) | Formula | Reading |
 | :--- | :--- | :--- |
-| DSCR (EBITDA-based), debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR (EBITDA-based), debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (the cash-flow-based DSCR is `cash_flow_dscr`, the next row). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR (Cash Flow) (`cash_flow_dscr`) | (FCF after working capital + interest paid - interest received) / (interest paid + scheduled principal) | Cash flow available for debt service (after tax, capex and the working-capital movement; interest added back so it is deducted once) over the same debt service. N/A for the earliest period or any period with no recorded prior, and when debt service is zero or negative (issue #521) |
 | Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
 | Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
 | Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; see [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions) |
@@ -153,7 +154,7 @@ stop and ask the analyst to confirm any UNRESOLVABLE result (decision of 2026-10
 ## Covenants
 
 A covenant is a condition in the facility: a **minimum** (the ratio must be at least the threshold) or a **maximum**
-(it must be at most the threshold), recorded as `{"metric": "dscr", "type": "minimum", "threshold": 1.25}`. Equality
+(it must be at most the threshold), recorded as `{"metric": "dscr", "type": "minimum", "threshold": 1.25}`; a covenant may equally name the cash-flow DSCR, `cash_flow_dscr` (issue #521). Equality
 passes. Results: `PASS`, `FAIL` or `UNRESOLVABLE`, with `actual` and a **headroom** as a fraction of the threshold's
 absolute value: for a minimum `(actual - threshold) / abs(threshold)`, for a maximum `(threshold - actual) /
 abs(threshold)`, so the headroom is positive when the covenant passes and negative when it fails whatever the
@@ -236,8 +237,8 @@ EBITDA rises: the rising ratios (DSCR, EBITDA / interest cover) pass a minimum c
 at-or-below; the leverage ratios fall over positive debt and rise over net cash, mirroring the two; a boundary at
 or below zero EBITDA or a zero numerator is reported with a note saying whether the covenant passes at every
 testable EBITDA or at none, never as a fabricated crossing. The EBITDA basis is the one the model computes: before exceptional items and
-including other income (decision D-a, issue #504); the DSCR is the EBITDA-based DSCR (decision D-d; a cash-flow DSCR
-is issue #521). A zero or negative ratio denominator (debt service or interest paid) leaves the ratio N/A and the
+including other income (decision D-a, issue #504); the DSCR is the EBITDA-based DSCR (decision D-d; the cash-flow
+DSCR, `cash_flow_dscr`, is not one of the report's break-even covenants). A zero or negative ratio denominator (debt service or interest paid) leaves the ratio N/A and the
 covenant UNRESOLVABLE, and no break-even is reported for it; a leverage covenant with a zero threshold has no
 boundary. A boundary at or below zero EBITDA means the ratio is N/A there, so the covenant is UNRESOLVABLE at
 EBITDA <= 0 before it can FAIL (and the report's note says whether it passes at every testable EBITDA or at none)

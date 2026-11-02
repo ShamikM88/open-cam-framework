@@ -331,7 +331,7 @@ def _formula_definition_fingerprints():
 # Recorded fingerprints of the formula definitions the register describes.
 # Refresh ONLY together with the register entries that describe what changed.
 FORMULA_DEFINITION_FINGERPRINTS = {
-    'SECTIONS': '161061a3a232e61f',
+    'SECTIONS': '0c6f493e387171e5',
     'covenant_cushion:_scenario_search': 'cea853891d9088a5',
     'covenant_cushion:bracket_and_bisect': 'aa5ca4f6184fb0e4',
     'covenant_cushion:ebitda_break_even': '79a9709c24bc66c3',
@@ -366,7 +366,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     'spreading_builder:apply_stress_shocks': '219bcb8383f01754',
     'spreading_builder:describe_undefined_ratio': '11e8e969fce62bd8',
     'spreading_builder:evaluate_downside_case': 'a2dc0beb4f67c46b',
-    'spreading_builder:evaluate_financial_model': '2627df4f71401f4c',
+    'spreading_builder:evaluate_financial_model': '518b341cf3d67923',
     'supplied_forecast:build_downside': 'db2bd0b22dcbab55',
     'transcription_check:cross_foot': '8f5648c198969ab3',
 }

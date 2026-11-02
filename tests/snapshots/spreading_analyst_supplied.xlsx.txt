@@ -1,4 +1,4 @@
-== sheet 'Financial Spreading' dims=A1:J65
+== sheet 'Financial Spreading' dims=A1:J66
 widths: {'A': 34.0, 'B': 14.0, 'C': 14.0, 'D': 14.0, 'E': 14.0, 'F': 14.0, 'G': 14.0, 'H': 14.0, 'I': 14.0, 'J': 14.0}
 A1: 'Metric'  [bold]
 B1: 'FY-2'  [bold]
@@ -327,10 +327,19 @@ G65: '=IF(COUNT(F34,F35,F36,F39,F42)=0,"N/A",G26-((G34+G35+G36-G39-G42)-(F34+F35
 H65: '=IF(COUNT(G34,G35,G36,G39,G42)=0,"N/A",H26-((H34+H35+H36-H39-H42)-(G34+G35+G36-G39-G42)))'
 I65: '=IF(COUNT(H34,H35,H36,H39,H42)=0,"N/A",I26-((I34+I35+I36-I39-I42)-(H34+H35+H36-H39-H42)))'
 J65: '=IF(COUNT(I34,I35,I36,I39,I42)=0,"N/A",J26-((J34+J35+J36-J39-J42)-(I34+I35+I36-I39-I42)))'
-chart barChart anchor=A67 display_blanks=gap
+A66: 'DSCR (Cash Flow)'
+B66: '=IFERROR(IF((B14+B16)>0,(B65+B14-B15)/(B14+B16),"N/A"),"N/A")'
+C66: '=IFERROR(IF((C14+C16)>0,(C65+C14-C15)/(C14+C16),"N/A"),"N/A")'
+E66: '=IFERROR(IF((E14+E16)>0,(E65+E14-E15)/(E14+E16),"N/A"),"N/A")'
+F66: '=IFERROR(IF((F14+F16)>0,(F65+F14-F15)/(F14+F16),"N/A"),"N/A")'
+G66: '=IFERROR(IF((G14+G16)>0,(G65+G14-G15)/(G14+G16),"N/A"),"N/A")'
+H66: '=IFERROR(IF((H14+H16)>0,(H65+H14-H15)/(H14+H16),"N/A"),"N/A")'
+I66: '=IFERROR(IF((I14+I16)>0,(I65+I14-I15)/(I14+I16),"N/A"),"N/A")'
+J66: '=IFERROR(IF((J14+J16)>0,(J65+J14-J15)/(J14+J16),"N/A"),"N/A")'
+chart barChart anchor=A68 display_blanks=gap
   series title="'Financial Spreading'!A58" values="'Financial Spreading'!B58:G58" categories="'Financial Spreading'!B1:G1"
   series title="'Financial Spreading'!A59" values="'Financial Spreading'!B59:G59" categories="'Financial Spreading'!B1:G1"
-chart barChart anchor=A85 display_blanks=gap
+chart barChart anchor=A86 display_blanks=gap
   series title="'Financial Spreading'!A3" values="'Financial Spreading'!B3:G3" categories="'Financial Spreading'!B1:G1"
 == sheet 'Collateral & Exposure' dims=A1:I3
 widths: {'A': 22.0, 'B': 16.0, 'C': 16.0, 'D': 16.0, 'E': 16.0, 'F': 16.0, 'G': 16.0, 'H': 16.0, 'I': 16.0}

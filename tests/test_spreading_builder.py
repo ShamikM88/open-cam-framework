@@ -2295,7 +2295,7 @@ def test_cash_flow_dscr_with_no_debt_service_is_none():
     result = evaluate_financial_model({"FY-1": dict(CASH_FLOW_DSCR_PRIOR),
                                        "FY-Current": no_service})
     # fcf_after_working_capital resolves (470), but debt service is zero: N/A, not a number.
-    assert result["ratios"]["FY-Current"]["fcf_after_working_capital"] == pytest.approx(470)
+    assert result["financials"]["FY-Current"]["fcf_after_working_capital"] == pytest.approx(470)
     assert result["ratios"]["FY-Current"]["cash_flow_dscr"] is None
 
 
@@ -2303,9 +2303,10 @@ def test_cash_flow_dscr_forward_year_with_a_recorded_prior():
     result = evaluate_financial_model({"FY-Current": dict(CASH_FLOW_DSCR_CURRENT),
                                        "FY+1": dict(CASH_FLOW_DSCR_CURRENT, revenue=750, trade_debtors=650)})
     # FY+1: ebitda 600 -> fcf 450; OWC 500 (prior 450) -> fcf_after_working_capital 400;
-    # CFADS 550 over debt service 500 -> 1.1. FY-Current keeps the worked example's 0.94.
+    # CFADS 550 over debt service 500 -> 1.1. FY-Current is this deal's earliest period, so it has
+    # no recorded prior and is N/A, never zero.
     assert result["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(1.1)
-    assert result["ratios"]["FY-Current"]["cash_flow_dscr"] == pytest.approx(0.94)
+    assert result["ratios"]["FY-Current"]["cash_flow_dscr"] is None
 
 
 def test_cash_flow_dscr_downside_moves_only_with_the_shocked_lines():
@@ -2322,10 +2323,10 @@ def test_cash_flow_dscr_downside_moves_only_with_the_shocked_lines():
     assert downside["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(1.4)
     # The CFADS drop is exactly the fcf_after_working_capital drop: net interest and the
     # working-capital delta are the base case's, so nothing is double counted.
-    base_cfads = base["ratios"]["FY+1"]["fcf_after_working_capital"] + 20
-    downside_cfads = downside["ratios"]["FY+1"]["fcf_after_working_capital"] + 20
-    assert downside_cfads - base_cfads == pytest.approx(downside["ratios"]["FY+1"]["fcf_after_working_capital"]
-                                                        - base["ratios"]["FY+1"]["fcf_after_working_capital"])
+    base_cfads = base["financials"]["FY+1"]["fcf_after_working_capital"] + 20
+    downside_cfads = downside["financials"]["FY+1"]["fcf_after_working_capital"] + 20
+    assert downside_cfads - base_cfads == pytest.approx(downside["financials"]["FY+1"]["fcf_after_working_capital"]
+                                                        - base["financials"]["FY+1"]["fcf_after_working_capital"])
 
 
 def test_cash_flow_dscr_workbook_row(tmp_path):

@@ -60,7 +60,9 @@ def test_a_healthy_borrower_is_unchanged_every_ratio_is_a_number():
     ratios = model(HEALTHY)["ratios"]["FY-Current"]
     assert ratios["gross_leverage"] == pytest.approx(500 / 400)
     assert ratios["gearing"] == pytest.approx(500 / 500)
-    assert all(value is not None for key, value in ratios.items())
+    # cash_flow_dscr (issue #521) is N/A in a deal's first period by design: it needs a prior period.
+    assert all(value is not None for key, value in ratios.items() if key != "cash_flow_dscr")
+    assert ratios["cash_flow_dscr"] is None
 
 
 @pytest.mark.parametrize("raw, ebitda", [(NEGATIVE_EBITDA, -100), (ZERO_EBITDA, 0)])

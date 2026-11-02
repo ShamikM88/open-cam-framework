@@ -49,6 +49,7 @@ from orchestrator import (
     run_pipeline,
 )
 from state_manager import StateError, read_state, state_path, write_state
+from numeric_validation import validate_collateral_inputs
 from response_utils import EmptyModelResponseError, ModelResponseTruncatedError
 
 
@@ -2583,6 +2584,62 @@ def test_run_pipeline_rejects_non_finite_collateral_before_model_call(project_ro
 
     assert client.call_count == 0
     assert _deal_files() == before
+
+
+COLLATERAL_MONETARY_FIELDS = ("exposure", "cap_value", "non_recovery", "costs", "collateral_value")
+
+
+@pytest.mark.parametrize("field", COLLATERAL_MONETARY_FIELDS)
+def test_run_pipeline_refuses_a_negative_monetary_collateral_field_before_model_call(project_root, field):
+    """Decision 5 on #266 (issue #378): a negative on any monetary collateral field is
+    refused at input, before any model call or state write, naming asset, field and value."""
+    asset = {"asset_class": "HGV", "exposure": 100, "cap_value": 0, "non_recovery": 0, "costs": 0,
+             "collateral_value": 80, "number_of_units": 2, "perfection_status": "Perfected"}
+    asset[field] = -1
+    client = MockClient([])
+    before = _deal_files()
+
+    with pytest.raises(ValueError, match=rf"collateral\[HGV\]: {field} must be a non-negative finite number; found -1"):
+        run_pipeline(
+            "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            collateral_data=[asset],
+            client=client,
+        )
+
+    assert client.call_count == 0
+    assert _deal_files() == before
+
+
+def test_run_pipeline_names_the_asset_id_of_a_refused_negative_collateral_field(project_root):
+    asset = {"asset_id": "AST-001", "asset_class": "HGV", "exposure": -400, "collateral_value": 80}
+    client = MockClient([])
+    before = _deal_files()
+
+    with pytest.raises(ValueError, match=r"collateral\[AST-001\]: exposure must be a non-negative finite number; found -400"):
+        run_pipeline(
+            "Synthetic Co", "Synthetic Facility", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            collateral_data=[asset],
+            client=client,
+        )
+
+    assert client.call_count == 0
+    assert _deal_files() == before
+
+
+def test_validate_collateral_inputs_accepts_zero_on_every_monetary_field():
+    asset = {"asset_class": "HGV", "exposure": 0, "cap_value": 0, "non_recovery": 0, "costs": 0,
+             "collateral_value": 0, "number_of_units": 0, "perfection_status": "Perfected"}
+    assert validate_collateral_inputs([dict(asset)]) == [dict(asset)]
+
+
+def test_validate_collateral_inputs_names_an_asset_with_no_labels_by_position():
+    with pytest.raises(ValueError, match=r"collateral\[asset 1\]: exposure must be a non-negative finite number; found -5"):
+        validate_collateral_inputs([{"exposure": -5, "collateral_value": 80}])
+
+
+def test_validate_collateral_inputs_skips_a_non_object_entry_and_refuses_the_next_negative():
+    with pytest.raises(ValueError, match=r"collateral\[HGV\]: collateral_value must be a non-negative finite number; found -1"):
+        validate_collateral_inputs(["not an asset", {"asset_class": "HGV", "exposure": 100, "collateral_value": -1}])
 
 
 def test_run_pipeline_warns_and_continues_for_sub_one_percent_stress_values(project_root, capsys):

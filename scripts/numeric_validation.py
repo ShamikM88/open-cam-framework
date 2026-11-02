@@ -146,3 +146,49 @@ def validate_finite_numbers(value, path="input"):
         for index, child in enumerate(value):
             validate_finite_numbers(child, path=f"{path}[{index}]")
     return value
+
+
+COLLATERAL_MONETARY_FIELDS = ("exposure", "cap_value", "non_recovery", "costs", "collateral_value")
+
+
+class NegativeCollateralInputError(FinancialInputError):
+    """A monetary collateral field is negative on a supplied asset (issue #378)."""
+
+
+def _collateral_asset_label(asset, index):
+    """Name an asset in an error line: asset_id, else asset_class, else its position."""
+    asset_id = asset.get("asset_id")
+    if isinstance(asset_id, str) and asset_id:
+        return asset_id
+    asset_class = asset.get("asset_class")
+    if isinstance(asset_class, str) and asset_class:
+        return asset_class
+    return f"asset {index + 1}"
+
+
+def validate_collateral_inputs(value):
+    """Refuse a negative on every monetary collateral field (issue #378, decision 5 on #266).
+
+    A negative per-asset exposure or collateral value used to be accepted as
+    input and could net into a positive workbook total, so the refusal belongs
+    where the input is recorded, not in each consumer. Zero is a valid figure
+    and is accepted; null (the established spelling of an unavailable input),
+    non-numeric values and unknown keys are left to the other validators.
+    Non-finite values are refused by validate_finite_numbers, which callers run
+    first. The error names the asset, field and value in one line.
+    """
+    if not isinstance(value, list):
+        return value
+    for index, asset in enumerate(value):
+        if not isinstance(asset, dict):
+            continue
+        label = _collateral_asset_label(asset, index)
+        for field in COLLATERAL_MONETARY_FIELDS:
+            item = asset.get(field)
+            if item is None or isinstance(item, bool) or not isinstance(item, (int, float)):
+                continue
+            if item < 0:
+                raise NegativeCollateralInputError(
+                    f"collateral[{label}]: {field} must be a non-negative finite number; found {item!r}"
+                )
+    return value

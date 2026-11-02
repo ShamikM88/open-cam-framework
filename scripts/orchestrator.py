@@ -23,6 +23,7 @@ from policy_engine import evaluate_deal_policy
 from numeric_validation import (
     FinancialInputError,
     StressAssumptionsError,
+    validate_collateral_inputs,
     validate_finite_numbers,
     validate_period_keys,
     validate_period_objects,
@@ -503,6 +504,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     validate_stress_assumptions(stress_assumptions)
     validate_finite_numbers(collateral_data, path="collateral")
+    validate_collateral_inputs(collateral_data)
 
     # Load the targeted deal before credential or prompt loading so a refused
     # financial-basis transition has a deterministic one-line error even when

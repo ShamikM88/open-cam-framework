@@ -338,6 +338,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "numeric_validation:validate_period_objects": "54cbcf705411906a",
     "numeric_validation:validate_period_keys": "191fcb57c6a4687e",
     "numeric_validation:validate_finite_numbers": "7e2ff92c23c49b92",
+    "numeric_validation:validate_collateral_inputs": "c48cf501bb3bfe22",
     "policy_checks:compute_collateral_cover_pct": "4c7f372bd747b593",
     "policy_checks:ground_truth_figures": "e9a008c6a589413c",
     "policy_checks:values_match": "9c731a2d394a90b3",

@@ -144,6 +144,8 @@ Raw figures have two separate stores. The correct source is selected for each pe
 stores in the same deal is permitted when history was analyst-supplied and `/project` later computed
 forward years.
 
+Under decision D-c of issue #504, `interest_paid` is the period's P&L charge: interest payable and similar charges, not cash interest paid in the period. `tax_paid` is the period's P&L charge: tax on profit, not cash tax paid in the period. These definitions apply to raw figures in either store; store selection does not change the line's accounting basis.
+
 | Period | Raw figures the exporter reads | Written by |
 | :--- | :--- | :--- |
 | Historical period when `financials_source` is `"framework-computed"` | `financials[period]["raw"]` (the raw lines are also tracked in `multi_period_financials`) | `spreading_check.py` |

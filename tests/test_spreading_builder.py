@@ -2230,6 +2230,50 @@ def test_fcf_after_working_capital_workbook_row_shows_na_where_there_is_no_recor
     assert _evaluate(ws, "D", row, memo) == 320
 
 
+def _downside_workbook_deal():
+    """A deal with three forward years whose balance sheets differ, its downside case, and the
+    downside raw lines the exporter is given (the stress shocks only the P&L)."""
+    data = {"FY-Current": dict(CURRENT_WORKED),
+            "FY+1": dict(CURRENT_WORKED, revenue=1000, cost_of_sales=800, trade_debtors=630),
+            "FY+2": dict(CURRENT_WORKED, revenue=1100, cost_of_sales=800, trade_debtors=700),
+            "FY+3": dict(CURRENT_WORKED, revenue=1200, cost_of_sales=800, trade_debtors=900)}
+    downside = evaluate_downside_case(data, {"revenue_haircut_pct": 10})
+    downside_raw = {period: dict(downside["financials"][period]["raw"]) for period in downside["financials"]}
+    return data, downside, downside_raw
+
+
+def _fcf_after_working_capital_row(tmp_path, data, downside_raw):
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path), financial_data=data, downside_financial_data=downside_raw)
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    return ws, label_to_row["FCF after Working Capital"]
+
+
+def test_fcf_after_working_capital_workbook_columns_equal_state_for_base_and_downside_years(tmp_path):
+    """PX548-1 / CG548-1: the first downside column (H) read base FY+3 (G) as its prior period, so
+    FY+1 (Downside) showed 370 where state.json records 70. Each downside column's prior is the
+    period the base case used: FY-Current for FY+1, and the base FY+1 / FY+2 columns after it."""
+    data, downside, downside_raw = _downside_workbook_deal()
+    base = evaluate_financial_model(data)
+    ws, row = _fcf_after_working_capital_row(tmp_path, data, downside_raw)
+    memo = {}
+
+    for col, period in (("E", "FY+1"), ("F", "FY+2"), ("G", "FY+3")):
+        assert _evaluate(ws, col, row, memo) == base["financials"][period]["fcf_after_working_capital"]
+    for col, period in (("H", "FY+1"), ("I", "FY+2"), ("J", "FY+3")):
+        assert _evaluate(ws, col, row, memo) == downside["financials"][period]["fcf_after_working_capital"]
+
+
+def test_fcf_after_working_capital_downside_prior_is_the_base_period_not_the_adjacent_downside_column(tmp_path):
+    """The downside case reads the BASE case's prior period (state.json), so a downside column whose
+    left neighbour is blank still has its recorded prior: FY+2 (Downside) alone shows 120, not N/A."""
+    data, downside, downside_raw = _downside_workbook_deal()
+    ws, row = _fcf_after_working_capital_row(tmp_path, data, {"FY+2": downside_raw["FY+2"]})
+
+    assert _evaluate(ws, "I", row, {}) == downside["financials"]["FY+2"]["fcf_after_working_capital"] == 120
+
+
 def test_fcf_after_working_capital_workbook_row_is_suppliable_in_analyst_supplied_columns(tmp_path):
     """Decision 4 on #520: an analyst-supplied forward year can carry the figure; the existing
     "omit a subtotal the template does not break out" rule means a template that does not

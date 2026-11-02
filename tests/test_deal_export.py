@@ -288,10 +288,10 @@ def test_analyst_supplied_historical_export_uses_recorded_values_and_labels_the_
     expected_values = {
         "Revenue": 5000,
         "Gross Profit": 1700,
-        "EBITDA": 1300,
+        "EBITDA (before exceptionals, incl. other income)": 1300,
         "Total Equity": 2300,
         "Gross Leverage": 1.54,
-        "DSCR": 2.6,
+        "DSCR (EBITDA-based)": 2.6,
         "Gearing % (Interest-Bearing Debt / Equity)": 0.87,
     }
     for label, expected in expected_values.items():
@@ -460,14 +460,14 @@ def test_supplied_row_values_keeps_numbers_writes_na_for_a_null_ratio_and_leaves
         "gearing": True,                        # a boolean is not a number: blank
         "not_a_workbook_row": 5,                # no row for it: ignored
     })
-    assert values == {"EBITDA": 1000, "Total Assets": 0, "DSCR": 2.5, "Gross Leverage": "N/A"}
+    assert values == {"EBITDA (before exceptionals, incl. other income)": 1000, "Total Assets": 0, "DSCR (EBITDA-based)": 2.5, "Gross Leverage": "N/A"}
 
 
 def test_supplied_row_values_takes_the_later_period_dict_and_ignores_a_malformed_one():
     """The forecast columns pass the subtotals and then the ratios (or a base and an override): a later value wins for
     the same row, and anything that is not a dict is skipped rather than failing the export."""
-    assert _supplied_row_values({"ebitda": 1}, {"ebitda": 2}) == {"EBITDA": 2}
-    assert _supplied_row_values(None, "text", ["ebitda"], {"dscr": 1.5}) == {"DSCR": 1.5}
+    assert _supplied_row_values({"ebitda": 1}, {"ebitda": 2}) == {"EBITDA (before exceptionals, incl. other income)": 2}
+    assert _supplied_row_values(None, "text", ["ebitda"], {"dscr": 1.5}) == {"DSCR (EBITDA-based)": 1.5}
     assert _supplied_row_values() == {}
 
 
@@ -707,7 +707,7 @@ def test_mixed_basis_export_uses_framework_raw_for_computed_forward_periods(tmp_
     assert ws.cell(row=1, column=9).value == "FY+2 (Downside)"
     assert ws.cell(row=1, column=10).value == "FY+3 (Downside)"
     assert ws.cell(row=label_to_row["Revenue"], column=4).value == 5000
-    assert ws.cell(row=label_to_row["EBITDA"], column=4).value == 1300
+    assert ws.cell(row=label_to_row["EBITDA (before exceptionals, incl. other income)"], column=4).value == 1300
     from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS
 
     # Every recorded raw input must survive in its own base-case period column.
@@ -832,8 +832,8 @@ def test_dx_analyst_forecast_columns_selects_only_historical_supplied_periods_wi
 
     assert list(supplied) == ["FY-2", "FY-1", "FY-Current"]
     assert supplied == {
-        "FY-2": {"EBITDA": 12},
-        "FY-1": {"DSCR": "N/A"},
+        "FY-2": {"EBITDA (before exceptionals, incl. other income)": 12},
+        "FY-1": {"DSCR (EBITDA-based)": "N/A"},
         "FY-Current": {},
     }
     assert downside is None
@@ -886,12 +886,12 @@ def test_dx_analyst_forecast_columns_filters_downside_basis_availability_and_num
     })
 
     assert supplied == {
-        "FY-1": {"EBITDA": 777},
-        "FY+1": {"EBITDA": 101, "DSCR": 1.7},
+        "FY-1": {"EBITDA (before exceptionals, incl. other income)": 777},
+        "FY+1": {"EBITDA (before exceptionals, incl. other income)": 101, "DSCR (EBITDA-based)": 1.7},
         "FY+2": {"Current Ratio": "N/A"},
         "FY+3": {},
     }
-    assert supplied_downside == {"FY+1": {"EBITDA": 90, "DSCR": "N/A"}}
+    assert supplied_downside == {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 90, "DSCR (EBITDA-based)": "N/A"}}
     assert unavailable == {"FY+2"}
     assert derived == {"FY+3": {"revenue", "cash"}}
 
@@ -965,10 +965,10 @@ def test_dx_export_preserves_supplied_forecast_values_and_distinguishes_downside
     assert sheet.cell(row=1, column=9).value == "FY+2 (Downside, unavailable)"
     assert sheet.cell(row=row_by_label["Revenue"], column=5).value == 888
     assert sheet.cell(row=row_by_label["Revenue"], column=5).value != 999
-    assert sheet.cell(row=row_by_label["EBITDA"], column=5).value == 600
-    assert sheet.cell(row=row_by_label["DSCR"], column=5).value == 2.2
-    assert sheet.cell(row=row_by_label["EBITDA"], column=8).value == 123
-    assert sheet.cell(row=row_by_label["DSCR"], column=8).value == "N/A"
+    assert sheet.cell(row=row_by_label["EBITDA (before exceptionals, incl. other income)"], column=5).value == 600
+    assert sheet.cell(row=row_by_label["DSCR (EBITDA-based)"], column=5).value == 2.2
+    assert sheet.cell(row=row_by_label["EBITDA (before exceptionals, incl. other income)"], column=8).value == 123
+    assert sheet.cell(row=row_by_label["DSCR (EBITDA-based)"], column=8).value == "N/A"
     assert sheet.cell(row=row_by_label["Revenue"], column=9).value is None
 
 
@@ -1088,7 +1088,7 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
             "financials",
             (
                 {"FY+1": {"Current Ratio": 1.5}},
-                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 18, "DSCR (EBITDA-based)": 2.0}},
                 set(),
                 {"FY+2": {"revenue", "cash"}},
             ),
@@ -1096,8 +1096,8 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "ratios",
             (
-                {"FY+1": {"EBITDA": 20}},
-                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 18, "DSCR (EBITDA-based)": 2.0}},
                 set(),
                 {"FY+2": {"revenue", "cash"}},
             ),
@@ -1105,7 +1105,7 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "downside_case",
             (
-                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20, "Current Ratio": 1.5}},
                 None,
                 set(),
                 {},
@@ -1114,7 +1114,7 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "downside_case.basis",
             (
-                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20, "Current Ratio": 1.5}},
                 None,
                 set(),
                 {},
@@ -1123,8 +1123,8 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "downside_case.financials",
             (
-                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
-                {"FY+1": {"DSCR": 2.0}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"DSCR (EBITDA-based)": 2.0}},
                 set(),
                 {"FY+2": {"revenue", "cash"}},
             ),
@@ -1132,8 +1132,8 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "downside_case.ratios",
             (
-                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
-                {"FY+1": {"EBITDA": 18}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 18}},
                 set(),
                 {"FY+2": {"revenue", "cash"}},
             ),
@@ -1141,8 +1141,8 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "downside_case.unavailable",
             (
-                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
-                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 18, "DSCR (EBITDA-based)": 2.0}},
                 set(),
                 {"FY+2": {"revenue", "cash"}},
             ),
@@ -1150,8 +1150,8 @@ def test_export_deal_refuses_supplied_group_basis_when_the_financials_source_is_
         (
             "analyst_supplied_financials",
             (
-                {"FY+1": {"EBITDA": 20, "Current Ratio": 1.5}},
-                {"FY+1": {"EBITDA": 18, "DSCR": 2.0}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 20, "Current Ratio": 1.5}},
+                {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 18, "DSCR (EBITDA-based)": 2.0}},
                 set(),
                 {"FY+2": set()},
             ),
@@ -1252,8 +1252,8 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
     financial_data = {"FY-Current": {"raw": {"revenue": 1100}}}
     downside_financial_data = {"FY+1": {"raw": {"revenue": 900}}}
     collateral_data = {"security": "synthetic security"}
-    supplied_values = {"FY-Current": {"EBITDA": 120}}
-    supplied_downside_values = {"FY+1": {"EBITDA": 90}}
+    supplied_values = {"FY-Current": {"EBITDA (before exceptionals, incl. other income)": 120}}
+    supplied_downside_values = {"FY+1": {"EBITDA (before exceptionals, incl. other income)": 90}}
     blank_downside_periods = {"FY+2"}
     derived_downside_fields = {"FY+3": {"revenue"}}
     events = []

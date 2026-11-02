@@ -1083,6 +1083,16 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** maintainer decision recorded in comment 6565421162: total exposure is the weighting basis and is the gross exposure-at-default proxy at origination; no separate EAD input is introduced
 - **Status:** Proposed, not implemented
 
+## Covenant cushion
+
+The read-only cushion report of issue #470 (`scripts/covenant_cushion.py`; see
+[financial-model.md](financial-model.md#the-covenant-cushion-report)). Its entries describe only the report's own
+derivations: every covenant row, status and limit the report prints is the policy engine's own result, reused
+through `scripts/policy_engine.py` — `evaluate_single_covenant()`, never re-implemented. The EBITDA basis is the
+house convention throughout (decision D-a of issue #504: before exceptional items, including other income); the
+DSCR is the EBITDA-based DSCR (decision D-d of issue #504; a cash-flow DSCR is issue #521). The report writes
+nothing; nothing here is stored in state.
+
 ### F-059 — DSCR EBITDA break-even
 
 - **Name:** DSCR EBITDA break-even — the EBITDA at which the recorded DSCR covenant switches status

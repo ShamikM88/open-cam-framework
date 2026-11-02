@@ -21,6 +21,7 @@ without the recorded fingerprints being refreshed.
 - **Non-finite inputs are refused.** NaN and infinity (and non-numeric values for recognised raw fields) are
   rejected with one error line before anything is written.
 - **No rounding in storage.** Figures are stored at full precision; rounding is display-only.
+- **Interest and tax inputs are P&L charges, not cash paid.** Under decision D-c of issue #504, `interest_paid` holds interest payable and similar charges, and `tax_paid` holds tax on profit. The P&L-charge basis carries through to FCF and DSCR; neither is a cash measure on this input basis.
 - **Operating profit and EBITDA are before exceptional items and include other income.** This is a house
   convention (decision D-a of issue #504). Exceptional costs are deducted only in profit before tax
   ([F-007](#f-007--profit-before-tax)), never in operating profit ([F-004](#f-004--operating-profit-ebit)) or
@@ -76,7 +77,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   convention and `FIELD_LABELS` mapping); input validation in `scripts/numeric_validation.py` —
   `validate_raw_line_items()`, `validate_period_objects()` and `validate_period_keys()`;
   `validate_finite_numbers()` for the policy state
-- **Basis:** house convention (default-0 inputs, null = unavailable)
+- **Basis:** house convention (default-0 inputs, null = unavailable; decision D-c of issue #504): `interest_paid` is the period's P&L charge: interest payable and similar charges, not cash interest paid in the period. `tax_paid` is the period's P&L charge: tax on profit, not cash tax paid in the period.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ## Statement subtotals and margins
@@ -172,10 +173,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** house convention (decision D-a of issue #504): exceptional costs are deducted here, at profit
+- **Basis:** house convention (decisions D-a and D-c of issue #504): exceptional costs are deducted here, at profit
   before tax, and nowhere above it; operating profit and EBITDA (F-004, F-006) are before exceptional items and
-  include other income (see [Conventions](#conventions-used-by-every-entry)); net profit (F-008) inherits the
-  deduction through profit before tax
+  include other income (see [Conventions](#conventions-used-by-every-entry)). `interest_paid` is the P&L charge, not
+  cash interest paid; net profit (F-008) inherits the exceptional-items deduction through profit before tax and
+  then deducts the tax charge itself.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-008 — Net Profit
@@ -189,7 +191,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-c of issue #504): `tax_paid` is the period's P&L charge: tax on profit, not
+  cash tax paid in the period.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-009 — Free Cash Flow (FCF)
@@ -204,11 +207,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `RATIO_ROWS` (Key Ratios)
-- **Basis:** house convention (decision D-b of issue #504): FCF **before working capital**, so a change in
+- **Basis:** house convention (decisions D-b and D-c of issue #504): FCF **before working capital**, so a change in
   trade debtors, stock or trade creditors does not move it; scheduled principal is deliberately excluded (DSCR,
-  F-021, covers debt service); EBITDA is before exceptional items and includes other income (F-006). A
-  working-capital-adjusted measure is a separate follow-up (issue #520); `fcf` and any covenant on it are
-  unchanged. See the [financial model](financial-model.md#statement-figures)
+  F-021, covers debt service); EBITDA is before exceptional items and includes other income (F-006). `interest_paid`
+  and `tax_paid` are P&L charges, not cash paid, so this FCF is not a cash-flow measure. A working-capital-adjusted
+  measure is a separate follow-up (issue #520); `fcf` and any covenant on it are unchanged. See the [financial model](financial-model.md#statement-figures)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-010 — FCF Conversion %
@@ -404,9 +407,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`),
   `describe_undefined_ratio()` for the UNRESOLVABLE reason; workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** house convention (decision D-d of issue #504): **EBITDA-based** DSCR, EBITDA over interest paid
-  plus scheduled principal, not cash flow available for debt service; EBITDA is before exceptional items and
-  includes other income (F-006). A cash-flow-based DSCR is a follow-up metric (issue #521)
+- **Basis:** house convention (decisions D-c and D-d of issue #504): **EBITDA-based** DSCR, EBITDA over the
+  P&L interest charge (`interest_paid`) plus scheduled principal, not cash flow available for debt service; EBITDA
+  is before exceptional items and includes other income (F-006). A cash-flow-based DSCR is a follow-up metric (issue #521)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-022 — EBIT/Interest
@@ -421,7 +424,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-c of issue #504): `interest_paid` is the P&L interest charge, not cash interest paid.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-023 — EBITDA/Interest
@@ -436,7 +439,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-c of issue #504): `interest_paid` is the P&L interest charge, not cash interest paid.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-024 — Current Ratio

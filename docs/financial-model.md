@@ -561,3 +561,12 @@ passes this flag: without it, `/project` supplying forward-year figures on a dea
 historicals were recorded via `/spread`'s analyst-supplied mode would silently flip the deal's
 flag back to `"framework-computed"`, dropping the Guideline 9 caveat requirement for figures
 that were never actually independently recomputed.
+
+
+## Collateral formula conventions (issue #266; proposed pending review)
+
+The collateral entries F-049–F-057 and F-065 define origination proxies, not a later-date exposure or a complete lease-accounting net-investment calculation. The residual value is a risk-team input and sits inside the financed amount on the book covered by the recorded maintainer decision. It is split out of the financed share and counted once: non-RV funded exposure plus RV exposure equals total exposure. The non-RV component is derived on the explicit assumption that the rental schedule amortises the non-RV slice without finance charges or profit margin; an analyst should challenge that assumption if the underlying contracts do not support it.
+
+Net exposure deducts only non-asset mitigants explicitly declared available on default and not already netted in the financing. It is floored at zero, with excess disclosed separately. Gross uncovered risk (F-055) remains before mitigants; net uncovered risk (F-065) is the distinct post-mitigant shortfall. Average LGD (F-057) is weighted by total exposure, the gross exposure-at-default proxy at origination. Max and average LGD are N/A if the asset set is empty, no LGDs are recorded, or any asset's LGD is missing.
+
+These figures exclude accrued interest, arrears and late charges. F-053's `costs` means enforcement/recovery costs only. Residual realisability, security/title, valuation provenance and cross-collateralisation remain narrative credit judgement, not calculated outputs. Full precision is retained in storage; rounding is for display only. Percent-type collateral ratios F-054 are fractions, while aggregate F-047 remains on its existing 0–100 scale (KD-2).

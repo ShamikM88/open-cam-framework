@@ -51,15 +51,16 @@ REQUIRED_FIELDS = (
 # carries them as "Proposed, not implemented" entries, so deleting any of them
 # is a drift the guard must catch.
 REQUIRED_PROPOSED_COLLATERAL = (
-    "Gross Exposure (Exc. RV)",
+    "Non-RV funded exposure (at origination)",
     "RV Exposure",
-    "Total Exposure (Inc. RV)",
-    "Net Exposure",
+    "Total Exposure (at origination)",
+    "Net Exposure (at origination)",
     "Collateral Value",
     "Coverage %",
-    "Uncovered Risk",
+    "Gross Uncovered Risk",
     "Max LGD",
     "Avg LGD",
+    "Net Uncovered Risk",
 )
 
 

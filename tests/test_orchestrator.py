@@ -2632,6 +2632,16 @@ def test_validate_collateral_inputs_accepts_zero_on_every_monetary_field():
     assert validate_collateral_inputs([dict(asset)]) == [dict(asset)]
 
 
+def test_validate_collateral_inputs_names_an_asset_with_no_labels_by_position():
+    with pytest.raises(ValueError, match=r"collateral\[asset 1\]: exposure must be a non-negative finite number; found -5"):
+        validate_collateral_inputs([{"exposure": -5, "collateral_value": 80}])
+
+
+def test_validate_collateral_inputs_skips_a_non_object_entry_and_refuses_the_next_negative():
+    with pytest.raises(ValueError, match=r"collateral\[HGV\]: collateral_value must be a non-negative finite number; found -1"):
+        validate_collateral_inputs(["not an asset", {"asset_class": "HGV", "exposure": 100, "collateral_value": -1}])
+
+
 def test_run_pipeline_warns_and_continues_for_sub_one_percent_stress_values(project_root, capsys):
     client = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline(

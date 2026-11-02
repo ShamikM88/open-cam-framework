@@ -155,6 +155,10 @@ class NegativeCollateralInputError(FinancialInputError):
     """A monetary collateral field is negative on a supplied asset (issue #378)."""
 
 
+class MalformedCollateralInputError(FinancialInputError):
+    """The collateral payload is not a list of asset objects, or a monetary field is not a number (issue #378)."""
+
+
 def _collateral_asset_label(asset, index):
     """Name an asset in an error line: asset_id, else asset_class, else its position."""
     asset_id = asset.get("asset_id")
@@ -172,21 +176,33 @@ def validate_collateral_inputs(value):
     A negative per-asset exposure or collateral value used to be accepted as
     input and could net into a positive workbook total, so the refusal belongs
     where the input is recorded, not in each consumer. Zero is a valid figure
-    and is accepted; null (the established spelling of an unavailable input),
-    non-numeric values and unknown keys are left to the other validators.
-    Non-finite values are refused by validate_finite_numbers, which callers run
-    first. The error names the asset, field and value in one line.
+    and is accepted; null (the established spelling of an unavailable input)
+    and unknown keys are left alone, and an entry that is not an object is
+    skipped. Two shapes are refused rather than skipped, because skipping them
+    would let a negative through: a payload that is not a list of assets, and a
+    monetary field that is not a number (a string such as "-500", a boolean, a
+    list or an object). Non-finite values are refused by validate_finite_numbers,
+    which callers run first. The error names the asset, field and value in one
+    line.
     """
-    if not isinstance(value, list):
+    if value is None:
         return value
+    if not isinstance(value, list):
+        raise MalformedCollateralInputError(
+            f"collateral must be a list of asset objects; found {type(value).__name__}"
+        )
     for index, asset in enumerate(value):
         if not isinstance(asset, dict):
             continue
         label = _collateral_asset_label(asset, index)
         for field in COLLATERAL_MONETARY_FIELDS:
             item = asset.get(field)
-            if item is None or isinstance(item, bool) or not isinstance(item, (int, float)):
+            if item is None:
                 continue
+            if isinstance(item, bool) or not isinstance(item, (int, float)):
+                raise MalformedCollateralInputError(
+                    f"collateral[{label}]: {field} must be a non-negative finite number; found {item!r}"
+                )
             if item < 0:
                 raise NegativeCollateralInputError(
                     f"collateral[{label}]: {field} must be a non-negative finite number; found {item!r}"

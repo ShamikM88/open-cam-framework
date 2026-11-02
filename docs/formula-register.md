@@ -902,10 +902,13 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Unit and storage:** ratio as written by Excel (0-1 fraction of the inputs supplied); display-only cell
 - **Edge rules:** the same strictly-positive-denominator guard as the ratio cells (issue #365): a zero or
   negative exposure shows "N/A" instead of a number. A negative per-asset exposure or collateral value is refused
-  at input (issue #378, `validate_collateral_inputs()`), before the sheet is built, so the total row (a plain SUM
-  of the per-asset rows, F-058) can no longer net a negative asset into a positive total: the mixed-sign
-  netting is unreachable rather than fixed in the sheet, and [Known differences](#known-differences) KD-2 is
-  narrowed to the scale difference
+  at input on the headless `--collateral` route (issue #378, `validate_collateral_inputs()`), before the sheet
+  is built, so on that route the total row (a plain SUM of the per-asset rows, F-058) can no longer net a
+  negative asset into a positive total: the mixed-sign netting is unreachable there rather than fixed in the
+  sheet. The same check refuses a payload that is not a list of assets and a monetary field that is not a number.
+  The interactive `/collateral` route is not covered until PR C of issue #266, so a negative can still be
+  recorded there; [Known differences](#known-differences) KD-2 says so and is narrowed to the scale difference
+  and that route
 - **State keys:** —
 - **Workbook rows:** CV % of Exposure
 - **Policy outputs:** —
@@ -925,8 +928,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`)
 - **Unit and storage:** sums of the supplied inputs, at full precision; display-only cells
 - **Edge rules:** literal column sums of the supplied values (ordinary SUM, which would offset a
-  mixed-sign input algebraically — a negative on any monetary collateral field is refused at input
-  (issue #378, see F-048), so the sheet needs no second guard; refusing other negative and mixed-sign
+  mixed-sign input algebraically — a negative on any monetary collateral field is refused at input on the
+  headless route (issue #378, see F-048; the interactive route is not covered until PR C), so the sheet needs
+  no second guard there; refusing other negative and mixed-sign
   amounts is a rule proposed for F-049-F-057, not something this sheet enforces); the total row's cover cell
   is F-048's formula, not a sum of the per-asset covers
 - **State keys:** —
@@ -1246,10 +1250,10 @@ maintainer, per the issue's instruction.
   What remains is deliberate: the aggregate is quoted on a 0-100 scale while the workbook cell
   and the proposed Coverage % (F-054) are raw fractions. The other former difference — the aggregate
   returning `None` for a negative per-asset value while the workbook's total row (a plain SUM guarded only on
-  the summed exposure) could net it into a positive total — is no longer reachable: a negative on any monetary
-  collateral field is refused at input (issue #378, see F-048), enforced in code on the headless
-  `--collateral` route; the interactive `/collateral` refusal is prompt-observance only until PR C. KD-2 is
-  narrowed accordingly, and `compute_collateral_cover_pct()`'s None-on-negative branch is kept as defence in
+  the summed exposure) could net it into a positive total — is no longer reachable on the headless
+  `--collateral` route: a negative on any monetary collateral field is refused at input there (issue #378, see
+  F-048), enforced in code. The interactive `/collateral` refusal is prompt-observance only until PR C, so a
+  negative can still be recorded on that route. KD-2 is narrowed accordingly, and `compute_collateral_cover_pct()`'s None-on-negative branch is kept as defence in
   depth.
 
 ## Drift guard

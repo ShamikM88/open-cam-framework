@@ -83,7 +83,11 @@ PNL_ROWS: list[tuple[str, str | None]] = [
     ("Operating Profit",
      "={Gross Profit}-{Admin Expenses}-{Depreciation}-{Amortisation}+{Other Income}"),
     ("Operating Margin %", _ratio("{Operating Profit}", "{Revenue}")),
-    ("EBITDA", "={Operating Profit}+{Depreciation}+{Amortisation}"),
+    # The label states the row's basis (#518): before exceptional items (the
+    # Exceptional Costs / (Income) row below is never part of this subtotal)
+    # and including Other Income (added into Operating Profit above).
+    ("EBITDA (before exceptionals, incl. other income)",
+     "={Operating Profit}+{Depreciation}+{Amortisation}"),
     ("Interest Paid", None),
     ("Interest Received", None),
     ("Scheduled Principal Repayment", None),
@@ -104,9 +108,12 @@ PNL_ROWS: list[tuple[str, str | None]] = [
 # Gross Leverage, which needs Balance Sheet debt rows that don't exist yet
 # at this point in the sheet -- see KEY_METRIC_ROWS below.
 RATIO_ROWS: list[tuple[str, str | None]] = [
-    ("DSCR", _ratio("{EBITDA}", "{Interest Paid}+{Scheduled Principal Repayment}")),
+    # The label states the row's basis (#518): the debt-service cover is computed
+    # from the EBITDA row above (before exceptionals, incl. other income), not
+    # from an exceptions-adjusted earnings figure.
+    ("DSCR (EBITDA-based)", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}+{Scheduled Principal Repayment}")),
     ("EBIT/Interest", _ratio("{Operating Profit}", "{Interest Paid}")),
-    ("EBITDA/Interest", _ratio("{EBITDA}", "{Interest Paid}")),
+    ("EBITDA/Interest", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}")),
     # FCF = cash generated after tax, net interest, and capex. Deliberately
     # does NOT net off Scheduled Principal Repayment -- that's a financing
     # (balance-sheet) outflow, not an operating/FCF concept, and DSCR above
@@ -117,8 +124,12 @@ RATIO_ROWS: list[tuple[str, str | None]] = [
     # Tax, Interest Paid, Interest Received) is already written by the end
     # of Profit & Loss above -- no Balance Sheet dependency, unlike Gross
     # Leverage / Net Debt / EBITDA below.
-    ("FCF", "={EBITDA}-{Capital Expenditure}-{Tax}-{Interest Paid}+{Interest Received}"),
-    ("FCF Conversion %", _ratio("{FCF}", "{EBITDA}")),
+    # The label states the row's basis (#518): before working capital -- a
+    # movements-in-working-capital row is deliberately not part of the formula.
+    ("FCF (before working capital)",
+     "={EBITDA (before exceptionals, incl. other income)}-{Capital Expenditure}-{Tax}-{Interest Paid}+{Interest Received}"),
+    ("FCF Conversion % (before working capital)",
+     _ratio("{FCF (before working capital)}", "{EBITDA (before exceptionals, incl. other income)}")),
 ]
 
 BALANCE_SHEET_ROWS: list[tuple[str, str | None]] = [
@@ -160,14 +171,15 @@ KEY_METRIC_ROWS: list[tuple[str, str | None]] = [
      "={Tangible Net Worth (TNW)}+{Loan Notes / Preference Shares}"),
     ("Gearing % (Interest-Bearing Debt / Equity)", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{Total Equity}")),
     ("Current Ratio", _ratio("{Total Current Assets}", "{Total Current Liabilities}")),
-    ("Gross Leverage", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{EBITDA}")),
+    ("Gross Leverage", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{EBITDA (before exceptionals, incl. other income)}")),
     # Net Debt / EBITDA: the same interest-bearing debt aggregate as Gross
     # Leverage above, netted against Cash -- a standard institutional
     # leverage metric Gross Leverage alone doesn't capture (a cash-rich
     # borrower can look more levered on a gross basis than its net cash
     # position actually implies). "N/A" fallback matches every other ratio's
-    # own convention here -- see FCF Conversion % above for the same choice.
-    ("Net Debt / EBITDA", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash}", "{EBITDA}")),
+    # own convention here -- see FCF Conversion % (before working capital) above
+    # for the same choice.
+    ("Net Debt / EBITDA", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash}", "{EBITDA (before exceptionals, incl. other income)}")),
 ]
 
 # Debtor/creditor/stock days are themselves derived ratios (a balance-sheet
@@ -183,6 +195,23 @@ WORKING_CAPITAL_ROWS: list[tuple[str, str | None]] = [
     # Sums three rows that can each read "N/A": IFERROR keeps that "N/A" (state.json's None) instead of #VALUE!.
     ("Working Capital Cycle (days)",
      '=IFERROR({Trade Debtor Days}+{Stock Days}-{Trade Creditor Days},"N/A")'),
+    # FCF after working capital (issue #520): FCF less the CHANGE in operating
+    # working capital. The {prior:...} references resolve to the same row one
+    # column LEFT -- the prior period's operating working capital, the same
+    # OWC the "FCF after Working Capital" Python metric in
+    # evaluate_financial_model() uses (issue #520's decisions: the OWC level
+    # is deliberately NOT stored as its own state key). The first period
+    # column's prior references resolve into the label column (text) and
+    # blank prior cells count as 0, so COUNT()=0 there and the row reads
+    # "N/A" -- matching evaluate_financial_model()'s None for a period with
+    # no recorded prior, never a fabricated zero (a made-up prior OWC would
+    # make the delta itself a made-up number). The COUNT guard requires the
+    # same omitted-defaults-0 raw reads the rest of this file uses: it is
+    # written as a multi-cell range over one line, never a * wildcard range,
+    # so a blank cell never silently satisfies it and this stays a real
+    # check that the prior period was actually recorded.
+    ("FCF after Working Capital",
+     '=IF(COUNT({prior:Accounts Receivable},{prior:Stock},{prior:Other Current Assets},{prior:Accounts Payable},{prior:Other Current Liabilities})=0,"N/A",{FCF (before working capital)}-(({Accounts Receivable}+{Stock}+{Other Current Assets}-{Accounts Payable}-{Other Current Liabilities})-({prior:Accounts Receivable}+{prior:Stock}+{prior:Other Current Assets}-{prior:Accounts Payable}-{prior:Other Current Liabilities})))'),
 ]
 
 SECTIONS: list[tuple[str, list[tuple[str, str | None]]]] = [
@@ -196,25 +225,29 @@ SECTIONS: list[tuple[str, list[tuple[str, str | None]]]] = [
 # The subtotals and ratios an analyst-supplied deal records (the names .claude/commands/spread.md and project.md
 # list), and the workbook row each one belongs on. An analyst-supplied forward year is exported as these values, not
 # as the Excel formulas, which would silently recompute it from raw cells (see export_to_xlsx). `total_debt` has no
-# row of its own in the workbook.
+# row of its own in the workbook. `fcf_after_working_capital` (issue #520) is included: the same omit-then-defaults
+# rule as the other raw fields makes an analyst-supplied deal's value identical to the recomputed one, but recording
+# it lets the output carry the analyst's own figure.
 SUPPLIED_SUBTOTALS = (
-    "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit", "fcf", "current_assets",
-    "current_liabilities", "total_assets", "total_liabilities", "total_equity", "total_debt", "tangible_net_worth",
+    "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit", "fcf", "fcf_after_working_capital",
+    "current_assets", "current_liabilities", "total_assets", "total_liabilities", "total_equity", "total_debt", "tangible_net_worth",
 )
 SUPPLIED_RATIOS = (
     "dscr", "gross_leverage", "net_debt_to_ebitda", "current_ratio", "gearing", "ebit_interest_cover",
     "ebitda_interest_cover", "fcf_conversion_pct",
 )
 SUPPLIED_ROW_LABELS = {
-    "gross_profit": "Gross Profit", "operating_profit": "Operating Profit", "ebitda": "EBITDA",
-    "profit_before_tax": "Profit Before Tax", "net_profit": "Net Profit", "fcf": "FCF",
+    "gross_profit": "Gross Profit", "operating_profit": "Operating Profit",
+    "ebitda": "EBITDA (before exceptionals, incl. other income)",
+    "profit_before_tax": "Profit Before Tax", "net_profit": "Net Profit",
+    "fcf": "FCF (before working capital)", "fcf_after_working_capital": "FCF after Working Capital",
     "current_assets": "Total Current Assets", "current_liabilities": "Total Current Liabilities",
     "total_assets": "Total Assets", "total_liabilities": "Total Liabilities", "total_equity": "Total Equity",
     "tangible_net_worth": "Tangible Net Worth (TNW)",
-    "dscr": "DSCR", "gross_leverage": "Gross Leverage", "net_debt_to_ebitda": "Net Debt / EBITDA",
+    "dscr": "DSCR (EBITDA-based)", "gross_leverage": "Gross Leverage", "net_debt_to_ebitda": "Net Debt / EBITDA",
     "current_ratio": "Current Ratio", "gearing": "Gearing % (Interest-Bearing Debt / Equity)",
     "ebit_interest_cover": "EBIT/Interest", "ebitda_interest_cover": "EBITDA/Interest",
-    "fcf_conversion_pct": "FCF Conversion %",
+    "fcf_conversion_pct": "FCF Conversion % (before working capital)",
 }
 
 COLLATERAL_HEADERS = [
@@ -311,16 +344,31 @@ def _row_layout(sections: Sequence[tuple[str, Sequence[tuple[str, str | None]]]]
 
 
 def _referenced_labels(formula_template: str) -> list[str]:
-    return [label for label in LABEL_REF_RE.findall(formula_template) if label != "col"]
+    # A {prior:Label} reference points at the same row in the previous period's
+    # column, so it is that same label's row it needs to exist -- strip the
+    # prefix and let every consumer (ordering, raw-field mapping) treat it as
+    # that label. See _resolve_formula() for how the prefix resolves.
+    return [label.removeprefix("prior:") for label in LABEL_REF_RE.findall(formula_template) if label != "col"]
 
 
 def _resolve_formula(formula_template: str, row_of: Mapping[str, int], col: str) -> str:
     """Substitute {col} with the column letter and every other {Label} with
-    that label's own column+row (e.g. {Revenue} -> "B3")."""
+    that label's own column+row (e.g. {Revenue} -> "B3").
+
+    A {prior:Label} reference resolves to that same label's row in the
+    PREVIOUS period column (one letter earlier -- PERIOD_COLS are consecutive
+    letters): the "FCF after Working Capital" row reads the prior period's
+    operating working capital from the column to its left (issue #520). For
+    the first period column (B) the reference resolves into the label column
+    (text, and blank cells), which that row's COUNT guard reads as "no
+    recorded prior" -> "N/A", mirroring evaluate_financial_model()'s None."""
     def repl(match: re.Match[str]) -> str:
         label = match.group(1)
         if label == "col":
             return col
+        if label.startswith("prior:"):
+            prior_col = chr(ord(col) - 1)
+            return f"{prior_col}{row_of[label[len('prior:'):]]}"
         return f"{col}{row_of[label]}"
     return LABEL_REF_RE.sub(repl, formula_template)
 
@@ -436,7 +484,64 @@ def describe_undefined_ratio(metric: str, period_financials: object) -> str | No
     return None
 
 
-def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[str, Any]:
+def _operating_working_capital(raw: Mapping[str, Any]) -> float:
+    """The operating working capital level for one period's raw lines:
+    trade debtors + stock + other current assets - trade creditors - other
+    current liabilities (no debt, no cash -- those are financing/liquidity,
+    not operating). Uses the same omitted/null-reads-as-0 convention as
+    evaluate_financial_model() so an omitted line defaults to 0 rather than
+    refusing the whole deal (see that function's OWC comment). An
+    intermediate only -- never stored as its own state key (issue #520's
+    decision: only the FCF-after-working-capital result is stored)."""
+    def g(key: str) -> Any:
+        return raw.get(key, 0) or 0
+    # float(): the g() reads are Any (validated numeric upstream), and the sum is
+    # returned as the declared float, not Any.
+    return float(
+        g("trade_debtors") + g("stock") + g("other_current_assets")
+        - g("trade_creditors") - g("other_current_liabilities")
+    )
+
+
+# The five raw lines operating working capital is made of (issue #520) -- the same five the
+# "FCF after Working Capital" workbook row's formula reads in its own and the prior column.
+_OWC_LINES = ("trade_debtors", "stock", "other_current_assets", "trade_creditors", "other_current_liabilities")
+
+
+def _prior_operating_working_capital(multi_period_data: Mapping[str, Any] | None) -> dict[str, float | None]:
+    """For each period present in `multi_period_data`, the operating working
+    capital level of the immediately preceding PERIOD_KEYS entry when that
+    predecessor is also present -- None otherwise (the earliest supplied
+    period; a forward year whose predecessor was not supplied). Never
+    extrapolated or defaulted: a fabricated prior OWC would make the delta
+    a fabricated number, so "no recorded prior" is None, and the
+    fcf_after_working_capital that consumes it is None (N/A), never zero.
+
+    "Recorded" means at least one of the five OWC lines is present and
+    non-null in the prior period's raw dict -- exactly what the workbook
+    row's COUNT guard over the prior column's five cells checks (a raw cell
+    is written only for a present, non-null field; blank cells do not
+    count). A prior period recorded with none of them leaves the prior OWC
+    unknown: None (N/A), never a fabricated 0."""
+    data = multi_period_data or {}
+    prior: dict[str, float | None] = {}
+    for index, period in enumerate(PERIOD_KEYS):
+        if period not in data:
+            continue
+        if index == 0:
+            prior[period] = None
+        else:
+            previous = PERIOD_KEYS[index - 1]
+            prior_raw = data.get(previous) or {}
+            recorded = any(prior_raw.get(line) is not None for line in _OWC_LINES)
+            prior[period] = _operating_working_capital(prior_raw) if recorded else None
+    return prior
+
+
+def evaluate_financial_model(
+    multi_period_data: dict[str, Any] | None,
+    prior_operating_working_capital: Mapping[str, float | None] | None = None,
+) -> dict[str, Any]:
     """Programmatically evaluate the same row chains spreading_builder.py
     writes as Excel formulas, for each period in `multi_period_data` --
     historical ("FY-2", "FY-1", "FY-Current") and forward ("FY+1", "FY+2",
@@ -456,10 +561,27 @@ def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[s
     subtotal here also appears in FIELD_LABELS.
 
     Returns {"financials": {period: {...raw, ...subtotals}}, "ratios": {period: {...}}}.
+
+    `prior_operating_working_capital` (optional) maps each period key to the
+    operating working capital level of its immediately preceding recorded
+    period, or None when there is no recorded prior -- the default (None)
+    derives it from `multi_period_data` itself via
+    _prior_operating_working_capital(), the same source the prior-column
+    references of the "FCF after Working Capital" workbook row read.
+    evaluate_downside_case() passes the BASE case's prior map explicitly so a
+    shocked forward year's fcf_after_working_capital delta equals the base
+    case's -- the shock transforms the period's own figures, never its
+    prior-period comparison.
     """
     validate_period_keys(multi_period_data, PERIOD_KEYS, path="financial inputs")
     validate_raw_line_items(multi_period_data, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_data, path="financial inputs")
+
+    prior_owc = (
+        prior_operating_working_capital
+        if prior_operating_working_capital is not None
+        else _prior_operating_working_capital(multi_period_data)
+    )
 
     financials = {}
     ratios = {}
@@ -493,7 +615,8 @@ def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[s
         # Deliberately does NOT net off scheduled_principal -- that's a
         # financing (balance-sheet) outflow, not an operating/FCF concept,
         # and DSCR already covers debt-service coverage on its own; see the
-        # matching comment on the "FCF" Excel row in RATIO_ROWS above.
+        # matching comment on the "FCF (before working capital)" Excel row in
+        # RATIO_ROWS above.
         fcf = ebitda - capex - tax_paid - interest_paid + interest_received
 
         cash = g("cash")
@@ -513,6 +636,31 @@ def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[s
         provisions = g("provisions")
         share_capital = g("share_capital")
         retained_profit = g("retained_profit")
+
+        # Operating working capital (issue #520): trade debtors + stock + other
+        # current assets - trade creditors - other current liabilities -- no
+        # debt, no cash (financing/liquidity, not operating). The same
+        # omitted/null-reads-as-0 convention as the other reads above: a deal
+        # that omits an OWC line (e.g. no stock) defaults that line to 0
+        # rather than refusing the whole deal. An intermediate, never stored
+        # as its own state key (issue #520's decision) -- only the
+        # fcf_after_working_capital result below is.
+        operating_working_capital = (
+            trade_debtors + stock + other_current_assets
+            - trade_creditors - other_current_liabilities
+        )
+
+        # FCF after working capital (issue #520): FCF less the CHANGE in
+        # operating working capital. When there is no recorded prior period
+        # (`previous_owc` is None -- the earliest supplied period, or a
+        # forward year whose predecessor was not supplied) the delta has no
+        # meaning, so the metric is None (N/A in the workbook), never
+        # fabricated as zero: a made-up prior OWC would make the delta a
+        # made-up number.
+        previous_owc = prior_owc.get(period)
+        fcf_after_working_capital = (
+            fcf - (operating_working_capital - previous_owc) if previous_owc is not None else None
+        )
 
         current_assets = cash + trade_debtors + stock + other_current_assets
         total_fixed_assets = tangible_assets + intangible_assets + other_fixed_assets
@@ -592,6 +740,7 @@ def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[s
             "profit_before_tax": profit_before_tax,
             "net_profit": net_profit,
             "fcf": fcf,
+            "fcf_after_working_capital": fcf_after_working_capital,
             "current_assets": current_assets,
             "current_liabilities": current_liabilities,
             "total_assets": total_assets,
@@ -712,7 +861,17 @@ def evaluate_downside_case(
         for period in forward_periods
         if period in multi_period_data
     }
-    return evaluate_financial_model(shocked_inputs)
+    # The prior-period operating working capital each shocked forward year's
+    # fcf_after_working_capital delta reads is the BASE case's (issue #520):
+    # the shock transforms a period's own figures, never its prior-period
+    # comparison, so the downside delta equals the base case's delta. Passing
+    # the base map explicitly is also what stops the shocked FY+1 from
+    # treating FY+1 as its own prior (the shocked-inputs dict contains only
+    # forward periods).
+    return evaluate_financial_model(
+        shocked_inputs,
+        prior_operating_working_capital=_prior_operating_working_capital(multi_period_data),
+    )
 
 
 def _column_headers(

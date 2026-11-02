@@ -22,10 +22,11 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 | :--- | :--- | :--- |
 | Gross profit | revenue - cost of sales | What is left after the direct cost of what was sold |
 | Operating profit (EBIT) | gross profit - admin expenses - depreciation - amortisation + other income | Profit from running the business, before interest and tax. A house convention: before exceptional items (deducted only in profit before tax) and including other income, so every ratio and covenant on it is on that basis ([F-004](formula-register.md#f-004--operating-profit-ebit)) |
-| EBITDA | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings. Like operating profit, before exceptional items and including other income, so every EBITDA-based ratio and covenant is on that basis ([F-006](formula-register.md#f-006--ebitda)) |
+| EBITDA (before exceptionals, incl. other income) | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings. Like operating profit, before exceptional items and including other income, so every EBITDA-based ratio and covenant is on that basis ([F-006](formula-register.md#f-006--ebitda)) |
 | Profit before tax | operating profit - interest paid + interest received - exceptional costs | Where exceptional costs are deducted; operating profit and EBITDA are before them |
 | Net profit | profit before tax - tax paid | |
-| Free cash flow (FCF), before working capital | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest, before any change in working capital (a working-capital-adjusted measure is a separate follow-up, issue #520; the stored key stays `fcf`). Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
+| Free cash flow (FCF), before working capital | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest, before any change in working capital (the working-capital-adjusted measure is the next row; the stored key stays `fcf`). Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
+| FCF after working capital (`fcf_after_working_capital`) | FCF - (operating working capital - the prior period's operating working capital); operating working capital = trade debtors + stock + other current assets - trade creditors - other current liabilities | FCF adjusted for the cash absorbed by (or released from) working capital. The operating working capital level is an intermediate, not stored on its own. The earliest period and any period with no recorded prior (including a prior period that records none of the five working capital lines) are **N/A**, never zero ([F-064](formula-register.md#f-064--fcf-after-working-capital)) |
 | Current assets / liabilities | assets: cash + trade debtors + stock + other current assets. Liabilities: trade creditors + current debt + overdraft + other current liabilities | What is expected to turn into cash, or fall due, within a year |
 | Total debt | current debt + overdraft + long-term debt + loan notes | Interest-bearing borrowing. The combined Loan Notes / Preference Shares line counts fully as debt, whatever the instrument's terms ([F-020](formula-register.md#f-020--total-debt-interest-bearing)). Provisions and trade creditors are deliberately excluded |
 | Total equity | share capital + retained profit | The owners' stake. Retained profit includes all reserves and share premium; there is no separate line for them ([F-017](formula-register.md#f-017--total-equity)) |
@@ -35,14 +36,14 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 
 | Ratio (state key) | Formula | Reading |
 | :--- | :--- | :--- |
-| DSCR, debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR (EBITDA-based), debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
 | Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
 | Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
 | Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; see [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions) |
 | Current ratio (`current_ratio`) | current assets / current liabilities | Short-term liquidity; above 1 means current assets cover current liabilities |
 | EBIT interest cover (`ebit_interest_cover`, alias `EBIT/Interest`) | operating profit / interest paid | Times profit covers interest |
 | EBITDA interest cover (`ebitda_interest_cover`, alias `EBITDA/Interest`) | EBITDA / interest paid | The same on EBITDA |
-| FCF conversion (`fcf_conversion_pct`) | FCF / EBITDA | The share of EBITDA that becomes free cash; see the [percent-type ratio convention](#percent-type-ratios-are-stored-as-fractions) |
+| FCF conversion (`fcf_conversion_pct`; workbook row "FCF Conversion % (before working capital)") | FCF / EBITDA | The share of EBITDA that becomes free cash; see the [percent-type ratio convention](#percent-type-ratios-are-stored-as-fractions) |
 | Trade debtor days (`trade_debtor_days`) | trade debtors / revenue x 365 | How long customers take to pay |
 | Stock days (`stock_days`) | stock / cost of sales x 365 | How long stock sits |
 | Trade creditor days (`trade_creditor_days`) | trade creditors / cost of sales x 365 | How long the company takes to pay suppliers |
@@ -72,6 +73,7 @@ current debt 350, long-term debt 1650, intangible assets 100, share capital 500,
 
 - Gross profit = 5000 - 3000 = **2000**. Operating profit = 2000 - 1000 - 300 = **700**. EBITDA = 700 + 300 = **1000**.
 - Profit before tax = 700 - 150 = 550; net profit = 550 - 100 = 450. FCF = 1000 - 400 - 100 - 150 = **350**.
+- Operating working capital = 600 + 400 - 450 - 100 = **450** (FY-1's is 420); FCF after working capital = 350 - (450 - 420) = **320**.
 - Total debt = 350 + 1650 = **2000**. Total equity = 500 + 1800 = 2300. TNW = 2300 - 100 = **2200**.
 - Current assets = 250 + 600 + 400 = 1250; current liabilities = 450 + 350 + 100 = 900.
 - **DSCR** = 1000 / (150 + 350) = **2.0**. **Gross leverage** = 2000 / 1000 = **2.0**.

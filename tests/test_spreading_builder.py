@@ -23,6 +23,9 @@ from spreading_builder import (
     evaluate_financial_model,
     export_to_xlsx,
     validate_row_formulas,
+    PNL_ROWS,
+    RATIO_ROWS,
+    SUPPLIED_ROW_LABELS,
 )
 
 CELL_REF_RE = re.compile(r"([A-Z]+)(\d+)")
@@ -146,9 +149,30 @@ def test_dscr_is_in_key_ratios_and_gross_leverage_is_in_key_credit_metrics():
     key_ratio_labels = [label for label, _ in sections_by_title["Key Ratios"]]
     key_metric_labels = [label for label, _ in sections_by_title["Key Credit Metrics"]]
 
-    assert "DSCR" in key_ratio_labels
+    assert "DSCR (EBITDA-based)" in key_ratio_labels
     assert "Gross Leverage" not in key_ratio_labels
     assert "Gross Leverage" in key_metric_labels
+
+
+def test_computed_rows_state_their_basis_in_the_label():
+    """#518 (decision comment 6555374029, candidate A): every computed row's
+    label states its basis, so a workbook reader cannot mistake EBITDA for an
+    exceptions-adjusted figure or FCF for a post-working-capital figure. The
+    values, state keys and covenants do not move; only the labels do."""
+    pnl_labels = [label for label, _ in PNL_ROWS]
+    ratio_labels = [label for label, _ in RATIO_ROWS]
+
+    assert "EBITDA (before exceptionals, incl. other income)" in pnl_labels
+    assert "FCF (before working capital)" in ratio_labels
+    assert "FCF Conversion % (before working capital)" in ratio_labels
+    assert "DSCR (EBITDA-based)" in ratio_labels
+
+    # The analyst-supplied export maps state keys to workbook rows by label, so the
+    # basis wording follows the row labels there too (deal_export reads this dict).
+    assert SUPPLIED_ROW_LABELS["ebitda"] == "EBITDA (before exceptionals, incl. other income)"
+    assert SUPPLIED_ROW_LABELS["fcf"] == "FCF (before working capital)"
+    assert SUPPLIED_ROW_LABELS["dscr"] == "DSCR (EBITDA-based)"
+    assert SUPPLIED_ROW_LABELS["fcf_conversion_pct"] == "FCF Conversion % (before working capital)"
 
 
 def test_collateral_sheet_headers(workbook):
@@ -241,15 +265,15 @@ EXPECTED = {
     "Gross Profit Margin %": pytest.approx(0.6),
     "Operating Profit": 440,
     "Operating Margin %": pytest.approx(0.44),
-    "EBITDA": 510,
+    "EBITDA (before exceptionals, incl. other income)": 510,
     "Profit Before Tax": 415,
     "Net Profit": 375,
-    "DSCR": pytest.approx(510 / (30 + 70)),
+    "DSCR (EBITDA-based)": pytest.approx(510 / (30 + 70)),
     "EBIT/Interest": pytest.approx(440 / 30),
     "EBITDA/Interest": pytest.approx(17.0),
     # FCF = EBITDA(510) - Capex(60) - Tax(40) - Interest Paid(30) + Interest Received(5).
-    "FCF": 385,
-    "FCF Conversion %": pytest.approx(385 / 510),
+    "FCF (before working capital)": 385,
+    "FCF Conversion % (before working capital)": pytest.approx(385 / 510),
     "Total Fixed Assets": 570,
     "Total Current Assets": 240,
     "Total Assets": 810,
@@ -299,13 +323,13 @@ def test_scheduled_principal_only_affects_dscr(workbook):
         ws.cell(row=label_to_row[label], column=2, value=value)
 
     memo_with_principal = {}
-    dscr_with_principal = _evaluate(ws, "B", label_to_row["DSCR"], dict(memo_with_principal))
+    dscr_with_principal = _evaluate(ws, "B", label_to_row["DSCR (EBITDA-based)"], dict(memo_with_principal))
     pbt_with_principal = _evaluate(ws, "B", label_to_row["Profit Before Tax"], dict(memo_with_principal))
     net_profit_with_principal = _evaluate(ws, "B", label_to_row["Net Profit"], dict(memo_with_principal))
 
     ws.cell(row=label_to_row["Scheduled Principal Repayment"], column=2, value=0)
     memo_without_principal = {}
-    dscr_without_principal = _evaluate(ws, "B", label_to_row["DSCR"], memo_without_principal)
+    dscr_without_principal = _evaluate(ws, "B", label_to_row["DSCR (EBITDA-based)"], memo_without_principal)
     pbt_without_principal = _evaluate(ws, "B", label_to_row["Profit Before Tax"], memo_without_principal)
     net_profit_without_principal = _evaluate(ws, "B", label_to_row["Net Profit"], memo_without_principal)
 
@@ -384,8 +408,8 @@ def test_formulas_compute_correctly_in_forward_and_downside_columns(tmp_path):
     ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
     label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
 
-    assert _evaluate(ws, "E", label_to_row["EBITDA"], {}) == 510  # FY+1 base case
-    assert _evaluate(ws, "H", label_to_row["EBITDA"], {}) == 510  # FY+1 (Downside)
+    assert _evaluate(ws, "E", label_to_row["EBITDA (before exceptionals, incl. other income)"], {}) == 510  # FY+1 base case
+    assert _evaluate(ws, "H", label_to_row["EBITDA (before exceptionals, incl. other income)"], {}) == 510  # FY+1 (Downside)
 
 
 def test_iferror_falls_back_to_na_on_division_by_zero(workbook):
@@ -401,9 +425,9 @@ def test_iferror_falls_back_to_na_on_division_by_zero(workbook):
 
     memo = {}
     ratio_labels = [
-        "Gross Profit Margin %", "Operating Margin %", "DSCR", "EBIT/Interest",
+        "Gross Profit Margin %", "Operating Margin %", "DSCR (EBITDA-based)", "EBIT/Interest",
         "EBITDA/Interest", "Gearing % (Interest-Bearing Debt / Equity)",
-        "Current Ratio", "Gross Leverage", "Net Debt / EBITDA", "FCF Conversion %",
+        "Current Ratio", "Gross Leverage", "Net Debt / EBITDA", "FCF Conversion % (before working capital)",
     ]
     for label in ratio_labels:
         assert _evaluate(ws, "B", label_to_row[label], memo) == "N/A"
@@ -957,7 +981,7 @@ def test_export_to_xlsx_populates_raw_financial_cells(tmp_path):
     assert ws.cell(row=label_to_row["Scheduled Principal Repayment"], column=4).value == 70
 
     # DSCR and Gross Leverage are still live Excel formulas, not baked numbers.
-    dscr_cell = ws.cell(row=label_to_row["DSCR"], column=4).value
+    dscr_cell = ws.cell(row=label_to_row["DSCR (EBITDA-based)"], column=4).value
     gross_leverage_cell = ws.cell(row=label_to_row["Gross Leverage"], column=4).value
     assert isinstance(dscr_cell, str) and dscr_cell.startswith("=")
     assert isinstance(gross_leverage_cell, str) and gross_leverage_cell.startswith("=")
@@ -1402,7 +1426,7 @@ def test_na_ratio_cells_stay_inside_the_chart_range(tmp_path):
     label_to_row = _label_to_row(ws)
 
     memo = {}
-    assert _evaluate(ws, "B", label_to_row["EBITDA"], {}) == 0
+    assert _evaluate(ws, "B", label_to_row["EBITDA (before exceptionals, incl. other income)"], {}) == 0
     assert _evaluate(ws, "B", label_to_row["Gross Leverage"], memo) == "N/A"
     assert _evaluate(ws, "B", label_to_row["Net Debt / EBITDA"], memo) == "N/A"
 
@@ -1844,7 +1868,7 @@ def test_sb_financial_writer_round_trips_raw_cells_derived_downside_and_formats(
         assert ws.cell(row=rows["Gross Profit"], column=8).value == (
             f"=H{rows['Revenue']}-H{rows['Cost of Goods Sold']}"
         )
-        assert ws.cell(row=rows["EBITDA"], column=8).value is None
+        assert ws.cell(row=rows["EBITDA (before exceptionals, incl. other income)"], column=8).value is None
         assert ws.cell(row=rows["Gross Profit"], column=4).value == (
             f"=D{rows['Revenue']}-D{rows['Cost of Goods Sold']}"
         )
@@ -1870,7 +1894,7 @@ def test_sb_financial_writer_leaves_an_unavailable_downside_formula_blank(tmp_pa
         assert ws["H1"].value == "FY+1 (Downside, unavailable)"
         rows = {ws.cell(row=row, column=1).value: row for row in range(1, ws.max_row + 1)}
         assert ws.cell(row=rows["Gross Profit"], column=8).value is None
-        assert ws.cell(row=rows["EBITDA"], column=8).value is None
+        assert ws.cell(row=rows["EBITDA (before exceptionals, incl. other income)"], column=8).value is None
     finally:
         workbook.close()
 

@@ -83,7 +83,11 @@ PNL_ROWS: list[tuple[str, str | None]] = [
     ("Operating Profit",
      "={Gross Profit}-{Admin Expenses}-{Depreciation}-{Amortisation}+{Other Income}"),
     ("Operating Margin %", _ratio("{Operating Profit}", "{Revenue}")),
-    ("EBITDA", "={Operating Profit}+{Depreciation}+{Amortisation}"),
+    # The label states the row's basis (#518): before exceptional items (the
+    # Exceptional Costs / (Income) row below is never part of this subtotal)
+    # and including Other Income (added into Operating Profit above).
+    ("EBITDA (before exceptionals, incl. other income)",
+     "={Operating Profit}+{Depreciation}+{Amortisation}"),
     ("Interest Paid", None),
     ("Interest Received", None),
     ("Scheduled Principal Repayment", None),
@@ -104,9 +108,12 @@ PNL_ROWS: list[tuple[str, str | None]] = [
 # Gross Leverage, which needs Balance Sheet debt rows that don't exist yet
 # at this point in the sheet -- see KEY_METRIC_ROWS below.
 RATIO_ROWS: list[tuple[str, str | None]] = [
-    ("DSCR", _ratio("{EBITDA}", "{Interest Paid}+{Scheduled Principal Repayment}")),
+    # The label states the row's basis (#518): the debt-service cover is computed
+    # from the EBITDA row above (before exceptionals, incl. other income), not
+    # from an earnings figure adjusted for exceptional items.
+    ("DSCR (EBITDA-based)", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}+{Scheduled Principal Repayment}")),
     ("EBIT/Interest", _ratio("{Operating Profit}", "{Interest Paid}")),
-    ("EBITDA/Interest", _ratio("{EBITDA}", "{Interest Paid}")),
+    ("EBITDA/Interest", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}")),
     # FCF = cash generated after tax, net interest, and capex. Deliberately
     # does NOT net off Scheduled Principal Repayment -- that's a financing
     # (balance-sheet) outflow, not an operating/FCF concept, and DSCR above
@@ -117,8 +124,12 @@ RATIO_ROWS: list[tuple[str, str | None]] = [
     # Tax, Interest Paid, Interest Received) is already written by the end
     # of Profit & Loss above -- no Balance Sheet dependency, unlike Gross
     # Leverage / Net Debt / EBITDA below.
-    ("FCF", "={EBITDA}-{Capital Expenditure}-{Tax}-{Interest Paid}+{Interest Received}"),
-    ("FCF Conversion %", _ratio("{FCF}", "{EBITDA}")),
+    # The label states the row's basis (#518): before working capital -- a
+    # movements-in-working-capital row is deliberately not part of the formula.
+    ("FCF (before working capital)",
+     "={EBITDA (before exceptionals, incl. other income)}-{Capital Expenditure}-{Tax}-{Interest Paid}+{Interest Received}"),
+    ("FCF Conversion % (before working capital)",
+     _ratio("{FCF (before working capital)}", "{EBITDA (before exceptionals, incl. other income)}")),
 ]
 
 BALANCE_SHEET_ROWS: list[tuple[str, str | None]] = [
@@ -160,14 +171,15 @@ KEY_METRIC_ROWS: list[tuple[str, str | None]] = [
      "={Tangible Net Worth (TNW)}+{Loan Notes / Preference Shares}"),
     ("Gearing % (Interest-Bearing Debt / Equity)", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{Total Equity}")),
     ("Current Ratio", _ratio("{Total Current Assets}", "{Total Current Liabilities}")),
-    ("Gross Leverage", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{EBITDA}")),
+    ("Gross Leverage", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}", "{EBITDA (before exceptionals, incl. other income)}")),
     # Net Debt / EBITDA: the same interest-bearing debt aggregate as Gross
     # Leverage above, netted against Cash -- a standard institutional
     # leverage metric Gross Leverage alone doesn't capture (a cash-rich
     # borrower can look more levered on a gross basis than its net cash
     # position actually implies). "N/A" fallback matches every other ratio's
-    # own convention here -- see FCF Conversion % above for the same choice.
-    ("Net Debt / EBITDA", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash}", "{EBITDA}")),
+    # own convention here -- see FCF Conversion % (before working capital) above
+    # for the same choice.
+    ("Net Debt / EBITDA", _ratio("{Current Portion - Debt}+{Overdraft / Revolving Debt}+{Long Term Debt}+{Loan Notes / Preference Shares}-{Cash}", "{EBITDA (before exceptionals, incl. other income)}")),
 ]
 
 # Debtor/creditor/stock days are themselves derived ratios (a balance-sheet
@@ -206,15 +218,17 @@ SUPPLIED_RATIOS = (
     "ebitda_interest_cover", "fcf_conversion_pct",
 )
 SUPPLIED_ROW_LABELS = {
-    "gross_profit": "Gross Profit", "operating_profit": "Operating Profit", "ebitda": "EBITDA",
-    "profit_before_tax": "Profit Before Tax", "net_profit": "Net Profit", "fcf": "FCF",
+    "gross_profit": "Gross Profit", "operating_profit": "Operating Profit",
+    "ebitda": "EBITDA (before exceptionals, incl. other income)",
+    "profit_before_tax": "Profit Before Tax", "net_profit": "Net Profit",
+    "fcf": "FCF (before working capital)",
     "current_assets": "Total Current Assets", "current_liabilities": "Total Current Liabilities",
     "total_assets": "Total Assets", "total_liabilities": "Total Liabilities", "total_equity": "Total Equity",
     "tangible_net_worth": "Tangible Net Worth (TNW)",
-    "dscr": "DSCR", "gross_leverage": "Gross Leverage", "net_debt_to_ebitda": "Net Debt / EBITDA",
+    "dscr": "DSCR (EBITDA-based)", "gross_leverage": "Gross Leverage", "net_debt_to_ebitda": "Net Debt / EBITDA",
     "current_ratio": "Current Ratio", "gearing": "Gearing % (Interest-Bearing Debt / Equity)",
     "ebit_interest_cover": "EBIT/Interest", "ebitda_interest_cover": "EBITDA/Interest",
-    "fcf_conversion_pct": "FCF Conversion %",
+    "fcf_conversion_pct": "FCF Conversion % (before working capital)",
 }
 
 COLLATERAL_HEADERS = [
@@ -493,7 +507,8 @@ def evaluate_financial_model(multi_period_data: dict[str, Any] | None) -> dict[s
         # Deliberately does NOT net off scheduled_principal -- that's a
         # financing (balance-sheet) outflow, not an operating/FCF concept,
         # and DSCR already covers debt-service coverage on its own; see the
-        # matching comment on the "FCF" Excel row in RATIO_ROWS above.
+        # matching comment on the "FCF (before working capital)" Excel row in
+        # RATIO_ROWS above.
         fcf = ebitda - capex - tax_paid - interest_paid + interest_received
 
         cash = g("cash")

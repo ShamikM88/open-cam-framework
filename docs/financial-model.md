@@ -24,7 +24,7 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 | :--- | :--- | :--- |
 | Gross profit | revenue - cost of sales | What is left after the direct cost of what was sold |
 | Operating profit (EBIT) | gross profit - admin expenses - depreciation - amortisation + other income | Profit from running the business, before interest and tax. A house convention: before exceptional items (deducted only in profit before tax) and including other income, so every ratio and covenant on it is on that basis ([F-004](formula-register.md#f-004--operating-profit-ebit)) |
-| EBITDA | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings. Like operating profit, before exceptional items and including other income, so every EBITDA-based ratio and covenant is on that basis ([F-006](formula-register.md#f-006--ebitda)) |
+| EBITDA (before exceptionals, incl. other income) | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings. Like operating profit, before exceptional items and including other income, so every EBITDA-based ratio and covenant is on that basis ([F-006](formula-register.md#f-006--ebitda)) |
 | Profit before tax | operating profit - interest paid + interest received - exceptional costs | Where exceptional costs are deducted; operating profit and EBITDA are before them |
 | Net profit | profit before tax - tax paid | |
 | Free cash flow (FCF), before working capital | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest, before any change in working capital (a working-capital-adjusted measure is a separate follow-up, issue #520; the stored key stays `fcf`). Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
@@ -37,14 +37,14 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 
 | Ratio (state key) | Formula | Reading |
 | :--- | :--- | :--- |
-| DSCR, debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR (EBITDA-based), debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
 | Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
 | Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
 | Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; see [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions) |
 | Current ratio (`current_ratio`) | current assets / current liabilities | Short-term liquidity; above 1 means current assets cover current liabilities |
 | EBIT interest cover (`ebit_interest_cover`, alias `EBIT/Interest`) | operating profit / interest paid | Times profit covers interest |
 | EBITDA interest cover (`ebitda_interest_cover`, alias `EBITDA/Interest`) | EBITDA / interest paid | The same on EBITDA |
-| FCF conversion (`fcf_conversion_pct`) | FCF / EBITDA | The share of EBITDA that becomes free cash; see the [percent-type ratio convention](#percent-type-ratios-are-stored-as-fractions) |
+| FCF conversion (`fcf_conversion_pct`; workbook row "FCF Conversion % (before working capital)") | FCF / EBITDA | The share of EBITDA that becomes free cash; see the [percent-type ratio convention](#percent-type-ratios-are-stored-as-fractions) |
 | Trade debtor days (`trade_debtor_days`) | trade debtors / revenue x 365 | How long customers take to pay |
 | Stock days (`stock_days`) | stock / cost of sales x 365 | How long stock sits |
 | Trade creditor days (`trade_creditor_days`) | trade creditors / cost of sales x 365 | How long the company takes to pay suppliers |

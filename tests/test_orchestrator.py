@@ -2642,6 +2642,25 @@ def test_validate_collateral_inputs_skips_a_non_object_entry_and_refuses_the_nex
         validate_collateral_inputs(["not an asset", {"asset_class": "HGV", "exposure": 100, "collateral_value": -1}])
 
 
+def test_validate_collateral_inputs_accepts_an_absent_payload():
+    assert validate_collateral_inputs(None) is None
+
+
+@pytest.mark.parametrize("payload", [{"exposure": -5}, "not a list", 7, True],
+                         ids=["object", "string", "number", "boolean"])
+def test_validate_collateral_inputs_refuses_a_payload_that_is_not_a_list(payload):
+    """PX550-1: a wrong-shaped payload used to skip the validator, so a negative was never refused."""
+    with pytest.raises(ValueError, match=r"collateral must be a list of asset objects; found "):
+        validate_collateral_inputs(payload)
+
+
+@pytest.mark.parametrize("bad", ["-500", "500", "abc", [], {}, True], ids=["negative-string", "numeric-string", "text", "list", "object", "boolean"])
+def test_validate_collateral_inputs_refuses_a_monetary_field_that_is_not_a_number(bad):
+    """CG550-1 / CL550-2: a string such as "-500" used to skip the negative check and be recorded."""
+    with pytest.raises(ValueError, match=r"collateral\[HGV\]: cap_value must be a non-negative finite number; found "):
+        validate_collateral_inputs([{"asset_class": "HGV", "exposure": 100, "cap_value": bad}])
+
+
 def test_run_pipeline_warns_and_continues_for_sub_one_percent_stress_values(project_root, capsys):
     client = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline(

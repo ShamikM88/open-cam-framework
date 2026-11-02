@@ -90,3 +90,28 @@ def test_headless_cli_rejects_negative_collateral_before_model_or_state(tmp_path
 
     _assert_controlled_error(result, "collateral", field, "-1")
     assert not (tmp_path / "deals").exists()
+
+
+def test_headless_cli_rejects_a_non_numeric_collateral_figure_before_model_or_state(tmp_path):
+    """CG550-1: a string "-500" on a monetary field is refused at input like a negative number."""
+    asset = {"asset_class": "HGV", "exposure": 100, "cap_value": "-500", "collateral_value": 80}
+    collateral = tmp_path / "collateral.json"
+    collateral.write_text(json.dumps([asset]), encoding="utf-8")
+
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+                               "--collateral", collateral)
+
+    _assert_controlled_error(result, "collateral", "cap_value", "-500")
+    assert not (tmp_path / "deals").exists()
+
+
+def test_headless_cli_rejects_a_collateral_payload_that_is_not_a_list_before_model_or_state(tmp_path):
+    """PX550-1: an object-shaped payload used to pass validation and reach the credential gate."""
+    collateral = tmp_path / "collateral.json"
+    collateral.write_text(json.dumps({"asset_class": "HGV", "exposure": -100}), encoding="utf-8")
+
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+                               "--collateral", collateral)
+
+    _assert_controlled_error(result, "collateral", "list of asset objects")
+    assert not (tmp_path / "deals").exists()

@@ -51,6 +51,9 @@ each entry's status line here to `Reviewed (role, date, commit)` — role, date 
 personal names appear anywhere on this page. If you cannot verify an entry's "Implemented in" reference, treat
 it as a Question, not an Agree.
 
+
+**Maintainer-authorised stand-in review.** The analyst-review hold on issue #366 was lifted on 1 November 2026 by the maintainer's decision to use a multi-model stand-in. Record: **role:** multi-model stand-in; **date:** 2026-11-01; **commit:** `13e12594c54637322f5872cccd0a3e8412573863` (the collateral formula review record and revised F-049–F-057). The stand-in comprises the #504 cold multi-model review of the register and the two independent collateral-specific cold reviews on #266, with resolutions recorded in #266 comment 6565421162 and the hold-lift recorded in #366 comment 6565425228. This records the maintainer's chosen substitute for the parked analyst review; it does **not** claim practising-analyst certification. Proposed collateral entries remain Proposed until implemented; implemented entries retain the status "Implemented, not yet reviewed by an analyst" unless and until an analyst review is separately recorded.
+
 The entries below were written from the code, never from memory; where the code does not compute something,
 the entry says so and it is listed under [Known differences](#known-differences).
 

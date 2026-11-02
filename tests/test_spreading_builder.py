@@ -26,6 +26,7 @@ from spreading_builder import (
     PNL_ROWS,
     RATIO_ROWS,
     SUPPLIED_ROW_LABELS,
+    SUPPLIED_RATIOS,
     SUPPLIED_SUBTOTALS,
     WORKING_CAPITAL_ROWS,
 )
@@ -2251,4 +2252,114 @@ def test_fcf_after_working_capital_workbook_row_is_suppliable_in_analyst_supplie
     assert ws[f"E{row}"].value == 120
     # An analyst-supplied deal that omits it (FY+2, column F) gets a blank cell, never a formula
     # recomputing it from raw cells nobody supplied.
+    assert ws[f"F{row}"].value is None
+
+
+# issue #521 -- the cash-flow DSCR (CFADS over debt service, decision on the
+# design note: option A, grossed up for net interest so interest is not double
+# counted). FY-1: ebitda 250, no interest -> fcf 250; OWC 420 (the earliest
+# period, so fcf_after_working_capital and cash_flow_dscr are None there).
+# FY-Current: ebitda 500 -> fcf 350; OWC 450 -> fcf_after_working_capital 320;
+# CFADS = 320 + 150 - 0 = 470 over debt service 150 + 350 = 500 -> 0.94.
+CASH_FLOW_DSCR_PRIOR = {
+    "revenue": 500, "cost_of_sales": 250,
+    "trade_debtors": 560, "stock": 380, "other_current_assets": 0,
+    "trade_creditors": 430, "other_current_liabilities": 90,
+}
+CASH_FLOW_DSCR_CURRENT = {
+    "revenue": 650, "cost_of_sales": 150, "interest_paid": 150,
+    "interest_received": 0, "scheduled_principal": 350,
+    "trade_debtors": 600, "stock": 400, "other_current_assets": 0,
+    "trade_creditors": 450, "other_current_liabilities": 100,
+}
+
+
+def test_cash_flow_dscr_worked_example_and_earliest_period_is_none():
+    result = evaluate_financial_model({"FY-1": dict(CASH_FLOW_DSCR_PRIOR),
+                                       "FY-Current": dict(CASH_FLOW_DSCR_CURRENT)})
+    # CFADS 470 over debt service 500; the EBITDA-based DSCR stays on its own basis.
+    assert result["ratios"]["FY-Current"]["cash_flow_dscr"] == pytest.approx(0.94)
+    assert result["ratios"]["FY-Current"]["dscr"] == pytest.approx(1.0)
+    # The earliest period has no recorded prior, so both cash-flow figures are N/A, never zero.
+    assert result["ratios"]["FY-1"]["cash_flow_dscr"] is None
+
+
+def test_cash_flow_dscr_is_none_for_a_single_period_deal():
+    result = evaluate_financial_model({"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)})
+    assert result["ratios"]["FY-Current"]["cash_flow_dscr"] is None
+
+
+def test_cash_flow_dscr_with_no_debt_service_is_none():
+    no_service = {key: value for key, value in CASH_FLOW_DSCR_CURRENT.items()
+                  if key not in ("interest_paid", "interest_received", "scheduled_principal")}
+    result = evaluate_financial_model({"FY-1": dict(CASH_FLOW_DSCR_PRIOR),
+                                       "FY-Current": no_service})
+    # fcf_after_working_capital resolves (470), but debt service is zero: N/A, not a number.
+    assert result["ratios"]["FY-Current"]["fcf_after_working_capital"] == pytest.approx(470)
+    assert result["ratios"]["FY-Current"]["cash_flow_dscr"] is None
+
+
+def test_cash_flow_dscr_forward_year_with_a_recorded_prior():
+    result = evaluate_financial_model({"FY-Current": dict(CASH_FLOW_DSCR_CURRENT),
+                                       "FY+1": dict(CASH_FLOW_DSCR_CURRENT, revenue=750, trade_debtors=650)})
+    # FY+1: ebitda 600 -> fcf 450; OWC 500 (prior 450) -> fcf_after_working_capital 400;
+    # CFADS 550 over debt service 500 -> 1.1. FY-Current keeps the worked example's 0.94.
+    assert result["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(1.1)
+    assert result["ratios"]["FY-Current"]["cash_flow_dscr"] == pytest.approx(0.94)
+
+
+def test_cash_flow_dscr_downside_moves_only_with_the_shocked_lines():
+    # FY+1: revenue 1000 / cost of sales 800 -> ebitda 200; interest 20 + principal 30
+    # -> debt service 50; OWC 480 (prior 450) -> delta 30. Base: fcf 180, fcf_after_wc 150,
+    # CFADS 170 -> 3.4. A 10% revenue haircut shocks only the P&L: ebitda 100, fcf 80,
+    # fcf_after_wc 50, CFADS 70 -> 1.4; the OWC delta and net interest stay the base case's.
+    data = {"FY-Current": dict(CASH_FLOW_DSCR_CURRENT),
+            "FY+1": dict(CASH_FLOW_DSCR_CURRENT, revenue=1000, cost_of_sales=800,
+                         trade_debtors=630, interest_paid=20, scheduled_principal=30)}
+    base = evaluate_financial_model(data)
+    downside = evaluate_downside_case(data, {"revenue_haircut_pct": 10})
+    assert base["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(3.4)
+    assert downside["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(1.4)
+    # The CFADS drop is exactly the fcf_after_working_capital drop: net interest and the
+    # working-capital delta are the base case's, so nothing is double counted.
+    base_cfads = base["ratios"]["FY+1"]["fcf_after_working_capital"] + 20
+    downside_cfads = downside["ratios"]["FY+1"]["fcf_after_working_capital"] + 20
+    assert downside_cfads - base_cfads == pytest.approx(downside["ratios"]["FY+1"]["fcf_after_working_capital"]
+                                                        - base["ratios"]["FY+1"]["fcf_after_working_capital"])
+
+
+def test_cash_flow_dscr_workbook_row(tmp_path):
+    assert ("DSCR (Cash Flow)", None) not in WORKING_CAPITAL_ROWS  # it computes, it is not raw
+    assert any(label == "DSCR (Cash Flow)" and formula is not None for label, formula in WORKING_CAPITAL_ROWS)
+    validate_row_formulas()
+
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path),
+                   financial_data={"FY-1": dict(CASH_FLOW_DSCR_PRIOR),
+                                   "FY-Current": dict(CASH_FLOW_DSCR_CURRENT)})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["DSCR (Cash Flow)"]
+    memo = {}
+    # Column C (FY-1, the first period): the FCF-after-WC row reads "N/A", so this does too.
+    assert _evaluate(ws, "C", row, memo) == "N/A"
+    # Column D (FY-Current): CFADS 470 over debt service 500 -> 0.94, as the state key.
+    assert _evaluate(ws, "D", row, memo) == pytest.approx(0.94)
+
+
+def test_cash_flow_dscr_is_suppliable_in_analyst_supplied_columns(tmp_path):
+    assert "cash_flow_dscr" in SUPPLIED_RATIOS
+    assert SUPPLIED_ROW_LABELS["cash_flow_dscr"] == "DSCR (Cash Flow)"
+
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path),
+                   financial_data={"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)},
+                   supplied_values={"FY+1": {"DSCR (Cash Flow)": 0.75},
+                                    "FY+2": {"EBITDA": 520}})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["DSCR (Cash Flow)"]
+    # The supplied column E (FY+1) holds the value the analyst gave, not a formula.
+    assert ws[f"E{row}"].value == 0.75
+    # An analyst-supplied deal that omits it (FY+2, column F) gets a blank cell, never a formula.
     assert ws[f"F{row}"].value is None

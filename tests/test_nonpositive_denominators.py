@@ -481,3 +481,48 @@ def test_end_to_end_a_loss_making_deal_is_unresolvable_with_the_reason(tmp_path,
     assert [r["status"] for r in results] == ["UNRESOLVABLE", "UNRESOLVABLE"]
     assert [r["reason"] for r in results] == ["gross leverage not meaningful: EBITDA is negative",
                                               "gearing not meaningful: total equity is negative"]
+
+
+# ---------------------------------------------------------------------------
+# issue #521 -- the cash-flow DSCR's covenant routing (design note, tests 2-4)
+# ---------------------------------------------------------------------------
+
+CASH_FLOW_DSCR_PRIOR = {"revenue": 500, "cost_of_sales": 250,
+                        "trade_debtors": 560, "stock": 380, "other_current_assets": 0,
+                        "trade_creditors": 430, "other_current_liabilities": 90}
+CASH_FLOW_DSCR_CURRENT = {"revenue": 650, "cost_of_sales": 150, "interest_paid": 150,
+                          "interest_received": 0, "scheduled_principal": 350,
+                          "trade_debtors": 600, "stock": 400, "other_current_assets": 0,
+                          "trade_creditors": 450, "other_current_liabilities": 100}
+MIN_CASH_FLOW_DSCR = {"metric": "cash_flow_dscr", "type": "minimum", "threshold": 0.9}
+
+
+def _cash_flow_dscr_result(data, covenant=MIN_CASH_FLOW_DSCR):
+    out = evaluate_financial_model(data)
+    return policy_engine.evaluate_deal_policy(
+        {"financials": out["financials"], "ratios": out["ratios"], "covenants": [covenant]}
+    )["covenant_results"][0]
+
+
+def test_a_covenant_on_cash_flow_dscr_routes_and_resolves():
+    result = _cash_flow_dscr_result({"FY-1": dict(CASH_FLOW_DSCR_PRIOR),
+                                    "FY-Current": dict(CASH_FLOW_DSCR_CURRENT)})
+    assert result["status"] == "PASS" and result["reason"] is None
+    assert result["actual"] == pytest.approx(0.94)
+
+
+def test_a_zero_debt_service_makes_a_cash_flow_dscr_covenant_unresolvable():
+    no_service = {key: value for key, value in CASH_FLOW_DSCR_CURRENT.items()
+                  if key not in ("interest_paid", "interest_received", "scheduled_principal")}
+    result = _cash_flow_dscr_result({"FY-1": dict(CASH_FLOW_DSCR_PRIOR), "FY-Current": no_service})
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["reason"] == ("cash flow DSCR not defined: debt service "
+                                "(interest paid + scheduled principal) is zero")
+
+
+def test_a_first_period_cash_flow_dscr_covenant_is_unresolvable():
+    # A single-period deal: fcf_after_working_capital is N/A (no recorded prior), so
+    # cash_flow_dscr has no computed value -- the covenant is UNRESOLVABLE, never zero.
+    result = _cash_flow_dscr_result({"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)})
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["reason"] == "cash_flow_dscr has no computed value for this period"

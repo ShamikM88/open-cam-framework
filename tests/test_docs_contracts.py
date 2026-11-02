@@ -656,6 +656,42 @@ def test_no_command_guidance_says_to_omit_the_amount_for_an_uncapped_guarantee(p
     assert "omit `amount` for an uncapped guarantee" not in text
 
 
+# Decision D-c on issue #504: both raw input lines are P&L charges, not cash paid.
+INTEREST_PAID_D_C_BASIS = (
+    "`interest_paid` is the period's P&L charge: interest payable and similar charges, "
+    "not cash interest paid in the period."
+)
+TAX_PAID_D_C_BASIS = (
+    "`tax_paid` is the period's P&L charge: tax on profit, not cash tax paid in the period."
+)
+
+
+def test_d_c_pins_interest_and_tax_to_the_p_and_l_charge_basis():
+    formula_heading = "### F-001 — Raw line items (inputs)"
+    formula_register = read("docs/formula-register.md")
+    assert_markdown_section_contains(
+        markdown_section(formula_register, formula_heading),
+        formula_heading,
+        (INTEREST_PAID_D_C_BASIS, TAX_PAID_D_C_BASIS, "decision D-c of issue #504"),
+    )
+
+    data_model_heading = "### Two raw-figure stores, never blended within a period"
+    data_model = read("docs/data-model.md")
+    assert_markdown_section_contains(
+        markdown_section(data_model, data_model_heading),
+        data_model_heading,
+        (INTEREST_PAID_D_C_BASIS, TAX_PAID_D_C_BASIS),
+    )
+
+    financial_model_heading = "### Statement figures"
+    financial_model = read("docs/financial-model.md")
+    assert_markdown_section_contains(
+        markdown_section(financial_model, financial_model_heading),
+        financial_model_heading,
+        (INTEREST_PAID_D_C_BASIS, TAX_PAID_D_C_BASIS),
+    )
+
+
 # The exact wording and matching /spread note are authorised by issue #519, comment 6555374430.
 SPREAD_INTEREST_BASIS = "Enter `interest_paid` as the period's interest charge in the profit and loss account (interest payable and similar charges), not the cash interest paid in the period."
 SPREAD_TAX_BASIS = "Enter `tax_paid` as the period's tax charge in the profit and loss account (tax on profit), not the cash tax paid in the period."

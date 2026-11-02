@@ -187,7 +187,7 @@ an unterminated comment refuses export, before any output folder is created or a
 ### Financial spreading workbook
 
 [`scripts/spreading_builder.py`](../scripts/spreading_builder.py) builds the `.xlsx` output as a
-full P&L → Balance Sheet → key-ratio spread (Revenue down to Working Capital Cycle), with the
+full P&L → Balance Sheet → key-ratio spread (Revenue down to Working Capital Cycle and FCF after Working Capital), with the
 subtotals and ratios (Gross Profit, EBITDA (before exceptionals, incl. other income), TNW, Gearing, Current Ratio, etc.) written as **Excel
 formulas** referencing the raw input rows — not pre-baked numbers — so anyone reviewing the
 workbook can see exactly how each figure was derived and re-check it. A second sheet,

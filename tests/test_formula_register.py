@@ -331,7 +331,7 @@ def _formula_definition_fingerprints():
 # Recorded fingerprints of the formula definitions the register describes.
 # Refresh ONLY together with the register entries that describe what changed.
 FORMULA_DEFINITION_FINGERPRINTS = {
-    "SECTIONS": "b2711fa57b92edcb",
+    "SECTIONS": "161061a3a232e61f",
     "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
     "numeric_validation:validate_stress_assumptions": "f4749b09600d2a7e",
     "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
@@ -358,9 +358,9 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:evaluate_single_covenant": "163771ed0ae9b371",
     "spreading_builder:_ratio": "5e5bfd2f5fc6f866",
     "spreading_builder:describe_undefined_ratio": "11e8e969fce62bd8",
-    "spreading_builder:evaluate_financial_model": "b70d1216d78726f2",
+    "spreading_builder:evaluate_financial_model": "5a21bceeed3feba4",
     "spreading_builder:apply_stress_shocks": "219bcb8383f01754",
-    "spreading_builder:evaluate_downside_case": "272c81c8edd7a197",
+    "spreading_builder:evaluate_downside_case": "a2dc0beb4f67c46b",
     "spreading_builder:_column_headers": "2d844b9a66aa3c3a",
     "spreading_builder:_write_financial_spreading": "5d0ad93f82c6b64a",
     "spreading_builder:_write_collateral_sheet": "174bd3295f0b8109",
@@ -368,6 +368,8 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "covenant_cushion:ebitda_break_even": "79a9709c24bc66c3",
     "covenant_cushion:bracket_and_bisect": "aa5ca4f6184fb0e4",
     "covenant_cushion:_scenario_search": "cea853891d9088a5",
+    "spreading_builder:_prior_operating_working_capital": "977e009f56e75171",
+    "transcription_check:cross_foot": "8f5648c198969ab3",
 }
 
 

@@ -76,8 +76,8 @@ RAW_FIELDS = tuple(FIELD_LABELS)
 
 # Subtotals and ratios an analyst-supplied deal records (the exact names .claude/commands/spread.md lists).
 SUBTOTAL_FIELDS = (
-    "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit", "fcf", "current_assets",
-    "current_liabilities", "total_assets", "total_liabilities", "total_equity", "total_debt", "tangible_net_worth",
+    "gross_profit", "operating_profit", "ebitda", "profit_before_tax", "net_profit", "fcf", "fcf_after_working_capital",
+    "current_assets", "current_liabilities", "total_assets", "total_liabilities", "total_equity", "total_debt", "tangible_net_worth",
 )
 RATIO_FIELDS = (
     "dscr", "gross_leverage", "net_debt_to_ebitda", "current_ratio", "gearing", "ebit_interest_cover",
@@ -440,6 +440,16 @@ def cross_foot(staged):
         lines, subtotals, rows, plans = entry["lines"], entry["subtotals"], [], {}
         for name in SUBTOTAL_FIELDS:
             if name in subtotals:
+                if not COEFFICIENTS[name]:
+                    # fcf_after_working_capital (issue #520) also reads the prior period's operating working
+                    # capital, which is never on the same transcription, so no single-period weight set exists for
+                    # it. Rather than compare it against zero (an unavoidable mismatch) or pass it silently, it is
+                    # reported as not assessed with the reason -- never a spurious mismatch the analyst has to
+                    # acknowledge, never a silent pass.
+                    rows.append({"check": name, "status": "not_assessed",
+                                 "stated": subtotals[name].text, "missing": [],
+                                 "reason": "it also reads the prior period's working capital, which is not on this transcription"})
+                    continue
                 plans[name] = (COEFFICIENTS[name], subtotals[name])
         if any(field in lines for field in BALANCE_COEFFICIENTS):
             plans[BALANCE_CHECK] = (BALANCE_COEFFICIENTS, None)

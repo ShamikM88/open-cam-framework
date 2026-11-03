@@ -332,7 +332,7 @@ def _formula_definition_fingerprints():
 # Recorded fingerprints of the formula definitions the register describes.
 # Refresh ONLY together with the register entries that describe what changed.
 FORMULA_DEFINITION_FINGERPRINTS = {
-    "SECTIONS": "161061a3a232e61f",
+    "SECTIONS": "0c6f493e387171e5",
     "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
     "numeric_validation:validate_stress_assumptions": "f4749b09600d2a7e",
     "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
@@ -358,8 +358,8 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:evaluate_deal_policy": "0b95f024cda35cb4",
     "policy_engine:evaluate_single_covenant": "163771ed0ae9b371",
     "spreading_builder:_ratio": "5e5bfd2f5fc6f866",
-    "spreading_builder:describe_undefined_ratio": "11e8e969fce62bd8",
-    "spreading_builder:evaluate_financial_model": "5a21bceeed3feba4",
+    "spreading_builder:describe_undefined_ratio": "b53954b321e5073d",
+    "spreading_builder:evaluate_financial_model": "ad7d7d60eef71ab0",
     "spreading_builder:apply_stress_shocks": "219bcb8383f01754",
     "spreading_builder:evaluate_downside_case": "a2dc0beb4f67c46b",
     "spreading_builder:_column_headers": "2d844b9a66aa3c3a",

@@ -53,7 +53,7 @@ personal names appear anywhere on this page. If you cannot verify an entry's "Im
 it as a Question, not an Agree.
 
 
-**Maintainer-authorised stand-in review.** The analyst-review hold on issue #366 was lifted on 1 November 2026 by the maintainer's decision to use a multi-model stand-in. Record: **role:** multi-model stand-in; **date:** 2026-11-01; **commit:** `13e12594c54637322f5872cccd0a3e8412573863` (the collateral formula review record and revised F-049–F-057). The stand-in comprises the #504 cold multi-model review of the register and the two independent collateral-specific cold reviews on #266, with resolutions recorded in #266 comment 6565421162 and the hold-lift recorded in #366 comment 6565425228. This records the maintainer's chosen substitute for the parked analyst review; it does **not** claim practising-analyst certification. Proposed collateral entries remain Proposed until implemented; implemented entries retain the status "Implemented, not yet reviewed by an analyst" unless and until an analyst review is separately recorded.
+**Maintainer-authorised stand-in review.** The analyst-review hold on issue #366 was lifted on 1 November 2026 by the maintainer's decision to use a multi-model stand-in. Record: **role:** multi-model stand-in; **date:** 2026-11-01; **register read by the reviews:** `main` at `3665169` (the revised F-049–F-057 are the text this change adds). The stand-in comprises the #504 cold multi-model review of all 58 entries of the register and two independent cold reviews of the rewritten collateral entries F-049–F-057 on #266 (ChatGPT (GPT-6) and Perplexity (GLM-5.3), comments [6565003796](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6565003796) and [6565015295](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6565015295)); Claude Code (Claude Opus 5.5) compared them and recorded the maintainer's accepted resolutions in #266 comment [6565421162](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6565421162). The collateral review compared the definitions against the recorded #266 conventions and challenged the exposure basis, mitigant eligibility, empty or missing LGD handling and weighting basis. The hold-lift is recorded in #366 comment 6565425228. This records the maintainer's chosen substitute for the parked analyst review; it does **not** claim practising-analyst certification. Proposed collateral entries remain Proposed until implemented; implemented entries retain the status "Implemented, not yet reviewed by an analyst" unless and until an analyst review is separately recorded.
 
 The entries below were written from the code, never from memory; where the code does not compute something,
 the entry says so and it is listed under [Known differences](#known-differences).
@@ -979,7 +979,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 The entries below are **Proposed, not implemented**: no code computes them yet. They record the conventions
 agreed on [issue #266](https://github.com/ShamikM88/open-cam-framework/issues/266) (comment 6259256219) so the
 reviewing analyst signs off the design before it is built. RV is a deal input supplied by the risk team, like
-PD and LGD; the framework does not estimate it.
+PD and LGD; the framework does not estimate it. A stressed-residual sensitivity (decision 5 on #266, comment
+6565421162) is a separate issue, [#549](https://github.com/ShamikM88/open-cam-framework/issues/549), and is
+not part of these entries.
 
 ### F-049 — Non-RV funded exposure (at origination)
 
@@ -1007,9 +1009,9 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** original-price valuation basis is the maintainer-approved convention on #266; RV % is supplied by the risk team, like PD and LGD
 - **Status:** Proposed, not implemented
 
-### F-051 — Total Exposure (at origination)
+### F-051 — Total Exposure (Inc. RV)
 
-- **Name:** Total Exposure (at origination) — the financed amount, with residual value counted exactly once
+- **Name:** Total Exposure (Inc. RV) — the financed amount, with residual value counted exactly once
 - **Formula:** total_exposure = non_rv_funded_exposure + rv_exposure (F-049 + F-050) = valuation × (1 − down_payment_pct). RV is a decomposition of the financed amount, not an addition on top of it
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** sum across assets without netting; mixed-sign monetary inputs refused. This is an origination exposure proxy and excludes accrued interest, arrears and late charges
@@ -1020,10 +1022,10 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** candidate B accepted by the maintainer on #266: remaining rentals plus residual, counted once; do not add RV to the full financed amount
 - **Status:** Proposed, not implemented
 
-### F-052 — Net Exposure (at origination)
+### F-052 — Net Exposure
 
-- **Name:** Net Exposure (at origination) — total exposure after eligible non-asset mitigants
-- **Formula:** eligible_mitigants = Σ recorded non-asset mitigants explicitly declared available on default and not already netted in the financing; net_exposure = max(0, total_exposure − eligible_mitigants). Any excess eligible mitigant above total exposure is reported separately; it does not create negative net exposure
+- **Name:** Net Exposure — total exposure after eligible non-asset mitigants
+- **Formula:** eligible_mitigants = Σ recorded non-asset mitigants explicitly declared available on default and not already netted in the financing; net_exposure = max(0, total_exposure − eligible_mitigants). Any excess eligible mitigant above total exposure is reported separately; it does not create negative net exposure. Mitigants are deal-level; where a per-asset net exposure is needed (F-066) they are allocated pro rata to each asset's total exposure
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** never deduct an unrecorded mitigant, a mitigant unavailable on default, or an amount already netted in the financed amount. Each mitigant requires an explicit eligibility declaration; no inference from its label. Negative amounts and mixed-sign inputs are refused. Net exposure is floored at zero; excess is disclosed separately
 - **State keys:** —
@@ -1059,9 +1061,9 @@ PD and LGD; the framework does not estimate it.
 - **Basis:** house convention agreed on #266; retain KD-2's documented 0–100 versus fraction scale distinction
 - **Status:** Proposed, not implemented
 
-### F-055 — Gross Uncovered Risk
+### F-055 — Uncovered Risk
 
-- **Name:** Gross Uncovered Risk — the collateral shortfall before non-asset mitigants
+- **Name:** Uncovered Risk — the collateral shortfall before non-asset mitigants (gross)
 - **Formula:** gross_uncovered_risk = Σ over assets of max(0, total_exposure − collateral_value). Floored at zero per asset; deliberately not exposure × LGD
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** calculated per asset before summing; no netting between assets. Zero exposure gives zero uncovered risk. Negative monetary inputs refused
@@ -1069,7 +1071,7 @@ PD and LGD; the framework does not estimate it.
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** Not implemented — proposed in issue #266; maintainer decision recorded in comment 6565421162
-- **Basis:** maintainer decision: retain F-055 as the gross asset-collateral shortfall; add F-065 for the separate net shortfall after eligible mitigants
+- **Basis:** maintainer decision: retain F-055 as the gross asset-collateral shortfall; add F-066 for the separate net shortfall after eligible mitigants
 - **Status:** Proposed, not implemented
 
 ### F-056 — Max LGD
@@ -1239,25 +1241,18 @@ nothing; nothing here is stored in state.
   recorded shocks only)
 - **Status:** Implemented, not yet reviewed by an analyst
 
-### F-065 — Net Uncovered Risk
+### F-066 — Net Uncovered Risk
 
 - **Name:** Net Uncovered Risk — the collateral shortfall after eligible non-asset mitigants
-- **Formula:** net_uncovered_risk = Σ over assets of max(0, net_exposure − collateral_value), where net_exposure is F-052 after only explicitly eligible mitigants. Floor at zero per asset before summing; do not net one asset's surplus against another asset's shortfall
+- **Formula:** net_uncovered_risk = Σ over assets of max(0, net_exposure_i − collateral_value_i), where net_exposure_i = total_exposure_i × (1 − share) and share = min(1, eligible_mitigants ÷ Σ total_exposure) is the F-052 eligible mitigants allocated pro rata to each asset's total exposure, so Σ net_exposure_i equals F-052's deal-level net exposure. Floor at zero per asset before summing; do not net one asset's surplus against another asset's shortfall. Example: two assets with total exposure 100 and 300 and eligible mitigants of 100 give share 0.25 and net exposures of 75 and 225
 - **Unit and storage:** currency amount; full precision, no rounding in storage
-- **Edge rules:** uses the F-052 eligibility rule (available on default and not already netted); no eligible mitigants means net_exposure equals total_exposure. Negative monetary inputs are refused. This is distinct from F-055 gross uncovered risk; it is not exposure × LGD
+- **Edge rules:** uses the F-052 eligibility rule (available on default and not already netted); no eligible mitigants means net_exposure equals total_exposure, and a Σ total_exposure of zero allocates nothing. The pro rata allocation is a house convention chosen on review (CG552-2); the alternatives are an explicit per-asset allocation input or a deal-level-only measure. Negative monetary inputs are refused. This is distinct from F-055 gross uncovered risk; it is not exposure × LGD
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** Not implemented — proposed in issue #266; maintainer decision recorded in comment 6565421162
 - **Basis:** added by maintainer decision: retain F-055 as gross uncovered risk and add this separate post-mitigant measure
 - **Status:** Proposed, not implemented
-
-## Collateral formula review record
-
-**Stand-in analyst review — 1 November 2026.** The maintainer designated the independent cold review of the rewritten collateral entries as the stand-in for analyst sign-off. The review compared the F-049–F-057 definitions against the recorded #266 conventions and challenged the exposure basis, mitigant eligibility, empty/missing LGD handling and weighting basis. The independent cold reviews were authored by ChatGPT (GPT-6) and Perplexity (GLM-5.3); Claude Code (Claude Opus 5.5) performed the comparative review and recorded the maintainer's accepted resolutions. The maintainer's accepted decisions are recorded on #266 in comment [6565421162](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6565421162); the underlying cold-review notes are comments [6565003796](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6565003796) and [6565015295](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6565015295).
-
-This is a recorded stand-in review, not a claim that a practising credit analyst independently certified the formulas. The entries remain **Proposed, not implemented** pending the maintainer's review/acceptance of this documentation PR and any further analyst sign-off required by #366.
-
 
 ## Known differences
 
@@ -1295,7 +1290,7 @@ maintainer, per the issue's instruction.
    `docs/examples/synthetic_co` has no register entry (state keys uncovered);
 3. a rule of the policy engine — a key of `evaluate_deal_policy()`'s result — has no register entry;
 4. an entry names a file or function that does not exist in the repository;
-5. one of the proposed collateral entries (F-049-F-057 or F-065) or its "Proposed, not implemented" status is
+5. one of the proposed collateral entries (F-049-F-057 or F-066) or its "Proposed, not implemented" status is
    deleted.
 
 Removing an entry therefore fails the suite through the coverage checks; renaming a function or moving a

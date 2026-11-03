@@ -36,7 +36,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "committee_summary", "conventions", "covenant_cushion", "deal_export", "draft_lint",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "collateral_check", "committee_summary", "conventions", "covenant_cushion", "deal_export", "draft_lint",
     "export_readback", "mutation_report", "orchestrator", "pii_scan", "pr_base_fail_check", "pr_scope_check", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
@@ -152,6 +152,56 @@ def test_an_unknown_flag_exits_two_with_usage_on_stderr(cli, script):
 # ---------------------------------------------------------------------------
 # Representative real runs
 # ---------------------------------------------------------------------------
+
+# The collateral exposure calculator (issue #266, PR B): the CLI that records the
+# collateral_analysis object and the backward-compatible collateral projection.
+# The full calculation unit coverage lives in tests/test_collateral_check.py.
+
+def test_collateral_check_cli_writes_the_analysis_and_the_projection(cli, tmp_path):
+    workdir = cli("make_workdir")
+    payload = workdir / "collateral_payload.json"
+    payload.write_text(json.dumps({
+        "assets": [{
+            "asset_id": "AST-001", "asset_class": "Synthetic excavator", "valuation": 100000,
+            "down_payment_pct": 0.20, "est_rv_pct": 0.40, "number_of_units": 1,
+            "cap_or_model_value": 60000, "non_recovery": 0, "costs": 0,
+            "lgd_pct": 0.15, "perfection_status": "Pending",
+        }],
+        "mitigants": [],
+    }), encoding="utf-8")
+    result = cli("collateral_check", "--company", "Acme", "--proposal", "Loan",
+                 "--input-file", payload)
+    assert result.returncode == 0, result.stderr
+    output = json.loads(result.stdout)
+    assert output["results"]["total_exposure"] == 80000
+    state = json.loads(next(workdir.glob("deals/Acme/Loan_*/state.json")).read_text(encoding="utf-8"))
+    assert state["collateral_analysis"]["calculator_version"]
+    assert state["collateral_analysis"]["input_digest"] == output["input_digest"]
+    assert state["collateral_analysis"]["results"]["coverage_pct"] == 0.75
+    assert state["collateral"][0]["exposure"] == 80000
+    assert state["collateral"][0]["collateral_value"] == 60000
+    assert "collateral" in state["steps_completed"]
+
+
+def test_collateral_check_cli_refuses_a_residual_above_the_financed_share(cli):
+    workdir = cli("make_workdir")
+    payload = workdir / "collateral_payload.json"
+    payload.write_text(json.dumps({
+        "assets": [{
+            "asset_id": "AST-001", "asset_class": "Synthetic excavator", "valuation": 100000,
+            "down_payment_pct": 0.20, "est_rv_pct": 0.90, "number_of_units": 1,
+            "cap_or_model_value": 60000, "non_recovery": 0, "costs": 0,
+            "lgd_pct": 0.15, "perfection_status": "Pending",
+        }],
+        "mitigants": [],
+    }), encoding="utf-8")
+    result = cli("collateral_check", "--company", "Acme", "--proposal", "Loan",
+                 "--input-file", payload)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == ("error: collateral[AST-001]: est_rv_pct 0.9 exceeds the financed share "
+                            "(1 - down_payment_pct = 0.8); a residual above the financed share is refused.\n")
+
 
 def test_pii_scan_reports_findings_as_json(cli):
     clean = cli.workdir / "clean.md"

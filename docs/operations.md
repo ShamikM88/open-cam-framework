@@ -16,7 +16,7 @@ python scripts/check_test_count.py pytest_output.txt
 python scripts/check_coverage.py coverage.json
 ```
 
-That is what CI's Ubuntu `test` job runs, in that order; on a pull request it also runs `diff-cover coverage.xml --config-file pyproject.toml` and `diff-cover coverage.xml --config-file diff_cover_critical.toml` (the `--config-file` matters: without it the floor is silently zero). Windows runs `pytest tests/ -n 2 --dist=loadfile --durations=30` without coverage. `pytest-xdist` (in `requirements-dev.txt`) supplies the bounded workers; `--dist=loadfile` keeps one test file on a worker, and `--durations=30` records the 30 slowest tests. The suite needs no key and no network; a test over its 120-second limit fails by itself.
+That is what CI's Ubuntu `test` job runs, in that order; on a pull request it also runs `diff-cover coverage.xml --config-file pyproject.toml` and `diff-cover coverage.xml --config-file diff_cover_critical.toml` (the `--config-file` matters: without it the floor is silently zero). Windows runs `pytest tests/ -n 4 --dist=loadfile --durations=30` without coverage. `pytest-xdist` (in `requirements-dev.txt`) supplies the bounded workers; `--dist=loadfile` keeps one test file on a worker, and `--durations=30` records the 30 slowest tests. The suite needs no key and no network; a test over its 120-second limit fails by itself.
 
 A green local run is not the same as a green CI run, because CI also runs on Windows and in a clean environment with only `requirements.txt` (below). It is the right thing to have before you push.
 
@@ -167,7 +167,7 @@ When `tests/test_golden_outputs.py` fails, decide first whether the change was i
 
 ## Re-tuning test parallelism
 
-**Purpose.** CI runs the suite with a fixed number of pytest-xdist workers (`-n 4` on Ubuntu, `-n 2` on Windows), chosen by measurement in issue #212. As the suite grows those counts can stop being the best choice, and the only reliable way to choose again is to measure again. `.github/workflows/ci-parallelism-benchmark.yml` does the measuring. It runs only when started by hand and is never a gate.
+**Purpose.** CI runs the suite with a fixed number of pytest-xdist workers (`-n 4` on Ubuntu and on Windows), chosen by measurement in issue #212. As the suite grows those counts can stop being the best choice, and the only reliable way to choose again is to measure again. `.github/workflows/ci-parallelism-benchmark.yml` does the measuring. It runs only when started by hand and is never a gate.
 
 **When.** When the suite step of ordinary CI runs has become clearly slower than the last measured baseline (its link is at the top of the workflow file), over several runs rather than one: hosted runners vary.
 

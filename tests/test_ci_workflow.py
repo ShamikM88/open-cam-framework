@@ -283,7 +283,7 @@ def test_the_count_check_in_the_test_job_runs_after_the_suite_and_never_writes()
 
 def test_the_windows_job_runs_the_suite_on_windows():
     body = split_jobs(workflow_text())["test-windows"]
-    assert "runs-on: windows-latest" in body and "pytest tests/ -n 2 --dist=loadfile --durations=30" in body
+    assert "runs-on: windows-latest" in body and "pytest tests/ -n 4 --dist=loadfile --durations=30" in body
     assert "pytest-xdist>=3.8.0" in (REPO_ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
 
 

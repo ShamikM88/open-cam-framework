@@ -68,7 +68,7 @@ pytest
 The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
 `anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking. CI runs that same full suite
 without a key: Ubuntu uses `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, and
-Windows uses `pytest tests/ -n 2 --dist=loadfile --durations=30`. `pytest-xdist` (included in
+Windows uses `pytest tests/ -n 4 --dist=loadfile --durations=30`. `pytest-xdist` (included in
 `requirements-dev.txt`) supplies `-n`; `--dist=loadfile` keeps each test file on one worker, and
 `--durations=30` reports the 30 slowest tests. The worker counts were chosen by measurement (issue #212);
 [re-tuning test parallelism](operations.md#re-tuning-test-parallelism) says how to measure again as the suite
@@ -225,7 +225,7 @@ change; a reference to a number that is not pinned also fails, so every referenc
 (Ubuntu; one of the ruleset's three required checks, with `test-windows` and `runtime-smoke` -- keep the names) runs Ruff and Bandit, then
 `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, followed by the test-count, coverage-floor
 and diff-coverage checks; it uploads `coverage.xml`/`coverage.json`/the pytest output/`pip freeze` as a
-30-day artifact. `test-windows` runs `pytest tests/ -n 2 --dist=loadfile --durations=30` on Windows (the
+30-day artifact. `test-windows` runs `pytest tests/ -n 4 --dist=loadfile --durations=30` on Windows (the
 primary development platform: cp1252 console, backslash paths, CRLF). `runtime-smoke` installs **only**
 `requirements.txt` and runs `tests/runtime_smoke.py --expect-clean`: no development package importable,
 every module imports, every CLI prints usage, a deal exports end to end -- what a fresh clone gets.

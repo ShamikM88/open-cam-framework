@@ -67,7 +67,7 @@ pytest
 
 The full suite needs no `ANTHROPIC_API_KEY`/network access to run -- every module that touches
 `anthropic` (`calibrate.py`, `orchestrator.py`) is tested via mocking. CI runs that same full suite
-without a key: Ubuntu uses `pytest tests/ -n 2 --dist=loadfile --durations=30` with coverage, and
+without a key: Ubuntu uses `pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, and
 Windows uses `pytest tests/ -n 4 --dist=loadfile --durations=30`. `pytest-xdist` (included in
 `requirements-dev.txt`) supplies `-n`; `--dist=loadfile` keeps each test file on one worker, and
 `--durations=30` reports the 30 slowest tests. The worker counts were chosen by measurement (issue #212);
@@ -127,7 +127,7 @@ it itself the same way it tracks everything else: code-enforced, not hand-mainta
 `pytest`'s own summary line and fails the build if it doesn't match this file -- it never
 auto-corrects the value itself (that would mean a bot committing to `main`), so bumping the test
 count means updating `badges/test-count.json` in the same PR. That is one command from your own
-checkout: `pytest tests/ -n 2 --dist=loadfile --durations=30 | tee pytest_output.txt` then
+checkout: `pytest tests/ -n 4 --dist=loadfile --durations=30 | tee pytest_output.txt` then
 `python scripts/check_test_count.py pytest_output.txt --write` (CI only ever runs the plain check).
 Run it on a complete green run of the whole suite: `--write` looks at pytest's summary line and refuses
 one that reports failed, errored or deselected tests (the refusal quotes what matched), and a run that halted
@@ -223,7 +223,7 @@ change; a reference to a number that is not pinned also fails, so every referenc
 
 **CI** (`.github/workflows/ci.yml`, structure pinned by `tests/test_ci_workflow.py`): four jobs. `test`
 (Ubuntu; one of the ruleset's three required checks, with `test-windows` and `runtime-smoke` -- keep the names) runs Ruff and Bandit, then
-`pytest tests/ -n 2 --dist=loadfile --durations=30` with coverage, followed by the test-count, coverage-floor
+`pytest tests/ -n 4 --dist=loadfile --durations=30` with coverage, followed by the test-count, coverage-floor
 and diff-coverage checks; it uploads `coverage.xml`/`coverage.json`/the pytest output/`pip freeze` as a
 30-day artifact. `test-windows` runs `pytest tests/ -n 4 --dist=loadfile --durations=30` on Windows (the
 primary development platform: cp1252 console, backslash paths, CRLF). `runtime-smoke` installs **only**

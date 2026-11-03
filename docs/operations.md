@@ -11,7 +11,7 @@ This page is evergreen. It does not record what the latest run showed; current s
 ```bash
 ruff check .
 bandit -r scripts/ -ll
-pytest tests/ -n 2 --dist=loadfile --durations=30 --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
+pytest tests/ -n 4 --dist=loadfile --durations=30 --cov --cov-report=term --cov-report=xml --cov-report=json | tee pytest_output.txt
 python scripts/check_test_count.py pytest_output.txt
 python scripts/check_coverage.py coverage.json
 ```
@@ -167,7 +167,7 @@ When `tests/test_golden_outputs.py` fails, decide first whether the change was i
 
 ## Re-tuning test parallelism
 
-**Purpose.** CI runs the suite with a fixed number of pytest-xdist workers (`-n 4` on Ubuntu, `-n 2` on Windows), chosen by measurement in issue #212. As the suite grows those counts can stop being the best choice, and the only reliable way to choose again is to measure again. `.github/workflows/ci-parallelism-benchmark.yml` does the measuring. It runs only when started by hand and is never a gate.
+**Purpose.** CI runs the suite with a fixed number of pytest-xdist workers (`-n 4` on Ubuntu and on Windows), chosen by measurement in issue #212. As the suite grows those counts can stop being the best choice, and the only reliable way to choose again is to measure again. `.github/workflows/ci-parallelism-benchmark.yml` does the measuring. It runs only when started by hand and is never a gate.
 
 **When.** When the suite step of ordinary CI runs has become clearly slower than the last measured baseline (its link is at the top of the workflow file), over several runs rather than one: hosted runners vary.
 

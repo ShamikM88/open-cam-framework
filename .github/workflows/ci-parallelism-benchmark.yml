@@ -2,7 +2,8 @@ name: CI Parallelism Benchmark
 
 # Manual-only measurement of how long the full test suite takes with 1, 2 and 4 pytest-xdist workers on Ubuntu
 # (with coverage) and Windows, so CI's worker counts can be chosen again as the suite grows. Issue #212 chose the
-# current ones (`-n 4` on Ubuntu, `-n 2` on Windows) from this workflow; the last baseline is its results comment:
+# first ones from this workflow; the current ones (`-n 4` on Ubuntu and on Windows) come from its re-measurement,
+# which is also the last baseline (results comment):
 # https://github.com/ShamikM88/open-cam-framework/issues/212#issuecomment-6584416015
 #
 # - Never a gate: it runs only when started by hand (workflow_dispatch), never on a pull request or a push, and it

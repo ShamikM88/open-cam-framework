@@ -145,8 +145,9 @@ worked examples are in [Workflows](workflows.md).
   `share_capital`, `retained_profit`.
   In default mode, `interest_paid` and `tax_paid` are the period's P&L charges (interest payable and similar charges; tax on profit), not the cash interest or tax paid in the period.
 - **Produces (default mode):** run through `scripts/spreading_check.py`, never recalculated by hand: TNW, EBITDA,
-  DSCR, EBIT/interest, gross leverage, net debt / EBITDA, gearing, current ratio, FCF conversion and the working
-  capital days. See the [financial model](financial-model.md).
+  DSCR, EBIT/interest, gross leverage, net debt / EBITDA, gearing, current ratio, FCF conversion, FCF after
+  working capital and the cash-flow DSCR (both N/A for the earliest period or any period with no recorded
+  prior) and the working capital days. See the [financial model](financial-model.md).
 - **Produces (analyst-supplied mode):** your subtotals and ratios as supplied, `financials_source:
   "analyst-supplied"`, and a `financials_source_note`; the CAM must then disclose the reduced audit guarantee.
   The fraction convention for `gearing`, `fcf_conversion_pct` and their covenant thresholds is defined in the

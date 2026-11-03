@@ -27,7 +27,8 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 | EBITDA (before exceptionals, incl. other income) | operating profit + depreciation + amortisation | Operating profit before the non-cash charges; the usual measure of cash earnings. Like operating profit, before exceptional items and including other income, so every EBITDA-based ratio and covenant is on that basis ([F-006](formula-register.md#f-006--ebitda)) |
 | Profit before tax | operating profit - interest paid + interest received - exceptional costs | Where exceptional costs are deducted; operating profit and EBITDA are before them |
 | Net profit | profit before tax - tax paid | |
-| Free cash flow (FCF), before working capital | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest, before any change in working capital (a working-capital-adjusted measure is a separate follow-up, issue #520; the stored key stays `fcf`). Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
+| Free cash flow (FCF), before working capital | EBITDA - capex - tax paid - interest paid + interest received | Cash generated after investment, tax and net interest, before any change in working capital (the working-capital-adjusted measure is the next row; the stored key stays `fcf`). Scheduled principal repayments are **not** deducted: they are financing, and DSCR already covers them |
+| FCF after working capital (`fcf_after_working_capital`) | FCF - (operating working capital - the prior period's operating working capital); operating working capital = trade debtors + stock + other current assets - trade creditors - other current liabilities | FCF adjusted for the cash absorbed by (or released from) working capital. The operating working capital level is an intermediate, not stored on its own. The earliest period and any period with no recorded prior (including a prior period that records none of the five working capital lines) are **N/A**, never zero ([F-064](formula-register.md#f-064--fcf-after-working-capital)) |
 | Current assets / liabilities | assets: cash + trade debtors + stock + other current assets. Liabilities: trade creditors + current debt + overdraft + other current liabilities | What is expected to turn into cash, or fall due, within a year |
 | Total debt | current debt + overdraft + long-term debt + loan notes | Interest-bearing borrowing. The combined Loan Notes / Preference Shares line counts fully as debt, whatever the instrument's terms ([F-020](formula-register.md#f-020--total-debt-interest-bearing)). Provisions and trade creditors are deliberately excluded |
 | Total equity | share capital + retained profit | The owners' stake. Retained profit includes all reserves and share premium; there is no separate line for them ([F-017](formula-register.md#f-017--total-equity)) |
@@ -37,7 +38,8 @@ list is in the [command reference](commands.md#spread)). A missing line item cou
 
 | Ratio (state key) | Formula | Reading |
 | :--- | :--- | :--- |
-| DSCR (EBITDA-based), debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (a cash-flow-based DSCR is a follow-up, issue #521). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR (EBITDA-based), debt service cover (`dscr`) | EBITDA / (interest paid + scheduled principal) | EBITDA-based: times EBITDA covers the year's debt service, not a cash-flow measure (the cash-flow-based DSCR is `cash_flow_dscr`, the next row). Above 1 means earnings cover it; a minimum covenant is typically set above 1 (here 1.25) |
+| DSCR (Cash Flow) (`cash_flow_dscr`) | (FCF after working capital + interest paid - interest received) / (interest paid + scheduled principal) | Cash flow available for debt service (after tax, capex and the working-capital movement; interest added back so it is deducted once) over the same debt service. N/A for the earliest period or any period with no recorded prior, and when debt service is zero or negative (issue #521) |
 | Gross leverage (`gross_leverage`) | total debt / EBITDA | Years of EBITDA needed to repay the debt; lower is stronger |
 | Net debt / EBITDA (`net_debt_to_ebitda`) | (total debt - cash) / EBITDA | Leverage after counting cash. Negative when cash exceeds debt (net cash) |
 | Gearing (`gearing`) | total debt / total equity | Debt relative to the owners' stake; see [Percent-type ratios are stored as fractions](#percent-type-ratios-are-stored-as-fractions) |
@@ -74,6 +76,7 @@ current debt 350, long-term debt 1650, intangible assets 100, share capital 500,
 
 - Gross profit = 5000 - 3000 = **2000**. Operating profit = 2000 - 1000 - 300 = **700**. EBITDA = 700 + 300 = **1000**.
 - Profit before tax = 700 - 150 = 550; net profit = 550 - 100 = 450. FCF = 1000 - 400 - 100 - 150 = **350**.
+- Operating working capital = 600 + 400 - 450 - 100 = **450** (FY-1's is 420); FCF after working capital = 350 - (450 - 420) = **320**.
 - Total debt = 350 + 1650 = **2000**. Total equity = 500 + 1800 = 2300. TNW = 2300 - 100 = **2200**.
 - Current assets = 250 + 600 + 400 = 1250; current liabilities = 450 + 350 + 100 = 900.
 - **DSCR** = 1000 / (150 + 350) = **2.0**. **Gross leverage** = 2000 / 1000 = **2.0**.
@@ -125,10 +128,13 @@ it must not reduce or offset positive exposure from another asset. The workbook'
 cells apply the same strictly positive exposure rule and show `N/A` otherwise. For valid, non-negative collateral inputs
 with a positive exposure, the existing collateral-value / exposure calculation and percentage scale are unchanged.
 
-**Accepted divergence (tracked in #378).** The exported workbook's total row sums the per-asset cells, so it can net a
-negative asset into a positive total and show a percentage, while `compute_collateral_cover_pct` returns `None` for the
-same input. The Python function is the policy-engine figure and the stricter of the two; aligning the workbook with it
-is tracked in #378.
+**Divergence closed at input (issue #378).** The exported workbook's total row sums the per-asset cells, so it could
+net a negative asset into a positive total and show a percentage, while `compute_collateral_cover_pct` returns `None` for
+the same input. Rather than guard the sheet a second time, a negative on any monetary collateral field
+(`exposure`, `cap_value`, `non_recovery`, `costs`, `collateral_value`) is now refused where the input is recorded:
+the headless `--collateral` route calls the shared `validate_collateral_inputs()` validator with one `error:` line,
+exit 1 and nothing written. `compute_collateral_cover_pct()`'s `None`-on-negative branch is kept as defence in depth.
+The interactive `/collateral` refusal is prompt-observance only until PR C wires the validator into it.
 
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its
@@ -151,7 +157,7 @@ stop and ask the analyst to confirm any UNRESOLVABLE result (decision of 2026-10
 ## Covenants
 
 A covenant is a condition in the facility: a **minimum** (the ratio must be at least the threshold) or a **maximum**
-(it must be at most the threshold), recorded as `{"metric": "dscr", "type": "minimum", "threshold": 1.25}`. Equality
+(it must be at most the threshold), recorded as `{"metric": "dscr", "type": "minimum", "threshold": 1.25}`; a covenant may equally name the cash-flow DSCR, `cash_flow_dscr` (issue #521). Equality
 passes. Results: `PASS`, `FAIL` or `UNRESOLVABLE`, with `actual` and a **headroom** as a fraction of the threshold's
 absolute value: for a minimum `(actual - threshold) / abs(threshold)`, for a maximum `(threshold - actual) /
 abs(threshold)`, so the headroom is positive when the covenant passes and negative when it fails whatever the
@@ -234,8 +240,8 @@ EBITDA rises: the rising ratios (DSCR, EBITDA / interest cover) pass a minimum c
 at-or-below; the leverage ratios fall over positive debt and rise over net cash, mirroring the two; a boundary at
 or below zero EBITDA or a zero numerator is reported with a note saying whether the covenant passes at every
 testable EBITDA or at none, never as a fabricated crossing. The EBITDA basis is the one the model computes: before exceptional items and
-including other income (decision D-a, issue #504); the DSCR is the EBITDA-based DSCR (decision D-d; a cash-flow DSCR
-is issue #521). A zero or negative ratio denominator (debt service or interest paid) leaves the ratio N/A and the
+including other income (decision D-a, issue #504); the DSCR is the EBITDA-based DSCR (decision D-d; the cash-flow
+DSCR, `cash_flow_dscr`, is not one of the report's break-even covenants). A zero or negative ratio denominator (debt service or interest paid) leaves the ratio N/A and the
 covenant UNRESOLVABLE, and no break-even is reported for it; a leverage covenant with a zero threshold has no
 boundary. A boundary at or below zero EBITDA means the ratio is N/A there, so the covenant is UNRESOLVABLE at
 EBITDA <= 0 before it can FAIL (and the report's note says whether it passes at every testable EBITDA or at none)
@@ -561,3 +567,12 @@ passes this flag: without it, `/project` supplying forward-year figures on a dea
 historicals were recorded via `/spread`'s analyst-supplied mode would silently flip the deal's
 flag back to `"framework-computed"`, dropping the Guideline 9 caveat requirement for figures
 that were never actually independently recomputed.
+
+
+## Collateral formula conventions (issue #266; proposed pending review)
+
+The collateral entries F-049–F-057 and F-066 define origination proxies, not a later-date exposure or a complete lease-accounting net-investment calculation. The residual value is a risk-team input and sits inside the financed amount on the book covered by the recorded maintainer decision. It is split out of the financed share and counted once: non-RV funded exposure plus RV exposure equals total exposure. The non-RV component is derived on the explicit assumption that the rental schedule amortises the non-RV slice without finance charges or profit margin; an analyst should challenge that assumption if the underlying contracts do not support it.
+
+Net exposure deducts only non-asset mitigants explicitly declared available on default and not already netted in the financing. It is floored at zero, with excess disclosed separately. Gross uncovered risk (F-055) remains before mitigants; net uncovered risk (F-066) is the distinct post-mitigant shortfall. Average LGD (F-057) is weighted by total exposure, the gross exposure-at-default proxy at origination. Max and average LGD are N/A if the asset set is empty, no LGDs are recorded, or any asset's LGD is missing.
+
+These figures exclude accrued interest, arrears and late charges. F-053's `costs` means enforcement/recovery costs only. Residual realisability, security/title, valuation provenance and cross-collateralisation remain narrative credit judgement, not calculated outputs. Full precision is retained in storage; rounding is for display only. Percent-type collateral ratios F-054 are fractions, while aggregate F-047 remains on its existing 0–100 scale (KD-2).

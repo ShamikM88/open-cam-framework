@@ -26,7 +26,7 @@ shortened):
   "steps_completed": ["spread", "project"],
   "financials_source": "framework-computed",
   "multi_period_financials": {"FY-Current": {"revenue": 5000, "cost_of_sales": 3000, "...": "..."}},
-  "financials": {"FY-Current": {"raw": {"...": "..."}, "ebitda": 1000, "tangible_net_worth": 2200, "...": "..."}},
+  "financials": {"FY-Current": {"raw": {"...": "..."}, "ebitda": 1000, "tangible_net_worth": 2200, "fcf_after_working_capital": 320, "...": "..."}},
   "ratios": {"FY-Current": {"dscr": 2.0, "gross_leverage": 2.0, "...": "..."},
              "FY+2": {"dscr": -0.20408163265306123, "gross_leverage": null, "...": "..."}},
   "stress_assumptions": {"revenue_haircut_pct": 5, "interest_rate_bump_bps": 200},

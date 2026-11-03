@@ -51,7 +51,7 @@ REQUIRED_FIELDS = (
 # carries them as "Proposed, not implemented" entries, so deleting any of them
 # is a drift the guard must catch.
 REQUIRED_PROPOSED_COLLATERAL = (
-    "Gross Exposure (Exc. RV)",
+    "Non-RV funded exposure (at origination)",
     "RV Exposure",
     "Total Exposure (Inc. RV)",
     "Net Exposure",
@@ -60,6 +60,7 @@ REQUIRED_PROPOSED_COLLATERAL = (
     "Uncovered Risk",
     "Max LGD",
     "Avg LGD",
+    "Net Uncovered Risk",
 )
 
 
@@ -331,13 +332,14 @@ def _formula_definition_fingerprints():
 # Recorded fingerprints of the formula definitions the register describes.
 # Refresh ONLY together with the register entries that describe what changed.
 FORMULA_DEFINITION_FINGERPRINTS = {
-    "SECTIONS": "b2711fa57b92edcb",
+    "SECTIONS": "0c6f493e387171e5",
     "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
     "numeric_validation:validate_stress_assumptions": "f4749b09600d2a7e",
     "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
     "numeric_validation:validate_period_objects": "54cbcf705411906a",
     "numeric_validation:validate_period_keys": "191fcb57c6a4687e",
     "numeric_validation:validate_finite_numbers": "7e2ff92c23c49b92",
+    "numeric_validation:validate_collateral_inputs": "c5b2a51d0ceee604",
     "policy_checks:compute_collateral_cover_pct": "4c7f372bd747b593",
     "policy_checks:ground_truth_figures": "e9a008c6a589413c",
     "policy_checks:values_match": "9c731a2d394a90b3",
@@ -356,10 +358,10 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:evaluate_deal_policy": "0b95f024cda35cb4",
     "policy_engine:evaluate_single_covenant": "163771ed0ae9b371",
     "spreading_builder:_ratio": "5e5bfd2f5fc6f866",
-    "spreading_builder:describe_undefined_ratio": "11e8e969fce62bd8",
-    "spreading_builder:evaluate_financial_model": "b70d1216d78726f2",
+    "spreading_builder:describe_undefined_ratio": "b53954b321e5073d",
+    "spreading_builder:evaluate_financial_model": "ad7d7d60eef71ab0",
     "spreading_builder:apply_stress_shocks": "219bcb8383f01754",
-    "spreading_builder:evaluate_downside_case": "272c81c8edd7a197",
+    "spreading_builder:evaluate_downside_case": "a2dc0beb4f67c46b",
     "spreading_builder:_column_headers": "2d844b9a66aa3c3a",
     "spreading_builder:_write_financial_spreading": "5d0ad93f82c6b64a",
     "spreading_builder:_write_collateral_sheet": "174bd3295f0b8109",
@@ -367,6 +369,8 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "covenant_cushion:ebitda_break_even": "79a9709c24bc66c3",
     "covenant_cushion:bracket_and_bisect": "aa5ca4f6184fb0e4",
     "covenant_cushion:_scenario_search": "cea853891d9088a5",
+    "spreading_builder:_prior_operating_working_capital": "977e009f56e75171",
+    "transcription_check:cross_foot": "8f5648c198969ab3",
 }
 
 

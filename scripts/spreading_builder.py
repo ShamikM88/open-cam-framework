@@ -46,6 +46,13 @@ COL_TO_PERIOD_KEY = dict(zip(HISTORICAL_COLS + FORWARD_COLS, HISTORICAL_PERIOD_K
                              strict=True))
 DOWNSIDE_COL_TO_PERIOD_KEY = dict(zip(DOWNSIDE_COLS, FORWARD_PERIOD_KEYS, strict=True))
 
+# The column a {prior:Label} reference reads (issue #520). A base-case column reads the column to its left (the
+# period columns are consecutive letters; the first reads the label column A). A downside column reads the BASE
+# period the downside case compares with, not the column beside it: evaluate_downside_case() passes the base case's
+# prior map, so FY+1 (Downside) is measured against FY-Current and FY+2/FY+3 (Downside) against the base FY+1/FY+2.
+PRIOR_COL = {col: chr(ord(col) - 1) for col in PERIOD_COLS}
+PRIOR_COL.update(zip(DOWNSIDE_COLS, [HISTORICAL_COLS[-1], *FORWARD_COLS[:-1]], strict=True))
+
 # Chart placement (issue #131): every anchor is derived from the table's last row -- these are the
 # margins that derivation uses, never hard-coded cells. CHART_MARGIN_ROWS is the gap between the
 # table and the first chart; CHART_SPACING_ROWS is the vertical distance between consecutive chart
@@ -110,7 +117,7 @@ PNL_ROWS: list[tuple[str, str | None]] = [
 RATIO_ROWS: list[tuple[str, str | None]] = [
     # The label states the row's basis (#518): the debt-service cover is computed
     # from the EBITDA row above (before exceptionals, incl. other income), not
-    # from an exceptions-adjusted earnings figure.
+    # from an earnings figure adjusted for exceptional items.
     ("DSCR (EBITDA-based)", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}+{Scheduled Principal Repayment}")),
     ("EBIT/Interest", _ratio("{Operating Profit}", "{Interest Paid}")),
     ("EBITDA/Interest", _ratio("{EBITDA (before exceptionals, incl. other income)}", "{Interest Paid}")),
@@ -196,8 +203,10 @@ WORKING_CAPITAL_ROWS: list[tuple[str, str | None]] = [
     ("Working Capital Cycle (days)",
      '=IFERROR({Trade Debtor Days}+{Stock Days}-{Trade Creditor Days},"N/A")'),
     # FCF after working capital (issue #520): FCF less the CHANGE in operating
-    # working capital. The {prior:...} references resolve to the same row one
-    # column LEFT -- the prior period's operating working capital, the same
+    # working capital. The {prior:...} references resolve to the same row in
+    # the prior period's column (PRIOR_COL: one column LEFT, except in a
+    # downside column, which reads the base period the downside case compares
+    # with) -- the prior period's operating working capital, the same
     # OWC the "FCF after Working Capital" Python metric in
     # evaluate_financial_model() uses (issue #520's decisions: the OWC level
     # is deliberately NOT stored as its own state key). The first period
@@ -356,9 +365,10 @@ def _resolve_formula(formula_template: str, row_of: Mapping[str, int], col: str)
     that label's own column+row (e.g. {Revenue} -> "B3").
 
     A {prior:Label} reference resolves to that same label's row in the
-    PREVIOUS period column (one letter earlier -- PERIOD_COLS are consecutive
-    letters): the "FCF after Working Capital" row reads the prior period's
-    operating working capital from the column to its left (issue #520). For
+    prior period's column, PRIOR_COL[col]: the column one letter earlier for a
+    base-case column, and the base period the downside case compares with for
+    a downside column (issue #520). The "FCF after Working Capital" row reads
+    the prior period's operating working capital from there. For
     the first period column (B) the reference resolves into the label column
     (text, and blank cells), which that row's COUNT guard reads as "no
     recorded prior" -> "N/A", mirroring evaluate_financial_model()'s None."""
@@ -367,8 +377,7 @@ def _resolve_formula(formula_template: str, row_of: Mapping[str, int], col: str)
         if label == "col":
             return col
         if label.startswith("prior:"):
-            prior_col = chr(ord(col) - 1)
-            return f"{prior_col}{row_of[label[len('prior:'):]]}"
+            return f"{PRIOR_COL[col]}{row_of[label[len('prior:'):]]}"
         return f"{col}{row_of[label]}"
     return LABEL_REF_RE.sub(repl, formula_template)
 
@@ -644,11 +653,9 @@ def evaluate_financial_model(
         # that omits an OWC line (e.g. no stock) defaults that line to 0
         # rather than refusing the whole deal. An intermediate, never stored
         # as its own state key (issue #520's decision) -- only the
-        # fcf_after_working_capital result below is.
-        operating_working_capital = (
-            trade_debtors + stock + other_current_assets
-            - trade_creditors - other_current_liabilities
-        )
+        # fcf_after_working_capital result below is. One definition, shared with
+        # the prior-period reads (CL548-1): the helper, not a second copy.
+        operating_working_capital = _operating_working_capital(raw)
 
         # FCF after working capital (issue #520): FCF less the CHANGE in
         # operating working capital. When there is no recorded prior period

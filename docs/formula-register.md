@@ -21,6 +21,7 @@ without the recorded fingerprints being refreshed.
 - **Non-finite inputs are refused.** NaN and infinity (and non-numeric values for recognised raw fields) are
   rejected with one error line before anything is written.
 - **No rounding in storage.** Figures are stored at full precision; rounding is display-only.
+- **Interest and tax inputs are P&L charges, not cash paid.** Under decision D-c of issue #504, `interest_paid` holds interest payable and similar charges, and `tax_paid` holds tax on profit. The P&L-charge basis carries through to FCF and DSCR; neither is a cash measure on this input basis.
 - **Operating profit and EBITDA are before exceptional items and include other income.** This is a house
   convention (decision D-a of issue #504). Exceptional costs are deducted only in profit before tax
   ([F-007](#f-007--profit-before-tax)), never in operating profit ([F-004](#f-004--operating-profit-ebit)) or
@@ -79,7 +80,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   convention and `FIELD_LABELS` mapping); input validation in `scripts/numeric_validation.py` —
   `validate_raw_line_items()`, `validate_period_objects()` and `validate_period_keys()`;
   `validate_finite_numbers()` for the policy state
-- **Basis:** house convention (default-0 inputs, null = unavailable)
+- **Basis:** house convention (default-0 inputs, null = unavailable; decision D-c of issue #504): `interest_paid` is the period's P&L charge: interest payable and similar charges, not cash interest paid in the period. `tax_paid` is the period's P&L charge: tax on profit, not cash tax paid in the period.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ## Statement subtotals and margins
@@ -175,10 +176,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** house convention (decision D-a of issue #504): exceptional costs are deducted here, at profit
+- **Basis:** house convention (decisions D-a and D-c of issue #504): exceptional costs are deducted here, at profit
   before tax, and nowhere above it; operating profit and EBITDA (F-004, F-006) are before exceptional items and
-  include other income (see [Conventions](#conventions-used-by-every-entry)); net profit (F-008) inherits the
-  deduction through profit before tax
+  include other income (see [Conventions](#conventions-used-by-every-entry)). `interest_paid` is the P&L charge, not
+  cash interest paid; net profit (F-008) inherits the exceptional-items deduction through profit before tax and
+  then deducts the tax charge itself.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-008 — Net Profit
@@ -192,7 +194,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `PNL_ROWS` (Profit & Loss)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-c of issue #504): `tax_paid` is the period's P&L charge: tax on profit, not
+  cash tax paid in the period.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-009 — Free Cash Flow (FCF)
@@ -207,11 +210,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`; workbook formula in
   `RATIO_ROWS` (Key Ratios)
-- **Basis:** house convention (decision D-b of issue #504): FCF **before working capital**, so a change in
+- **Basis:** house convention (decisions D-b and D-c of issue #504): FCF **before working capital**, so a change in
   trade debtors, stock or trade creditors does not move it; scheduled principal is deliberately excluded (DSCR,
-  F-021, covers debt service); EBITDA is before exceptional items and includes other income (F-006). A
-  working-capital-adjusted measure is a separate follow-up (issue #520); `fcf` and any covenant on it are
-  unchanged. See the [financial model](financial-model.md#statement-figures)
+  F-021, covers debt service); EBITDA is before exceptional items and includes other income (F-006). `interest_paid`
+  and `tax_paid` are P&L charges, not cash paid, so this FCF is not a cash-flow measure. A working-capital-adjusted
+  measure is a separate follow-up (issue #520); `fcf` and any covenant on it are unchanged. See the [financial model](financial-model.md#statement-figures)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-010 — FCF Conversion %
@@ -407,9 +410,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`),
   `describe_undefined_ratio()` for the UNRESOLVABLE reason; workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** house convention (decision D-d of issue #504): **EBITDA-based** DSCR, EBITDA over interest paid
-  plus scheduled principal, not cash flow available for debt service; EBITDA is before exceptional items and
-  includes other income (F-006). A cash-flow-based DSCR is a follow-up metric (issue #521)
+- **Basis:** house convention (decisions D-c and D-d of issue #504): **EBITDA-based** DSCR, EBITDA over the
+  P&L interest charge (`interest_paid`) plus scheduled principal, not cash flow available for debt service; EBITDA
+  is before exceptional items and includes other income (F-006). A cash-flow-based DSCR is a follow-up metric (issue #521)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-022 — EBIT/Interest
@@ -424,7 +427,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-c of issue #504): `interest_paid` is the P&L interest charge, not cash interest paid.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-023 — EBITDA/Interest
@@ -439,7 +442,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()` (via `safe_div`);
   workbook formula in `RATIO_ROWS` (Key Ratios)
-- **Basis:** standard definition
+- **Basis:** house convention (decision D-c of issue #504): `interest_paid` is the P&L interest charge, not cash interest paid.
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-024 — Current Ratio
@@ -578,7 +581,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
   (present, non-null), is N/A (`None` in state, "N/A" in the workbook) — never zero: a fabricated
   prior OWC would make the delta a fabricated number. An omitted OWC line reads as 0 (the file-wide
   omitted-defaults rule), so an omitted line is not N/A. The downside case's delta equals the base case's
-  delta (the shock transforms a period's own figures, never its prior-period comparison). No conversion
+  delta (the shock transforms a period's own figures, never its prior-period comparison); in the workbook a
+  downside column therefore reads the base period the downside case compares with (FY+1 (Downside) against
+  FY-Current, FY+2 and FY+3 (Downside) against the base FY+1 and FY+2), not the column beside it. No conversion
   ratio and no covenant on this metric in this change (explicitly deferred on #520)
 - **State keys:** `fcf_after_working_capital`
 - **Workbook rows:** FCF after Working Capital
@@ -590,8 +595,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `SUBTOTAL_FIELDS` (reported as not_assessed by `cross_foot()`: it also reads the prior period's
   working capital, which is never on the same transcription)
 - **Basis:** standard definition (issue #520 design note, comment 6536111534)
-- **Status:** Proposed, not implemented — this PR adds the implementation; the entry stays Proposed until the
-  maintainer reviews it (per the decision on #520), then flips to "Implemented, not yet reviewed by an analyst"
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ## Forward base case
 
@@ -908,8 +912,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Unit and storage:** percent (0-100 scale); only added to the ground-truth figures when it resolves
 - **Edge rules:** N/A (`None`, so the figure is omitted entirely rather than compared as a zero) when there is
   nothing to compute from (no collateral), when the total exposure is zero or negative, when any single asset has
-  a negative or non-finite exposure or collateral value (a negative asset is invalid input and never offsets
-  another asset's positive exposure), or when the result is not finite (issue #365); for valid non-negative inputs
+  a negative or non-finite exposure or collateral value (a negative asset is invalid input — refused at input
+  since issue #378, see F-048 — and never offsets another asset's positive exposure; the None-on-negative branch
+  is kept as defence in depth), or when the result is not finite (issue #365); for valid non-negative inputs
   with a positive exposure the calculation and the 0-100 scale are unchanged. The scale difference from the
   workbook's fraction is [Known differences](#known-differences) KD-2
 - **State keys:** —
@@ -930,15 +935,20 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")` per asset and the same on the total row)
 - **Unit and storage:** ratio as written by Excel (0-1 fraction of the inputs supplied); display-only cell
 - **Edge rules:** the same strictly-positive-denominator guard as the ratio cells (issue #365): a zero or
-  negative exposure shows "N/A" instead of a number. The guard looks at the exposure cell it divides by, so the
-  total row (a plain SUM of the per-asset rows, F-058) can still net a negative asset into a positive total and
-  show a percentage where F-047 returns N/A for the same input — an accepted, documented divergence,
-  [Known differences](#known-differences) KD-2 (tracked in issue #378)
+  negative exposure shows "N/A" instead of a number. A negative per-asset exposure or collateral value is refused
+  at input on the headless `--collateral` route (issue #378, `validate_collateral_inputs()`), before the sheet
+  is built, so on that route the total row (a plain SUM of the per-asset rows, F-058) can no longer net a
+  negative asset into a positive total: the mixed-sign netting is unreachable there rather than fixed in the
+  sheet. The same check refuses a payload that is not a list of assets and a monetary field that is not a number.
+  The interactive `/collateral` route is not covered until PR C of issue #266, so a negative can still be
+  recorded there; [Known differences](#known-differences) KD-2 says so and is narrowed to the scale difference
+  and that route
 - **State keys:** —
 - **Workbook rows:** CV % of Exposure
 - **Policy outputs:** —
 - **Implemented in:** `scripts/spreading_builder.py` — `_write_collateral_sheet()` (the per-asset cover formula
-  and the total-row cover formula)
+  and the total-row cover formula); `scripts/numeric_validation.py` — `validate_collateral_inputs()` (refuses a
+  negative on every monetary collateral field at input, issue #378)
 - **Basis:** house convention
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -952,9 +962,11 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`)
 - **Unit and storage:** sums of the supplied inputs, at full precision; display-only cells
 - **Edge rules:** literal column sums of the supplied values (ordinary SUM, which would offset a
-  mixed-sign input algebraically — the refusal of negative and mixed-sign amounts is a rule proposed for
-  F-049-F-057, not something this sheet enforces); the total row's cover cell is F-048's formula, not a
-  sum of the per-asset covers
+  mixed-sign input algebraically — a negative on any monetary collateral field is refused at input on the
+  headless route (issue #378, see F-048; the interactive route is not covered until PR C), so the sheet needs
+  no second guard there; refusing other negative and mixed-sign
+  amounts is a rule proposed for F-049-F-057, not something this sheet enforces); the total row's cover cell
+  is F-048's formula, not a sum of the per-asset covers
 - **State keys:** —
 - **Workbook rows:** Total
 - **Policy outputs:** —
@@ -1265,12 +1277,14 @@ maintainer, per the issue's instruction.
   (issues #365 and #378).** Since issue #365 both follow the N/A rule: the workbook's "CV % of Exposure"
   (F-048) is `=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")` per asset and on the total row, and the CAM's
   aggregate (`compute_collateral_cover_pct()`, F-047) returns `None` for a zero or negative total exposure.
-  What remains is deliberate or tracked: (1) the aggregate is quoted on a 0-100 scale while the workbook cell
-  and the proposed Coverage % (F-054) are raw fractions; (2) the aggregate also returns `None` when any single
-  asset has a negative or non-finite exposure or collateral value, whereas the workbook's total row is a plain
-  SUM guarded only on the summed exposure, so it can net a negative asset into a positive total and show a
-  percentage for input the aggregate omits. The second is an accepted divergence; refusing negative and
-  non-finite per-asset values at input is tracked in issue #378.
+  What remains is deliberate: the aggregate is quoted on a 0-100 scale while the workbook cell
+  and the proposed Coverage % (F-054) are raw fractions. The other former difference — the aggregate
+  returning `None` for a negative per-asset value while the workbook's total row (a plain SUM guarded only on
+  the summed exposure) could net it into a positive total — is no longer reachable on the headless
+  `--collateral` route: a negative on any monetary collateral field is refused at input there (issue #378, see
+  F-048), enforced in code. The interactive `/collateral` refusal is prompt-observance only until PR C, so a
+  negative can still be recorded on that route. KD-2 is narrowed accordingly, and `compute_collateral_cover_pct()`'s None-on-negative branch is kept as defence in
+  depth.
 
 ## Drift guard
 

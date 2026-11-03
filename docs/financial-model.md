@@ -18,6 +18,8 @@ formula, unit, edge rules, implementation reference and status, under a stable i
 Each is computed from the raw line items you supply for a period (`revenue`, `cost_of_sales`, and so on; the field
 list is in the [command reference](commands.md#spread)). A missing line item counts as 0; it is never invented.
 
+`interest_paid` is the period's P&L charge: interest payable and similar charges, not cash interest paid in the period. `tax_paid` is the period's P&L charge: tax on profit, not cash tax paid in the period. (Decision D-c of issue #504.) The names are retained for compatibility; these inputs do not describe cash payment timing.
+
 | Term | How it is computed | Plain meaning |
 | :--- | :--- | :--- |
 | Gross profit | revenue - cost of sales | What is left after the direct cost of what was sold |
@@ -125,10 +127,13 @@ it must not reduce or offset positive exposure from another asset. The workbook'
 cells apply the same strictly positive exposure rule and show `N/A` otherwise. For valid, non-negative collateral inputs
 with a positive exposure, the existing collateral-value / exposure calculation and percentage scale are unchanged.
 
-**Accepted divergence (tracked in #378).** The exported workbook's total row sums the per-asset cells, so it can net a
-negative asset into a positive total and show a percentage, while `compute_collateral_cover_pct` returns `None` for the
-same input. The Python function is the policy-engine figure and the stricter of the two; aligning the workbook with it
-is tracked in #378.
+**Divergence closed at input (issue #378).** The exported workbook's total row sums the per-asset cells, so it could
+net a negative asset into a positive total and show a percentage, while `compute_collateral_cover_pct` returns `None` for
+the same input. Rather than guard the sheet a second time, a negative on any monetary collateral field
+(`exposure`, `cap_value`, `non_recovery`, `costs`, `collateral_value`) is now refused where the input is recorded:
+the headless `--collateral` route calls the shared `validate_collateral_inputs()` validator with one `error:` line,
+exit 1 and nothing written. `compute_collateral_cover_pct()`'s `None`-on-negative branch is kept as defence in depth.
+The interactive `/collateral` refusal is prompt-observance only until PR C wires the validator into it.
 
 A covenant on an N/A ratio is **UNRESOLVABLE**: it cannot be tested. That is neither a pass nor a fail, and it is the
 same for a minimum and a maximum covenant. A covenant is also UNRESOLVABLE if its type is not `minimum`/`maximum`, its

@@ -503,6 +503,12 @@ def describe_undefined_ratio(metric: str, period_financials: object) -> str | No
             return f"{name} not meaningful: {label} is negative"
         if value == 0:
             return f"{name} not defined: {label} is zero"
+    # The cash-flow DSCR's numerator is N/A when the period has no recorded prior period (CG551-1): say so, rather
+    # than leave the covenant with a bare "no computed value". Only an explicit None counts; an absent key is
+    # "cannot say".
+    if metric == "cash_flow_dscr" and "fcf_after_working_capital" in period_financials \
+            and period_financials["fcf_after_working_capital"] is None:
+        return "cash flow DSCR not available: FCF after working capital has no recorded prior period"
     return None
 
 

@@ -357,7 +357,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:evaluate_deal_policy": "0b95f024cda35cb4",
     "policy_engine:evaluate_single_covenant": "163771ed0ae9b371",
     "spreading_builder:_ratio": "5e5bfd2f5fc6f866",
-    "spreading_builder:describe_undefined_ratio": "11e8e969fce62bd8",
+    "spreading_builder:describe_undefined_ratio": "b53954b321e5073d",
     "spreading_builder:evaluate_financial_model": "ad7d7d60eef71ab0",
     "spreading_builder:apply_stress_shocks": "219bcb8383f01754",
     "spreading_builder:evaluate_downside_case": "a2dc0beb4f67c46b",

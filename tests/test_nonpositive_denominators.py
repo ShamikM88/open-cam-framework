@@ -167,6 +167,9 @@ def test_an_n_a_ratio_with_a_positive_denominator_gets_a_generic_reason_not_a_wr
 def test_every_ratio_with_a_denominator_can_explain_itself(metric):
     name, denominators = RATIO_DENOMINATORS[metric]
     healthy = model(HEALTHY)["financials"]["FY-Current"]
+    # HEALTHY is a single period, so fcf_after_working_capital is None there; give it a recorded figure so the cash-flow
+    # DSCR's numerator exists (a missing prior period is explained on its own, CG551-1).
+    healthy = {**healthy, "fcf_after_working_capital": 0.0}
     assert describe_undefined_ratio(metric, healthy) is None            # positive denominators: nothing to explain
     for label, _read in denominators:
         broken = {"raw": dict(HEALTHY), **{k: v for k, v in healthy.items() if k != "raw"}}
@@ -527,4 +530,19 @@ def test_a_first_period_cash_flow_dscr_covenant_is_unresolvable():
     # cash_flow_dscr has no computed value -- the covenant is UNRESOLVABLE, never zero.
     result = _cash_flow_dscr_result({"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)})
     assert result["status"] == "UNRESOLVABLE"
-    assert result["reason"] == "cash_flow_dscr has no computed value for this period"
+    # CG551-1: the reason names the cause (no recorded prior period for the working-capital movement), not a bare
+    # "no computed value".
+    assert result["reason"] == "cash flow DSCR not available: FCF after working capital has no recorded prior period"
+
+
+def test_describe_undefined_ratio_names_the_missing_prior_period_for_the_cash_flow_dscr():
+    assert describe_undefined_ratio("cash_flow_dscr", {"fcf_after_working_capital": None}) == (
+        "cash flow DSCR not available: FCF after working capital has no recorded prior period")
+    # A figure the period never recorded is "cannot say", not a missing prior.
+    assert describe_undefined_ratio("cash_flow_dscr", {}) is None
+    assert describe_undefined_ratio("cash_flow_dscr", {"fcf_after_working_capital": 320}) is None
+    # A zero debt service is the more specific reason and wins.
+    assert describe_undefined_ratio(
+        "cash_flow_dscr",
+        {"fcf_after_working_capital": None, "raw": {"interest_paid": 0, "scheduled_principal": 0}},
+    ) == "cash flow DSCR not defined: debt service (interest paid + scheduled principal) is zero"

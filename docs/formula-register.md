@@ -607,7 +607,9 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Edge rules:** debt service (interest_paid + scheduled_principal) zero or negative → N/A (`None`) and any
   covenant on it UNRESOLVABLE with the F-021-style reason ("cash flow DSCR not defined: debt service (interest
   paid + scheduled principal) is zero"); N/A wherever `fcf_after_working_capital` is N/A (the earliest period,
-  or no recorded prior period, per F-064), never zero. The downside case moves only with the shocked lines: the
+  or no recorded prior period, per F-064), never zero, and a covenant on it then reads "cash flow DSCR not
+  available: FCF after working capital has no recorded prior period" (debt service zero takes precedence). The
+  downside case moves only with the shocked lines: the
   working-capital delta and net interest stay the base case's. Balloon and lease principal have no raw line and
   are outside debt service (a known limitation; a schema change would be its own issue). A framework-stressed
   analyst-supplied forecast year is evaluated on its own lines, with no prior period, so its stressed

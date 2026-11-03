@@ -2392,6 +2392,26 @@ def test_cash_flow_dscr_workbook_row(tmp_path):
     assert _evaluate(ws, "D", row, memo) == pytest.approx(0.94)
 
 
+def test_cash_flow_dscr_workbook_columns_equal_state_for_base_and_downside_years(tmp_path):
+    """PX551-1: the row reads FCF after Working Capital, so it inherited the downside prior-column error that
+    #548's PX548-1 fixed; this keeps the DSCR (Cash Flow) cells equal to state.json for every forward column."""
+    service = {"interest_paid": 50, "scheduled_principal": 100}
+    data = {period: dict(raw, **service) for period, raw in _downside_workbook_deal()[0].items()}
+    base = evaluate_financial_model(data)
+    downside = evaluate_downside_case(data, {"revenue_haircut_pct": 10})
+    downside_raw = {period: dict(downside["financials"][period]["raw"]) for period in downside["financials"]}
+    out_path = tmp_path / "test_deal.xlsx"
+    export_to_xlsx("Test Co", str(out_path), financial_data=data, downside_financial_data=downside_raw)
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["DSCR (Cash Flow)"]
+    memo = {}
+
+    for col, period, state in (("E", "FY+1", base), ("F", "FY+2", base), ("G", "FY+3", base),
+                               ("H", "FY+1", downside), ("I", "FY+2", downside), ("J", "FY+3", downside)):
+        assert _evaluate(ws, col, row, memo) == pytest.approx(state["ratios"][period]["cash_flow_dscr"])
+
+
 def test_cash_flow_dscr_is_suppliable_in_analyst_supplied_columns(tmp_path):
     assert "cash_flow_dscr" in SUPPLIED_RATIOS
     assert SUPPLIED_ROW_LABELS["cash_flow_dscr"] == "DSCR (Cash Flow)"

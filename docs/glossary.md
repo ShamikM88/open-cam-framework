@@ -10,7 +10,8 @@ agreement, the agreement and source documents take precedence.
 - **Covenant:** A promise or financial test in a lending agreement that the parties are expected to
   meet; the agreement sets out the consequences of breach.
 - **DSCR (Debt Service Coverage Ratio):** EBITDA divided by the P&L interest charge (`interest_paid`, not cash
-  interest paid) plus scheduled principal repayments over the same period; it indicates how earnings cover scheduled debt service.
+  interest paid) plus scheduled principal repayments over the same period; it indicates how earnings cover scheduled debt service. The
+  cash-flow DSCR (`cash_flow_dscr`) divides cash flow available for debt service by the same debt service instead.
 - **EBITDA:** Earnings before interest, tax, depreciation and amortisation; a common measure of
   operating earnings, not the same as cash available for debt service.
 - **Finance lease:** An asset-finance arrangement in which a customer pays to use an asset over an

@@ -103,6 +103,11 @@ SUBTOTAL_DEPENDS = {
 }
 RATIO_DEPENDS = {
     "dscr": (*_PROFIT, "interest_paid", "scheduled_principal"),
+    # issue #521 -- the cash-flow DSCR reads fcf_after_working_capital's lines plus debt service. It also
+    # needs the prior period's working capital, which a single supplied year never carries, so a
+    # framework-derived downside of such a year leaves it N/A (the register's F-065 edge rule).
+    "cash_flow_dscr": (*_CASH_FLOW, "trade_debtors", "stock", "other_current_assets", "trade_creditors",
+                       "other_current_liabilities", "scheduled_principal"),
     "gross_leverage": (*_DEBT, *_PROFIT),
     "net_debt_to_ebitda": (*_DEBT, "cash", *_PROFIT),
     "current_ratio": (*_CURRENT_ASSETS, *_CURRENT_LIABILITIES),

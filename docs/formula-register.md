@@ -409,7 +409,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `describe_undefined_ratio()` for the UNRESOLVABLE reason; workbook formula in `RATIO_ROWS` (Key Ratios)
 - **Basis:** house convention (decisions D-c and D-d of issue #504): **EBITDA-based** DSCR, EBITDA over the
   P&L interest charge (`interest_paid`) plus scheduled principal, not cash flow available for debt service; EBITDA
-  is before exceptional items and includes other income (F-006). A cash-flow-based DSCR is a follow-up metric (issue #521)
+  is before exceptional items and includes other income (F-006). The cash-flow-based DSCR is F-065 (issue #521)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-022 — EBIT/Interest
@@ -592,6 +592,37 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `SUBTOTAL_FIELDS` (reported as not_assessed by `cross_foot()`: it also reads the prior period's
   working capital, which is never on the same transcription)
 - **Basis:** standard definition (issue #520 design note, comment 6536111534)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-065 — DSCR (Cash Flow)
+
+- **Name:** DSCR (Cash Flow) — cash flow available for debt service over debt service; CAM/state key
+  `cash_flow_dscr`, a second DSCR beside the EBITDA-based one (F-021), which is unchanged
+- **Formula:** cash_flow_dscr = (fcf_after_working_capital + interest_paid − interest_received) /
+  (interest_paid + scheduled_principal), where the numerator is CFADS: FCF after working capital (F-064)
+  grossed back up for net interest, so interest is deducted once, in the denominator (option A of the design
+  note; option B, F-064 alone, was rejected as double counting interest) (workbook: DSCR (Cash Flow) = (FCF
+  after Working Capital + Interest Paid − Interest Received) / (Interest Paid + Scheduled Principal Repayment))
+- **Unit and storage:** times (a multiple, not a percent-type ratio); full precision, no rounding in storage
+- **Edge rules:** debt service (interest_paid + scheduled_principal) zero or negative → N/A (`None`) and any
+  covenant on it UNRESOLVABLE with the F-021-style reason ("cash flow DSCR not defined: debt service (interest
+  paid + scheduled principal) is zero"); N/A wherever `fcf_after_working_capital` is N/A (the earliest period,
+  or no recorded prior period, per F-064), never zero, and a covenant on it then reads "cash flow DSCR not
+  available: FCF after working capital has no recorded prior period" (debt service zero takes precedence). The
+  downside case moves only with the shocked lines: the
+  working-capital delta and net interest stay the base case's. Balloon and lease principal have no raw line and
+  are outside debt service (a known limitation; a schema change would be its own issue). A framework-stressed
+  analyst-supplied forecast year is evaluated on its own lines, with no prior period, so its stressed
+  `cash_flow_dscr` is N/A
+- **State keys:** `cash_flow_dscr`
+- **Workbook rows:** DSCR (Cash Flow)
+- **Policy outputs:** —
+- **Implemented in:** `scripts/spreading_builder.py` — `evaluate_financial_model()`, `describe_undefined_ratio()`
+  (via `RATIO_DENOMINATORS`) for the UNRESOLVABLE reason; workbook formula in `WORKING_CAPITAL_ROWS` (Working
+  Capital, after FCF after Working Capital, which it reads); `SUPPLIED_RATIOS`/`SUPPLIED_ROW_LABELS`;
+  `scripts/supplied_forecast.py` — `RATIO_DEPENDS`; `scripts/transcription_check.py` — `RATIO_FIELDS` (ratios
+  are never cross-footed)
+- **Basis:** house convention (issue #521 design note, comment 6536115953; decisions, comment 6555375115)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ## Forward base case
@@ -1126,7 +1157,7 @@ The read-only cushion report of issue #470 (`scripts/covenant_cushion.py`; see
 derivations: every covenant row, status and limit the report prints is the policy engine's own result, reused
 through `scripts/policy_engine.py` — `evaluate_single_covenant()`, never re-implemented. The EBITDA basis is the
 house convention throughout (decision D-a of issue #504: before exceptional items, including other income); the
-DSCR is the EBITDA-based DSCR (decision D-d of issue #504; a cash-flow DSCR is issue #521). The report writes
+DSCR is the EBITDA-based DSCR (decision D-d of issue #504; the cash-flow DSCR, F-065, is not one of the report's break-even covenants). The report writes
 nothing; nothing here is stored in state.
 
 ### F-059 — DSCR EBITDA break-even

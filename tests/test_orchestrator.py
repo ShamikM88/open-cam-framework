@@ -2637,9 +2637,13 @@ def test_validate_collateral_inputs_names_an_asset_with_no_labels_by_position():
         validate_collateral_inputs([{"exposure": -5, "collateral_value": 80}])
 
 
-def test_validate_collateral_inputs_skips_a_non_object_entry_and_refuses_the_next_negative():
-    with pytest.raises(ValueError, match=r"collateral\[HGV\]: collateral_value must be a non-negative finite number; found -1"):
-        validate_collateral_inputs(["not an asset", {"asset_class": "HGV", "exposure": 100, "collateral_value": -1}])
+@pytest.mark.parametrize("entry", ["not an asset", 7, None, ["x"], True],
+                         ids=["string", "number", "null", "list", "boolean"])
+def test_validate_collateral_inputs_refuses_a_non_object_entry(entry):
+    """CG550-3: a skipped non-object member later reached a .get() and crashed with AttributeError."""
+    good = {"asset_class": "HGV", "exposure": 100, "collateral_value": 80}
+    with pytest.raises(ValueError, match=r"collateral\[index 1\]: each asset must be an object; found "):
+        validate_collateral_inputs([good, entry])
 
 
 def test_validate_collateral_inputs_accepts_an_absent_payload():

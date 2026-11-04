@@ -182,11 +182,11 @@ def validate_collateral_inputs(value):
     input and could net into a positive workbook total, so the refusal belongs
     where the input is recorded, not in each consumer. Zero is a valid figure
     and is accepted; null (the established spelling of an unavailable input)
-    and unknown keys are left alone, and an entry that is not an object is
-    skipped. Two shapes are refused rather than skipped, because skipping them
-    would let a negative through: a payload that is not a list of assets, and a
-    monetary field that is not a number (a string such as "-500", a boolean, a
-    list or an object). Non-finite values are refused by validate_finite_numbers,
+    and unknown keys are left alone. Three shapes are refused rather than
+    skipped, because skipping them would let a negative through or crash a
+    later consumer (CG550-3): a payload that is not a list of assets, an entry
+    that is not an object, and a monetary field that is not a number (a string
+    such as "-500", a boolean, a list or an object). Non-finite values are refused by validate_finite_numbers,
     which callers run first. The error names the asset, field and value in one
     line.
     """
@@ -198,7 +198,9 @@ def validate_collateral_inputs(value):
         )
     for index, asset in enumerate(value):
         if not isinstance(asset, dict):
-            continue
+            raise MalformedCollateralInputError(
+                f"collateral[index {index}]: each asset must be an object; found {asset!r}"
+            )
         label = _collateral_asset_label(asset, index)
         for field in COLLATERAL_MONETARY_FIELDS:
             item = asset.get(field)

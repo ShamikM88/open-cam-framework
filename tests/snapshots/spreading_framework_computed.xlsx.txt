@@ -442,8 +442,8 @@ chart barChart anchor=A86 display_blanks=gap
 chart barChart anchor=A104 display_blanks=gap
   series title="'Financial Spreading'!A58" values="'Financial Spreading'!H58:J58" categories="'Financial Spreading'!H1:J1"
   series title="'Financial Spreading'!A59" values="'Financial Spreading'!H59:J59" categories="'Financial Spreading'!H1:J1"
-== sheet 'Collateral & Exposure' dims=A1:I3
-widths: {'A': 22.0, 'B': 16.0, 'C': 16.0, 'D': 16.0, 'E': 16.0, 'F': 16.0, 'G': 16.0, 'H': 16.0, 'I': 16.0}
+== sheet 'Collateral & Exposure' dims=A1:Q3
+widths: {'A': 22.0, 'B': 16.0, 'C': 16.0, 'D': 16.0, 'E': 16.0, 'F': 16.0, 'G': 16.0, 'H': 16.0, 'I': 16.0, 'J': 16.0, 'K': 16.0, 'L': 16.0, 'M': 16.0, 'N': 16.0, 'O': 16.0, 'P': 16.0, 'Q': 16.0}
 A1: 'Asset Class'  [bold]
 B1: 'Exposure (Rental + RV)'  [bold]
 C1: 'Number of Units'  [bold]
@@ -453,11 +453,27 @@ F1: 'Costs'  [bold]
 G1: 'Collateral Value'  [bold]
 H1: 'CV % of Exposure'  [bold]
 I1: 'Perfection Status'  [bold]
+J1: 'Non-RV Funded Exposure'  [bold]
+K1: 'RV Exposure'  [bold]
+L1: 'Total Exposure (Inc. RV)'  [bold]
+M1: 'Net Exposure'  [bold]
+N1: 'Coverage %'  [bold]
+O1: 'Uncovered Risk (Gross)'  [bold]
+P1: 'Net Uncovered Risk'  [bold]
+Q1: 'LGD %'  [bold]
 A2: 'Vehicles'
 B2: 800
 G2: 700
 H2: '=IFERROR(IF(B2>0,G2/B2,"N/A"),"N/A")'
 I2: 'Registered'
+J2: 'N/A'
+K2: 'N/A'
+L2: 'N/A'
+M2: 'N/A'
+N2: 'N/A'
+O2: 'N/A'
+P2: 'N/A'
+Q2: 'N/A'
 A3: 'Total'
 B3: '=SUM(B2:B2)'
 C3: '=SUM(C2:C2)'
@@ -466,3 +482,10 @@ E3: '=SUM(E2:E2)'
 F3: '=SUM(F2:F2)'
 G3: '=SUM(G2:G2)'
 H3: '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'
+J3: '=IF(COUNT(J2:J2)=0,"N/A",SUM(J2:J2))'
+K3: '=IF(COUNT(K2:K2)=0,"N/A",SUM(K2:K2))'
+L3: '=IF(COUNT(L2:L2)=0,"N/A",SUM(L2:L2))'
+M3: '=IF(COUNT(M2:M2)=0,"N/A",SUM(M2:M2))'
+N3: '=IFERROR(IF(L3>0,G3/L3,"N/A"),"N/A")'
+O3: '=IF(COUNT(O2:O2)=0,"N/A",SUM(O2:O2))'
+P3: '=IF(COUNT(P2:P2)=0,"N/A",SUM(P2:P2))'

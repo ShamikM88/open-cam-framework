@@ -79,7 +79,12 @@ returns `N/A` when its denominator is not positive, matching `state.json`'s `nul
 
 **Collateral & Exposure** has one row per asset: `Asset Class`, `Exposure (Rental + RV)`, `Number of Units`,
 `Cap / Model Value`, `Non-Recovery`, `Costs`, `Collateral Value`, `CV % of Exposure` (a formula) and `Perfection
-Status`, filled from the deal's `collateral` list.
+Status`, filled from the deal's `collateral` list. When the state carries a `collateral_analysis` (issue #266),
+the same rows gain eight value columns with the calculator's persisted per-asset figures — `Non-RV Funded
+Exposure`, `RV Exposure`, `Total Exposure (Inc. RV)`, `Net Exposure`, `Coverage %`, `Uncovered Risk (Gross)`,
+`Net Uncovered Risk` and `LGD %` — joined by `asset_id` and used only when the stored `input_digest` matches the
+stored inputs; otherwise the cells read `N/A`. These are written values, not a second Excel implementation of the
+formulas, and the deal-level LGD figures stay out of the workbook.
 
 For an analyst-supplied historical basis, the historical raw-input cells are filled from
 `analyst_supplied_financials`. Forward raw inputs are selected per period: when `forecast_source` is

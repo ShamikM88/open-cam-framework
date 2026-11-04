@@ -1285,6 +1285,19 @@ nothing; nothing here is stored in state.
 - **Basis:** added by maintainer decision: retain F-055 as gross uncovered risk and add this separate post-mitigant measure
 - **Status:** Implemented, not yet reviewed by an analyst
 
+### F-067 — Stressed Residual-Realisation Sensitivity
+
+- **Name:** Stressed Residual-Realisation Sensitivity — collateral recovery, cover and shortfall under an explicit residual-realisation scenario (issue #549)
+- **Formula:** residual part = min(F-053 collateral value, F-050 RV exposure); non-residual part = F-053 collateral value − residual part; stressed_collateral_value = max(0, non-residual part + (rv_realisation_pct ÷ 100) × residual part); stressed_coverage_pct = Σ stressed_collateral_value ÷ Σ F-051 total exposure; stressed_gross_uncovered_risk = Σ max(0, F-051 total exposure − stressed_collateral_value); stressed_net_uncovered_risk = Σ max(0, F-052 net exposure − stressed_collateral_value). The exposure denominators are the unchanged F-051/F-052 origination values. Worked example: valuation 100,000, down payment 20% (financed 80,000), RV 40% (40,000), collateral value 60,000 at 50% realisation: residual part 40,000, non-residual part 20,000, stressed collateral 40,000, stressed coverage 0.5, stressed gross uncovered risk 40,000 (base 20,000), the same 40,000 for net uncovered risk with no mitigants
+- **Unit and storage:** currency amounts and a fraction ratio; full precision. Report-only derived outputs: the explicit rv_realisation_pct assumption is stored in stress_assumptions; the stressed outputs are not stored — they appear in the collateral calculator's JSON output only
+- **Edge rules:** rv_realisation_pct is an explicit finite JSON number from 0 to 100 (100 = full realisation); absent means no stressed output; out-of-range or malformed values are refused, never defaulted or clamped. The residual/non-residual split is deterministic (no new analyst input); each asset's stressed value and shortfalls are floored per asset; no cross-asset netting. Stressed coverage is N/A for a non-positive total exposure. Stressed variants exist for F-053, F-054, F-055 and F-066 only; F-049, F-050, F-051, F-052, F-056 and F-057 are unchanged. A sub-1 rv_realisation_pct value means sub-1 percent (0.5 = 0.5%), per the shared stress-assumption warning rule
+- **State keys:** `stress_assumptions.rv_realisation_pct` (input, read from state) — no derived state keys; the stressed outputs are report-only
+- **Workbook rows:** —
+- **Policy outputs:** —
+- **Implemented in:** `scripts/collateral_check.py` — `stressed_collateral_value()`, `apply_rv_realisation_stress()` and `_stressed_output()`; the key is accepted by `scripts/numeric_validation.py` — `validate_stress_assumptions()`
+- **Basis:** maintainer decisions 12-13 on #549 (comment 6617969057): residual-only stress with the lower-of split, one deal-level scenario, report-only outputs; the corrected worked example supersedes the issue body's whole-collateral haircut (comment 6597670645)
+- **Status:** Implemented, not yet reviewed by an analyst
+
 ## Known differences
 
 Disagreements found while writing this register. None is fixed in this PR; each is recorded here for the
@@ -1326,8 +1339,8 @@ maintainer, per the issue's instruction.
    `docs/examples/synthetic_co` has no register entry (state keys uncovered);
 3. a rule of the policy engine — a key of `evaluate_deal_policy()`'s result — has no register entry;
 4. an entry names a file or function that does not exist in the repository;
-5. one of the collateral entries (F-049-F-057 or F-066) or its "Implemented, not yet reviewed by an analyst"
-   status is deleted.
+5. one of the collateral entries (F-049-F-057, F-066 or F-067) or its "Implemented, not yet reviewed by an
+   analyst" status is deleted.
 
 Removing an entry therefore fails the suite through the coverage checks; renaming a function or moving a
 file fails it through the existence check. The guard is one-directional by design: the register may describe

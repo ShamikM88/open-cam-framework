@@ -61,6 +61,8 @@ REQUIRED_IMPLEMENTED_COLLATERAL = (
     "Max LGD",
     "Avg LGD",
     "Net Uncovered Risk",
+    # Issue #549's F-067 is guarded by the same implemented-status rule.
+    "Stressed Residual-Realisation Sensitivity",
 )
 
 
@@ -338,8 +340,11 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "collateral_check:allocate_net_exposure": "aa5b571bba090cbc",
     "collateral_check:calculate_deal_results": "8f30bf8e70f9559e",
     "collateral_check:calculate_collateral_analysis": "3519ac7ff1bad97f",
+    "collateral_check:stressed_collateral_value": "3e05dc5c5abcb335",
+    "collateral_check:apply_rv_realisation_stress": "a8e52ad0704f5c4a",
+    "collateral_check:_stressed_output": "3b73cd8544883c26",
     "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
-    "numeric_validation:validate_stress_assumptions": "f4749b09600d2a7e",
+    "numeric_validation:validate_stress_assumptions": "1ab1331c89b292d8",
     "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
     "numeric_validation:validate_period_objects": "54cbcf705411906a",
     "numeric_validation:validate_period_keys": "191fcb57c6a4687e",

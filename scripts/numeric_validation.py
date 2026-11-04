@@ -14,8 +14,8 @@ class StressAssumptionsError(ValueError):
     """A downside stress assumption violates the agreed unit/range rules."""
 
 
-STRESS_KEYS = ("revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps")
-STRESS_PERCENT_KEYS = ("revenue_haircut_pct", "opex_increase_pct")
+STRESS_KEYS = ("revenue_haircut_pct", "opex_increase_pct", "interest_rate_bump_bps", "rv_realisation_pct")
+STRESS_PERCENT_KEYS = ("revenue_haircut_pct", "opex_increase_pct", "rv_realisation_pct")
 
 
 def validate_stress_assumptions(value):
@@ -46,6 +46,11 @@ def validate_stress_assumptions(value):
         if key == "revenue_haircut_pct" and item >= 100:
             raise StressAssumptionsError(
                 f"stress assumptions: revenue_haircut_pct must be less than 100; found {item!r}"
+            )
+        if key == "rv_realisation_pct" and item > 100:
+            raise StressAssumptionsError(
+                f"stress assumptions: rv_realisation_pct must be at most 100 "
+                f"(100 is full realisation); found {item!r}"
             )
 
     for key in STRESS_PERCENT_KEYS:

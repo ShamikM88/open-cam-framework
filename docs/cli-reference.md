@@ -400,6 +400,14 @@ never zero). Percentages are fractions in [0, 1]; `est_rv_pct` above the finance
 [financial-model.md](financial-model.md) for the formulas and [data-model.md](data-model.md) for the
 stored shape.
 
+If the deal's stored `stress_assumptions` carries `rv_realisation_pct` (issue #549; F-067), the printed
+JSON also carries a top-level `stressed` object with the residual-only stress figures — per-asset
+`stressed_collateral_value`, `stressed_coverage_pct`, `stressed_uncovered_risk` and
+`stressed_net_uncovered_risk`, and deal-level `stressed_total_collateral_value`, `stressed_coverage_pct`,
+`stressed_gross_uncovered_risk` and `stressed_net_uncovered_risk`. These are report-only: nothing
+derived is written to `state.json`, and the stored assumption is untouched. An out-of-range or malformed
+stored assumption is refused with one `error:` line and nothing written.
+
 ```bash
 python scripts/collateral_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --input-file "deals/Synthetic Co/Synthetic Fleet Loan_collateral_input.json"

@@ -345,7 +345,7 @@ def _load_payload(path: str) -> Any:
     if path == "-":
         text = sys.stdin.read()
     else:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             text = handle.read()
     return json.loads(text)
 

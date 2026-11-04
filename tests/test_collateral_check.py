@@ -209,6 +209,27 @@ def test_optional_monetary_inputs_default_to_zero_through_validation():
     assert validated["number_of_units"] == 0
 
 
+def test_a_whole_number_of_units_is_stored_as_an_integer():
+    validated = validate_collateral_payload(_payload(assets=[_asset(number_of_units=3)]))["assets"][0]
+    assert validated["number_of_units"] == 3
+    assert isinstance(validated["number_of_units"], int)
+    analysis = collateral_check.calculate_collateral_analysis(_payload(assets=[_asset(number_of_units=3)]))
+    row = collateral_check.collateral_projection(analysis)[0]
+    assert isinstance(row["number_of_units"], int)
+
+
+def test_the_cli_does_not_swallow_an_unexpected_key_error(monkeypatch, tmp_path):
+    payload_file = tmp_path / "payload.json"
+    payload_file.write_text(json.dumps(_payload()), encoding="utf-8")
+
+    def broken(_payload):
+        raise KeyError("a bug, not a refusal")
+
+    monkeypatch.setattr(collateral_check, "calculate_collateral_analysis", broken)
+    with pytest.raises(KeyError):
+        collateral_check.main(["--company", "Co", "--proposal", "P", "--input-file", str(payload_file)])
+
+
 # ---------------------------------------------------------------------------
 # Validation: payload shape
 # ---------------------------------------------------------------------------

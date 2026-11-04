@@ -592,3 +592,15 @@ def test_cli_reports_a_corrupted_state_as_one_error_line(workdir):
     assert result.stderr.startswith("error: ")
     assert result.stderr.count("\n") == 1
     assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("asset_id", ["max", "avg"])
+def test_an_asset_id_that_collides_with_a_deal_level_ground_truth_key_is_refused(asset_id):
+    """CG559-1: 'max' and 'avg' make collateral_<id>_lgd_pct equal collateral_max_lgd_pct / collateral_avg_lgd_pct."""
+    with pytest.raises(CollateralInputError, match="reserved"):
+        validate_collateral_payload(_payload(assets=[_asset(asset_id=asset_id)]))
+
+
+def test_reserved_asset_ids_are_matched_exactly_and_case_sensitively():
+    validated = validate_collateral_payload(_payload(assets=[_asset(asset_id="MAX"), _asset(asset_id="maximum")]))
+    assert [asset["asset_id"] for asset in validated["assets"]] == ["MAX", "maximum"]

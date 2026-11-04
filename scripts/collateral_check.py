@@ -313,6 +313,7 @@ def collateral_projection(analysis: dict) -> list:
     """The backward-compatible ``collateral`` rows, from the stored analysis results."""
     return [
         {
+            "asset_id": asset["asset_id"],
             "asset_class": asset["inputs"].get("asset_class", ""),
             "exposure": asset["results"]["total_exposure"],
             "number_of_units": asset["inputs"].get("number_of_units", 0),

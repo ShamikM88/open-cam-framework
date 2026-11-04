@@ -1346,6 +1346,7 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
     assert xlsx_kwargs == {
         "financial_data": financial_data,
         "collateral_data": collateral_data,
+        "collateral_analysis": None,
         "downside_financial_data": downside_financial_data,
         "supplied_values": supplied_values,
         "supplied_downside_values": supplied_downside_values,
@@ -1772,17 +1773,20 @@ def test_workbook_inputs_from_state_selects_one_raw_store_per_period_and_passes_
     inputs = workbook_inputs_from_state(state)
 
     assert set(inputs) == {
-        "financial_data", "collateral_data", "downside_financial_data", "supplied_values",
-        "supplied_downside_values", "blank_downside_periods", "derived_downside_fields", "group_basis"}
+        "financial_data", "collateral_data", "collateral_analysis", "downside_financial_data",
+        "supplied_values", "supplied_downside_values", "blank_downside_periods",
+        "derived_downside_fields", "group_basis"}
     assert inputs["financial_data"] == {"FY-Current": {"revenue": 500}, "FY+1": {"revenue": 600}}
     assert inputs["collateral_data"] == [{"asset": "Synthetic asset"}]
+    assert inputs["collateral_analysis"] is None
     assert inputs["group_basis"] is group_basis
     assert inputs["supplied_values"]["FY-Current"] and inputs["downside_financial_data"] is None
 
 
 def test_workbook_inputs_from_state_for_an_empty_state_is_all_none():
     assert workbook_inputs_from_state({}) == {
-        "financial_data": None, "collateral_data": None, "downside_financial_data": None, "supplied_values": None,
+        "financial_data": None, "collateral_data": None, "collateral_analysis": None,
+        "downside_financial_data": None, "supplied_values": None,
         "supplied_downside_values": None, "blank_downside_periods": None, "derived_downside_fields": None,
         "group_basis": None}
 

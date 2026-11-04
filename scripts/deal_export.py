@@ -194,6 +194,7 @@ def workbook_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "financial_data": _financial_data_from_state(state) or None,
         "collateral_data": _collateral_data_from_state(state),
+        "collateral_analysis": state.get("collateral_analysis"),
         "downside_financial_data": _downside_financial_data_from_state(state) or None,
         "supplied_values": supplied_values,
         "supplied_downside_values": supplied_downside_values,

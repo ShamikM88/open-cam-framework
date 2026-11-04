@@ -131,6 +131,22 @@ def test_a_stale_digest_makes_the_result_cells_na(tmp_path):
     assert _cells(ws, 2) == ["N/A"] * 8
 
 
+def test_a_malformed_analysis_yields_no_results(tmp_path):
+    analysis = _analysis()
+    analysis["assets"] = "not-a-list"
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8
+
+
+def test_an_asset_without_stored_inputs_yields_no_results(tmp_path):
+    analysis = _analysis()
+    analysis["assets"] = [{"asset_id": "AST-001", "results": {}}]
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8
+
+
 # ---------------------------------------------------------------------------
 # N/A semantics: missing LGD and zero-exposure coverage
 # ---------------------------------------------------------------------------

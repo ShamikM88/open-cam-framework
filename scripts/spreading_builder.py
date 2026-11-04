@@ -9,6 +9,7 @@ from openpyxl.chart.data_source import StrRef
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font
 
+from collateral_check import canonical_input_digest
 from numeric_validation import validate_finite_numbers, validate_period_keys, validate_raw_line_items
 
 # Forward periods used both here (workbook columns) and by
@@ -274,6 +275,24 @@ COLLATERAL_HEADERS = [
     "Cap / Model Value", "Non-Recovery", "Costs", "Collateral Value", "CV % of Exposure",
     "Perfection Status",
 ]
+
+# The per-asset collateral figures persisted by the #266 calculator
+# (collateral_check.calculate_collateral_analysis), written as literal values
+# joined to the sheet rows by asset_id -- never recomputed in Excel, so the
+# workbook cannot drift from the stored results (issue #266, decisions 2 and 6).
+# A result column is "N/A" when no analysis is stored, the row carries no
+# asset_id to join on, the stored input_digest does not match the stored
+# inputs (decision 5), or the register says the figure is N/A (e.g. a missing
+# LGD or a zero-exposure coverage) -- never zero (F-054, F-057).
+COLLATERAL_RESULT_HEADERS = [
+    "Non-RV Funded Exposure", "RV Exposure", "Total Exposure (Inc. RV)", "Net Exposure",
+    "Coverage %", "Uncovered Risk (Gross)", "Net Uncovered Risk", "LGD %",
+]
+COLLATERAL_RESULT_KEYS = (
+    "non_rv_funded_exposure", "rv_exposure", "total_exposure", "net_exposure",
+    "coverage_pct", "uncovered_risk", "net_uncovered_risk", "lgd_pct",
+)
+COLLATERAL_HEADERS = [*COLLATERAL_HEADERS, *COLLATERAL_RESULT_HEADERS]
 
 # Raw multi-period schema field -> the row label it populates. Shared by
 # evaluate_financial_model() (computes subtotals/ratios from these same raw
@@ -1127,7 +1146,52 @@ def _formula_or_supplied(
     return _resolve_formula(formula_template, row_of, col)
 
 
-def _write_collateral_sheet(wb: Any, collateral_data: Sequence[Mapping[str, Any]] | None = None) -> None:
+def _collateral_results_by_asset_id(collateral_analysis: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
+    """The per-asset results of a stored analysis, keyed by asset_id.
+
+    Empty unless the stored ``input_digest`` matches the stored inputs
+    (decision 5 on issue #266): a stale or malformed analysis yields no
+    results, and every result column is then "N/A" rather than a figure the
+    calculator did not certify for these inputs.
+    """
+    if not isinstance(collateral_analysis, Mapping):
+        return {}
+    assets = collateral_analysis.get("assets")
+    if not isinstance(assets, Sequence) or isinstance(assets, (str, bytes)):
+        return {}
+    try:
+        recomputed = canonical_input_digest({
+            "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in assets],
+            "mitigants": collateral_analysis.get("mitigants", []),
+        })
+    except (KeyError, TypeError, IndexError):
+        return {}
+    if recomputed != collateral_analysis.get("input_digest"):
+        return {}
+    return {
+        asset["asset_id"]: asset["results"]
+        for asset in assets
+        if isinstance(asset, Mapping) and isinstance(asset.get("asset_id"), str)
+        and isinstance(asset.get("results"), Mapping)
+    }
+
+
+def _collateral_result_cells(results: Mapping[str, Any] | None) -> list[Any]:
+    """The literal result-column values for one row: persisted numbers, "N/A" where None."""
+    if results is None:
+        return ["N/A"] * len(COLLATERAL_RESULT_KEYS)
+    cells = []
+    for key in COLLATERAL_RESULT_KEYS:
+        value = results.get(key)
+        cells.append(value if isinstance(value, (int, float)) and not isinstance(value, bool) else "N/A")
+    return cells
+
+
+def _write_collateral_sheet(
+    wb: Any,
+    collateral_data: Sequence[Mapping[str, Any]] | None = None,
+    collateral_analysis: Mapping[str, Any] | None = None,
+) -> None:
     ws = wb.create_sheet("Collateral & Exposure")
     ws.append(COLLATERAL_HEADERS)
     for cell in ws[1]:
@@ -1136,9 +1200,12 @@ def _write_collateral_sheet(wb: Any, collateral_data: Sequence[Mapping[str, Any]
     assets = collateral_data or [{}]
     first_row = 2
     last_row = first_row + len(assets) - 1
+    results_by_asset_id = _collateral_results_by_asset_id(collateral_analysis)
 
     for i, asset in enumerate(assets):
         row = first_row + i
+        asset_id = asset.get("asset_id") if isinstance(asset, Mapping) else None
+        results = results_by_asset_id.get(asset_id) if isinstance(asset_id, str) else None
         ws.append([
             asset.get("asset_class"),
             asset.get("exposure"),
@@ -1149,6 +1216,7 @@ def _write_collateral_sheet(wb: Any, collateral_data: Sequence[Mapping[str, Any]
             asset.get("collateral_value"),
             f'=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")',
             asset.get("perfection_status"),
+            *_collateral_result_cells(results),
         ])
 
     total_row = last_row + 1
@@ -1162,10 +1230,23 @@ def _write_collateral_sheet(wb: Any, collateral_data: Sequence[Mapping[str, Any]
         f"=SUM(G{first_row}:G{last_row})",
         f'=IFERROR(IF(B{total_row}>0,G{total_row}/B{total_row},"N/A"),"N/A")',
         None,
+        # The result columns: plain SUMs for the monetary figures, aggregate
+        # coverage on summed collateral / summed total exposure (like the CV %
+        # formula, guarded on a strictly positive denominator), and no LGD %
+        # total -- the deal-level LGD figures stay out of the workbook
+        # (decision 8 on issue #266).
+        f"=SUM(J{first_row}:J{last_row})",
+        f"=SUM(K{first_row}:K{last_row})",
+        f"=SUM(L{first_row}:L{last_row})",
+        f"=SUM(M{first_row}:M{last_row})",
+        f'=IFERROR(IF(L{total_row}>0,G{total_row}/L{total_row},"N/A"),"N/A")',
+        f"=SUM(O{first_row}:O{last_row})",
+        f"=SUM(P{first_row}:P{last_row})",
+        None,
     ])
 
     ws.column_dimensions["A"].width = 22
-    for col in "BCDEFGHI":
+    for col in "BCDEFGHIJKLMNOPQ":
         ws.column_dimensions[col].width = 16
 
 
@@ -1200,6 +1281,7 @@ def export_to_xlsx(
     output_path: str | os.PathLike[str],
     financial_data: Mapping[str, Any] | None = None,
     collateral_data: Sequence[Mapping[str, Any]] | None = None,
+    collateral_analysis: Mapping[str, Any] | None = None,
     downside_financial_data: Mapping[str, Any] | None = None,
     supplied_values: Mapping[str, Mapping[str, Any]] | None = None,
     supplied_downside_values: Mapping[str, Mapping[str, Any]] | None = None,
@@ -1223,6 +1305,12 @@ def export_to_xlsx(
     at all already is. `collateral_data` is a flat list of asset dicts (see
     COLLATERAL_HEADERS / FIELD_LABELS for the expected keys); a single blank
     row is written if omitted, matching the prior blank-template behaviour.
+    `collateral_analysis` is the stored #266 analysis (see
+    collateral_check.calculate_collateral_analysis): its per-asset results are
+    written as literal values in the result columns, joined to the rows by
+    asset_id, and only when the stored input_digest matches the stored inputs
+    -- otherwise those columns are "N/A". It can be omitted: the sheet then
+    has exactly its pre-#266 content in the first nine columns.
 
     `supplied_values` / `supplied_downside_values` ({period: {row label: value}}) are the forward-year base-case and
     downside figures an analyst supplied (issue #124): in those columns the computed rows hold the supplied values
@@ -1241,7 +1329,7 @@ def export_to_xlsx(
                                 supplied_downside_values=supplied_downside_values,
                                 blank_downside_periods=blank_downside_periods,
                                 derived_downside_fields=derived_downside_fields)
-    _write_collateral_sheet(wb, collateral_data=collateral_data)
+    _write_collateral_sheet(wb, collateral_data=collateral_data, collateral_analysis=collateral_analysis)
     if group_basis is not None:
         _write_group_basis_sheet(wb, group_basis)
     wb.save(output_path)

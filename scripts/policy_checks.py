@@ -20,7 +20,7 @@ import sys
 from collections.abc import Iterable, Mapping
 from typing import Any, TypedDict
 
-from collateral_check import ASSET_ID_RE, stored_analysis_digest_matches
+from collateral_check import ASSET_ID_RE, RESERVED_ASSET_IDS, stored_analysis_digest_matches
 from draft_lint import DraftContentError, lint_draft
 from template_resolver import cam_template_path
 
@@ -166,7 +166,13 @@ COLLATERAL_DEAL_LGD_KEYS = ("collateral_max_lgd_pct", "collateral_avg_lgd_pct")
 
 
 def _plain_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    """A real, finite number that fits a float (a huge int is not a figure: math.isfinite would overflow)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
 
 
 def collateral_analysis_ground_truth(collateral_analysis: Any) -> dict[str, Any]:
@@ -183,9 +189,12 @@ def collateral_analysis_ground_truth(collateral_analysis: Any) -> dict[str, Any]
         return {}
     assets = collateral_analysis["assets"]
     asset_ids = [asset.get("asset_id") if isinstance(asset, dict) else None for asset in assets]
-    if len(set(asset_ids)) != len(asset_ids) or not all(
-        isinstance(asset_id, str) and ASSET_ID_RE.fullmatch(asset_id) for asset_id in asset_ids
-    ):
+    # Check every id is a conforming, non-reserved string before building a set from them: an unhashable id
+    # (a list or object in a hand-edited state) would otherwise raise instead of being omitted (CG559-2).
+    if not all(
+        isinstance(asset_id, str) and ASSET_ID_RE.fullmatch(asset_id) and asset_id not in RESERVED_ASSET_IDS
+        for asset_id in asset_ids
+    ) or len(set(asset_ids)) != len(asset_ids):
         return {}
     truth: dict[str, Any] = {}
     for asset_id, asset in zip(asset_ids, assets, strict=True):

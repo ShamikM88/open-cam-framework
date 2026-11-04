@@ -35,6 +35,10 @@ CALCULATOR_VERSION = "1.0.0"
 # Decision 3: the asset identifier grammar.
 ASSET_ID_RE = re.compile(r"[A-Za-z0-9-]{1,32}")
 
+# collateral_<asset_id>_lgd_pct must never equal a deal-level ground-truth key (decision 4):
+# asset ids "max" and "avg" would produce collateral_max_lgd_pct / collateral_avg_lgd_pct (CG559-1).
+RESERVED_ASSET_IDS = frozenset({"max", "avg"})
+
 # The per-asset monetary inputs that must be non-negative when present, and
 # their documented defaults (F-049 to F-051: absent means zero, never a guess).
 OPTIONAL_NON_NEGATIVE_INPUTS = {
@@ -78,6 +82,11 @@ def _validate_asset(asset: Any, index: int, seen_asset_ids: set[str]) -> dict[st
     if not isinstance(asset_id, str) or not ASSET_ID_RE.fullmatch(asset_id):
         raise CollateralInputError(
             f"collateral[index {index}]: asset_id must match [A-Za-z0-9-]{{1,32}}; found {asset_id!r}"
+        )
+    if asset_id in RESERVED_ASSET_IDS:
+        raise CollateralInputError(
+            f"collateral[index {index}]: asset_id {asset_id!r} is reserved (it would collide with the deal-level "
+            f"collateral_{asset_id}_lgd_pct figure); choose another asset_id"
         )
     if asset_id in seen_asset_ids:
         raise CollateralInputError(f"collateral: duplicate asset_id {asset_id!r}")

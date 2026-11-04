@@ -516,7 +516,10 @@ deal's actual computed figures into one lookup dict. FY-Current retains plain me
 `ebitda_FY-1` and `dscr_FY+1`). A stored, current `collateral_analysis` (its `input_digest` matches its
 stored inputs) adds `collateral_<asset_id>_<metric>` per asset and `collateral_max_lgd_pct` and
 `collateral_avg_lgd_pct`, copied from the calculator's results; a stale or N/A result is omitted, never
-defaulted. Downside keys retain their distinct `{metric}_{period}_downside` suffix; `check_draft_compliance(draft_text,
+defaulted. A per-asset `coverage_pct` and `lgd_pct` are fractions (0.75 = 75%), unlike the aggregate
+`collateral_cover_pct`, which is on a 0 to 100 scale. The asset ids `max` and `avg` are reserved (the calculator
+refuses them) because `collateral_max_lgd_pct` and `collateral_avg_lgd_pct` would otherwise collide with an
+asset's `lgd_pct`. Downside keys retain their distinct `{metric}_{period}_downside` suffix; `check_draft_compliance(draft_text,
 policy_state, ground_truth_figures_dict, financials_source=None, credit_policy_present=None)` is
 the single source of truth for "why would this draft be code-enforced-REJECTED" -- covenant/
 security/CP/CS completeness, risk-taxonomy coverage (`REQUIRED_RISK_TAXONOMY`), narrative-vs-

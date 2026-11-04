@@ -301,7 +301,8 @@ def test_policy_check_compute_without_an_analysis_keeps_the_legacy_result(tmp_pa
 @pytest.mark.parametrize("asset_id", ["max", "avg"])
 def test_an_asset_id_that_would_collide_with_a_deal_level_key_adds_no_keys(asset_id):
     """CG559-1: collateral_max_lgd_pct is also asset 'max' metric lgd_pct; the aggregate overwrote the asset."""
-    analysis = _analysis([_asset("AST-001"), _asset(asset_id, lgd_pct=0.3)])
+    analysis = _analysis([_asset("AST-001"), _asset("AST-002", lgd_pct=0.3)])
+    analysis["assets"][1]["asset_id"] = asset_id  # as a hand-edited state could hold it
     assert _per_asset_keys(_truth(_redigest(analysis))) == set()
 
 

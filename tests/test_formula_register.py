@@ -352,7 +352,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "numeric_validation:validate_collateral_inputs": "43bc947c7639697c",
     "policy_checks:compute_collateral_cover_pct": "4c7f372bd747b593",
     "policy_checks:ground_truth_figures": "e008272f89cf688b",
-    "policy_checks:collateral_analysis_ground_truth": "b8b1b60e0834c177",
+    "policy_checks:collateral_analysis_ground_truth": "4df431af5cf197aa",
     "collateral_check:stored_analysis_digest_matches": "4aa2c46944bf6613",
     "policy_checks:values_match": "9c731a2d394a90b3",
     "policy_checks:check_reported_figures": "a741a70e6cff04b3",

@@ -1164,7 +1164,9 @@ def _collateral_results_by_asset_id(collateral_analysis: Mapping[str, Any] | Non
             "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in assets],
             "mitigants": collateral_analysis.get("mitigants", []),
         })
-    except (KeyError, TypeError, IndexError):
+    except (KeyError, TypeError, IndexError, ValueError):
+        # ValueError: json.dumps(allow_nan=False) on a hand-edited NaN/Infinity;
+        # a malformed analysis yields no results, never a failed export.
         return {}
     if recomputed != collateral_analysis.get("input_digest"):
         return {}

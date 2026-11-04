@@ -147,6 +147,14 @@ def test_an_asset_without_stored_inputs_yields_no_results(tmp_path):
     assert _cells(ws, 2) == ["N/A"] * 8
 
 
+def test_an_analysis_with_non_finite_inputs_yields_no_results(tmp_path):
+    analysis = _analysis()
+    analysis["assets"][0]["inputs"]["valuation"] = float("nan")
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8
+
+
 # ---------------------------------------------------------------------------
 # N/A semantics: missing LGD and zero-exposure coverage
 # ---------------------------------------------------------------------------

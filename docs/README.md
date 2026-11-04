@@ -11,6 +11,7 @@ Claude Code follows when it works in this repository.
 | Understand how the pieces fit together, and the difference between running through Claude Code and running the Python scripts | [Architecture](architecture.md) |
 | Walk through a deal end to end with worked examples | [Workflows](workflows.md) |
 | Look up what a slash command asks for and writes | [Command reference](commands.md) |
+| Understand the collateral calculation workflow, its inputs, workbook outputs and policy use | [Collateral analysis](collateral.md) |
 | Use the analyst aids (information gaps, evidence audit, reading financials, policy fit, credit challenge and credit-risk review) | [Skills](skills.md) |
 | Know what a Claude Code skill may and may not be in this repository, and which are planned | [Skill design](skill-design.md) |
 | Understand the figures: ratios, covenants, the policy engine, spreading | [Financial model and policy engine](financial-model.md) |
@@ -46,6 +47,7 @@ The pages are listed in reading order: how it works, how to use it, what it prod
 | [architecture.md](architecture.md) | The idea, the two execution modes (authentication, billing, what stays local), the pipeline, where code ends and the model begins, and the annotated repository map |
 | [workflows.md](workflows.md) | Worked synthetic examples: calibration, research, spreading, policy checking, assembly and export, review, resuming a deal |
 | [commands.md](commands.md) | The slash commands: inputs, outputs, state written, failure modes, cost and security |
+| [collateral.md](collateral.md) | End-to-end collateral analysis: input ownership, deterministic calculation, recorded results, workbook columns, policy ground truth and RV sensitivity |
 | [skills.md](skills.md) | The analyst skills that ship with the framework: what each does and runs, what they never do, and how to use them safely |
 | [skill-design.md](skill-design.md) | Skills: the taxonomy, how they are invoked, why none is input to the Maker or the Checker, the single command-and-skill inventory, the planned first tranche and what is deferred |
 | [financial-model.md](financial-model.md) | Financial terms and ratios with worked numbers, N/A and UNRESOLVABLE, covenants, the downside case, what the policy engine decides |

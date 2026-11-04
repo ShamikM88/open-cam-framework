@@ -322,3 +322,22 @@ def test_an_integer_too_large_for_a_float_is_omitted_not_a_crash(huge):
     truth = _truth(analysis)
     assert "collateral_AST-001_total_exposure" not in truth
     assert "collateral_AST-001_uncovered_risk" in truth
+
+
+def test_an_edited_stored_result_adds_no_collateral_keys():
+    """CG559-3: a result-only edit leaves the input digest unchanged but is detected by recomputation."""
+    analysis = _analysis()
+    analysis["assets"][0]["results"]["collateral_value"] = 1.0
+    assert _per_asset_keys(_truth(analysis)) == set()
+
+
+def test_an_edited_deal_level_lgd_adds_no_collateral_keys():
+    analysis = _analysis()
+    analysis["results"]["collateral_max_lgd_pct"] = 0.99
+    assert _per_asset_keys(_truth(analysis)) == set()
+
+
+def test_an_analysis_from_another_calculator_version_adds_no_collateral_keys():
+    analysis = _analysis()
+    analysis["calculator_version"] = "0.9.0"
+    assert _per_asset_keys(_truth(analysis)) == set()

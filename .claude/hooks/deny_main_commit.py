@@ -307,8 +307,22 @@ def _tokens(segment, shell):
     return tokens
 
 
+def _git_bash_drive_path(path):
+    """On Windows, read a Git Bash drive path (/c/Users/x) as C:/Users/x; any other path is returned unchanged.
+
+    Claude Code's Bash tool on Windows is Git Bash, so a command can say `cd /c/Projects/repo`. Windows Python cannot
+    open that spelling, which made every such commit target "undeterminable" and raised a permission prompt. Reading
+    it correctly only lets the guard see the real repository and branch, so a commit on main is still denied.
+    """
+    if os.name == "nt":
+        match = re.fullmatch(r"/([A-Za-z])(/.*)?", path)
+        if match:
+            return f"{match.group(1).upper()}:{match.group(2) or '/'}"
+    return path
+
+
 def _path_from_argument(argument, current):
-    argument = _unquote(argument)
+    argument = _git_bash_drive_path(_unquote(argument))
     expanded = os.path.expanduser(os.path.expandvars(argument))
     if not expanded or any(marker in expanded for marker in ("$env:", "${", "%")):
         return None

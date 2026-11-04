@@ -1232,18 +1232,19 @@ def _write_collateral_sheet(
         f"=SUM(G{first_row}:G{last_row})",
         f'=IFERROR(IF(B{total_row}>0,G{total_row}/B{total_row},"N/A"),"N/A")',
         None,
-        # The result columns: plain SUMs for the monetary figures, aggregate
+        # The result columns: SUMs for the monetary figures (N/A when no row carries a
+        # figure, never a zero total for a deal with no or a stale analysis), aggregate
         # coverage on summed collateral / summed total exposure (like the CV %
         # formula, guarded on a strictly positive denominator), and no LGD %
         # total -- the deal-level LGD figures stay out of the workbook
         # (decision 8 on issue #266).
-        f"=SUM(J{first_row}:J{last_row})",
-        f"=SUM(K{first_row}:K{last_row})",
-        f"=SUM(L{first_row}:L{last_row})",
-        f"=SUM(M{first_row}:M{last_row})",
+        f'=IF(COUNT(J{first_row}:J{last_row})=0,"N/A",SUM(J{first_row}:J{last_row}))',
+        f'=IF(COUNT(K{first_row}:K{last_row})=0,"N/A",SUM(K{first_row}:K{last_row}))',
+        f'=IF(COUNT(L{first_row}:L{last_row})=0,"N/A",SUM(L{first_row}:L{last_row}))',
+        f'=IF(COUNT(M{first_row}:M{last_row})=0,"N/A",SUM(M{first_row}:M{last_row}))',
         f'=IFERROR(IF(L{total_row}>0,G{total_row}/L{total_row},"N/A"),"N/A")',
-        f"=SUM(O{first_row}:O{last_row})",
-        f"=SUM(P{first_row}:P{last_row})",
+        f'=IF(COUNT(O{first_row}:O{last_row})=0,"N/A",SUM(O{first_row}:O{last_row}))',
+        f'=IF(COUNT(P{first_row}:P{last_row})=0,"N/A",SUM(P{first_row}:P{last_row}))',
         None,
     ])
 

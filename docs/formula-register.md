@@ -995,7 +995,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   ("Costs"), total_collateral_value = Σ collateral_value ("Collateral Value") (workbook:
   `=SUM(B{first_row}:B{last_row})` … `=SUM(G{first_row}:G{last_row})`). The result columns (issue #266) follow
   the same rule: the monetary ones ("Non-RV Funded Exposure", "RV Exposure", "Total Exposure (Inc. RV)",
-  "Net Exposure", "Uncovered Risk (Gross)", "Net Uncovered Risk") are plain SUMs; the aggregate Coverage %
+  "Net Exposure", "Uncovered Risk (Gross)", "Net Uncovered Risk") are SUMs, shown as "N/A" when no row carries a figure; the aggregate Coverage %
   is summed collateral / summed total exposure — F-048's guarded division on the total row's own cells
   (`=IFERROR(IF(L{total_row}>0,G{total_row}/L{total_row},"N/A"),"N/A")`), not a sum of the per-asset covers;
   the LGD % column has no total: the deal-level LGD figures (F-056, F-057) stay out of the workbook

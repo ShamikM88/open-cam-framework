@@ -292,3 +292,32 @@ def test_policy_check_compute_without_an_analysis_keeps_the_legacy_result(tmp_pa
                      draft_path=_draft(tmp_path, {"collateral_AST-001_total_exposure": 80000.0}))
     assert any(reason.startswith("UNRESOLVABLE_REPORTED_FIGURE") and "collateral_AST-001" in reason
                for reason in result["reasons"])
+
+
+# ---------------------------------------------------------------------------
+# Review findings CG559-1, CG559-2, CG559-4
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("asset_id", ["max", "avg"])
+def test_an_asset_id_that_would_collide_with_a_deal_level_key_adds_no_keys(asset_id):
+    """CG559-1: collateral_max_lgd_pct is also asset 'max' metric lgd_pct; the aggregate overwrote the asset."""
+    analysis = _analysis([_asset("AST-001"), _asset(asset_id, lgd_pct=0.3)])
+    assert _per_asset_keys(_truth(_redigest(analysis))) == set()
+
+
+@pytest.mark.parametrize("asset_id", [["x"], {"a": 1}, 5, None, True])
+def test_an_unhashable_or_non_string_asset_id_is_omitted_not_a_crash(asset_id):
+    """CG559-2: set() over the ids raised TypeError for a list or object id with a valid digest."""
+    analysis = _analysis()
+    analysis["assets"][0]["asset_id"] = asset_id
+    assert _per_asset_keys(_truth(_redigest(analysis))) == set()
+
+
+@pytest.mark.parametrize("huge", [10**400, -(10**400)], ids=["positive", "negative"])
+def test_an_integer_too_large_for_a_float_is_omitted_not_a_crash(huge):
+    """CG559-4: math.isfinite() raised OverflowError on a huge int."""
+    analysis = _analysis()
+    analysis["assets"][0]["results"]["total_exposure"] = huge
+    truth = _truth(analysis)
+    assert "collateral_AST-001_total_exposure" not in truth
+    assert "collateral_AST-001_uncovered_risk" in truth

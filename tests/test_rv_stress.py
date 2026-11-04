@@ -146,8 +146,10 @@ def test_the_stressed_deal_figures_sum_the_asset_figures():
     results = stressed["results"]
     assert results["stressed_total_collateral_value"] == pytest.approx(85000)
     assert results["stressed_coverage_pct"] == pytest.approx(85000 / 120000)
-    assert results["stressed_gross_uncovered_risk"] == pytest.approx(0)
-    assert results["stressed_net_uncovered_risk"] == pytest.approx(0)
+    # A's stressed collateral 40,000 against its 80,000 exposure leaves 40,000
+    # uncovered; B is fully covered (45,000 against 40,000).
+    assert results["stressed_gross_uncovered_risk"] == pytest.approx(40000)
+    assert results["stressed_net_uncovered_risk"] == pytest.approx(40000)
 
 
 def test_stressed_net_uncovered_risk_accounts_for_mitigants():

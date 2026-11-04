@@ -327,6 +327,89 @@ def collateral_projection(analysis: dict) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Stressed residual-realisation sensitivity (issue #549; register F-067)
+# ---------------------------------------------------------------------------
+
+def stressed_collateral_value(results: dict, rv_realisation_pct: float) -> float:
+    """The residual-only stress of decision 12: only the residual part is stressed.
+
+    Residual part = the lower of the F-053 collateral value and the F-050 RV
+    exposure; the rest is non-residual.
+    stressed = non-residual part + (rv_realisation_pct / 100) x residual part.
+    """
+    collateral_value = results["collateral_value"]
+    residual_part = min(collateral_value, results["rv_exposure"])
+    non_residual_part = collateral_value - residual_part
+    return max(0.0, non_residual_part + (rv_realisation_pct / 100.0) * residual_part)
+
+
+def apply_rv_realisation_stress(analysis: dict, rv_realisation_pct: float) -> dict:
+    """The stressed variants of F-053, F-054, F-055 and F-066, report-only.
+
+    The exposure denominators are the unchanged F-051 total exposure and
+    F-052 net exposure; F-049, F-050, F-051, F-052, F-056 and F-057 have no
+    stressed variants.
+    """
+    assets = []
+    for asset in analysis["assets"]:
+        results = asset["results"]
+        stressed_value = stressed_collateral_value(results, rv_realisation_pct)
+        total_exposure = results["total_exposure"]
+        assets.append({
+            "asset_id": asset["asset_id"],
+            "stressed_collateral_value": stressed_value,
+            "stressed_coverage_pct": (
+                None if total_exposure <= 0 else stressed_value / total_exposure
+            ),
+            "stressed_uncovered_risk": max(0.0, total_exposure - stressed_value),
+            "stressed_net_uncovered_risk": max(0.0, results["net_exposure"] - stressed_value),
+        })
+
+    total_exposure = sum(asset["results"]["total_exposure"] for asset in analysis["assets"])
+    stressed_total = sum(asset["stressed_collateral_value"] for asset in assets)
+    return {
+        "rv_realisation_pct": rv_realisation_pct,
+        "assets": assets,
+        "results": {
+            "stressed_total_collateral_value": stressed_total,
+            "stressed_coverage_pct": None if total_exposure <= 0 else stressed_total / total_exposure,
+            "stressed_gross_uncovered_risk": sum(
+                asset["stressed_uncovered_risk"] for asset in assets
+            ),
+            "stressed_net_uncovered_risk": sum(
+                asset["stressed_net_uncovered_risk"] for asset in assets
+            ),
+        },
+    }
+
+
+def _stressed_output(state: dict | None, analysis: dict) -> dict | None:
+    """The report-only stressed figures, or None when the deal carries no assumption.
+
+    Nothing derived is persisted: this object goes to the CLI output only.
+    A stored assumption that violates the 0-100 rule is refused, never clamped.
+    """
+    if not state:
+        return None
+    assumptions = state.get("stress_assumptions") or {}
+    if not isinstance(assumptions, dict) or "rv_realisation_pct" not in assumptions:
+        return None
+    value = assumptions["rv_realisation_pct"]
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value \
+            or value in (float("inf"), float("-inf")):
+        raise CollateralInputError(
+            "stress assumptions: rv_realisation_pct must be a finite number; "
+            f"found {value!r}"
+        )
+    if not 0 <= value <= 100:
+        raise CollateralInputError(
+            f"stress assumptions: rv_realisation_pct must be within [0, 100] "
+            f"(100 is full realisation); found {value!r}"
+        )
+    return apply_rv_realisation_stress(analysis, float(value))
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -351,9 +434,12 @@ def _load_payload(path: str) -> Any:
     return json.loads(text)
 
 
-def _record_analysis(company: str, proposal: str, analysis: dict) -> None:
-    """Atomically record the analysis, refresh the projection, complete the step."""
-    state = read_state(company, proposal)
+def _record_analysis(company: str, proposal: str, analysis: dict, state: dict | None) -> None:
+    """Atomically record the analysis, refresh the projection, complete the step.
+
+    Only the analysis itself is recorded: the report-only stressed figures of
+    issue #549 never reach state.json.
+    """
     steps = list(state.get("steps_completed", [])) if state else []
     if "collateral" not in steps:
         steps.append("collateral")
@@ -372,7 +458,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         payload = _load_payload(args.input_file)
         analysis = calculate_collateral_analysis(payload)
-        _record_analysis(args.company, args.proposal, analysis)
+        state = read_state(args.company, args.proposal)
+        stressed = _stressed_output(state, analysis)
+        _record_analysis(args.company, args.proposal, analysis, state)
     except CollateralInputError as error:
         sys.exit(f"error: {error}")
     except json.JSONDecodeError as error:
@@ -382,7 +470,10 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         sys.exit(f"error: {error}")
 
-    sys.stdout.write(json.dumps(analysis, sort_keys=True, allow_nan=False) + "\n")
+    output = dict(analysis)
+    if stressed is not None:
+        output["stressed"] = stressed
+    sys.stdout.write(json.dumps(output, sort_keys=True, allow_nan=False) + "\n")
     return 0
 
 

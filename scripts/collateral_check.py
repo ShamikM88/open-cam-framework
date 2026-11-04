@@ -69,7 +69,7 @@ def _asset_context(asset_id: str) -> str:
     return f"collateral[{asset_id}]"
 
 
-def _validate_asset(asset: Any, index: int, seen_asset_ids: set) -> dict:
+def _validate_asset(asset: Any, index: int, seen_asset_ids: set[str]) -> dict[str, Any]:
     if not isinstance(asset, dict):
         raise CollateralInputError(f"collateral[{index}]: each asset must be an object; found {asset!r}")
     if "asset_id" not in asset:
@@ -84,7 +84,7 @@ def _validate_asset(asset: Any, index: int, seen_asset_ids: set) -> dict:
     seen_asset_ids.add(asset_id)
     context = _asset_context(asset_id)
 
-    validated = {"asset_id": asset_id}
+    validated: dict[str, Any] = {"asset_id": asset_id}
     for field in REQUIRED_ASSET_INPUTS:
         if field not in asset:
             raise CollateralInputError(f"{context}: {field} is required")
@@ -119,7 +119,8 @@ def _validate_asset(asset: Any, index: int, seen_asset_ids: set) -> dict:
             value = _finite_number(asset[field], field, context)
             if value < 0:
                 raise CollateralInputError(f"{context}: {field} must be non-negative; found {value}")
-            validated[field] = value
+            # A whole number of units is stored as an integer, not 3.0 (it reaches the legacy projection).
+            validated[field] = int(value) if field == "number_of_units" and value.is_integer() else value
         else:
             validated[field] = default
 
@@ -134,7 +135,7 @@ def _validate_asset(asset: Any, index: int, seen_asset_ids: set) -> dict:
     return validated
 
 
-def _validate_mitigant(mitigant: Any, index: int, seen_mitigant_ids: set) -> dict:
+def _validate_mitigant(mitigant: Any, index: int, seen_mitigant_ids: set[str]) -> dict[str, Any]:
     if not isinstance(mitigant, dict):
         raise CollateralInputError(f"mitigants[{index}]: each mitigant must be an object; found {mitigant!r}")
     context = f"mitigants[{index}]"
@@ -152,7 +153,7 @@ def _validate_mitigant(mitigant: Any, index: int, seen_mitigant_ids: set) -> dic
         raise CollateralInputError(
             f"{context}: eligible_for_netting must be a boolean; found {mitigant['eligible_for_netting']!r}"
         )
-    validated = {"amount": amount, "eligible_for_netting": mitigant["eligible_for_netting"]}
+    validated: dict[str, Any] = {"amount": amount, "eligible_for_netting": mitigant["eligible_for_netting"]}
     if "mitigant_id" in mitigant and mitigant["mitigant_id"] is not None:
         mitigant_id = mitigant["mitigant_id"]
         if not isinstance(mitigant_id, str) or not ASSET_ID_RE.fullmatch(mitigant_id):
@@ -378,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.exit(f"error: the collateral payload is not valid JSON ({error})")
     except FileNotFoundError as error:
         sys.exit(f"error: {error}")
-    except (KeyError, OSError, ValueError) as error:
+    except (OSError, ValueError) as error:
         sys.exit(f"error: {error}")
 
     sys.stdout.write(json.dumps(analysis, sort_keys=True, allow_nan=False) + "\n")

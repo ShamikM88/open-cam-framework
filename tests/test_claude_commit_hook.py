@@ -31,6 +31,14 @@ def _bash_path(path):
     return str(path).replace("\\", "/")
 
 
+def _msys_path(path):
+    """Render a local path the way Git Bash writes it on Windows: C:\\x\\y becomes /c/x/y."""
+    text = _bash_path(path)
+    if len(text) > 1 and text[1] == ":":
+        return "/" + text[0].lower() + text[2:]
+    return text
+
+
 def _repo(path, branch="main", origin=CANONICAL_ORIGIN):
     path.mkdir(parents=True)
     _git(path, "init", "--initial-branch", branch)
@@ -485,3 +493,20 @@ def test_a_powershell_alias_defined_on_the_same_line_is_resolved(command, tmp_pa
 def test_blocks_and_aliases_that_do_not_run_a_commit_are_not_blocked(tool, command, tmp_path):
     repo = _repo(tmp_path / "canonical")
     assert _decision(_invoke(command, repo, tool_name=tool)) is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Git Bash drive paths (/c/...) exist only on Windows")
+def test_git_bash_drive_paths_are_resolved_so_a_commit_on_main_is_still_denied(tmp_path):
+    repo = _repo(tmp_path / "canonical")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    _assert_denied(_invoke(f"cd {_msys_path(repo)} && git commit -m synthetic", outside))
+    _assert_denied(_invoke(f"git -C {_msys_path(repo)} commit -m synthetic", outside))
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Git Bash drive paths (/c/...) exist only on Windows")
+def test_git_bash_drive_paths_do_not_ask_for_a_commit_in_a_feature_branch_worktree(tmp_path):
+    repo = _repo(tmp_path / "canonical", branch="feat/synthetic")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    assert _decision(_invoke(f"cd {_msys_path(repo)} && git commit -m synthetic", outside)) is None

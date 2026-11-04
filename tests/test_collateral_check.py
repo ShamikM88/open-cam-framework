@@ -629,7 +629,7 @@ def test_an_analysis_stays_current_after_a_json_round_trip_and_reordered_keys():
 
 @pytest.mark.parametrize("tamper", [
     lambda a: a["assets"][0]["results"].__setitem__("collateral_value", 1.0),
-    lambda a: a["assets"][1]["results"].__setitem__("net_uncovered_risk", 0.0),
+    lambda a: a["assets"][1]["results"].__setitem__("net_uncovered_risk", 12345.0),
     lambda a: a["results"].__setitem__("gross_uncovered_risk", 0.0),
     lambda a: a["results"].__setitem__("collateral_max_lgd_pct", None),
     lambda a: a["assets"][0]["results"].pop("rv_exposure"),

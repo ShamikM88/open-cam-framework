@@ -151,14 +151,11 @@ def test_a_non_finite_stored_input_omits_every_collateral_key():
     assert _per_asset_keys(_truth(analysis)) == set()
 
 
-def test_a_result_that_is_not_a_plain_number_is_omitted():
+def test_a_result_that_is_not_a_plain_number_makes_the_analysis_stale():
     analysis = _analysis()
     analysis["assets"][0]["results"]["rv_exposure"] = True
     analysis["assets"][0]["results"]["net_exposure"] = "80000"
-    truth = _truth(analysis)
-    assert "collateral_AST-001_rv_exposure" not in truth
-    assert "collateral_AST-001_net_exposure" not in truth
-    assert "collateral_AST-001_total_exposure" in truth
+    assert _per_asset_keys(_truth(analysis)) == set()
 
 
 def test_an_asset_id_that_breaks_the_grammar_is_omitted():
@@ -167,21 +164,16 @@ def test_an_asset_id_that_breaks_the_grammar_is_omitted():
     assert _per_asset_keys(_truth(_redigest(analysis))) == set()
 
 
-def test_an_asset_whose_results_are_not_an_object_adds_no_keys_for_that_asset():
+def test_an_asset_whose_results_are_not_an_object_makes_the_analysis_stale():
     analysis = _analysis([_asset("AST-001"), _asset("AST-002")])
     analysis["assets"][1]["results"] = "x"
-    truth = _truth(analysis)
-    assert "collateral_AST-001_total_exposure" in truth
-    assert _per_asset_keys(truth) == {key for key in truth if key.startswith("collateral_AST-001_")} | {
-        "collateral_max_lgd_pct", "collateral_avg_lgd_pct"}
+    assert _per_asset_keys(_truth(analysis)) == set()
 
 
-def test_deal_results_that_are_not_an_object_add_no_lgd_aggregates():
+def test_deal_results_that_are_not_an_object_make_the_analysis_stale():
     analysis = _analysis()
     analysis["results"] = "x"
-    truth = _truth(analysis)
-    assert "collateral_max_lgd_pct" not in truth and "collateral_avg_lgd_pct" not in truth
-    assert "collateral_AST-001_total_exposure" in truth
+    assert _per_asset_keys(_truth(analysis)) == set()
 
 
 def test_the_inputs_passed_in_are_not_modified():
@@ -319,9 +311,7 @@ def test_an_integer_too_large_for_a_float_is_omitted_not_a_crash(huge):
     """CG559-4: math.isfinite() raised OverflowError on a huge int."""
     analysis = _analysis()
     analysis["assets"][0]["results"]["total_exposure"] = huge
-    truth = _truth(analysis)
-    assert "collateral_AST-001_total_exposure" not in truth
-    assert "collateral_AST-001_uncovered_risk" in truth
+    assert _per_asset_keys(_truth(analysis)) == set()
 
 
 def test_an_edited_stored_result_adds_no_collateral_keys():

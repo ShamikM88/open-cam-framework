@@ -58,7 +58,7 @@ def test_the_deterministic_calculation_paragraph_pins_its_load_bearing_rules():
         "records the per-asset inputs and results in `collateral_analysis`",
         "refreshes the backward-compatible `collateral` projection with `exposure = total_exposure`",
         "marks the `collateral` step complete only after success",
-        "the per-asset result echoes the recorded risk-team `lgd_pct` input",
+        "The per-asset result echoes the recorded risk-team `lgd_pct` input",
         "deal-level total exposure, total collateral value, coverage, gross and net uncovered risk",
         "`collateral_max_lgd_pct` and `collateral_avg_lgd_pct`",
         "Treat the calculator's JSON output as the sole numeric source of truth.",
@@ -105,14 +105,40 @@ def test_both_calculator_invocations_match_the_real_cli_help():
     assert {"--company", "--proposal", "--input-file"} <= options
 
 
-def test_the_unapproved_legacy_state_write_text_stays_out_of_this_change():
-    """The separate design comment asks for sign-off; this PR must not silently make that edit."""
-    text = command_text()
+def test_the_calculator_is_the_sole_writer_of_the_collateral_state():
+    """Maintainer-approved State: write replacement (#266 comment 6642820954, approved 2026-11-05)."""
+    text = " ".join(command_text().split())
 
-    assert "Assign each asset a stable `asset_id`" in text
-    assert "`collateral` as a **flat list** (one entry per" in text
-    assert 'Append `"collateral"` to `steps_completed`' in text
-    assert "Write `collateral_analysis` by hand" not in text
+    for phrase in (
+        "Assign each asset a stable `asset_id`",
+        "Include the stable ID in the calculator payload; do not write collateral results into `state.json` yourself.",
+        "Do not set or write `collateral` or `collateral_analysis`, and do not append `collateral` to "
+        "`steps_completed` yourself.",
+        "The deterministic calculator writes `collateral_analysis`, refreshes the backward-compatible "
+        "`collateral` projection, and appends the `collateral` step atomically only after successful validation.",
+        "On a non-zero exit, leave those state values unchanged.",
+    ):
+        assert phrase in text, phrase
+
+
+def test_the_hand_written_collateral_state_instructions_are_gone():
+    text = " ".join(command_text().split())
+
+    assert "`collateral` as a **flat list**" not in text
+    assert '"cap_value": 0' not in text
+    assert 'Append `"collateral"` to `steps_completed`' not in text
+    assert "`exposure`/`collateral_value` are the Gross Exposure and Collateral Value you calculated" not in text
+
+
+def test_the_other_state_write_instructions_are_kept():
+    text = " ".join(command_text().split())
+
+    for phrase in (
+        "`company`, `proposal`, `date`, `deal_type` (if known), `inputs.pd`, `inputs.lgd`",
+        "Also set/update `security_package` as a **flat list**",
+        '"secures_asset_id": "AST-001"',
+    ):
+        assert phrase in text, phrase
 
 
 def test_the_command_does_not_load_or_allow_a_skill():

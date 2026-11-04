@@ -50,7 +50,7 @@ def validate_stress_assumptions(value):
         if key == "rv_realisation_pct" and item > 100:
             raise StressAssumptionsError(
                 f"stress assumptions: rv_realisation_pct must be at most 100 "
-                "(100 is full realisation); found {item!r}"
+                f"(100 is full realisation); found {item!r}"
             )
 
     for key in STRESS_PERCENT_KEYS:

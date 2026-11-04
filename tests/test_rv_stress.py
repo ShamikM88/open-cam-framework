@@ -272,3 +272,8 @@ def test_a_non_finite_stored_assumption_is_refused(workdir):
     assert result.returncode == 1
     assert result.stderr.startswith("error: ")
     assert result.stderr.count("\n") == 1
+
+
+def test_the_over_100_refusal_names_the_offending_value():
+    with pytest.raises(StressAssumptionsError, match="found 150"):
+        validate_stress_assumptions({"rv_realisation_pct": 150})

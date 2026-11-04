@@ -65,8 +65,8 @@ independent LGD calculation.
 The deterministic report also supplies deal-level total exposure, total collateral value,
 coverage, gross and net uncovered risk, any excess mitigant, `collateral_max_lgd_pct` and
 `collateral_avg_lgd_pct`. Treat the calculator's JSON output as the sole numeric source of
-truth. Use its unrounded values in the response; never calculate a substitute in prose. On a non-zero exit,
-stop, report the single `error:` line, and do not mark the step complete or write partial results.
+truth. Use its unrounded values in the response; never calculate a substitute in prose. On a non-zero exit, stop, report the single `error:` line,
+and do not mark the step complete or write partial results.
 
 PD, LGD, and any bureau score are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
 exactly what's given; never invent or adjust a grade or score yourself. Always ask for the

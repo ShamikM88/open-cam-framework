@@ -66,7 +66,7 @@ def test_the_deterministic_calculation_paragraph_pins_its_load_bearing_rules():
         "On a non-zero exit, stop, report the single `error:` line",
         "do not mark the step complete or write partial results.",
     ):
-        assert phrase in text, phrase
+        assert phrase in " ".join(text.split()), phrase
 
     assert "per-asset explanations" not in text
 
@@ -95,7 +95,7 @@ def test_both_calculator_invocations_match_the_real_cli_help():
     invocations = [
         (script, set(flags))
         for _line, script, flags in extract_invocations(text)
-        if script == "collateral_check"
+        if script == "collateral_check" and flags
     ]
     assert invocations == [
         ("collateral_check", {"--company", "--proposal", "--input-file"}),

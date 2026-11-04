@@ -181,19 +181,14 @@ worked examples are in [Workflows](workflows.md).
 
 ### /collateral
 
-- **What:** exposure, collateral coverage and uncovered risk for each asset, and the charge over each.
+- **What:** collect risk-team collateral inputs and security/charge information, then run the deterministic calculator to produce per-asset exposure, collateral value, coverage, uncovered risk and deal-level LGD summaries. The formulas and units are specified in the [formula register](formula-register.md#f-049--non-rv-funded-exposure-at-origination) (F-049–F-057 and F-066).
 - **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
-- **Inputs:** asset description, valuation/invoice amount, down payment %, LGD grade and %, residual value %, PD
-  grade, ranking of the charge, a bureau score if one exists. PD, LGD and any bureau score are **inputs** you supply;
-  the framework has no rating integration and never adjusts them.
-- **Produces:** the calculations with their formulas and inputs shown.
-- **State:** `inputs.pd`, `inputs.lgd`, a flat `collateral` list (one entry per asset with a stable `asset_id`), a
-  flat `security_package` list (one entry per charge), `collateral` in `steps_completed`. In `security_package`,
-  code compares `perfection_status` to exactly `"Perfected"` and `ranking` to exactly `"First"`; any other text is
-  treated as a gap and creates a condition precedent.
-- **Can go wrong:** writing `"Registered"` or `"1st"` where the exact strings are needed, which the engine reads as
-  unperfected or subordinate.
-
+- **Inputs:** per-asset asset ID, asset class/description, original valuation, down payment fraction, estimated RV fraction, LGD percent, valuation/cap value, non-recovery and recovery costs; optional unit count and other calculator-supported metadata; plus a list of non-asset mitigants with an explicit `eligible_for_netting` value. LGD and RV are risk-team inputs. Asset IDs must be unique and match `[A-Za-z0-9-]{1,32}`; `max` and `avg` are reserved. PD and bureau score remain user-supplied inputs; the framework has no rating integration and never adjusts them.
+- **Calculator:** the command uses `scripts/collateral_check.py` with `--company`, `--proposal` and `--input-file <path>`; `--input-file -` reads standard input. See the [CLI reference](cli-reference.md#collateral-check). The complete JSON payload is validated before any write; refusal emits one `error:` line, exits 1 and writes nothing.
+- **Produces:** per-asset results, the deal-level totals and optional residual-realisation stress output. The calculator's unrounded JSON values are authoritative; do not recalculate or round substitutes in prose. Stressed outputs are report-only.
+- **State:** the calculator records `collateral_analysis` and refreshes the backward-compatible `collateral` projection from the same results, then marks the `collateral` step complete only after success. The exact stored object is described in the [data model](data-model.md#statejson) rather than duplicated here. The `security_package` remains a flat list with exact code-recognised values: `perfection_status` must be `"Perfected"` and senior ranking must be `"First"`; other values create a condition precedent.
+- **Legacy command wording still awaiting a separate maintainer decision:** the command's existing `State: write` block still tells the model to construct the `collateral` list and append the step marker by hand. That block is not changed by the approved calculator paragraph; the separate [#266 wording proposal](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954) asks the maintainer to make the calculator the sole writer. Do not treat the legacy instructions as a second accepted state-writing route.
+- **Can go wrong:** reusing a duplicate/reserved ID, omitting explicit mitigant eligibility, or using a text value other than the exact `security_package` strings above. A malformed or refused payload must not be followed by a manual state write.
 ### /project
 
 - **What:** forward-year financials, a stress-test downside case, covenants and guarantees; all four optional.

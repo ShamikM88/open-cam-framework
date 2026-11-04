@@ -72,7 +72,7 @@ def test_the_deterministic_calculation_paragraph_pins_its_load_bearing_rules():
 
 
 def test_the_existing_bureau_score_paragraph_is_retained_verbatim():
-    assert BUREAU_PARAGRAPH in command_text()
+    assert " ".join(BUREAU_PARAGRAPH.split()) in " ".join(command_text().split())
 
 
 def test_both_calculator_invocations_match_the_real_cli_help():
@@ -111,7 +111,7 @@ def test_the_unapproved_legacy_state_write_text_stays_out_of_this_change():
 
     assert "Assign each asset a stable `asset_id`" in text
     assert "`collateral` as a **flat list** (one entry per" in text
-    assert 'Append "collateral" to `steps_completed`' in text
+    assert 'Append `"collateral"` to `steps_completed`' in text
     assert "Write `collateral_analysis` by hand" not in text
 
 

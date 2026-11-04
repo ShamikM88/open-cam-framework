@@ -2,6 +2,7 @@
 description: Calculate Gross/Net Exposure, RV Exposure, Collateral Coverage %, and Estimated Net Uncovered Risk (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [asset description] [valuation/invoice amount] [down payment %] [LGD grade & %] [RV %] [PD grade]"
 disable-model-invocation: true
+allowed-tools: Bash(python scripts/collateral_check.py *), Bash(python scripts/state_manager.py *), Bash(python scripts/source_manifest.py *)
 ---
 
 ## Task: /collateral
@@ -31,9 +32,43 @@ Residual Value (RV) %, Probability of Default (PD) Grade, Ranking of the securit
 taken over the asset (e.g. First, Second — where you rank relative to any other chargeholder),
 and a credit bureau / reference-agency score (e.g. Experian) if one exists for this borrower.
 
-Calculate: Gross/Net Exposure, RV Exposure, Collateral Coverage %, LGD %, and Estimated Net
-Uncovered Risk. Show the formula and inputs used for each figure. PD, LGD, and any bureau score
-are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
+**Deterministic collateral calculation (mandatory)**
+
+Collect the required per-asset inputs and every non-asset mitigant, including an explicit
+`eligible_for_netting` value for each mitigant. Each asset must have a stable, unique
+`asset_id` matching `[A-Za-z0-9-]{1,32}`; refuse a missing, duplicate or non-matching ID.
+Do not use `max` or `avg`; those asset IDs are reserved and refused because they collide
+with the deal-level LGD keys. Record `lgd_pct` as the risk team's per-asset input; do not derive or estimate it. Do not
+calculate, estimate, round, adjust or restate any collateral metric in prose.
+
+Write all collected asset inputs and mitigants as one UTF-8 JSON payload outside the repository.
+Run the deterministic calculator once, passing that complete payload either from a file or
+from standard input:
+
+```bash
+python scripts/collateral_check.py --company "<company>" --proposal "<proposal>" --input-file "<payload.json>"
+```
+
+For standard input, use `-`:
+
+```bash
+python scripts/collateral_check.py --company "<company>" --proposal "<proposal>" --input-file - < "<payload.json>"
+```
+
+The calculator validates the complete payload before writing, then atomically records the
+per-asset inputs and results in `collateral_analysis` and the separate mitigants list. It
+refreshes the backward-compatible `collateral` projection with `exposure = total_exposure`,
+preserves unrelated state, and marks the `collateral` step complete only after success.
+The per-asset result echoes the recorded risk-team `lgd_pct` input; it is not a second
+independent LGD calculation.
+
+The deterministic report also supplies deal-level total exposure, total collateral value,
+coverage, gross and net uncovered risk, any excess mitigant, `collateral_max_lgd_pct` and
+`collateral_avg_lgd_pct`. Treat the calculator's JSON output as the sole numeric source of
+truth. Use its unrounded values in the response; never calculate a substitute in prose. On a non-zero exit,
+stop, report the single `error:` line, and do not mark the step complete or write partial results.
+
+PD, LGD, and any bureau score are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
 exactly what's given; never invent or adjust a grade or score yourself. Always ask for the
 bureau score explicitly before this deal's CAM is finalized (the CAM template's Credit Bureau /
 Legal Charges section — its section number varies by deal type/template) rather than defaulting

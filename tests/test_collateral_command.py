@@ -48,7 +48,7 @@ def test_the_deterministic_calculation_paragraph_pins_its_load_bearing_rules():
         "`eligible_for_netting` value for each mitigant",
         "Each asset must have a stable, unique",
         "`asset_id` matching `[A-Za-z0-9-]{1,32}`",
-        "Do not use `max` or `avg`; they are reserved identifiers.",
+        "Do not use `max` or `avg`; those asset IDs are reserved and refused because they collide",
         "Record `lgd_pct` as the risk team's per-asset input; do not derive or estimate it.",
         "Do not calculate, estimate, round, adjust or restate any collateral metric in prose.",
         "Write all collected asset inputs and mitigants as one UTF-8 JSON payload outside the repository.",

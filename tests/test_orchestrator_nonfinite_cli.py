@@ -105,13 +105,14 @@ def test_headless_cli_rejects_a_non_numeric_collateral_figure_before_model_or_st
     assert not (tmp_path / "deals").exists()
 
 
-def test_headless_cli_rejects_a_collateral_payload_that_is_not_a_list_before_model_or_state(tmp_path):
-    """PX550-1: an object-shaped payload used to pass validation and reach the credential gate."""
+def test_headless_cli_rejects_an_object_payload_without_assets_before_model_or_state(tmp_path):
+    """PX550-1: an object-shaped payload used to pass validation and reach the credential gate. Since issue #266
+    option C an object is the calculator payload, so this one is refused for lacking `assets`."""
     collateral = tmp_path / "collateral.json"
     collateral.write_text(json.dumps({"asset_class": "HGV", "exposure": -100}), encoding="utf-8")
 
     result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
                                "--collateral", collateral)
 
-    _assert_controlled_error(result, "collateral", "list of asset objects")
+    _assert_controlled_error(result, "collateral", "assets is required")
     assert not (tmp_path / "deals").exists()

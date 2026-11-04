@@ -68,6 +68,10 @@ Percentage values in this calculator payload are fractions: for example, `0.4` m
 
 The approved deterministic paragraph in `.claude/commands/collateral.md` instructs the command to invoke the calculator. There is, however, a separate prompt-consistency point still owned by the maintainer: the older `State: write` block in that command still describes hand-writing the legacy `collateral` list and appending the step marker. The proposed replacement is documented separately in [#266's unapproved wording comment](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954) and is not included in the command PR. Until that decision is signed off, do not treat those legacy instructions as a second state-writing route. The calculator itself is the implemented atomic writer for `collateral_analysis`, the backward-compatible projection and the `collateral` step.
 
+## Headless route (`orchestrator.py --collateral`)
+
+The headless pipeline accepts the same payload object as the calculator and records the same `collateral_analysis` and `collateral` projection through the same pure function, so an interactive and a headless run of the same inputs store identical results. The older flat-list file still works but is projection-only and discards an earlier analysis. See the [CLI reference](cli-reference.md#orchestrator).
+
 ## Command-line calculator
 
 The canonical CLI reference is [Collateral check](cli-reference.md#collateral-check). The command requires the deal identity and one input file:

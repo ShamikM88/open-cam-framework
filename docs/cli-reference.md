@@ -157,7 +157,14 @@ See [State manager](#state-manager).
   periods (one `error:` line, exit status 1, nothing written, `financials_source` unchanged). Record changes to
   supplied figures with `/spread`'s analyst-supplied mode; an interactive, forward-only `/project` call is the
   one allowed way to add framework-computed forward years to such a deal ([data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period)).
-- `--collateral` is a JSON file holding a flat list of asset objects.
+- `--collateral` is a JSON file in one of two shapes (issue #266). An **object** with `assets` and optional `mitigants`
+  is the [collateral calculator](#collateral-check) payload: it is validated and calculated by the same pure code as
+  `/collateral`, and the run records `collateral_analysis` plus the `collateral` projection, so the workbook's result
+  columns and the policy ground truth see the same figures as the interactive route. A refused payload is one `error:`
+  line before anything is written. A **flat list** of asset objects is the legacy shape: it is recorded as the
+  `collateral` list only, with no calculator results, and it discards any earlier `collateral_analysis` (that analysis
+  described the assets the list replaces). Without `--collateral` a run keeps what the deal already has, and its
+  policy ground truth uses a stored analysis only while it is current.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
   `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none. Each supplied value must be a

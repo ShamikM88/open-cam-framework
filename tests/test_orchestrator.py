@@ -499,7 +499,7 @@ def _bad_value_for(key):
 
 # What run_pipeline reads from an existing state, pinned as a LITERAL (parametrizing over the module's own constant
 # would let a dropped key take its test with it).
-ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
+ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                            "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                            "security_package", "guarantees", "review_trail")
 
@@ -2937,7 +2937,8 @@ def test_a_legacy_list_replacing_an_analysis_invalidates_it(project_root):
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  collateral_data=_calculator_payload(),
                  client=MockClient([_charged_draft(), _approved_json()]))
-    legacy = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80, "perfection_status": "Registered"}]
+    legacy = [{"asset_id": "AST-001", "asset_class": "HGV", "exposure": 100, "collateral_value": 80,
+               "perfection_status": "Registered"}]
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  collateral_data=legacy,
                  client=MockClient([_charged_draft("# Draft v2"), _approved_json()]))
@@ -2989,9 +2990,10 @@ def test_an_object_payload_is_accepted_for_an_analyst_supplied_deal(project_root
     write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied")
     _seed_charge()
 
+    draft = _compliant_draft(cs_ids=[*STANDARD_CS_IDS, "CS-SEC-REPERFECT-AST-001"], financials_source_disclosed=True)
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  collateral_data=_calculator_payload(),
-                 client=MockClient([_charged_draft(), _approved_json()]))
+                 client=MockClient([draft, _approved_json()]))
 
     state = read_state("Acme Corp", "Fleet Loan")
     assert state["financials_source"] == "analyst-supplied"

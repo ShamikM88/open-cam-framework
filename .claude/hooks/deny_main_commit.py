@@ -323,7 +323,8 @@ def _git_bash_drive_path(path):
 
 def _path_from_argument(argument, current):
     argument = _git_bash_drive_path(_unquote(argument))
-    expanded = os.path.expanduser(os.path.expandvars(argument))
+    # An environment variable can itself hold a Git Bash drive path, so read the expanded text again.
+    expanded = _git_bash_drive_path(os.path.expanduser(os.path.expandvars(argument)))
     if not expanded or any(marker in expanded for marker in ("$env:", "${", "%")):
         return None
     target = Path(expanded)

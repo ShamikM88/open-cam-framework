@@ -510,3 +510,15 @@ def test_git_bash_drive_paths_do_not_ask_for_a_commit_in_a_feature_branch_worktr
     outside = tmp_path / "outside"
     outside.mkdir()
     assert _decision(_invoke(f"cd {_msys_path(repo)} && git commit -m synthetic", outside)) is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Git Bash drive paths (/c/...) exist only on Windows")
+def test_git_bash_drive_path_held_in_an_environment_variable_is_resolved(tmp_path, monkeypatch):
+    main_repo = _repo(tmp_path / "canonical")
+    feature_repo = _repo(tmp_path / "feature", branch="feat/synthetic")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setenv("OCF_SYNTHETIC_ROOT", _msys_path(main_repo))
+    _assert_denied(_invoke('git -C "$OCF_SYNTHETIC_ROOT" commit -m synthetic', outside))
+    monkeypatch.setenv("OCF_SYNTHETIC_ROOT", _msys_path(feature_repo))
+    assert _decision(_invoke('git -C "$OCF_SYNTHETIC_ROOT" commit -m synthetic', outside)) is None

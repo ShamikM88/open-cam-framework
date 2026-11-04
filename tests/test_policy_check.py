@@ -247,7 +247,7 @@ def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=Non
         calls["evaluate_deal_policy"].append(policy_input)
         return result_policy_state
 
-    def fake_ground_truth_figures(financials, ratios, collateral, downside_case):
+    def fake_ground_truth_figures(financials, ratios, collateral, downside_case, collateral_analysis=None):
         calls["ground_truth_figures"].append((financials, ratios, collateral, downside_case))
         return result_truth
 

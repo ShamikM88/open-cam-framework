@@ -20,6 +20,7 @@ import sys
 from collections.abc import Iterable, Mapping
 from typing import Any, TypedDict
 
+from collateral_check import ASSET_ID_RE, stored_analysis_digest_matches
 from draft_lint import DraftContentError, lint_draft
 from template_resolver import cam_template_path
 
@@ -155,9 +156,58 @@ def compute_collateral_cover_pct(collateral: Iterable[dict[str, Any]] | None) ->
     return cover_pct if math.isfinite(cover_pct) else None
 
 
+# The per-asset metrics of a stored collateral analysis that become ground truth (issue #266, decision 10),
+# and the two deal-level LGD aggregates (decision 4).
+COLLATERAL_GROUND_TRUTH_METRICS = (
+    "non_rv_funded_exposure", "rv_exposure", "total_exposure", "net_exposure",
+    "collateral_value", "coverage_pct", "uncovered_risk", "lgd_pct", "net_uncovered_risk",
+)
+COLLATERAL_DEAL_LGD_KEYS = ("collateral_max_lgd_pct", "collateral_avg_lgd_pct")
+
+
+def _plain_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def collateral_analysis_ground_truth(collateral_analysis: Any) -> dict[str, Any]:
+    """The stored per-asset collateral results as flat ``collateral_<asset_id>_<metric>`` ground truth.
+
+    Reads the figures the deterministic calculator already stored (``scripts/collateral_check.py``);
+    nothing is recalculated here. A result is used only while the analysis's ``input_digest`` still
+    matches its stored inputs (decision 5), and an analysis with a missing, malformed or duplicated
+    asset id yields no per-asset keys at all (the key would be ambiguous). A metric that is N/A
+    (``None``), missing or not a plain number is omitted, never defaulted to zero. The two deal-level
+    LGD aggregates are added the same way when the calculator could resolve them.
+    """
+    if not stored_analysis_digest_matches(collateral_analysis):
+        return {}
+    assets = collateral_analysis["assets"]
+    asset_ids = [asset.get("asset_id") if isinstance(asset, dict) else None for asset in assets]
+    if len(set(asset_ids)) != len(asset_ids) or not all(
+        isinstance(asset_id, str) and ASSET_ID_RE.fullmatch(asset_id) for asset_id in asset_ids
+    ):
+        return {}
+    truth: dict[str, Any] = {}
+    for asset_id, asset in zip(asset_ids, assets, strict=True):
+        results = asset.get("results")
+        if not isinstance(results, Mapping):
+            continue
+        for metric in COLLATERAL_GROUND_TRUTH_METRICS:
+            value = results.get(metric)
+            if _plain_number(value):
+                truth[f"collateral_{asset_id}_{metric}"] = value
+    deal_results = collateral_analysis.get("results")
+    if isinstance(deal_results, Mapping):
+        for key in COLLATERAL_DEAL_LGD_KEYS:
+            if _plain_number(deal_results.get(key)):
+                truth[key] = deal_results[key]
+    return truth
+
+
 def ground_truth_figures(
     financials: dict[str, Any] | None, ratios: dict[str, Any] | None,
     collateral: Iterable[dict[str, Any]] | None, downside_case: dict[str, Any] | None = None,
+    collateral_analysis: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
@@ -169,7 +219,9 @@ def ground_truth_figures(
     total_equity) already computed by evaluate_financial_model(), under plain
     metric names for FY-Current and as `f"{metric}_{period}"` for every other
     base-case period (e.g. `ebitda_FY-1`, `dscr_FY+1`); plus an aggregate
-    collateral_cover_pct derived from the collateral list, plus -- if
+    collateral_cover_pct derived from the collateral list, plus -- if a
+    `collateral_analysis` is given -- the stored per-asset collateral
+    figures (collateral_analysis_ground_truth), plus -- if
     `downside_case` is given -- every downside (stressed forward-year)
     ratio/subtotal, keyed as `f"{metric}_{period}_downside"` (e.g.
     `"dscr_FY+2_downside"`). The suffix keeps downside keys distinct from
@@ -228,6 +280,8 @@ def ground_truth_figures(
     collateral_cover_pct = compute_collateral_cover_pct(collateral)
     if collateral_cover_pct is not None:
         truth["collateral_cover_pct"] = collateral_cover_pct
+
+    truth.update(collateral_analysis_ground_truth(collateral_analysis))
 
     if downside_case:
         downside_ratios = downside_case.get("ratios") or {}

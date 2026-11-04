@@ -115,7 +115,7 @@ def compute_from_state(
     lint_options = {"deal_type": resolved_deal_type} if resolved_deal_type else {}
     reasons = check_draft_compliance(
         draft_text, policy_state,
-        ground_truth_figures(financials, ratios, collateral, downside_case),
+        ground_truth_figures(financials, ratios, collateral, downside_case, state.get("collateral_analysis")),
         financials_source=financials_source,
         credit_policy_present=credit_policy_present,
         **lint_options,

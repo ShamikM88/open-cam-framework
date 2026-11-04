@@ -908,16 +908,24 @@ the entry says so and it is listed under [Known differences](#known-differences)
   F-003, F-011, F-015 and F-019 have no state key and never appear) — under its plain metric name for
   FY-Current; every other base-case period suffixed `_<period>` (e.g. `ebitda_FY-1`, `dscr_FY+1`);
   downside figures suffixed `_<period>_downside`; plus the aggregate collateral cover percentage (F-047),
-  which is the one figure computed here. The model's figures are copied as already computed
+  which is the one figure computed here; plus, when the deal stores a current `collateral_analysis`, its
+  per-asset results as `collateral_<asset_id>_<metric>` (metrics `non_rv_funded_exposure`, `rv_exposure`,
+  `total_exposure`, `net_exposure`, `collateral_value`, `coverage_pct`, `uncovered_risk`, `lgd_pct`,
+  `net_uncovered_risk`) and the deal-level `collateral_max_lgd_pct` and `collateral_avg_lgd_pct`, copied
+  from the stored F-049-F-057 and F-066 results and never recalculated. The model's figures are copied as already computed
 - **Unit and storage:** a flat dict of figure name → value; a ratio the model left `None` is excluded
   entirely (it is not a figure this deal has a number for), as is the collateral cover when unresolvable
 - **Edge rules:** an unknown reported figure is flagged UNRESOLVABLE rather than ignored; the nested `raw`
-  input dicts are not figures and are excluded
+  input dicts are not figures and are excluded. A stored collateral result is used only while the
+  analysis's `input_digest` matches its stored inputs; a stale, malformed or ambiguous (missing, duplicate
+  or non-conforming `asset_id`) analysis adds no collateral keys, and an N/A or non-numeric metric is
+  omitted, never defaulted to zero. Without a `collateral_analysis` the set is exactly what it was
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** `scripts/policy_checks.py` — `ground_truth_figures()`
-- **Basis:** house convention
+- **Implemented in:** `scripts/policy_checks.py` — `ground_truth_figures()` and
+  `collateral_analysis_ground_truth()`; `scripts/collateral_check.py` — `stored_analysis_digest_matches()`
+- **Basis:** house convention; the collateral keys follow decisions 3, 4 and 10 on issue #266
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-046 — Figure-matching tolerance

@@ -204,6 +204,25 @@ def canonical_input_digest(validated: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def stored_analysis_digest_matches(analysis: Any) -> bool:
+    """True only when a stored analysis's ``input_digest`` equals the digest of its own stored inputs.
+
+    Decision 5 on issue #266: a reader (the policy ground truth, the workbook) uses a stored result only
+    while the inputs it was calculated from are unchanged. A malformed analysis, a hand-edited input
+    (including a NaN) or a wrong digest is "not current": never an exception.
+    """
+    if not isinstance(analysis, dict) or not isinstance(analysis.get("assets"), list):
+        return False
+    try:
+        recomputed = canonical_input_digest({
+            "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in analysis["assets"]],
+            "mitigants": analysis.get("mitigants", []),
+        })
+    except (KeyError, TypeError, ValueError):
+        return False
+    return recomputed == analysis.get("input_digest")
+
+
 # ---------------------------------------------------------------------------
 # Per-asset results (F-053 to F-055)
 # ---------------------------------------------------------------------------

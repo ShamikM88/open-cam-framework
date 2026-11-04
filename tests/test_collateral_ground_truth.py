@@ -11,7 +11,7 @@ import copy
 import json
 
 import pytest
-from collateral_check import calculate_collateral_analysis
+from collateral_check import calculate_collateral_analysis, canonical_input_digest
 from policy_check import compute
 from policy_checks import (
     check_draft_compliance,
@@ -45,6 +45,15 @@ def _analysis(assets=None, mitigants=None):
         "assets": assets if assets is not None else [_asset("AST-001")],
         "mitigants": mitigants if mitigants is not None else [],
     })
+
+
+def _redigest(analysis):
+    """Re-sign a hand-edited analysis so only the id rules (not the digest check) can reject it."""
+    analysis["input_digest"] = canonical_input_digest({
+        "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in analysis["assets"]],
+        "mitigants": analysis["mitigants"],
+    })
+    return analysis
 
 
 def _truth(analysis):
@@ -125,7 +134,7 @@ def test_a_wrong_stored_digest_omits_every_collateral_key():
 def test_duplicate_asset_ids_in_a_stored_analysis_omit_every_collateral_key():
     analysis = _analysis([_asset("AST-001"), _asset("AST-002")])
     analysis["assets"][1]["asset_id"] = "AST-001"
-    assert _per_asset_keys(_truth(analysis)) == set()
+    assert _per_asset_keys(_truth(_redigest(analysis))) == set()
 
 
 @pytest.mark.parametrize("broken", [
@@ -155,7 +164,24 @@ def test_a_result_that_is_not_a_plain_number_is_omitted():
 def test_an_asset_id_that_breaks_the_grammar_is_omitted():
     analysis = _analysis()
     analysis["assets"][0]["asset_id"] = "AST_001"
-    assert _per_asset_keys(_truth(analysis)) == set()
+    assert _per_asset_keys(_truth(_redigest(analysis))) == set()
+
+
+def test_an_asset_whose_results_are_not_an_object_adds_no_keys_for_that_asset():
+    analysis = _analysis([_asset("AST-001"), _asset("AST-002")])
+    analysis["assets"][1]["results"] = "x"
+    truth = _truth(analysis)
+    assert "collateral_AST-001_total_exposure" in truth
+    assert _per_asset_keys(truth) == {key for key in truth if key.startswith("collateral_AST-001_")} | {
+        "collateral_max_lgd_pct", "collateral_avg_lgd_pct"}
+
+
+def test_deal_results_that_are_not_an_object_add_no_lgd_aggregates():
+    analysis = _analysis()
+    analysis["results"] = "x"
+    truth = _truth(analysis)
+    assert "collateral_max_lgd_pct" not in truth and "collateral_avg_lgd_pct" not in truth
+    assert "collateral_AST-001_total_exposure" in truth
 
 
 def test_the_inputs_passed_in_are_not_modified():

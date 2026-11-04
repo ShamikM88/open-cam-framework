@@ -2,6 +2,7 @@
 description: Calculate Gross/Net Exposure, RV Exposure, Collateral Coverage %, and Estimated Net Uncovered Risk (see config/skills_registry.md).
 argument-hint: "--company \"<Name>\" --proposal \"<Proposal name>\" [asset description] [valuation/invoice amount] [down payment %] [LGD grade & %] [RV %] [PD grade]"
 disable-model-invocation: true
+allowed-tools: Bash(python scripts/collateral_check.py *), Bash(python scripts/state_manager.py *), Bash(python scripts/source_manifest.py *)
 ---
 
 ## Task: /collateral
@@ -31,9 +32,43 @@ Residual Value (RV) %, Probability of Default (PD) Grade, Ranking of the securit
 taken over the asset (e.g. First, Second — where you rank relative to any other chargeholder),
 and a credit bureau / reference-agency score (e.g. Experian) if one exists for this borrower.
 
-Calculate: Gross/Net Exposure, RV Exposure, Collateral Coverage %, LGD %, and Estimated Net
-Uncovered Risk. Show the formula and inputs used for each figure. PD, LGD, and any bureau score
-are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
+**Deterministic collateral calculation (mandatory)**
+
+Collect the required per-asset inputs and every non-asset mitigant, including an explicit
+`eligible_for_netting` value for each mitigant. Each asset must have a stable, unique
+`asset_id` matching `[A-Za-z0-9-]{1,32}`; refuse a missing, duplicate or non-matching ID.
+Do not use `max` or `avg`; those asset IDs are reserved and refused because they collide
+with the deal-level LGD keys. Record `lgd_pct` as the risk team's per-asset input; do not derive or estimate it. Do not
+calculate, estimate, round, adjust or restate any collateral metric in prose.
+
+Write all collected asset inputs and mitigants as one UTF-8 JSON payload outside the repository.
+Run the deterministic calculator once, passing that complete payload either from a file or
+from standard input:
+
+```bash
+python scripts/collateral_check.py --company "<company>" --proposal "<proposal>" --input-file "<payload.json>"
+```
+
+For standard input, use `-`:
+
+```bash
+python scripts/collateral_check.py --company "<company>" --proposal "<proposal>" --input-file - < "<payload.json>"
+```
+
+The calculator validates the complete payload before writing, then atomically records the
+per-asset inputs and results in `collateral_analysis` and the separate mitigants list. It
+refreshes the backward-compatible `collateral` projection with `exposure = total_exposure`,
+preserves unrelated state, and marks the `collateral` step complete only after success.
+The per-asset result echoes the recorded risk-team `lgd_pct` input; it is not a second
+independent LGD calculation.
+
+The deterministic report also supplies deal-level total exposure, total collateral value,
+coverage, gross and net uncovered risk, any excess mitigant, `collateral_max_lgd_pct` and
+`collateral_avg_lgd_pct`. Treat the calculator's JSON output as the sole numeric source of
+truth. Use its unrounded values in the response; never calculate a substitute in prose. On a non-zero exit, stop, report the single `error:` line,
+and do not mark the step complete or write partial results.
+
+PD, LGD, and any bureau score are all user-supplied inputs — this framework has no bureau/rating-agency integration — so use
 exactly what's given; never invent or adjust a grade or score yourself. Always ask for the
 bureau score explicitly before this deal's CAM is finalized (the CAM template's Credit Bureau /
 Legal Charges section — its section number varies by deal type/template) rather than defaulting
@@ -43,7 +78,7 @@ a valid, citable answer in its own right.
 Assign each asset a stable `asset_id` (e.g. `"AST-001"`, or reuse one already in state.json if
 this asset already has one) — this is the join key `scripts/policy_engine.py` uses to cross-
 reference this asset against its security/charge record, so it must stay the same across
-re-runs of this command for the same asset.
+re-runs of this command for the same asset. Include the stable ID in the calculator payload; do not write collateral results into `state.json` yourself.
 
 ## Source material
 
@@ -65,28 +100,8 @@ never drop a field another step already recorded):
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
   otherwise write back to that same file.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), `inputs.pd`, `inputs.lgd`
-  (exactly as given — never adjusted), and `collateral` as a **flat list** (one entry per
-  asset/facility — never nested by year), each entry an object with exactly these keys, matching
-  `scripts/spreading_builder.py`'s collateral schema so `/assemble`'s export step populates the
-  Collateral & Exposure sheet correctly:
-  ```json
-  [
-    {
-      "asset_id": "AST-001",
-      "asset_class": "[Asset class]",
-      "exposure": 0,
-      "number_of_units": 0,
-      "cap_value": 0,
-      "non_recovery": 0,
-      "costs": 0,
-      "collateral_value": 0,
-      "perfection_status": "[e.g. Registered / Pending / N/A]"
-    }
-  ]
-  ```
-  `exposure`/`collateral_value` are the Gross Exposure and Collateral Value you calculated above
-  for that asset; `perfection_status` records whether the security interest is registered/
-  perfected, pending, or not applicable — never leave it blank if you know the answer.
+  (exactly as given — never adjusted).
+- Do not set or write `collateral` or `collateral_analysis`, and do not append `collateral` to `steps_completed` yourself. The deterministic calculator writes `collateral_analysis`, refreshes the backward-compatible `collateral` projection, and appends the `collateral` step atomically only after successful validation. On a non-zero exit, leave those state values unchanged.
 - Also set/update `security_package` as a **flat list**, one entry per charge (an asset can
   carry more than one — e.g. a senior and a subordinate charge on the same `secures_asset_id` —
   give each its own entry rather than collapsing them), in this exact shape (this is what
@@ -107,4 +122,3 @@ never drop a field another step already recorded):
     }
   ]
   ```
-- Append `"collateral"` to `steps_completed` if it isn't already there.

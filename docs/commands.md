@@ -181,19 +181,149 @@ worked examples are in [Workflows](workflows.md).
 
 ### /collateral
 
-- **What:** exposure, collateral coverage and uncovered risk for each asset, and the charge over each.
+- **What:** collect risk-team collateral inputs and security/charge information, then run the deterministic calculator to produce per-asset exposure, collateral value, coverage, uncovered risk and deal-level LGD summaries. The formulas and units are specified in the [formula register](formula-register.md#f-049--non-rv-funded-exposure-at-origination) (F-049–F-057 and F-066).
 - **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
-- **Inputs:** asset description, valuation/invoice amount, down payment %, LGD grade and %, residual value %, PD
-  grade, ranking of the charge, a bureau score if one exists. PD, LGD and any bureau score are **inputs** you supply;
-  the framework has no rating integration and never adjusts them.
-- **Produces:** the calculations with their formulas and inputs shown.
-- **State:** `inputs.pd`, `inputs.lgd`, a flat `collateral` list (one entry per asset with a stable `asset_id`), a
-  flat `security_package` list (one entry per charge), `collateral` in `steps_completed`. In `security_package`,
-  code compares `perfection_status` to exactly `"Perfected"` and `ranking` to exactly `"First"`; any other text is
-  treated as a gap and creates a condition precedent.
-- **Can go wrong:** writing `"Registered"` or `"1st"` where the exact strings are needed, which the engine reads as
-  unperfected or subordinate.
+- **Inputs:** per-asset asset ID, asset class/description, original valuation, down payment fraction, estimated RV fraction, LGD percent, valuation/cap value, non-recovery and recovery costs; optional unit count and other calculator-supported metadata; plus a list of non-asset mitigants with an explicit `eligible_for_netting` value. LGD and RV are risk-team inputs. Asset IDs must be unique and match `[A-Za-z0-9-]{1,32}`; `max` and `avg` are reserved. PD and bureau score remain user-supplied inputs; the framework has no rating integration and never adjusts them.
+- **Calculator:** the command uses `scripts/collateral_check.py` with `--company`, `--proposal` and `--input-file <path>`; `--input-file -` reads standard input. See the [CLI reference](cli-reference.md#collateral-check). The complete JSON payload is validated before any write; refusal emits one `error:` line, exits 1 and writes nothing.
+- **Produces:** per-asset results, the deal-level totals and optional residual-realisation stress output. The calculator's unrounded JSON values are authoritative; do not recalculate or round substitutes in prose. Stressed outputs are report-only.
+- **State:** the calculator records `collateral_analysis` and refreshes the backward-compatible `collateral` projection from the same results, then marks the `collateral` step complete only after success. The exact stored object is described in the [data model](data-model.md#state-manager-and-statejson) rather than duplicated here. The `security_package` remains a flat list with exact code-recognised values: `perfection_status` must be `"Perfected"` and senior ranking must be `"First"`; other values create a condition precedent.
+- **Sole writer:** the command never writes `collateral`, `collateral_analysis` or the `collateral` step marker itself (maintainer decision, [#266 comment 6642820954](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954), approved 2026-11-05); it writes only the analyst inputs (`inputs.pd`, `inputs.lgd`) and the `security_package`. On a non-zero exit the calculator-owned state is left unchanged.
+- **Can go wrong:** an empty samples folder (it stops); a template that still contains real data, because
+  scrubbing is prompted, not enforced. Review the file, and run `python scripts/pii_scan.py` on it before ever
+  promoting it into `templates/cam/`.
+- **Headless equivalent:** `scripts/calibrate.py` ([CLI reference](cli-reference.md#calibrate)).
 
+### /calibrate-policy
+
+- **What:** turns your institution's credit policy documents into rules the agents check drafts against.
+- **Use when:** once per institution; it applies to every deal in the fork.
+- **Inputs:** documents in `inputs/credit_policy/` (with none it stops).
+- **Produces:** `config/credit_policy.md` (a `# Institutional Credit Policy (Calibrated)`), organised into checkable
+  rules. It is git-ignored and keeps real institutional detail on purpose, since it is never promoted or shared.
+- **Effect:** the Underwriter drafts with awareness of it (advisory); the Risk Reviewer audits against it and a
+  violation is a mandatory rejection finding.
+- **State:** none. **Headless equivalent:** none (the headless pipeline reads an existing file but cannot create one).
+
+### /start-review
+
+- **What:** prepares a new, empty dated review and records an optional date-only link to a previous review. It never copies data from the older review.
+- **Use when:** the same company and proposal are being reviewed again, for example in a new annual cycle. For a genuinely new deal, use `/triage`, `/spread` or `/research`.
+- **Inputs:** one non-empty `--company "<Name>"` and `--proposal "<Proposal name>"`; optionally `--date YYYY-MM-DD`. Names must be safe path components. Company and proposal names match exactly; keep the proposal name unchanged across years if the earlier review should be linkable or comparable.
+- **Steps:** Runs `python scripts/state_manager.py --review-candidates --company "<company>" --proposal "<proposal>"` read-only (adding `--date <date>` only when you supplied one). It uses the returned `date` field rather than calculating a date itself. When candidates exist, it checks whether the newest review has an assembled CAM. If it is not recorded as assembled, it explains that the review may still be in progress and asks whether to continue or stop; only an explicit yes continues. It lists valid earlier reviews newest first, identifies the default, and offers three choices: link the default, link another listed date, or start unlinked. If the listing reports earlier reviews it could not read (`skipped`), it names their dates and reasons and does not offer them as a link. With no candidates, it says so (or, when only unreadable reviews exist, says that they exist but could not be read) and asks whether to start unlinked or stop. It waits for your explicit choice and runs exactly one `--start-review` call with either `--prior-date <chosen date>` or `--no-prior`. If linked, it offers `review_compare.py` (pre-approved in the command's `allowed-tools`, read-only) but runs the comparison only if you ask.
+- **State:** the script creates a new dated folder with a minimal `state.json` containing `company`, `proposal`, `date`, `schema_version`, and `prior_review_date` only if linked. Nothing is copied from the earlier review, and starting a review does not add a `steps_completed` entry. Existing reviews are never edited or overwritten.
+- **Can go wrong:** missing or unsafe names, a malformed date, a failed/non-JSON result from either read-only script, an existing dated folder, a date not later than the newest state-bearing review, a company that has no deal folder yet (use `/triage` or `/spread` for a deal that has never been reviewed), or a chosen date that is not a valid earlier candidate. On any script failure or refusal, it reports the script's error and stops; it does not retry with another date or choose a different link.
+- **Headless equivalent:** `python scripts/orchestrator.py --company "<company>" --proposal "<proposal>" --new-review` creates today's review and links the nearest earlier review with the exact same company/proposal, or starts unlinked if none exists. Unlike this interactive command, the headless path does not prompt for the prior choice. A rerun resumes today's existing `state.json` without changing its link.
+
+## Deal steps
+
+### /triage
+
+- **What:** a legal-identity, ownership and charges screen with a Go/No-Go status.
+- **No-record behavior:** Before creating anything, runs `state_manager.py --find`; if no record exists, it announces that `/triage` will create a new deal under the supplied name and names any returned near matches so you can correct a typo first.
+- **Use when:** the first step of a full CAM. For a screen plus company research and no financials, use `/research`.
+- **Inputs:** company registration number, credit bureau summary, charges/mortgages register (it asks for what is
+  missing).
+- **Produces:** the Go/No-Go verdict and rationale, grounded in a source you supplied or a credible public record
+  (it never invents a registration detail, charge or ownership link).
+- **State:** a `triage` key, bureau and registry figures under `inputs` (for example `inputs.experian_score`), and
+  `triage` in `steps_completed`. It saves source documents and then runs `source_manifest.py --check-sources`; if
+  citations were declared but nothing saved, it must go back and save one or tell you why not; if the check reports `sources_declared: "unknown"` (a completed step has no valid `sources` list), it must restore the list in state and rerun the check.
+- **Can go wrong:** missing inputs (it asks); an unsaveable source (it must say so rather than skip silently).
+
+### /research
+
+- **What:** `/triage` and `/commercial` combined, with one exported brief, no financials.
+- **No-record behavior:** Before creating anything, runs `state_manager.py --find`; if no record exists, it announces that `/research` will create a new deal under the supplied name and names any returned near matches so you can correct a typo first.
+- **Use when:** you need a screen and company research now, or ever, without a full CAM.
+- **Inputs:** everything `/triage` and `/commercial` ask for.
+- **Produces:** a standalone `<Company>_<Proposal>_Research_Brief.docx` in the deal's dated folder (no workbook, no
+  template side effects), after a review by a fresh Risk Reviewer sub-agent (`/review --research-brief`) loops to `APPROVED`.
+- **Brief shape:** the first substantive section is `## Go/No-Go`, on about one page, with the verdict/action, three decisive facts each supported by a figure and source, and no more than five priority-ordered proposed conditions. Aim for about 1,500 words; this is guidance, not an export limit.
+- **Review-status disclosure:** the drafter must not write its own review-status or manual-release paragraph. The exporter adds the full dated disclosure immediately after the title only after an explicit analyst-authorised manual-review release; the session must not invent a release reason or infer consent.
+- **State:** `triage` and `commercial` exactly as the separate commands would write them, `inputs`, saved sources, a
+  `review_trail`, and both steps in `steps_completed`, so the deal can continue into `/spread` later. If the analyst
+  defines a term in the step, it is checkpointed immediately in `analyst_terms` in `state.json`.
+- **Can go wrong:** a `REJECTED` review means revise, overwrite and review again with a new Reviewer. After three consecutive
+  `REJECTED` passes and each later rejection, `/research` asks a structured three-choice question before another
+  pass: Run another review pass; Stop and export for manual review (unapproved, disclosed); or Stop without exporting.
+  The pass count comes from the on-disk `review_trail`; silence, ambiguity or “carry on” is not permission to export.
+  Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which inserts a dated
+  not-approved status near the top of the DOCX and appends a record to the append-only `review_stopped_by_analyst` list in state. No saved sources
+  (same check as `/triage`) or a missing/empty Sources/References section still blocks export before output is written.
+  A populated final `## Sources` list is required, including document URLs and citation keys for short-form references. If the analyst sets a lower per-deal review maximum, `/research` uses that threshold and records it under `deal_structure_notes.review_cap` in `state.json`.
+  Export without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote;
+  the command never offers or infers this override. For a group borrower or related-party links, open the primary charge
+  instruments and the borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect
+  PSC history including ceased entries. Read each year's available accounts, not only the latest, and make
+  register/accounts disagreements analyst follow-ups. Save each relied-on document and report any inaccessible
+  document as an evidence gap. After a manual-review release the session carries on with the
+  remaining export steps as for an approved export; after “Stop without exporting” nothing is exported, but the
+  end-of-deal learnings step still runs. It may afterwards offer end-of-deal learnings, written only on
+  your explicit yes.
+- **Term learning:** At end of deal, `analyst_terms` joins the same batch as the other learning candidates. Persist
+  an entry only on an explicit yes and ask each time whether it applies to this borrower or every borrower. If the
+  analyst says the term is industry-standard, point to docs/glossary.md and do not write it to a tracked file.
+- **Headless equivalent:** none. Export only: `scripts/research_export.py`.
+
+### /spread
+
+- **What:** spreads profit-and-loss and balance-sheet data into the core ratios, or records your own pre-spread
+  figures as given.
+- **No-record behavior:** Before creating anything, runs `state_manager.py --find`; if no record exists, it announces that `/spread` will create a new deal under the supplied name and names any returned near matches so you can correct a typo first. If the company folder is absent, it says so instead of offering near matches.
+- **Use when:** the financial step of a full CAM. It is the only hard prerequisite of `/assemble`.
+- **Inputs:** 3 to 5 years of figures, or a pre-spread snapshot. Raw line items use these field names (omit any the
+  source lacks; they default to 0 and are never invented): `revenue`, `cost_of_sales`, `admin_expenses`,
+  `depreciation`, `amortisation`, `other_income`, `interest_paid`, `interest_received`, `scheduled_principal`,
+  `capex`, `exceptional_costs`, `tax_paid`, `cash`, `trade_debtors`, `stock`, `other_current_assets`,
+  `tangible_assets`, `intangible_assets`, `other_fixed_assets`, `trade_creditors`, `other_current_liabilities`,
+  `overdraft`, `current_debt`, `long_term_debt`, `loan_notes`, `other_long_term_liabilities`, `provisions`,
+  `share_capital`, `retained_profit`.
+  In default mode, `interest_paid` and `tax_paid` are the period's P&L charges (interest payable and similar charges; tax on profit), not the cash interest or tax paid in the period.
+- **Produces (default mode):** run through `scripts/spreading_check.py`, never recalculated by hand: TNW, EBITDA,
+  DSCR, EBIT/interest, gross leverage, net debt / EBITDA, gearing, current ratio, FCF conversion, FCF after
+  working capital and the cash-flow DSCR (both N/A for the earliest period or any period with no recorded
+  prior) and the working capital days. See the [financial model](financial-model.md).
+- **Produces (analyst-supplied mode):** your subtotals and ratios as supplied, `financials_source:
+  "analyst-supplied"`, and a `financials_source_note`; the CAM must then disclose the reduced audit guarantee.
+  The fraction convention for `gearing`, `fcf_conversion_pct` and their covenant thresholds is defined in the
+  [financial model](financial-model.md#percent-type-ratios-are-stored-as-fractions).
+- **State:** `financials`, `ratios`, `multi_period_financials`, `financials_source`, `spread` in `steps_completed`;
+  in analyst-supplied mode also `analyst_supplied_financials` if you gave a raw breakdown. Before asking which mode
+  applies it reads any persisted convention (`conventions.py --enterprise --read`, `--company ... --read`), tells you
+  what is on file, and requires an explicit answer; it asks whether a newly confirmed convention is borrower-specific
+  or enterprise-wide and persists it only then.
+- **Figures read from an image** (a screenshot, a photo, a scanned page), in either mode: nothing is written until you
+  have explicitly confirmed a read-back. The session stages the transcription, `scripts/transcription_check.py`
+  prints it grouped by period and statement with each figure as written, cross-foots the subtotals the image states
+  against the lines that feed them and prints a digest; only `--commit --confirm <digest>` records it, and it
+  refuses a stale digest (the digest covers the figures, the sign conventions and the image's bytes), an
+  unresolved discrepancy, or a deal already in the other `/spread` mode. The image is saved as the source of record, the state
+  gains a `financials_transcriptions` record, and in analyst-supplied mode the CAM caveat's
+  `financials_source_note` says the figures were transcribed from an image. Walk-through:
+  [Workflows](workflows.md#figures-read-from-an-image); rules: [financial model](financial-model.md#figures-read-from-an-image).
+- **Can go wrong:** a field name the framework does not know is ignored, not guessed (use the names above); a
+  non-positive denominator makes a ratio N/A (not an error: see the [financial model](financial-model.md)); a
+  refused image commit ([Troubleshooting](troubleshooting.md#figures-read-from-an-image)).
+
+### /commercial
+
+- **What:** company history, management, parent/ultimate-owner support, sector, concentration and competition.
+- **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
+- **Inputs:** sector, management bios, customer/supplier notes, business model.
+- **Produces:** the drafted sections, each claim cited to a source (the company, its filings, a credible public
+  source or what you said); it traces the full ownership chain and checks actively for recent ownership change.
+- **State:** a `commercial` key, saved sources, `commercial` in `steps_completed`. Same source check as `/triage`.
+
+### /collateral
+
+- **What:** collect risk-team collateral inputs and security/charge information, then run the deterministic calculator to produce per-asset exposure, collateral value, coverage, uncovered risk and deal-level LGD summaries. The formulas and units are specified in the [formula register](formula-register.md#f-049--non-rv-funded-exposure-at-origination) (F-049–F-057 and F-066).
+- **No-record behavior:** Runs `state_manager.py --find` before proceeding. If no record exists, it stops with the plain-language explanation and offers only returned near-miss candidates; it does not create a deal folder or state file. If the company folder is absent, it says so instead of offering near matches.
+- **Inputs:** per-asset asset ID, asset class/description, original valuation, down payment fraction, estimated RV fraction, LGD percent, valuation/cap value, non-recovery and recovery costs; optional unit count and other calculator-supported metadata; plus a list of non-asset mitigants with an explicit `eligible_for_netting` value. LGD and RV are risk-team inputs. Asset IDs must be unique and match `[A-Za-z0-9-]{1,32}`; `max` and `avg` are reserved. PD and bureau score remain user-supplied inputs; the framework has no rating integration and never adjusts them.
+- **Calculator:** the command uses `scripts/collateral_check.py` with `--company`, `--proposal` and `--input-file <path>`; `--input-file -` reads standard input. See the [CLI reference](cli-reference.md#collateral-check). The complete JSON payload is validated before any write; refusal emits one `error:` line, exits 1 and writes nothing.
+- **Produces:** per-asset results, the deal-level totals and optional residual-realisation stress output. The calculator's unrounded JSON values are authoritative; do not recalculate or round substitutes in prose. Stressed outputs are report-only.
+- **State:** the calculator records `collateral_analysis` and refreshes the backward-compatible `collateral` projection from the same results, then marks the `collateral` step complete only after success. The exact stored object is described in the [data model](data-model.md#state-manager-and-statejson) rather than duplicated here. The `security_package` remains a flat list with exact code-recognised values: `perfection_status` must be `"Perfected"` and senior ranking must be `"First"`; other values create a condition precedent.
+- **Legacy command wording still awaiting a separate maintainer decision:** the command's existing `State: write` block still tells the model to construct the `collateral` list and append the step marker by hand. That block is not changed by the approved calculator paragraph; the separate [#266 wording proposal](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954) asks the maintainer to make the calculator the sole writer. Do not treat the legacy instructions as a second accepted state-writing route.
+- **Can go wrong:** reusing a duplicate/reserved ID, omitting explicit mitigant eligibility, or using a text value other than the exact `security_package` strings above. A malformed or refused payload must not be followed by a manual state write.
 ### /project
 
 - **What:** forward-year financials, a stress-test downside case, covenants and guarantees; all four optional.

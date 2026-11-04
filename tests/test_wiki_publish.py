@@ -1756,8 +1756,8 @@ class TestPublish:
 class TestRealCorpus:
     def test_the_real_docs_tree_builds_and_every_link_is_allowed(self):
         tree = build_tree(REPO_ROOT, "example/repo")
-        # 25 top-level pages (README becomes Home) + 2 example pages + sidebar.
-        assert len(tree) == 28
+        # 26 top-level pages (README becomes Home) + 2 example pages + sidebar.
+        assert len(tree) == 29
         allowed = re.compile(r"^(https://github\.com/example/repo/(wiki|blob|tree)/|https?://|#|mailto:)")
         for name, content in tree.items():
             for dest in _live_links(content):

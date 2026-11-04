@@ -84,7 +84,7 @@ def test_asset_id_grammar_refuses_anything_else(asset_id):
 
 
 def test_duplicate_asset_ids_are_refused():
-    payload = _payload(assets=[_asset(), _asset(asset_id="AST-002", valuation=50000)])
+    payload = _payload(assets=[_asset(), _asset(valuation=50000)])
     with pytest.raises(CollateralInputError, match="duplicate asset_id"):
         validate_collateral_payload(payload)
 
@@ -175,6 +175,40 @@ def test_mitigants_are_optional_and_may_be_omitted():
     assert validate_collateral_payload(payload)["mitigants"] == []
 
 
+def test_a_non_boolean_eligibility_flag_is_refused():
+    payload = _payload(mitigants=[{"amount": 10000, "eligible_for_netting": "yes"}])
+    with pytest.raises(CollateralInputError, match="eligible_for_netting"):
+        validate_collateral_payload(payload)
+
+
+def test_a_mitigant_that_is_not_an_object_is_refused():
+    with pytest.raises(CollateralInputError, match="mitigants"):
+        validate_collateral_payload(_payload(mitigants=["not an object"]))
+
+
+def test_a_mitigant_without_an_amount_is_refused():
+    with pytest.raises(CollateralInputError, match="amount"):
+        validate_collateral_payload(_payload(mitigants=[{"eligible_for_netting": True}]))
+
+
+def test_asset_class_must_be_a_non_empty_string_when_present():
+    with pytest.raises(CollateralInputError, match="asset_class"):
+        validate_collateral_payload(_payload(assets=[_asset(asset_class=7)]))
+    with pytest.raises(CollateralInputError, match="perfection_status"):
+        validate_collateral_payload(_payload(assets=[_asset(perfection_status=" ")]))
+
+
+def test_optional_monetary_inputs_default_to_zero_through_validation():
+    asset = _asset()
+    for field in ("cap_or_model_value", "non_recovery", "costs", "number_of_units"):
+        del asset[field]
+    validated = validate_collateral_payload(_payload(assets=[asset]))["assets"][0]
+    assert validated["cap_or_model_value"] == 0.0
+    assert validated["non_recovery"] == 0.0
+    assert validated["costs"] == 0.0
+    assert validated["number_of_units"] == 0
+
+
 # ---------------------------------------------------------------------------
 # Validation: payload shape
 # ---------------------------------------------------------------------------
@@ -183,6 +217,9 @@ def test_mitigants_are_optional_and_may_be_omitted():
     [], "not an object", 7,
     {"mitigants": []},                       # no assets key
     {"assets": {"AST-001": {}}},             # assets must be a list
+    {"assets": ["not an object"]},           # each asset must be an object
+    {"assets": [{}]},                        # asset_id is required
+    {"assets": [_asset()], "mitigants": {}},  # mitigants must be a list
 ])
 def test_a_malformed_payload_is_refused(payload):
     with pytest.raises(CollateralInputError):
@@ -508,3 +545,29 @@ def test_cli_reports_a_malformed_payload_file_as_one_error_line(workdir):
     assert result.returncode == 1
     assert result.stderr.startswith("error: ")
     assert not (workdir / "deals").exists()
+
+
+def test_cli_reports_a_missing_input_file_as_one_error_line(workdir):
+    result = _run_cli("--company", "Acme", "--proposal", "Loan", "--input-file",
+                      workdir / "no-such-payload.json", cwd=workdir)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert result.stderr.count("\n") == 1
+    assert not (workdir / "deals").exists()
+
+
+def test_cli_reports_a_corrupted_state_as_one_error_line(workdir):
+    # A state.json the code cannot read is an error line, never a traceback
+    # (issues #170 and #171 apply to this CLI as to every other).
+    state_dir = workdir / "deals" / "Acme" / "Loan_2026-11-04"
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text("{not json", encoding="utf-8")
+    payload = workdir / "payload.json"
+    payload.write_text(json.dumps(_payload()), encoding="utf-8")
+    result = _run_cli("--company", "Acme", "--proposal", "Loan", "--input-file", payload, cwd=workdir)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.startswith("error: ")
+    assert result.stderr.count("\n") == 1
+    assert "Traceback" not in result.stderr

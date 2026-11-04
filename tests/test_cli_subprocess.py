@@ -158,7 +158,7 @@ def test_an_unknown_flag_exits_two_with_usage_on_stderr(cli, script):
 # The full calculation unit coverage lives in tests/test_collateral_check.py.
 
 def test_collateral_check_cli_writes_the_analysis_and_the_projection(cli, tmp_path):
-    workdir = cli("make_workdir")
+    workdir = cli.workdir
     payload = workdir / "collateral_payload.json"
     payload.write_text(json.dumps({
         "assets": [{
@@ -184,7 +184,7 @@ def test_collateral_check_cli_writes_the_analysis_and_the_projection(cli, tmp_pa
 
 
 def test_collateral_check_cli_refuses_a_residual_above_the_financed_share(cli):
-    workdir = cli("make_workdir")
+    workdir = cli.workdir
     payload = workdir / "collateral_payload.json"
     payload.write_text(json.dumps({
         "assets": [{

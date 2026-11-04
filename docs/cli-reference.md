@@ -17,6 +17,7 @@ Usage reference for every script in `scripts/` that has a command line: what it 
 | `covenant_cushion.py` | Prints the covenant cushion report: exact EBITDA break-evens and single-shock reverse-stress brackets from a deal's recorded state; read-only | No | [Covenant cushion](#covenant-cushion) |
 | `research_export.py` | Exports a research brief to `.docx` | No | [Research export](#research-export) |
 | `spreading_check.py` | Computes subtotals, ratios and the downside case; checkpoints them | No | [Spreading check](#spreading-check) |
+| `collateral_check.py` | Computes the per-asset and deal-level collateral figures and records them as `collateral_analysis` plus the `collateral` projection | No | [Collateral check](#collateral-check) |
 | `supplied_forecast.py` | Records analyst-supplied forward-year figures for `/project` as given, with an explicit downside treatment | No | [Supplied forecast](#supplied-forecast) |
 | `transcription_check.py` | Reads back figures transcribed from an image, cross-foots them, and records them only after a confirmed digest | No | [Transcription check](#transcription-check) |
 | `policy_check.py` | Computes `policy_state`; audits a draft | No | [Policy check](#policy-check) |
@@ -375,6 +376,33 @@ commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
     --financials "deals/Synthetic Co/Synthetic Fleet Loan_financials_input.json"
+```
+
+## Collateral check
+
+`scripts/collateral_check.py --company ... --proposal ... --input-file <path>` computes the collateral
+exposure analysis of issue #266 (register F-049 to F-057 and F-066) from a JSON payload of assets and
+non-asset mitigants, and records it atomically: the full analysis goes to the `collateral_analysis` state
+object (per-asset inputs and results, the separate mitigants list, deal-level results, the `input_digest`
+and `calculator_version`), the backward-compatible `collateral` projection is refreshed from the same
+results, and the `collateral` step is marked complete only on success. `--input-file -` reads the payload
+from stdin. The whole payload is validated before anything is written; on any refusal the script prints
+exactly one `error:` line to stderr, exits 1 and leaves `state.json` byte-identical. On success it prints
+the analysis as one JSON object to stdout. The pure calculation is importable
+(`calculate_collateral_analysis()`); the CLI does I/O only.
+
+Per asset the payload requires `asset_id` (matching `[A-Za-z0-9-]{1,32}`, unique), `valuation`,
+`down_payment_pct` and `est_rv_pct`; `cap_or_model_value`, `non_recovery`, `costs` and `number_of_units`
+default to zero when omitted, and `lgd_pct` is optional (a missing LGD makes max and average LGD N/A,
+never zero). Percentages are fractions in [0, 1]; `est_rv_pct` above the financed share
+(`1 − down_payment_pct`) is refused. Each mitigant requires `amount` (non-negative) and the boolean
+`eligible_for_netting` — a missing eligibility flag is refused; `mitigant_id` is optional. See
+[financial-model.md](financial-model.md) for the formulas and [data-model.md](data-model.md) for the
+stored shape.
+
+```bash
+python scripts/collateral_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
+    --input-file "deals/Synthetic Co/Synthetic Fleet Loan_collateral_input.json"
 ```
 
 ## Supplied forecast

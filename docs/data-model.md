@@ -54,6 +54,7 @@ shortened):
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
 | `collateral`, `security_package` | `/collateral` | One entry per asset; one per charge |
+| `collateral_analysis` | `collateral_check.py` (issue #266 PR B) | The full recorded collateral analysis: `assets` (one record per asset — `asset_id`, the validated `inputs` and the computed `results`), `mitigants` (the validated list, each with `amount`, `eligible_for_netting` and optional `mitigant_id`), deal-level `results` (total exposure, total collateral value, coverage, gross and net uncovered risk, excess mitigant, `collateral_max_lgd_pct`, `collateral_avg_lgd_pct`), `input_digest` (SHA-256 of the canonical inputs) and `calculator_version`. Written atomically with the legacy `collateral` projection refreshed from the same results; a missing per-asset LGD makes max and average LGD `null`, never zero |
 | `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries, each optionally with a `basis` (`borrower`, `consolidated` or `guarantor_group`; absent or null means `borrower`); `{"provider", "type", "amount"}` entries |
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
@@ -227,7 +228,7 @@ the next write; a **newer** or malformed version is refused on write (the file i
 writing would silently drop fields. Reading a newer file still works. Each step validates only the keys it reads, so
 a deal is never rejected for a key a step does not use; the types it checks are: `financials`, `ratios`,
 `multi_period_financials` and `analyst_supplied_financials` are objects keyed by period; `inputs` and
-`stress_assumptions` are objects; `covenants`, `collateral`, `security_package`, `guarantees`, `steps_completed` and
+`stress_assumptions` and `collateral_analysis` are objects; `covenants`, `collateral`, `security_package`, `guarantees`, `steps_completed` and
 `review_trail` are lists; `financials_source` is `framework-computed` or `analyst-supplied`. A null value is "not
 recorded". The messages and fixes are in [Troubleshooting](troubleshooting.md#state-errors).
 

@@ -62,6 +62,11 @@ def _write_sheet(tmp_path, analysis=None, rows=None):
     return openpyxl.load_workbook(out_path)["Collateral & Exposure"]
 
 
+def _total_formula(letter, first, last):
+    """A total is the SUM only when at least one row carries a number; otherwise N/A, never 0."""
+    return f'=IF(COUNT({letter}{first}:{letter}{last})=0,"N/A",SUM({letter}{first}:{letter}{last}))'
+
+
 def _cells(ws, row):
     return [ws.cell(row=row, column=column).value for column in range(10, 18)]
 
@@ -177,13 +182,20 @@ def test_zero_exposure_coverage_and_missing_lgd_are_na_never_zero(tmp_path):
 
 def test_totals_sum_the_monetary_columns_and_aggregate_coverage(tmp_path):
     ws = _write_sheet(tmp_path, _analysis())
-    assert ws.cell(row=3, column=10).value == "=SUM(J2:J2)"
-    assert ws.cell(row=3, column=11).value == "=SUM(K2:K2)"
-    assert ws.cell(row=3, column=12).value == "=SUM(L2:L2)"
-    assert ws.cell(row=3, column=13).value == "=SUM(M2:M2)"
-    assert ws.cell(row=3, column=15).value == "=SUM(O2:O2)"
-    assert ws.cell(row=3, column=16).value == "=SUM(P2:P2)"
+    for column, letter in ((10, "J"), (11, "K"), (12, "L"), (13, "M"), (15, "O"), (16, "P")):
+        assert ws.cell(row=3, column=column).value == _total_formula(letter, 2, 2)
     assert ws.cell(row=3, column=14).value == '=IFERROR(IF(L3>0,G3/L3,"N/A"),"N/A")'
+
+
+def test_a_deal_without_results_gets_na_totals_not_zero(tmp_path):
+    rows = [{
+        "asset_class": "HGV", "exposure": 100, "number_of_units": 2, "cap_value": 80,
+        "non_recovery": 0, "costs": 0, "collateral_value": 80, "perfection_status": "Registered",
+    }]
+    ws = _write_sheet(tmp_path, analysis=None, rows=rows)
+    for column in (10, 11, 12, 13, 15, 16):
+        formula = ws.cell(row=3, column=column).value
+        assert formula.startswith("=IF(COUNT(") and '"N/A"' in formula
 
 
 def test_the_deal_level_lgd_stays_out_of_the_workbook(tmp_path):
@@ -204,7 +216,7 @@ def test_totals_span_all_asset_rows(tmp_path):
         "mitigants": [],
     }
     ws = _write_sheet(tmp_path, _analysis(payload))
-    assert ws.cell(row=4, column=10).value == "=SUM(J2:J3)"
+    assert ws.cell(row=4, column=10).value == _total_formula("J", 2, 3)
     assert ws.cell(row=4, column=14).value == '=IFERROR(IF(L4>0,G4/L4,"N/A"),"N/A")'
 
 

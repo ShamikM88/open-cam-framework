@@ -78,7 +78,7 @@ a valid, citable answer in its own right.
 Assign each asset a stable `asset_id` (e.g. `"AST-001"`, or reuse one already in state.json if
 this asset already has one) — this is the join key `scripts/policy_engine.py` uses to cross-
 reference this asset against its security/charge record, so it must stay the same across
-re-runs of this command for the same asset.
+re-runs of this command for the same asset. Include the stable ID in the calculator payload; do not write collateral results into `state.json` yourself.
 
 ## Source material
 
@@ -100,28 +100,8 @@ never drop a field another step already recorded):
 - If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
   otherwise write back to that same file.
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), `inputs.pd`, `inputs.lgd`
-  (exactly as given — never adjusted), and `collateral` as a **flat list** (one entry per
-  asset/facility — never nested by year), each entry an object with exactly these keys, matching
-  `scripts/spreading_builder.py`'s collateral schema so `/assemble`'s export step populates the
-  Collateral & Exposure sheet correctly:
-  ```json
-  [
-    {
-      "asset_id": "AST-001",
-      "asset_class": "[Asset class]",
-      "exposure": 0,
-      "number_of_units": 0,
-      "cap_value": 0,
-      "non_recovery": 0,
-      "costs": 0,
-      "collateral_value": 0,
-      "perfection_status": "[e.g. Registered / Pending / N/A]"
-    }
-  ]
-  ```
-  `exposure`/`collateral_value` are the Gross Exposure and Collateral Value you calculated above
-  for that asset; `perfection_status` records whether the security interest is registered/
-  perfected, pending, or not applicable — never leave it blank if you know the answer.
+  (exactly as given — never adjusted).
+- Do not set or write `collateral` or `collateral_analysis`, and do not append `collateral` to `steps_completed` yourself. The deterministic calculator writes `collateral_analysis`, refreshes the backward-compatible `collateral` projection, and appends the `collateral` step atomically only after successful validation. On a non-zero exit, leave those state values unchanged.
 - Also set/update `security_package` as a **flat list**, one entry per charge (an asset can
   carry more than one — e.g. a senior and a subordinate charge on the same `secures_asset_id` —
   give each its own entry rather than collapsing them), in this exact shape (this is what
@@ -142,4 +122,3 @@ never drop a field another step already recorded):
     }
   ]
   ```
-- Append `"collateral"` to `steps_completed` if it isn't already there.

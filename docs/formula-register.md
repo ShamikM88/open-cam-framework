@@ -970,7 +970,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   at input on the headless `--collateral` route (issue #378, `validate_collateral_inputs()`), before the sheet
   is built, so on that route the total row (a plain SUM of the per-asset rows, F-058) can no longer net a
   negative asset into a positive total: the mixed-sign netting is unreachable there rather than fixed in the
-  sheet. The same check refuses a payload that is not a list of assets and a monetary field that is not a number.
+  sheet. The same check refuses a payload that is not a list of assets, an entry that is not an object (CG550-3) and a monetary field that is not a number.
   The interactive `/collateral` route is not covered until PR C of issue #266, so a negative can still be
   recorded there; [Known differences](#known-differences) KD-2 says so and is narrowed to the scale difference
   and that route. The same function also writes the sheet's persisted result columns (F-049 to F-055, F-066):

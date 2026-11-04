@@ -50,7 +50,7 @@ REQUIRED_FIELDS = (
 # The collateral metrics agreed on issue #266 (comment 6259256219): the register
 # carries them as "Proposed, not implemented" entries, so deleting any of them
 # is a drift the guard must catch.
-REQUIRED_PROPOSED_COLLATERAL = (
+REQUIRED_IMPLEMENTED_COLLATERAL = (
     "Non-RV funded exposure (at origination)",
     "RV Exposure",
     "Total Exposure (Inc. RV)",
@@ -333,6 +333,11 @@ def _formula_definition_fingerprints():
 # Refresh ONLY together with the register entries that describe what changed.
 FORMULA_DEFINITION_FINGERPRINTS = {
     "SECTIONS": "0c6f493e387171e5",
+    "collateral_check:validate_collateral_payload": "02d1de5af8b589b2",
+    "collateral_check:calculate_asset_results": "182ecd8d7a3dad60",
+    "collateral_check:allocate_net_exposure": "aa5b571bba090cbc",
+    "collateral_check:calculate_deal_results": "8f30bf8e70f9559e",
+    "collateral_check:calculate_collateral_analysis": "3519ac7ff1bad97f",
     "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
     "numeric_validation:validate_stress_assumptions": "f4749b09600d2a7e",
     "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
@@ -392,14 +397,14 @@ def test_formula_definitions_match_the_register():
     )
 
 
-def test_collateral_metrics_stay_proposed_entries():
+def test_collateral_metrics_are_implemented_entries():
     entries = _parse_register()
-    proposed = {
+    implemented = {
         entry["name"]: entry for entry in entries
-        if entry["Status"] == "Proposed, not implemented"
+        if entry["Status"] == "Implemented, not yet reviewed by an analyst"
     }
-    for name in REQUIRED_PROPOSED_COLLATERAL:
-        assert name in proposed, (
+    for name in REQUIRED_IMPLEMENTED_COLLATERAL:
+        assert name in implemented, (
             f"the collateral metric {name!r} agreed on issue #266 has no "
-            "'Proposed, not implemented' entry in the formula register"
+            "'Implemented, not yet reviewed by an analyst' entry in the formula register"
         )

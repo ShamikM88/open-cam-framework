@@ -1020,12 +1020,12 @@ not part of these entries.
 - **Formula:** rv_exposure = valuation × est_rv_pct (F-050); non_rv_funded_exposure = valuation × (1 − down_payment_pct) − rv_exposure. This is the remaining-rentals/non-RV principal slice at origination, excluding finance charges; it assumes the rental schedule amortises exactly the non-RV slice. It is not a later-date balance or a rental cash-flow total
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** valuation and percentages are origination inputs; down_payment_pct and est_rv_pct are fractions in [0, 1]. Refuse est_rv_pct > 1 − down_payment_pct with one `error:` line and no write: the residual cannot exceed the financed share. Negative monetary inputs are refused. This is an origination proxy, not an accrued balance
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.non_rv_funded_exposure`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; maintainer formula decisions recorded in comment 6565421162
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_asset_results()` (the non-RV branch); input validation in `validate_collateral_payload()`
 - **Basis:** maintainer-approved candidate B on #266: remaining rentals plus residual, with RV counted exactly once; the derivation assumes a pure amortisation of the non-RV slice and no finance charge/profit margin in the derived amount. The analyst should verify this origination convention
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-050 — RV Exposure
 
@@ -1033,12 +1033,12 @@ not part of these entries.
 - **Formula:** rv_exposure = original_valuation × est_rv_pct. Original valuation (or original cost where that is the recorded valuation basis) is the base; never multiply RV % by the non-RV financed amount or add the residual twice
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** RV is a risk-team input, not estimated by the framework; est_rv_pct is a fraction in [0, 1] and must not exceed 1 − down_payment_pct. Residual is counted once in F-051. No accrual, arrears or late-charge component
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.rv_exposure`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; maintainer formula decisions recorded in comment 6565421162
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_asset_results()` (the RV branch); input validation in `validate_collateral_payload()`
 - **Basis:** original-price valuation basis is the maintainer-approved convention on #266; RV % is supplied by the risk team, like PD and LGD
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-051 — Total Exposure (Inc. RV)
 
@@ -1046,12 +1046,12 @@ not part of these entries.
 - **Formula:** total_exposure = non_rv_funded_exposure + rv_exposure (F-049 + F-050) = valuation × (1 − down_payment_pct). RV is a decomposition of the financed amount, not an addition on top of it
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** sum across assets without netting; mixed-sign monetary inputs refused. This is an origination exposure proxy and excludes accrued interest, arrears and late charges
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.total_exposure` · `collateral_analysis.results.total_exposure`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; maintainer formula decisions recorded in comment 6565421162
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_asset_results()` and `calculate_deal_results()` (the total_exposure sums)
 - **Basis:** candidate B accepted by the maintainer on #266: remaining rentals plus residual, counted once; do not add RV to the full financed amount
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-052 — Net Exposure
 
@@ -1059,12 +1059,12 @@ not part of these entries.
 - **Formula:** eligible_mitigants = Σ recorded non-asset mitigants explicitly declared available on default and not already netted in the financing; net_exposure = max(0, total_exposure − eligible_mitigants). Any excess eligible mitigant above total exposure is reported separately; it does not create negative net exposure. Mitigants are deal-level; where a per-asset net exposure is needed (F-066) they are allocated pro rata to each asset's total exposure
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** never deduct an unrecorded mitigant, a mitigant unavailable on default, or an amount already netted in the financed amount. Each mitigant requires an explicit eligibility declaration; no inference from its label. Negative amounts and mixed-sign inputs are refused. Net exposure is floored at zero; excess is disclosed separately
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.net_exposure` · `collateral_analysis.results.excess_mitigant`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; maintainer formula decisions recorded in comment 6565421162
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_deal_results()` (eligible mitigants, excess_mitigant) and `allocate_net_exposure()` (the per-asset allocation); eligibility validated in `validate_collateral_payload()`
 - **Basis:** maintainer-approved netting rule on #266: deduct only mitigants available on default and not already netted; floor at zero and report excess separately
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-053 — Collateral Value
 
@@ -1072,12 +1072,12 @@ not part of these entries.
 - **Formula:** collateral_value = max(0, cap_or_model_value − non_recovery − costs); floored at zero
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** costs means enforcement/recovery costs only and is the sole cost deduction in this calculation. No accrued interest, arrears or late charges are included. Negative monetary inputs refused; mixed-sign inputs refused
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.collateral_value` · `collateral_analysis.results.total_collateral_value`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented as a computation — proposed in issue #266; the Basel comprehensive-approach floor at zero is the cited reference (primary Basel text could not be retrieved)
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_asset_results()` (collateral_value, floored at zero)
 - **Basis:** house convention; the primary Basel text could not be retrieved, so this is not a verified citation. Residual realisability, security/title, valuation provenance and cross-collateralisation remain narrative judgement, not computed
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-054 — Coverage %
 
@@ -1085,12 +1085,12 @@ not part of these entries.
 - **Formula:** coverage_pct = collateral_value / total_exposure; not capped at 100%
 - **Unit and storage:** percent-type ratio stored as a fraction (0.87 = 87%), per F-010/F-025
 - **Edge rules:** total exposure zero or negative → N/A; coverage is not capped at 100%. Per-asset value is a fraction, distinct from aggregate F-047's 0–100 display scale (KD-2)
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.coverage_pct` · `collateral_analysis.results.coverage_pct`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; existing workbook F-048 and aggregate F-047 retain their existing meanings
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_asset_results()` (per-asset coverage_pct) and `calculate_deal_results()` (deal coverage_pct)
 - **Basis:** house convention agreed on #266; retain KD-2's documented 0–100 versus fraction scale distinction
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-055 — Uncovered Risk
 
@@ -1098,12 +1098,12 @@ not part of these entries.
 - **Formula:** gross_uncovered_risk = Σ over assets of max(0, total_exposure − collateral_value). Floored at zero per asset; deliberately not exposure × LGD
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** calculated per asset before summing; no netting between assets. Zero exposure gives zero uncovered risk. Negative monetary inputs refused
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.uncovered_risk` · `collateral_analysis.results.gross_uncovered_risk`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; maintainer decision recorded in comment 6565421162
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_asset_results()` and `calculate_deal_results()` (gross_uncovered_risk)
 - **Basis:** maintainer decision: retain F-055 as the gross asset-collateral shortfall; add F-066 for the separate net shortfall after eligible mitigants
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-056 — Max LGD
 
@@ -1111,12 +1111,12 @@ not part of these entries.
 - **Formula:** max_lgd = max over assets of lgd_pct. LGD % is a risk-team input, never derived from collateral
 - **Unit and storage:** percent stored as a fraction (0.45 = 45%); full precision, no rounding in storage
 - **Edge rules:** LGD outside [0, 1] refused with one error line and nothing written. Empty asset list, no recorded LGD, or any asset with a missing LGD → N/A, never zero or a maximum over a partial subset
-- **State keys:** —
+- **State keys:** `collateral_analysis.results.collateral_max_lgd_pct`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_deal_results()` (collateral_max_lgd_pct)
 - **Basis:** house convention; LGD is a risk-team input, like PD and RV. Strict missing-value treatment follows the cold-review recommendation accepted by the maintainer
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ### F-057 — Avg LGD
 
@@ -1124,12 +1124,12 @@ not part of these entries.
 - **Formula:** avg_lgd = Σ (lgd_pct × total_exposure) / Σ total_exposure; weights are total exposure, the gross exposure-at-default proxy at origination, not EAD or net exposure
 - **Unit and storage:** percent stored as a fraction (0.45 = 45%); full precision, no rounding in storage
 - **Edge rules:** LGD outside [0, 1] refused. Empty asset list, no recorded LGD, any asset with a missing LGD, or total exposure denominator zero/negative → N/A, never zero or a partial weighted average
-- **State keys:** —
+- **State keys:** `collateral_analysis.results.collateral_avg_lgd_pct`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_deal_results()` (collateral_avg_lgd_pct)
 - **Basis:** maintainer decision recorded in comment 6565421162: total exposure is the weighting basis and is the gross exposure-at-default proxy at origination; no separate EAD input is introduced
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ## Covenant cushion
 
@@ -1278,12 +1278,12 @@ nothing; nothing here is stored in state.
 - **Formula:** net_uncovered_risk = Σ over assets of max(0, net_exposure_i − collateral_value_i), where net_exposure_i = total_exposure_i × (1 − share) and share = min(1, eligible_mitigants ÷ Σ total_exposure) is the F-052 eligible mitigants allocated pro rata to each asset's total exposure, so Σ net_exposure_i equals F-052's deal-level net exposure. Floor at zero per asset before summing; do not net one asset's surplus against another asset's shortfall. Example: two assets with total exposure 100 and 300 and eligible mitigants of 100 give share 0.25 and net exposures of 75 and 225
 - **Unit and storage:** currency amount; full precision, no rounding in storage
 - **Edge rules:** uses the F-052 eligibility rule (available on default and not already netted); no eligible mitigants means net_exposure equals total_exposure, and a Σ total_exposure of zero allocates nothing. The pro rata allocation is a house convention chosen on review (CG552-2); the alternatives are an explicit per-asset allocation input or a deal-level-only measure. Negative monetary inputs are refused. This is distinct from F-055 gross uncovered risk; it is not exposure × LGD
-- **State keys:** —
+- **State keys:** `collateral_analysis.assets[].results.net_uncovered_risk` · `collateral_analysis.results.net_uncovered_risk`
 - **Workbook rows:** —
 - **Policy outputs:** —
-- **Implemented in:** Not implemented — proposed in issue #266; maintainer decision recorded in comment 6565421162
+- **Implemented in:** `scripts/collateral_check.py` — `calculate_collateral_analysis()` and `allocate_net_exposure()` (net_uncovered_risk)
 - **Basis:** added by maintainer decision: retain F-055 as gross uncovered risk and add this separate post-mitigant measure
-- **Status:** Proposed, not implemented
+- **Status:** Implemented, not yet reviewed by an analyst
 
 ## Known differences
 
@@ -1304,13 +1304,18 @@ maintainer, per the issue's instruction.
   (F-048) is `=IFERROR(IF(B{row}>0,G{row}/B{row},"N/A"),"N/A")` per asset and on the total row, and the CAM's
   aggregate (`compute_collateral_cover_pct()`, F-047) returns `None` for a zero or negative total exposure.
   What remains is deliberate: the aggregate is quoted on a 0-100 scale while the workbook cell
-  and the proposed Coverage % (F-054) are raw fractions. The other former difference — the aggregate
+  and the per-asset Coverage % (F-054) are raw fractions. The other former difference — the aggregate
   returning `None` for a negative per-asset value while the workbook's total row (a plain SUM guarded only on
   the summed exposure) could net it into a positive total — is no longer reachable on the headless
   `--collateral` route: a negative on any monetary collateral field is refused at input there (issue #378, see
   F-048), enforced in code. The interactive `/collateral` refusal is prompt-observance only until PR C, so a
   negative can still be recorded on that route. KD-2 is narrowed accordingly, and `compute_collateral_cover_pct()`'s None-on-negative branch is kept as defence in
   depth.
+
+  The calculator's per-asset Coverage % (F-054) and the deal-level figures of F-049-F-057 and F-066 are
+  computed by `scripts/collateral_check.py` — `calculate_collateral_analysis()` — and stored under
+  `collateral_analysis`; the legacy `collateral` projection (`collateral_projection()`) feeds the existing
+  workbook columns unchanged.
 
 ## Drift guard
 
@@ -1321,8 +1326,8 @@ maintainer, per the issue's instruction.
    `docs/examples/synthetic_co` has no register entry (state keys uncovered);
 3. a rule of the policy engine — a key of `evaluate_deal_policy()`'s result — has no register entry;
 4. an entry names a file or function that does not exist in the repository;
-5. one of the proposed collateral entries (F-049-F-057 or F-066) or its "Proposed, not implemented" status is
-   deleted.
+5. one of the collateral entries (F-049-F-057 or F-066) or its "Implemented, not yet reviewed by an analyst"
+   status is deleted.
 
 Removing an entry therefore fails the suite through the coverage checks; renaming a function or moving a
 file fails it through the existence check. The guard is one-directional by design: the register may describe

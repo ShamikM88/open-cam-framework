@@ -138,7 +138,7 @@ STATE_SHAPES = {
     "financials": "periods", "ratios": "periods", "multi_period_financials": "periods",
     "analyst_supplied_financials": "periods",
     "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
-    "collateral": "list", "covenants": "list", "security_package": "list", "guarantees": "list",
+    "collateral": "list", "collateral_analysis": "object", "covenants": "list", "security_package": "list", "guarantees": "list",
     "steps_completed": "list", "review_trail": "list",
     "financials_source": "source", "entity_records": "entity_records",
 }
@@ -148,7 +148,7 @@ FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
 # State fields whose numeric contents participate in framework-computed financial or policy decisions.
 FINITE_NUMERIC_STATE_KEYS = (
     "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
-    "stress_assumptions", "downside_case", "covenants", "collateral", "security_package",
+    "stress_assumptions", "downside_case", "covenants", "collateral", "collateral_analysis", "security_package",
 )
 
 

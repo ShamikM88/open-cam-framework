@@ -211,10 +211,12 @@ def workdir(tmp_path):
 
 
 def _seed_state(workdir, fields):
+    code = (
+        f"import sys; sys.path.insert(0, {str(SCRIPTS_DIR)!r}); from state_manager import write_state; "
+        f"write_state('Acme', 'Loan', **{fields!r})"
+    )
     subprocess.run(
-        [sys.executable, "-c",
-         "import sys; sys.path.insert(0, %r); from state_manager import write_state; "
-         "write_state('Acme', 'Loan', **%r)" % (str(SCRIPTS_DIR), fields)],
+        [sys.executable, "-c", code],
         cwd=workdir, env=_child_env(), capture_output=True, text=True, timeout=60, check=True,
     )
 

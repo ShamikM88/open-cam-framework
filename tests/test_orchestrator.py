@@ -3061,3 +3061,30 @@ def test_a_legacy_list_run_gives_the_ground_truth_no_analysis(project_root, monk
 
     args, kwargs = seen[0]
     assert (args[4] if len(args) > 4 else kwargs.get("collateral_analysis")) is None
+
+
+def test_an_explicit_empty_legacy_list_clears_the_collateral_and_its_analysis(project_root):
+    """CG563-1: [] was treated as 'not supplied', so the old assets and their analysis survived."""
+    _seed_charge()
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    assert read_state("Acme Corp", "Fleet Loan")["collateral_analysis"]
+    write_state("Acme Corp", "Fleet Loan", security_package=[])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[], client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["collateral"] == []
+    assert not state.get("collateral_analysis")
+
+
+def test_an_explicit_empty_legacy_list_on_a_deal_without_an_analysis_records_no_collateral(project_root):
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[{"asset_class": "HGV", "exposure": 100, "collateral_value": 80}],
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[], client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
+
+    assert read_state("Acme Corp", "Fleet Loan")["collateral"] == []

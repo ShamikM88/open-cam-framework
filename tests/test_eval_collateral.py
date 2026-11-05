@@ -62,7 +62,7 @@ def test_stale_fixture_mutations_are_deterministic_and_fail_closed(dataset_v2, s
     case = collateral_case(dataset_v2, "collateral-stale-analysis")
     fixture = copy.deepcopy(case["deal"]["collateral_fixture"])
     fixture["state"] = state
-    built = build_collateral_fixture(fixture)
+    built = _fixture_module().build_collateral_fixture(fixture)
 
     assert built["collateral"] == collateral_projection(
         calculate_collateral_analysis(fixture["payload"])
@@ -77,17 +77,17 @@ def test_fixture_schema_rejects_open_ended_mutation_and_unknown_keys(dataset_v2)
     fixture = copy.deepcopy(collateral_case(dataset_v2, "collateral-correct-figure")["deal"]["collateral_fixture"])
     fixture["state"] = "mutate-anything"
     with pytest.raises(_fixture_module().CollateralFixtureError, match="state"):
-        build_collateral_fixture(fixture)
+        _fixture_module().build_collateral_fixture(fixture)
 
     fixture = copy.deepcopy(collateral_case(dataset_v2, "collateral-correct-figure")["deal"]["collateral_fixture"])
     fixture["mutation"] = "change a result"
-    with pytest.raises(CollateralFixtureError, match="unknown"):
-        build_collateral_fixture(fixture)
+    with pytest.raises(_fixture_module().CollateralFixtureError, match="unknown"):
+        _fixture_module().build_collateral_fixture(fixture)
 
     fixture = copy.deepcopy(collateral_case(dataset_v2, "collateral-correct-figure")["deal"]["collateral_fixture"])
     fixture["payload"]["assets"][0]["arbitrary"] = 123
-    with pytest.raises(CollateralFixtureError, match="unknown"):
-        build_collateral_fixture(fixture)
+    with pytest.raises(_fixture_module().CollateralFixtureError, match="unknown"):
+        _fixture_module().build_collateral_fixture(fixture)
 
 
 def test_dataset_v2_is_v1_plus_six_and_copies_every_v1_case_byte_for_byte(dataset_v2):

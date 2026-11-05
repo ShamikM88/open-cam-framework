@@ -116,3 +116,16 @@ def test_headless_cli_rejects_an_object_payload_without_assets_before_model_or_s
 
     _assert_controlled_error(result, "collateral", "assets is required")
     assert not (tmp_path / "deals").exists()
+
+
+@pytest.mark.parametrize("flag", ["--collateral", "--stress-assumptions"])
+def test_headless_cli_refuses_a_json_null_file_instead_of_treating_it_as_omitted(tmp_path, flag):
+    """CG563-2: `null` decoded to the same None as an omitted flag, so the old collateral and analysis survived
+    an explicitly supplied file. A supplied file must hold a value; omit the flag to keep what is recorded."""
+    payload = tmp_path / "payload.json"
+    payload.write_text("null", encoding="utf-8")
+
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", flag, payload)
+
+    _assert_controlled_error(result, flag, "null")
+    assert not (tmp_path / "deals").exists()

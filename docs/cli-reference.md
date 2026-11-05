@@ -163,7 +163,7 @@ See [State manager](#state-manager).
   columns and the policy ground truth see the same figures as the interactive route. A refused payload is one `error:`
   line before anything is written. A **flat list** of asset objects (an empty list too, which clears the recorded collateral) is the legacy shape: it is recorded as the
   `collateral` list only, with no calculator results, and it discards any earlier `collateral_analysis` (that analysis
-  described the assets the list replaces). Without `--collateral` a run keeps what the deal already has, and its
+  described the assets the list replaces). A file that holds JSON `null` is refused with one `error:` line before anything is written, as is one given to `--stress-assumptions`: `null` would read as "not supplied" and silently keep the old record (CG563-2); omit the flag to keep it. Without `--collateral` a run keeps what the deal already has, and its
   policy ground truth uses a stored analysis only while it is current.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,

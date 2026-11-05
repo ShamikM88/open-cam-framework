@@ -189,6 +189,18 @@ def _load_json_file(path):
         return json.load(f)
 
 
+def _load_supplied_json_file(path, flag):
+    """Load a file the caller named with `flag`, refusing JSON null (CG563-2).
+
+    run_pipeline() reads None as "not supplied" and keeps what is recorded, so a file holding `null` would silently
+    behave like an omitted flag. A supplied file must hold a value; the flag is omitted to keep the record.
+    """
+    data = _load_json_file(path)
+    if path and data is None:
+        raise ValueError(f"{flag} file {path} holds JSON null; supply a value or omit the flag")
+    return data
+
+
 def _load_multi_period_financials(financials_path, spread_path):
     """--spread takes precedence over --financials when both are given."""
     spread_data = _load_json_file(spread_path)
@@ -930,8 +942,8 @@ if __name__ == "__main__":
 
     try:
         multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
-        collateral_data = _load_json_file(args.collateral)
-        stress_assumptions = _load_json_file(args.stress_assumptions)
+        collateral_data = _load_supplied_json_file(args.collateral, "--collateral")
+        stress_assumptions = _load_supplied_json_file(args.stress_assumptions, "--stress-assumptions")
     except (OSError, ValueError) as exc:    # a missing, non-UTF-8 or malformed input file
         sys.exit(f"error: {exc}")
 

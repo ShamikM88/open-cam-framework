@@ -234,10 +234,6 @@ def test_entity_spread_refuses_to_fall_back_to_borrower_or_analyst_supplied_stor
     supplied_only = _entity(
         raw={}, supplied={"FY-Current": {"revenue": 500}},
     )
-    path, _ = _seed_deal(tmp_path, [supplied_only])
-    before = path.read_bytes()
-    monkeypatch.chdir(tmp_path)
-
     empty_raw = _entity("synthetic-no-raw", "GUARANTEE-SYN-002", raw={})
     path, _ = _seed_deal(
         tmp_path, [supplied_only, empty_raw],
@@ -251,6 +247,29 @@ def test_entity_spread_refuses_to_fall_back_to_borrower_or_analyst_supplied_stor
     with pytest.raises(ValueError, match="no framework-computed"):
         spreading_check.compute_entity(COMPANY, PROPOSAL, empty_raw["entity_id"])
 
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("invalid_kind", ["period-key", "boolean"])
+def test_entity_spread_refuses_invalid_period_key_or_boolean_raw_value_without_writing(
+    tmp_path, monkeypatch, invalid_kind,
+):
+    path, _ = _seed_deal(tmp_path)
+    state = read_state(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(tmp_path))
+    record = state["entity_records"]["synthetic-guarantor"]
+    if invalid_kind == "period-key":
+        record["multi_period_financials"] = {"Borrower Entity": {"revenue": 10}}
+    else:
+        record["multi_period_financials"]["FY-Current"]["revenue"] = True
+    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    before = path.read_bytes()
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(state_manager.StateShapeError) as caught:
+        spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+    expected_fragment = "unexpected period key" if invalid_kind == "period-key" else "finite JSON number or null"
+    assert expected_fragment in str(caught.value)
     assert path.read_bytes() == before
 
 

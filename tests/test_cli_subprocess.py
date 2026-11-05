@@ -2896,3 +2896,10 @@ def test_entity_spreading_cli_selects_one_registered_guarantor_and_prints_review
     assert saved["multi_period_financials"] == state["multi_period_financials"]
     assert saved["analyst_supplied_financials"] == state["analyst_supplied_financials"]
     assert saved["financials_source"] == "analyst-supplied"
+
+    before_empty_id = (deal_dir / "state.json").read_bytes()
+    empty_id = cli("spreading_check", "--company", "Synthetic Group Ltd",
+                   "--proposal", "Synthetic Group Facility", "--entity-id", "")
+    assert empty_id.returncode == 1
+    assert "not found" in empty_id.stderr
+    assert (deal_dir / "state.json").read_bytes() == before_empty_id

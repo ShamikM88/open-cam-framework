@@ -214,6 +214,10 @@ def test_spread_view_exposes_only_periods_with_a_current_hash_and_current_evalua
 
     missing_hash = copy.deepcopy(record)
     del missing_hash["spread_fingerprints"]["FY-1"]
+    assert state_manager.validate_state(
+        {"entity_records": {"synthetic-guarantor": missing_hash}},
+        keys=("entity_records",),
+    )["entity_records"]["synthetic-guarantor"] is missing_hash
     missing_hash_view = spreading_check.entity_spread_view(missing_hash)
     assert set(missing_hash_view["financials"]) == {"FY-Current"}
     assert missing_hash_view["stale_periods"] == ["FY-1"]
@@ -289,8 +293,7 @@ def test_entity_spread_refuses_invalid_period_key_or_boolean_raw_value_without_w
     assert path.read_bytes() == before
 
 
-@pytest.mark.parametrize("overlap_store", ["multi_period_financials", "analyst_supplied_financials"])
-def test_entity_record_refuses_same_period_in_both_raw_stores(tmp_path, overlap_store):
+def test_entity_record_refuses_same_period_in_both_raw_stores(tmp_path):
     record = _entity()
     record["multi_period_financials"] = {"FY-Current": {"revenue": 1200}}
     record["analyst_supplied_financials"] = {"FY-Current": {"revenue": 1100}}

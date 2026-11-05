@@ -3,6 +3,7 @@
 import copy
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,7 @@ COMPANY = "Synthetic Group Ltd"
 PROPOSAL = "Synthetic Group Facility"
 DATE = "2026-01-01"
 REVIEW_LABEL = "not yet reviewed by an analyst"
+GUARANTEE = {"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic GUARANTEE-SYN-001"}
 SOURCE = {
     "document": "Synthetic guarantor accounts – period set",
     "accounting_basis": "UK GAAP",
@@ -41,8 +43,8 @@ RAW_PERIODS = {
 
 def _entity(entity_id="synthetic-guarantor", guarantee_id="GUARANTEE-SYN-001",
             *, raw=None, supplied=None, role="guarantor"):
-    periods = dict(RAW_PERIODS if raw is None else raw)
-    supplied_periods = {} if supplied is None else dict(supplied)
+    periods = copy.deepcopy(RAW_PERIODS if raw is None else raw)
+    supplied_periods = {} if supplied is None else copy.deepcopy(supplied)
     period_ends = {period: ("2025-12-31" if period == "FY-Current" else "2024-12-31")
                    for period in set(periods) | set(supplied_periods)}
     return {
@@ -93,7 +95,7 @@ def _seed_deal(tmp_path, entities=None, guarantee_ids=("GUARANTEE-SYN-001",)):
     )
     for entity in entities or [_entity()]:
         _register(tmp_path, entity)
-    path = state_path(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(tmp_path))
+    path = Path(state_path(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(tmp_path)))
     return path, borrower_fields
 
 
@@ -215,7 +217,7 @@ def test_spread_view_exposes_only_periods_with_a_current_hash_and_current_evalua
     missing_hash = copy.deepcopy(record)
     del missing_hash["spread_fingerprints"]["FY-1"]
     assert state_manager.validate_state(
-        {"entity_records": {"synthetic-guarantor": missing_hash}},
+        {"entity_records": {"synthetic-guarantor": missing_hash}, "guarantees": [GUARANTEE]},
         keys=("entity_records",),
     )["entity_records"]["synthetic-guarantor"] is missing_hash
     missing_hash_view = spreading_check.entity_spread_view(missing_hash)
@@ -225,17 +227,19 @@ def test_spread_view_exposes_only_periods_with_a_current_hash_and_current_evalua
     removed_period = copy.deepcopy(record)
     del removed_period["multi_period_financials"]["FY-1"]
     assert state_manager.validate_state(
-        {"entity_records": {"synthetic-guarantor": removed_period}},
+        {"entity_records": {"synthetic-guarantor": removed_period}, "guarantees": [GUARANTEE]},
         keys=("entity_records",),
     )["entity_records"]["synthetic-guarantor"] is removed_period
     removed_view = spreading_check.entity_spread_view(removed_period)
-    assert set(removed_view["financials"]) == {"FY-Current"}
-    assert removed_view["stale_periods"] == ["FY-1"]
+    # FY-Current's cash-flow figures read the prior period's working capital (see the next test), so
+    # removing FY-1 changes FY-Current's evaluated output too: neither period is current.
+    assert removed_view["financials"] == {}
+    assert removed_view["stale_periods"] == ["FY-1", "FY-Current"]
 
     all_removed = copy.deepcopy(record)
     all_removed["multi_period_financials"] = {}
     assert state_manager.validate_state(
-        {"entity_records": {"synthetic-guarantor": all_removed}},
+        {"entity_records": {"synthetic-guarantor": all_removed}, "guarantees": [GUARANTEE]},
         keys=("entity_records",),
     )["entity_records"]["synthetic-guarantor"] is all_removed
     all_removed_view = spreading_check.entity_spread_view(all_removed)

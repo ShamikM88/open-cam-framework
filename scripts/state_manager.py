@@ -460,12 +460,15 @@ def _entity_spread_problem(record: dict[str, Any], record_path: str) -> str | No
     return None
 
 
-def _entity_records_problems(value: object, guarantees: object = None) -> list[str]:
+def _entity_records_problems(value: object, guarantees: object = None, registering: str | None = None) -> list[str]:
     """Validate the full entity registry and return its first deterministic problem.
 
     Unknown fields inside each record are deliberately allowed and preserved.
     This validates stored inputs only; it does not spread, aggregate or calculate
     anything from an entity record.
+
+    `registering` names the one record that `record_entity_record()` is adding: a new registration is always
+    "not-spread" (CG568-5), while a stored record may carry the validated spread that `record_entity_spread()` wrote.
     """
     if not isinstance(value, dict):
         return [f'"entity_records" must be an object, found {_json_type(value)}']
@@ -537,6 +540,8 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
 
         if not nonempty_text(record.get("raw_figures_source")):
             return [f"{record_path}.raw_figures_source must be a non-empty string"]
+        if entity_key == registering and record.get("spread_status") != "not-spread":
+            return [f'{record_path}.spread_status must be "not-spread" in step 1']
         raw_stores: dict[str, dict[Any, Any]] = {}
         for store_name in ("multi_period_financials", "analyst_supplied_financials"):
             raw_store = record.get(store_name)
@@ -778,7 +783,7 @@ def record_entity_record(
 
         registry: EntityRegistry = dict(existing_registry)
         registry[entity_id] = record
-        problems = _entity_records_problems(registry, state.get("guarantees"))
+        problems = _entity_records_problems(registry, state.get("guarantees"), registering=entity_id)
         if problems:
             raise StateError(f"Refusing to register entity_record: {problems[0]}. Nothing was changed.")
         # The entity contract has already validated every recognized raw line and intercompany amount.

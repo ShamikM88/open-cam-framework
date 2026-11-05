@@ -97,8 +97,7 @@ intermediate artifacts — only the source documents themselves.
 
 Update this deal's state file with this step's results (merge with whatever you read above —
 never drop a field another step already recorded):
-- If no state file existed, create `deals/<company>/<proposal>_<today's date>/state.json`;
-  otherwise write back to that same file.
+- Write back to the existing `state.json` found above (never create one: no matching record is a stop).
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), `inputs.pd`, `inputs.lgd`
   (exactly as given — never adjusted).
 - Do not set or write `collateral` or `collateral_analysis`, and do not append `collateral` to `steps_completed` yourself. The deterministic calculator writes `collateral_analysis`, refreshes the backward-compatible `collateral` projection, and appends the `collateral` step atomically only after successful validation. On a non-zero exit, leave those state values unchanged.
@@ -107,7 +106,7 @@ never drop a field another step already recorded):
   give each its own entry rather than collapsing them), in this exact shape (this is what
   `scripts/policy_engine.py` cross-references against `collateral` above to flag an uncharged
   asset, an unperfected charge, or a subordinate ranking as a required Condition Precedent — see
-  the `/assemble`/`/review` steps). Unlike `collateral.perfection_status` above, which is a
+  the `/assemble`/`/review` steps). Unlike the asset's free-text `perfection_status` in the calculator payload, which is a
   narrative field, `security_package`'s `perfection_status` and `ranking` are compared against
   exact literal strings by code: use precisely `"Perfected"` when the charge is fully perfected
   (any other value — including "Registered" or "Pending" — is treated as unperfected and

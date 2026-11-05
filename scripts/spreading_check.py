@@ -20,6 +20,7 @@ No `anthropic` dependency, matching policy_check.py/deal_export.py's pattern.
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from typing import Any
 
 from spreading_builder import (
@@ -33,7 +34,7 @@ from numeric_validation import (
     validate_raw_line_items,
     validate_stress_assumptions,
 )
-from state_manager import read_state, write_state
+from state_manager import entity_period_input_fingerprint, read_state, record_entity_spread, write_state
 
 
 class FinancialSourceModeError(ValueError):
@@ -205,6 +206,150 @@ def compute(
     return write_state(company, proposal, **fields)
 
 
+
+ENTITY_SPREAD_REVIEW_LABEL = "not yet reviewed by an analyst"
+ENTITY_SPREAD_SOURCE = "scripts/spreading_check.py --entity-id"
+
+
+def entity_spread_view(record: dict[str, Any]) -> dict[str, Any]:
+    """Return only entity-period results whose inputs and evaluated outputs are current.
+
+    The fingerprint is the settled period-local input contract. The existing
+    evaluator also has an intentional prior-period working-capital dependency
+    for FCF-after-working-capital/ cash-flow DSCR; output parity therefore
+    prevents a later period from being shown current if that dependency changed.
+    """
+    raw = record.get("multi_period_financials")
+    stored_financials = record.get("financials")
+    stored_ratios = record.get("ratios")
+    fingerprints = record.get("spread_fingerprints")
+    raw_periods = set(raw) if isinstance(raw, dict) else set()
+    candidate_periods = set(raw_periods)
+    for value in (stored_financials, stored_ratios, fingerprints):
+        if isinstance(value, dict):
+            candidate_periods.update(value)
+    current_financials: dict[str, Any] = {}
+    current_ratios: dict[str, Any] = {}
+    metadata_valid = (
+        record.get("spread_status") == "spread"
+        and record.get("figures_basis") == "recomputed"
+        and record.get("analyst_review_status") == ENTITY_SPREAD_REVIEW_LABEL
+        and isinstance(record.get("spread_source"), str) and bool(record.get("spread_source", "").strip())
+    )
+    timestamp = record.get("spread_timestamp")
+    if isinstance(timestamp, str):
+        try:
+            metadata_valid = metadata_valid and datetime.fromisoformat(
+                timestamp.replace("Z", "+00:00")
+            ).tzinfo is not None
+        except ValueError:
+            metadata_valid = False
+    else:
+        metadata_valid = False
+
+    if (
+        metadata_valid and isinstance(raw, dict) and raw
+        and isinstance(stored_financials, dict)
+        and isinstance(stored_ratios, dict)
+        and isinstance(fingerprints, dict)
+    ):
+        try:
+            evaluated = evaluate_financial_model(raw)
+            for period in sorted(raw):
+                if fingerprints.get(period) != entity_period_input_fingerprint(
+                    record.get("entity_id"), period, record,
+                ):
+                    continue
+                if stored_financials.get(period) != evaluated["financials"].get(period):
+                    continue
+                if stored_ratios.get(period) != evaluated["ratios"].get(period):
+                    continue
+                current_financials[period] = stored_financials[period]
+                current_ratios[period] = stored_ratios[period]
+        except (KeyError, TypeError, ValueError):
+            # An invalid or incomplete record is not a current spread.
+            current_financials = {}
+            current_ratios = {}
+
+    stale_periods = sorted(candidate_periods - set(current_financials))
+    return {
+        "spread_status": record.get("spread_status"),
+        "figures_basis": record.get("figures_basis"),
+        "analyst_review_status": ENTITY_SPREAD_REVIEW_LABEL,
+        "spread_timestamp": record.get("spread_timestamp"),
+        "spread_source": record.get("spread_source"),
+        "financials": current_financials,
+        "ratios": current_ratios,
+        "stale_periods": stale_periods,
+    }
+
+
+def compute_entity(
+    company: str, proposal: str, entity_id: str, base_dir: str | None = None,
+) -> dict[str, Any]:
+    """Spread one selected guarantor from its own framework-computed periods only."""
+    state = read_state(company, proposal, base_dir=base_dir, keys=("entity_records",)) or {}
+    registry = state.get("entity_records")
+    if not isinstance(registry, dict) or entity_id not in registry:
+        raise ValueError(f"Entity record {entity_id!r} was not found.")
+    record = registry[entity_id]
+    if not isinstance(record, dict):
+        raise ValueError(f"Entity record {entity_id!r} must be an object.")
+    if record.get("role") != "guarantor":
+        raise ValueError(f"Entity {entity_id!r} has role {record.get('role')!r}; C3 requires role 'guarantor'.")
+
+    raw = record.get("multi_period_financials")
+    supplied = record.get("analyst_supplied_financials")
+    if not isinstance(raw, dict):
+        raise ValueError(f"Entity {entity_id!r} multi_period_financials must be an object of raw periods.")
+    if not raw:
+        if isinstance(supplied, dict) and supplied:
+            raise ValueError(
+                f"Entity {entity_id!r} has analyst-supplied periods only; that input is preserved but not spread."
+            )
+        raise ValueError(f"Entity {entity_id!r} has no framework-computed multi_period_financials to spread.")
+    validate_period_objects(raw, path=f"entity_records[{entity_id!r}].multi_period_financials")
+    validate_period_keys(raw, PERIOD_KEYS, path=f"entity_records[{entity_id!r}].multi_period_financials")
+    validate_raw_line_items(raw, FIELD_LABELS, path=f"entity_records[{entity_id!r}].multi_period_financials")
+    validate_finite_numbers(raw, path=f"entity_records[{entity_id!r}].multi_period_financials")
+
+    evaluated = evaluate_financial_model(raw)
+    fingerprints = {
+        period: entity_period_input_fingerprint(entity_id, period, record)
+        for period in raw
+    }
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    updated = record_entity_spread(
+        company, proposal, entity_id,
+        evaluated["financials"], evaluated["ratios"], fingerprints,
+        timestamp, ENTITY_SPREAD_SOURCE, base_dir=base_dir,
+    )
+    saved_record = updated["entity_records"][entity_id]
+    view = entity_spread_view(saved_record)
+    if view["stale_periods"]:
+        raise ValueError(
+            f"Entity {entity_id!r} spread was saved but one or more periods are stale: "
+            + ", ".join(view["stale_periods"])
+        )
+    return {
+        "entity_id": entity_id,
+        "legal_name": saved_record["legal_name"],
+        "role": saved_record["role"],
+        "spread_status": saved_record["spread_status"],
+        "figures_basis": saved_record["figures_basis"],
+        "spread_timestamp": saved_record["spread_timestamp"],
+        "spread_source": saved_record["spread_source"],
+        "analyst_review_status": ENTITY_SPREAD_REVIEW_LABEL,
+        "spread_fingerprints": saved_record["spread_fingerprints"],
+        "unavailable_analyst_supplied_periods": sorted(
+            set(supplied or {}) - set(raw) if isinstance(supplied, dict) else set()
+        ),
+        "financials": view["financials"],
+        "ratios": view["ratios"],
+        "stale_periods": view["stale_periods"],
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Recompute financials/ratios/downside_case from raw line items and "
@@ -215,6 +360,8 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
+    parser.add_argument("--entity-id",
+                        help="Spread exactly one registered guarantor's own multi_period_financials (case C3).")
     parser.add_argument("--financials",
                          help='Path to a JSON file: {"FY-2": {...}, "FY-1": {...}, '
                               '"FY-Current": {...}, "FY+1": {...}, ...} -- raw line items per '
@@ -225,13 +372,24 @@ def main(argv: list[str] | None = None) -> None:
                               '"opex_increase_pct": ..., "interest_rate_bump_bps": ...} -- all '
                               "optional within it, defaulting to no shock")
     parser.add_argument("--no-update-financials-source", dest="update_financials_source",
-                         action="store_false",
+                         action="store_false", default=None,
                          help="Don't stamp financials_source: \"framework-computed\" on this "
                               "call -- pass this from /project's own call, since "
                               "financials_source is a whole-deal flag /spread owns the decision "
                               "for, not something /project's forward-year figures should ever "
                               "silently flip (e.g. away from an already-set \"analyst-supplied\")")
     args = parser.parse_args(argv)
+
+    if args.entity_id:
+        if args.financials or args.stress_assumptions or args.update_financials_source is False:
+            parser.error("--entity-id cannot be combined with --financials, --stress-assumptions or "
+                         "--no-update-financials-source")
+        try:
+            report = compute_entity(args.company, args.proposal, args.entity_id)
+        except (OSError, ValueError) as exc:
+            sys.exit(f"error: {exc}")
+        print(json.dumps(report, indent=2))
+        return
 
     multi_period_financials = None
     stress_assumptions = None
@@ -260,7 +418,7 @@ def main(argv: list[str] | None = None) -> None:
         validate_finite_numbers(multi_period_financials, path="financial inputs")
         validate_finite_numbers(stress_assumptions, path="stress assumptions")
         state = compute(args.company, args.proposal, multi_period_financials, stress_assumptions,
-                         update_financials_source=args.update_financials_source)
+                         update_financials_source=args.update_financials_source is not False)
     except ValueError as exc:
         sys.exit(f"error: {exc}")
     print(json.dumps({

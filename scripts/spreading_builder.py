@@ -9,7 +9,7 @@ from openpyxl.chart.data_source import StrRef
 from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font
 
-from collateral_check import canonical_input_digest
+from collateral_check import stored_analysis_is_current
 from numeric_validation import validate_finite_numbers, validate_period_keys, validate_raw_line_items
 
 # Forward periods used both here (workbook columns) and by
@@ -1149,33 +1149,16 @@ def _formula_or_supplied(
 def _collateral_results_by_asset_id(collateral_analysis: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
     """The per-asset results of a stored analysis, keyed by asset_id.
 
-    Empty unless the stored ``input_digest`` matches the stored inputs
-    (decision 5 on issue #266): a stale or malformed analysis yields no
-    results, and every result column is then "N/A" rather than a figure the
-    calculator did not certify for these inputs.
+    Empty unless the analysis is current (``stored_analysis_is_current``, decision
+    5 on issue #266 and review finding CG559-3): same calculator version, input
+    digest intact, and recalculating the stored inputs reproduces the stored
+    results. A stale, edited or malformed analysis yields no results, and every
+    result column is then "N/A" rather than a figure the calculator did not
+    certify for these inputs; it never fails the export.
     """
-    if not isinstance(collateral_analysis, Mapping):
+    if collateral_analysis is None or not stored_analysis_is_current(collateral_analysis):
         return {}
-    assets = collateral_analysis.get("assets")
-    if not isinstance(assets, Sequence) or isinstance(assets, (str, bytes)):
-        return {}
-    try:
-        recomputed = canonical_input_digest({
-            "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in assets],
-            "mitigants": collateral_analysis.get("mitigants", []),
-        })
-    except (KeyError, TypeError, IndexError, ValueError):
-        # ValueError: json.dumps(allow_nan=False) on a hand-edited NaN/Infinity;
-        # a malformed analysis yields no results, never a failed export.
-        return {}
-    if recomputed != collateral_analysis.get("input_digest"):
-        return {}
-    return {
-        asset["asset_id"]: asset["results"]
-        for asset in assets
-        if isinstance(asset, Mapping) and isinstance(asset.get("asset_id"), str)
-        and isinstance(asset.get("results"), Mapping)
-    }
+    return {asset["asset_id"]: asset["results"] for asset in collateral_analysis["assets"]}
 
 
 def _collateral_result_cells(results: Mapping[str, Any] | None) -> list[Any]:

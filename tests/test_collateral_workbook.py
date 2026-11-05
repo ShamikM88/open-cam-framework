@@ -246,3 +246,29 @@ def test_workbook_inputs_from_state_routes_the_analysis(tmp_path):
 def test_workbook_inputs_from_state_without_an_analysis_is_none():
     inputs = workbook_inputs_from_state({"collateral": []})
     assert inputs["collateral_analysis"] is None
+
+
+def test_an_edited_stored_result_makes_the_result_cells_na(tmp_path):
+    """CG559-3: a result-only edit leaves the input digest unchanged but is detected by recomputation."""
+    analysis = _analysis()
+    analysis["assets"][0]["results"]["collateral_value"] = 1.0
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8
+
+
+def test_an_analysis_from_another_calculator_version_makes_the_result_cells_na(tmp_path):
+    analysis = _analysis()
+    analysis["calculator_version"] = "0.9.0"
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8
+
+
+def test_a_list_of_pairs_for_stored_inputs_makes_the_result_cells_na_not_an_error(tmp_path):
+    """CG562-1: a malformed nested member must fail closed in the workbook reader too."""
+    analysis = _analysis()
+    analysis["assets"][0]["inputs"] = list(analysis["assets"][0]["inputs"].items())
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8

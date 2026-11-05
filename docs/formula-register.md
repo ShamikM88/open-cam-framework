@@ -917,14 +917,16 @@ the entry says so and it is listed under [Known differences](#known-differences)
   entirely (it is not a figure this deal has a number for), as is the collateral cover when unresolvable
 - **Edge rules:** an unknown reported figure is flagged UNRESOLVABLE rather than ignored; the nested `raw`
   input dicts are not figures and are excluded. A stored collateral result is used only while the
-  analysis's `input_digest` matches its stored inputs; a stale, malformed or ambiguous (missing, duplicate
-  or non-conforming `asset_id`) analysis adds no collateral keys, and an N/A or non-numeric metric is
-  omitted, never defaulted to zero. Without a `collateral_analysis` the set is exactly what it was
+  analysis is current (`stored_analysis_is_current()`: its `calculator_version` is the calculator's, its
+  `input_digest` matches its stored inputs, and recalculating the stored inputs reproduces the stored
+  results exactly); a stale, edited, malformed or ambiguous (missing, duplicate, reserved or non-conforming
+  `asset_id`) analysis adds no collateral keys, and an N/A metric is omitted, never defaulted to zero. Without a `collateral_analysis` the set is exactly what it was
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** `scripts/policy_checks.py` — `ground_truth_figures()` and
-  `collateral_analysis_ground_truth()`; `scripts/collateral_check.py` — `stored_analysis_digest_matches()`
+  `collateral_analysis_ground_truth()`; `scripts/collateral_check.py` — `stored_analysis_is_current()` and
+  `stored_analysis_digest_matches()`
 - **Basis:** house convention; the collateral keys follow decisions 3, 4 and 10 on issue #266
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -982,8 +984,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
   The interactive `/collateral` route is not covered until PR C of issue #266, so a negative can still be
   recorded there; [Known differences](#known-differences) KD-2 says so and is narrowed to the scale difference
   and that route. The same function also writes the sheet's persisted result columns (F-049 to F-055, F-066):
-  literal values joined by `asset_id`, used only when the stored `input_digest` matches the stored inputs
-  (decision 5 on issue #266) — never a second Excel implementation of those formulas; the CV % column itself
+  literal values joined by `asset_id`, used only when the stored analysis is current (same calculator version,
+  `input_digest` intact, stored results reproduced by recalculating the stored inputs; decision 5 on issue #266) — never a second Excel implementation of those formulas; the CV % column itself
   is unchanged. The total row's aggregate Coverage % is summed collateral / summed total exposure (F-058)
 - **State keys:** —
 - **Workbook rows:** CV % of Exposure

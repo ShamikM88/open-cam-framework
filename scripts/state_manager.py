@@ -452,19 +452,11 @@ def _entity_spread_problem(record: dict[str, Any], record_path: str) -> str | No
     except ValueError as exc:
         return str(exc)
 
-    expected_periods = set(raw)
-    for field, value in (("financials", financials), ("ratios", ratios), ("spread_fingerprints", fingerprints)):
-        if set(value) != expected_periods:
-            return (
-                f"{record_path}.{field} periods must exactly match multi_period_financials; "
-                f"expected {sorted(expected_periods)}, found {sorted(value)}"
-            )
-    for period, period_raw in raw.items():
-        if not isinstance(financials[period], dict) or financials[period].get("raw") != period_raw:
-            return f"{record_path}.financials[{period!r}].raw must equal the selected raw period input"
-        digest = fingerprints[period]
-        if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
-            return f"{record_path}.spread_fingerprints[{period!r}] must be 64 lowercase hexadecimal SHA-256 characters"
+    # Keep period-level gaps/mismatches readable so the spread view can mark
+    # only affected periods stale. A raw period may be added/removed after a
+    # spread, and one missing digest must not hide unrelated current periods.
+    # Each map's keys are still restricted to known framework period labels;
+    # currentness and the digest's exact format are checked before exposure.
     return None
 
 

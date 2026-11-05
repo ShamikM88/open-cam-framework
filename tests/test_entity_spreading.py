@@ -212,6 +212,22 @@ def test_spread_view_exposes_only_periods_with_a_current_hash_and_current_evalua
     assert set(partial["financials"]) == {"FY-Current"}
     assert partial["stale_periods"] == ["FY-1"]
 
+    missing_hash = copy.deepcopy(record)
+    del missing_hash["spread_fingerprints"]["FY-1"]
+    missing_hash_view = spreading_check.entity_spread_view(missing_hash)
+    assert set(missing_hash_view["financials"]) == {"FY-Current"}
+    assert missing_hash_view["stale_periods"] == ["FY-1"]
+
+    removed_period = copy.deepcopy(record)
+    del removed_period["multi_period_financials"]["FY-1"]
+    assert state_manager.validate_state(
+        {"entity_records": {"synthetic-guarantor": removed_period}},
+        keys=("entity_records",),
+    )["entity_records"]["synthetic-guarantor"] is removed_period
+    removed_view = spreading_check.entity_spread_view(removed_period)
+    assert set(removed_view["financials"]) == {"FY-Current"}
+    assert removed_view["stale_periods"] == ["FY-1"]
+
 
 def test_spread_view_detects_a_later_period_result_changed_by_prior_period_working_capital(tmp_path, monkeypatch):
     _seed_deal(tmp_path)

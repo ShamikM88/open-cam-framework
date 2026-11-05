@@ -37,6 +37,13 @@ Each new case exercises one boundary: a correct per-asset figure, a wrong value,
 The oracle context passes the stored analysis to `ground_truth_figures()`. Per-asset keys exist only when `stored_analysis_is_current()` accepts the analysis; stale or absent analysis exposes no per-asset keys, and an N/A metric such as missing `lgd_pct` is omitted rather than set to zero. The `collateral-figures` category is therefore a separate structured-declaration measurement.
 
 **The v2 `figures_grounded` result remains a form check, not a narrative judgement.** It can establish that a declared number matches a current calculator key (or that no number was declared); it cannot establish that the prose explains an N/A value, identifies a stale result, or avoids an unsupported narrative claim. Those observations stay in each case's non-scored `human_review` questions. The six cases are suitable for the approved zero-call validation/dry-run only; no live call or spend is part of this build. Any future live subset requires the separate prompt approval and maintainer decision already recorded on #266.
+If a later live subset is separately approved after the prompt contract and API credits are available, keep it to the six new cases and the 30-call ceiling:
+
+```bash
+python scripts/run_evals.py --dataset v2 --cases collateral-correct-figure,collateral-wrong-figure,collateral-unknown-asset,collateral-na-lgd-omitted,collateral-stale-analysis,collateral-no-analysis --repeats 5 --max-calls 30 --live
+```
+
+Leave the normal typed confirmation enabled; do not add `--yes`. This command is documentation for a later separately authorised run only; it is not run or scheduled by this PR.
 
 ## Reading a result
 

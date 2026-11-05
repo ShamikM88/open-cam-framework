@@ -135,6 +135,13 @@ python scripts/run_evals.py --dataset v2 --dry-run --repeats 1 --max-calls 21
 ```
 
 A v2 live subset is a separate maintainer action requiring its own authorization and credits; this PR neither runs nor schedules it.
+If a later live subset is separately approved after the prompt contract and API credits are available, keep it to the six new cases and the 30-call ceiling:
+
+```bash
+python scripts/run_evals.py --dataset v2 --cases collateral-correct-figure,collateral-wrong-figure,collateral-unknown-asset,collateral-na-lgd-omitted,collateral-stale-analysis,collateral-no-analysis --repeats 5 --max-calls 30 --live
+```
+
+Leave the normal typed confirmation enabled; do not add `--yes`. This command is documentation for a later separately authorised run only; it is not run or scheduled by this PR.
 
 ## Dataset layout
 

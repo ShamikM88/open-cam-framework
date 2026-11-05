@@ -154,3 +154,19 @@ def test_the_registry_row_matches_the_existing_command_identity():
     assert (
         row["kind"], row["audience"], row["status"], row["invocation"], row["role"], row["headless"]
     ) == ("command", "analyst", "implemented", "user", "Maker", "yes")
+
+
+def test_the_state_write_never_creates_a_state_file():
+    """CG560-3: the read section says no matching record is a stop, so the write must not create one."""
+    text = " ".join(command_text().split())
+    assert "If no state file existed, create" not in text
+    assert ("Update the existing `state.json` found above and write back to that same file "
+            "(never create one: no matching record is a stop).") in text
+
+
+def test_the_security_package_bullet_does_not_point_at_a_field_the_command_no_longer_lists():
+    """The command no longer lists `collateral.perfection_status`; the contrast is with the calculator payload."""
+    text = " ".join(command_text().split())
+    assert "Unlike `collateral.perfection_status` above" not in text
+    assert ("Unlike the asset's free-text `perfection_status` in the calculator payload, which is a narrative field,"
+            in text)

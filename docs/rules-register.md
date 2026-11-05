@@ -49,7 +49,7 @@ Not covered entries from that audit each link their own gap issue, which asks fo
 batch links [issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) for its outstanding test-citation
 verification; existing behavioural tests do not make a new rule Covered until they cite its ID.
 
-**Inventory at this revision:** 39 IDs ever issued; 32 active Covered; 4 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 41 IDs ever issued; 32 active Covered; 6 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -118,6 +118,8 @@ independently proven by the gate.
 - `R-SPREAD-007`
 - `R-EXPORT-007`
 - `R-EXPORT-008`
+- `R-STATE-005`
+- `R-STATE-006`
 
 ## Policy engine and checks (POL)
 
@@ -328,6 +330,22 @@ independently proven by the gate.
 - **Implemented in:** `scripts/state_manager.py::append_review_trail`
 - **Status:** Covered
 - **Tracking:** —
+
+### R-STATE-005 — Unreplaced unknown state fields survive write_state
+
+- **Claim:** An otherwise permitted `write_state()` preserves each pre-existing unknown top-level field unless the caller supplies that field in the update.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::_merge_and_write`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530)
+
+### R-STATE-006 — An ordinary write_state call stamps the current schema version
+
+- **Claim:** On a permitted `write_state()` call that omits `schema_version` from its supplied fields, the resulting state records the current `SCHEMA_VERSION`.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::_merge_and_write`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530)
 
 ## Spreading and financial calculations (SPREAD)
 

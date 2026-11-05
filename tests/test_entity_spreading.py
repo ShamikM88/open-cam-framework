@@ -412,3 +412,118 @@ def test_record_entity_spread_does_not_write_an_analyst_supplied_period(tmp_path
     assert spread["analyst_supplied_financials"]["FY-Current"] == {"revenue": 500}
     assert spread["spread_status"] == "spread"
     assert path.read_bytes() != before
+
+
+# --- Branch coverage for the C3 validators and the view (the governance floors need these). -------------------
+
+
+def _spread_record(tmp_path, monkeypatch):
+    _seed_deal(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+    return read_state(COMPANY, PROPOSAL)["entity_records"]["synthetic-guarantor"]
+
+
+def _validate(record):
+    return state_manager.validate_state(
+        {"entity_records": {record["entity_id"]: record}, "guarantees": [GUARANTEE]},
+        keys=("entity_records",),
+    )
+
+
+@pytest.mark.parametrize("mutate, fragment", [
+    (lambda r: r.update(spread_status="bogus"), 'must be "not-spread" or "spread"'),
+    (lambda r: r.update(role="subsidiary"), 'only valid for role "guarantor"'),
+    (lambda r: r.update(figures_basis="supplied"), 'figures_basis must be "recomputed"'),
+    (lambda r: r.update(analyst_review_status="reviewed"), "analyst_review_status must be"),
+    (lambda r: r.pop("spread_timestamp"), "spread_timestamp must be an ISO-8601 timestamp"),
+    (lambda r: r.update(spread_timestamp="  "), "spread_timestamp must be an ISO-8601 timestamp"),
+    (lambda r: r.update(spread_timestamp="not-a-date"), "spread_timestamp must be an ISO-8601 timestamp"),
+    (lambda r: r.update(spread_timestamp="2026-01-01T00:00:00"), "must include a timezone"),
+    (lambda r: r.update(spread_source=" "), "spread_source must be a non-empty provenance reference"),
+    (lambda r: r.update(financials=[]), "financials must be an object"),
+    (lambda r: r.update(ratios=[]), "ratios must be an object"),
+    (lambda r: r.update(spread_fingerprints=[]), "spread_fingerprints must be an object"),
+    (lambda r: r["financials"].update({"FY-1": []}), "financials"),
+    (lambda r: r["ratios"].update({"not-a-period": {}}), "ratios"),
+    (lambda r: r["ratios"]["FY-1"].update(dscr=float("nan")), "ratios"),
+    (lambda r: r["spread_fingerprints"].update({"not-a-period": "x"}), "spread_fingerprints"),
+], ids=["status", "role", "basis", "label", "timestamp-missing", "timestamp-blank", "timestamp-garbage",
+        "timestamp-naive", "source", "financials-type", "ratios-type", "fingerprints-type", "financials-period",
+        "ratios-key", "ratios-nan", "fingerprints-key"])
+def test_a_malformed_stored_spread_is_refused_with_a_named_problem(tmp_path, monkeypatch, mutate, fragment):
+    record = copy.deepcopy(_spread_record(tmp_path, monkeypatch))
+    assert _validate(record)  # the unmodified record is valid
+    mutate(record)
+    with pytest.raises(state_manager.StateShapeError) as excinfo:
+        _validate(record)
+    assert fragment in str(excinfo.value)
+
+
+def test_a_not_spread_record_carrying_spread_payload_is_refused(tmp_path, monkeypatch):
+    record = copy.deepcopy(_spread_record(tmp_path, monkeypatch))
+    record["spread_status"] = "not-spread"
+    with pytest.raises(state_manager.StateShapeError) as excinfo:
+        _validate(record)
+    assert "spread payload field" in str(excinfo.value)
+
+
+def test_the_fingerprint_helper_refuses_each_malformed_input_with_a_state_shape_error():
+    record = _entity()
+    fingerprint = state_manager.entity_period_input_fingerprint
+    with pytest.raises(state_manager.StateShapeError):
+        fingerprint("synthetic-guarantor", "FY-Current", "not a record")
+    with pytest.raises(state_manager.StateShapeError):
+        fingerprint("another-id", "FY-Current", record)
+    for change in (
+        lambda r: r.update(period_ends=None),
+        lambda r: r["period_ends"].pop("FY-Current"),
+        lambda r: r.update(source=None),
+        lambda r: r["multi_period_financials"].pop("FY-Current"),
+        lambda r: r["multi_period_financials"].update({"FY-Current": []}),
+        lambda r: r.update(raw_figures_source=" "),
+        lambda r: r["multi_period_financials"]["FY-Current"].update(revenue=float("nan")),
+        lambda r: r["multi_period_financials"]["FY-Current"].update(revenue={1, 2}),
+    ):
+        broken = copy.deepcopy(record)
+        change(broken)
+        with pytest.raises(state_manager.StateShapeError):
+            fingerprint("synthetic-guarantor", "FY-Current", broken)
+
+
+ALL_PERIODS = ["FY-1", "FY-Current"]
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda r: r.pop("spread_timestamp"),
+    lambda r: r.update(spread_timestamp="not-a-date"),
+    lambda r: r.update(spread_timestamp="2026-01-01T00:00:00"),
+    lambda r: r.update(spread_source=""),
+    lambda r: r.update(figures_basis="supplied"),
+    lambda r: r.update(entity_id=7),
+    lambda r: r.update(multi_period_financials={"FY-Current": {"revenue": float("nan")}}),
+    lambda r: r.update(multi_period_financials=None),
+    lambda r: r.update(financials=None),
+], ids=["no-timestamp", "garbage-timestamp", "naive-timestamp", "no-source", "wrong-basis", "bad-entity-id",
+        "nan-input", "no-raw", "no-financials"])
+def test_the_spread_view_shows_no_period_as_current_for_a_record_that_fails_a_whole_record_check(
+        tmp_path, monkeypatch, mutate):
+    record = copy.deepcopy(_spread_record(tmp_path, monkeypatch))
+    mutate(record)
+    view = spreading_check.entity_spread_view(record)
+    assert view["analyst_review_status"] == REVIEW_LABEL
+    assert view["financials"] == {} and view["ratios"] == {}
+    assert view["stale_periods"] == ALL_PERIODS
+
+
+@pytest.mark.parametrize("store, change", [
+    ("ratios", {"dscr": 123.456}),
+    ("financials", {"ebitda": 1}),
+], ids=["ratio-mismatch", "financials-mismatch"])
+def test_a_stored_result_that_no_longer_equals_the_evaluator_makes_only_that_period_stale(
+        tmp_path, monkeypatch, store, change):
+    record = copy.deepcopy(_spread_record(tmp_path, monkeypatch))
+    record[store]["FY-Current"] = change
+    view = spreading_check.entity_spread_view(record)
+    assert set(view["financials"]) == {"FY-1"}
+    assert view["stale_periods"] == ["FY-Current"]

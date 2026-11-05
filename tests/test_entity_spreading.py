@@ -273,6 +273,18 @@ def test_entity_spread_refuses_invalid_period_key_or_boolean_raw_value_without_w
     assert path.read_bytes() == before
 
 
+@pytest.mark.parametrize("overlap_store", ["multi_period_financials", "analyst_supplied_financials"])
+def test_entity_record_refuses_same_period_in_both_raw_stores(tmp_path, overlap_store):
+    record = _entity()
+    record["multi_period_financials"] = {"FY-Current": {"revenue": 1200}}
+    record["analyst_supplied_financials"] = {"FY-Current": {"revenue": 1100}}
+    with pytest.raises(ValueError, match="both raw stores"):
+        state_manager.validate_state(
+            {"entity_records": {record["entity_id"]: record}},
+            keys=("entity_records",),
+        )
+
+
 def test_entity_spread_refuses_missing_entity_and_non_guarantor_without_writing(tmp_path, monkeypatch):
     parent = _entity("synthetic-parent", "GUARANTEE-SYN-001", role="parent")
     path, _ = _seed_deal(tmp_path, [parent])

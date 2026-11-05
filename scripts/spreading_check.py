@@ -20,7 +20,7 @@ No `anthropic` dependency, matching policy_check.py/deal_export.py's pattern.
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from spreading_builder import (
@@ -319,7 +319,7 @@ def compute_entity(
         period: entity_period_input_fingerprint(entity_id, period, record)
         for period in raw
     }
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    timestamp = datetime.now(UTC).isoformat(timespec="seconds")
     updated = record_entity_spread(
         company, proposal, entity_id,
         evaluated["financials"], evaluated["ratios"], fingerprints,

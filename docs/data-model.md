@@ -251,7 +251,7 @@ complete raw-line object. It is encoded as
 `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")`
 and hashed with SHA-256. Calculated outputs, display name, perimeter and `guarantee_ids` are excluded.
 The digest fingerprints values recorded in state; it does not prove the source document's authenticity.
-A provenance or period-end correction changes that period's digest.
+A raw-line or period-end correction changes that period's digest; changing the shared `source` object or `raw_figures_source` changes every period digest because those complete values appear in every period payload.
 
 A missing/mismatched digest or malformed payload is stale, never current. Before a period is exposed, its
 digest is recomputed and its stored `financials`/`ratios` are compared with the existing evaluator's

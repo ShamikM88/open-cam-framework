@@ -2903,3 +2903,12 @@ def test_entity_spreading_cli_selects_one_registered_guarantor_and_prints_review
     assert empty_id.returncode == 1
     assert "not found" in empty_id.stderr
     assert (deal_dir / "state.json").read_bytes() == before_empty_id
+
+    empty_financials_path = cli(
+        "spreading_check", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--entity-id", "synthetic-guarantor",
+        "--financials", "",
+    )
+    assert empty_financials_path.returncode == 2
+    assert "cannot be combined" in empty_financials_path.stderr
+    assert (deal_dir / "state.json").read_bytes() == before_empty_id

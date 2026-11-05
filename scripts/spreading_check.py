@@ -382,7 +382,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.entity_id is not None:
-        if args.financials or args.stress_assumptions or args.update_financials_source is False:
+        if args.financials is not None or args.stress_assumptions is not None or args.update_financials_source is False:
             parser.error("--entity-id cannot be combined with --financials, --stress-assumptions or "
                          "--no-update-financials-source")
         try:

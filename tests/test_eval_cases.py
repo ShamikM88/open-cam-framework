@@ -43,6 +43,28 @@ def test_collateral_figures_is_a_registered_separate_category():
     assert "collateral-figures" in CATEGORIES
 
 
+def _v2_collateral_case():
+    return copy.deepcopy(load_dataset("v2")["cases"][0])
+
+
+@pytest.mark.parametrize(
+    "mutate, expected",
+    [
+        (lambda case: case["deal"].update(collateral=[]), "mutually exclusive"),
+        (lambda case: case["deal"]["collateral_fixture"].update(state="open-ended"), "deal.collateral_fixture is invalid"),
+        (lambda case: case["deal"].update(collateral_fixture=None), "deal.collateral_fixture is invalid"),
+        (lambda case: case.update(mode="checker"), "collateral-figures cases must be Maker cases"),
+        (lambda case: case.update(assertions=[{"oracle": "structured_block_present"}]),
+         "need scored structured_block_present and figures_grounded"),
+        (lambda case: case["deal"].pop("collateral_fixture"), "need a calculator fixture or an explicit legacy collateral projection"),
+    ],
+)
+def test_collateral_category_and_fixture_contract_rejects_invalid_variants(mutate, expected):
+    case = _v2_collateral_case()
+    mutate(case)
+    assert expected in problems_text(case)
+
+
 def test_the_shipped_dataset_covers_every_category_and_both_modes(dataset):
     assert {c["category"] for c in dataset["cases"]} == set(CATEGORIES) - {"collateral-figures"}
     assert {c["mode"] for c in dataset["cases"]} == {"maker", "checker"}

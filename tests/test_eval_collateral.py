@@ -90,6 +90,57 @@ def test_fixture_schema_rejects_open_ended_mutation_and_unknown_keys(dataset_v2)
         _fixture_module().build_collateral_fixture(fixture)
 
 
+@pytest.mark.parametrize(
+    "mutation, message",
+    [
+        ("fixture-not-object", "fixture must be an object"),
+        ("fixture-missing-state", "fixture requires keys"),
+        ("fixture-missing-payload", "fixture requires keys"),
+        ("payload-not-object", "payload must be an object"),
+        ("payload-unknown-key", "unknown payload keys"),
+        ("payload-missing-assets", "payload.assets is required"),
+        ("assets-not-list", "payload.assets must be a non-empty list"),
+        ("assets-empty", "payload.assets must be a non-empty list"),
+        ("asset-not-object", "payload.assets[0] must be an object"),
+        ("mitigants-not-list", "payload.mitigants must be a list"),
+        ("mitigant-not-object", "payload.mitigants[0] must be an object"),
+        ("mitigant-unknown-key", "unknown payload.mitigants[0] keys"),
+        ("invalid-calculator-input", "invalid calculator payload"),
+    ],
+)
+def test_fixture_validator_rejects_malformed_shapes(dataset_v2, mutation, message):
+    case = collateral_case(dataset_v2, "collateral-correct-figure")
+    fixture = copy.deepcopy(case["deal"]["collateral_fixture"])
+    if mutation == "fixture-not-object":
+        fixture = []
+    elif mutation == "fixture-missing-state":
+        fixture.pop("state")
+    elif mutation == "fixture-missing-payload":
+        fixture.pop("payload")
+    elif mutation == "payload-not-object":
+        fixture["payload"] = []
+    elif mutation == "payload-unknown-key":
+        fixture["payload"]["unexpected"] = True
+    elif mutation == "payload-missing-assets":
+        fixture["payload"].pop("assets")
+    elif mutation == "assets-not-list":
+        fixture["payload"]["assets"] = {}
+    elif mutation == "assets-empty":
+        fixture["payload"]["assets"] = []
+    elif mutation == "asset-not-object":
+        fixture["payload"]["assets"] = [None]
+    elif mutation == "mitigants-not-list":
+        fixture["payload"]["mitigants"] = {}
+    elif mutation == "mitigant-not-object":
+        fixture["payload"]["mitigants"] = [None]
+    elif mutation == "mitigant-unknown-key":
+        fixture["payload"]["mitigants"] = [{"amount": 10, "eligible_for_netting": False, "extra": 1}]
+    elif mutation == "invalid-calculator-input":
+        fixture["payload"]["assets"][0].pop("valuation")
+    with pytest.raises(_fixture_module().CollateralFixtureError, match=message):
+        _fixture_module().build_collateral_fixture(fixture)
+
+
 def test_dataset_v2_is_v1_plus_six_and_copies_every_v1_case_byte_for_byte(dataset_v2):
     dataset_v1 = load_dataset("v1")
     assert validate_dataset(dataset_v2) == []

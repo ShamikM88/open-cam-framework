@@ -205,6 +205,10 @@ def test_stale_and_absent_analysis_expose_no_per_asset_ground_truth(dataset_v2):
     assert absent["collateral_analysis"] is None
     assert not any(key.startswith("collateral_AST-") for key in stale["ground_truth"])
     assert not any(key.startswith("collateral_AST-") for key in absent["ground_truth"])
+    stale_value = stale["collateral_analysis"]["assets"][0]["results"]["total_exposure"]
+    assert collateral_case(dataset_v2, "collateral-stale-analysis")["dry_run"]["bad"]["structured"][
+        "reported_figures"
+    ]["collateral_AST-001_total_exposure"] == stale_value
     # A legacy collateral projection is context, not calculator-certified per-asset truth.
     assert absent["collateral"] == absent_case["deal"]["collateral"]
 

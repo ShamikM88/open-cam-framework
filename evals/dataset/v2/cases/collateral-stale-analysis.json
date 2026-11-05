@@ -48,10 +48,10 @@
       }
     },
     "bad": {
-      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nThe stored AST-001 total exposure is 400,000.\n",
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nThe stored AST-001 total exposure is 400,001.\n",
       "structured": {
         "reported_figures": {
-          "collateral_AST-001_total_exposure": 400000
+          "collateral_AST-001_total_exposure": 400001
         }
       },
       "expected_failures": [

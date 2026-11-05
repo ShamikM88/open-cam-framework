@@ -19,9 +19,11 @@ from policy_checks import (
     values_match as _values_match,
     check_reported_figures as _check_reported_figures,
 )
+from collateral_check import CollateralInputError, calculate_collateral_analysis, collateral_projection
 from policy_engine import evaluate_deal_policy
 from numeric_validation import (
     FinancialInputError,
+    MalformedCollateralInputError,
     StressAssumptionsError,
     validate_collateral_inputs,
     validate_finite_numbers,
@@ -119,7 +121,7 @@ MAX_REVIEW_ITERATIONS = 3
 
 # The state.json keys run_pipeline() reads from an existing deal (validated up front, before any model call: a
 # wrongly-typed one is a StateShapeError naming the key, shown by the CLI as one `error:` line).
-STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
+STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                    "security_package", "guarantees", "review_trail")   # review_trail: append_review_trail() reads it
 
@@ -185,6 +187,18 @@ def _load_json_file(path):
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _load_supplied_json_file(path, flag):
+    """Load a file the caller named with `flag`, refusing JSON null (CG563-2).
+
+    run_pipeline() reads None as "not supplied" and keeps what is recorded, so a file holding `null` would silently
+    behave like an omitted flag. A supplied file must hold a value; the flag is omitted to keep the record.
+    """
+    data = _load_json_file(path)
+    if path and data is None:
+        raise ValueError(f"{flag} file {path} holds JSON null; supply a value or omit the flag")
+    return data
 
 
 def _load_multi_period_financials(financials_path, spread_path):
@@ -504,7 +518,18 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     validate_stress_assumptions(stress_assumptions)
     validate_finite_numbers(collateral_data, path="collateral")
-    validate_collateral_inputs(collateral_data)
+    # --collateral takes either the calculator payload (an object with assets and mitigants: the same
+    # calculation, validation and stored analysis as the interactive /collateral route) or the legacy flat list
+    # (recorded as the projection only; issue #266, option C). The calculator is pure and has no anthropic import.
+    collateral_analysis_in = None
+    if isinstance(collateral_data, dict):
+        try:
+            collateral_analysis_in = calculate_collateral_analysis(collateral_data)
+        except CollateralInputError as exc:
+            raise MalformedCollateralInputError(str(exc)) from None
+        collateral_data = collateral_projection(collateral_analysis_in)
+    else:
+        validate_collateral_inputs(collateral_data)
 
     # Load the targeted deal before credential or prompt loading so a refused
     # financial-basis transition has a deterministic one-line error even when
@@ -705,7 +730,17 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # already confirmed and checkpointed to this deal's state.json.
         financials_source_note = existing_state.get("financials_source_note") or ""
 
-    collateral = collateral_data if collateral_data else existing_state.get("collateral") or []
+    if collateral_analysis_in is not None:
+        collateral, collateral_analysis = collateral_data, collateral_analysis_in
+        collateral_analysis_write = {"collateral_analysis": collateral_analysis_in}
+    elif collateral_data is not None:
+        # An explicitly supplied legacy list (even an empty one: the analyst removed every asset) replaces the collateral, so a calculator analysis of the old assets must not survive it.
+        collateral, collateral_analysis = collateral_data, None
+        collateral_analysis_write = {"collateral_analysis": None} if existing_state.get("collateral_analysis") else {}
+    else:
+        collateral = existing_state.get("collateral") or []
+        collateral_analysis = existing_state.get("collateral_analysis")
+        collateral_analysis_write = {}
 
     # Downside (stressed) forward-year case. The raw forward-year base-case
     # financials and the stress_assumptions to apply to them don't have to
@@ -758,14 +793,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # (financials/ratios/collateral/downside_case don't change draft-to-draft
     # within one run), so this is computed once and reused rather than
     # per-iteration.
-    ground_truth_figures = _ground_truth_figures(financials, ratios, collateral, downside_case)
+    ground_truth_figures = _ground_truth_figures(financials, ratios, collateral, downside_case, collateral_analysis)
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 inputs={"pd": pd_score, "lgd": lgd_score},
-                financials=financials, ratios=ratios, collateral=collateral,
+                financials=financials, ratios=ratios, collateral=collateral, **collateral_analysis_write,
                 financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
                 multi_period_financials=multi_period_financials_to_persist,
@@ -884,7 +919,10 @@ if __name__ == "__main__":
                          help="Path to a JSON file in the same shape as --financials; "
                               "takes precedence over --financials if both are given")
     parser.add_argument("--collateral",
-                         help="Path to a JSON file containing a flat list of collateral asset dicts")
+                         help="Path to a JSON file: either the collateral calculator payload (an object with "
+                              "assets and mitigants, recorded with its calculator analysis, as /collateral does) or "
+                              "a legacy flat list of collateral asset dicts (recorded as the collateral list only, "
+                              "and it discards any earlier calculator analysis)")
     parser.add_argument("--stress-assumptions",
                          help="Path to a JSON file of deterministic downside-case shocks applied "
                               "to --financials/--spread's FY+1-FY+3 entries only (historical "
@@ -904,8 +942,8 @@ if __name__ == "__main__":
 
     try:
         multi_period_financials = _load_multi_period_financials(args.financials, args.spread)
-        collateral_data = _load_json_file(args.collateral)
-        stress_assumptions = _load_json_file(args.stress_assumptions)
+        collateral_data = _load_supplied_json_file(args.collateral, "--collateral")
+        stress_assumptions = _load_supplied_json_file(args.stress_assumptions, "--stress-assumptions")
     except (OSError, ValueError) as exc:    # a missing, non-UTF-8 or malformed input file
         sys.exit(f"error: {exc}")
 

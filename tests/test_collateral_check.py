@@ -604,3 +604,116 @@ def test_an_asset_id_that_collides_with_a_deal_level_ground_truth_key_is_refused
 def test_reserved_asset_ids_are_matched_exactly_and_case_sensitively():
     validated = validate_collateral_payload(_payload(assets=[_asset(asset_id="MAX"), _asset(asset_id="maximum")]))
     assert [asset["asset_id"] for asset in validated["assets"]] == ["MAX", "maximum"]
+
+
+# ---------------------------------------------------------------------------
+# Freshness of a stored analysis (issue #266, decision 5; review finding CG559-3, RECOMPUTE)
+# ---------------------------------------------------------------------------
+
+def _stored():
+    return json.loads(json.dumps(collateral_check.calculate_collateral_analysis(_payload(
+        assets=[_asset(), _asset(asset_id="AST-002", valuation=50000, lgd_pct=0.3)],
+        mitigants=[{"mitigant_id": "M-1", "amount": 5000, "eligible_for_netting": True}],
+    ))))
+
+
+def test_a_stored_analysis_that_the_calculator_just_produced_is_current():
+    assert collateral_check.stored_analysis_is_current(_stored())
+
+
+def test_an_analysis_stays_current_after_a_json_round_trip_and_reordered_keys():
+    analysis = _stored()
+    reordered = {key: analysis[key] for key in reversed(list(analysis))}
+    assert collateral_check.stored_analysis_is_current(reordered)
+
+
+@pytest.mark.parametrize("tamper", [
+    lambda a: a["assets"][0]["results"].__setitem__("collateral_value", 1.0),
+    lambda a: a["assets"][1]["results"].__setitem__("net_uncovered_risk", 12345.0),
+    lambda a: a["results"].__setitem__("gross_uncovered_risk", 0.0),
+    lambda a: a["results"].__setitem__("collateral_max_lgd_pct", None),
+    lambda a: a["assets"][0]["results"].pop("rv_exposure"),
+    lambda a: a["assets"][0]["results"].__setitem__("rv_exposure", float("nan")),
+    lambda a: a.__setitem__("results", "x"),
+    lambda a: a["assets"][0].__setitem__("results", "x"),
+], ids=["asset-result", "asset-net", "deal-result", "deal-lgd-to-na", "missing-metric", "nan-metric",
+        "deal-results-not-object", "asset-results-not-object"])
+def test_an_edited_result_makes_the_analysis_stale(tamper):
+    analysis = _stored()
+    tamper(analysis)
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+@pytest.mark.parametrize("version", ["0.9.0", "1.0.1", "", None, 1])
+def test_a_different_calculator_version_makes_the_analysis_stale(version):
+    analysis = _stored()
+    analysis["calculator_version"] = version
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+def test_a_missing_calculator_version_makes_the_analysis_stale():
+    analysis = _stored()
+    del analysis["calculator_version"]
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+def test_the_version_gate_follows_the_calculators_current_version(monkeypatch):
+    analysis = _stored()
+    monkeypatch.setattr(collateral_check, "CALCULATOR_VERSION", "2.0.0")
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+@pytest.mark.parametrize("edit", [
+    lambda a: a["assets"][0]["inputs"].__setitem__("valuation", 999999),
+    lambda a: a["assets"][0]["inputs"].__setitem__("valuation", "100000"),
+    lambda a: a["assets"][0]["inputs"].__setitem__("valuation", 10**400),
+    lambda a: a["assets"][0]["inputs"].__setitem__("valuation", float("nan")),
+    lambda a: a["assets"][0]["inputs"].__setitem__("est_rv_pct", 0.9),
+    lambda a: a["mitigants"][0].__setitem__("amount", 1.0),
+    lambda a: a.__setitem__("input_digest", "0" * 64),
+    lambda a: a.__setitem__("mitigants", "x"),
+    lambda a: a["assets"].__setitem__(0, "x"),
+    lambda a: a["assets"][0].pop("inputs"),
+], ids=["valuation", "string-valuation", "huge-int-valuation", "nan-valuation", "rv-above-financed",
+        "mitigant", "digest", "mitigants-not-list", "asset-not-object", "no-inputs"])
+def test_an_edited_or_invalid_input_makes_the_analysis_stale_never_an_exception(edit):
+    analysis = _stored()
+    edit(analysis)
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+@pytest.mark.parametrize("value", [None, "x", 7, [], {}, {"assets": "x"}])
+def test_a_non_analysis_is_not_current(value):
+    assert not collateral_check.stored_analysis_is_current(value)
+
+
+def test_an_integer_too_large_for_a_float_is_a_refusal_not_an_overflow():
+    with pytest.raises(CollateralInputError, match="valuation"):
+        validate_collateral_payload(_payload(assets=[_asset(valuation=10**400)]))
+
+
+@pytest.mark.parametrize("shape", [
+    lambda inputs: list(inputs.items()),
+    lambda inputs: tuple(inputs.items()),
+    lambda inputs: [],
+    lambda inputs: "ab",
+    lambda inputs: None,
+], ids=["list-of-pairs", "tuple-of-pairs", "empty-list", "string", "none"])
+def test_a_non_mapping_inputs_member_is_stale_never_an_exception(shape):
+    """CG562-1: dict(list_of_pairs) passed the digest gate, then .items() raised AttributeError."""
+    analysis = _stored()
+    analysis["assets"][0]["inputs"] = shape(analysis["assets"][0]["inputs"])
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+def test_the_cli_refuses_an_integer_too_large_for_a_float_with_one_error_line(workdir):
+    """CG554-1: an overflow used to escape as a traceback; nothing may be written."""
+    payload = workdir / "payload.json"
+    payload.write_text(
+        json.dumps(_payload()).replace('"valuation": 100000', '"valuation": 1' + "0" * 400), encoding="utf-8")
+    result = _run_cli("--company", "Acme", "--proposal", "Loan", "--input-file", payload, cwd=workdir)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.count("\n") == 1 and result.stderr.startswith("error: ")
+    assert "Traceback" not in result.stderr
+    assert not (workdir / "deals").exists()

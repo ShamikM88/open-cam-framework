@@ -5,6 +5,7 @@ and never require an API key.
 """
 import copy
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -137,7 +138,7 @@ def test_fixture_validator_rejects_malformed_shapes(dataset_v2, mutation, messag
         fixture["payload"]["mitigants"] = [{"amount": 10, "eligible_for_netting": False, "extra": 1}]
     elif mutation == "invalid-calculator-input":
         fixture["payload"]["assets"][0].pop("valuation")
-    with pytest.raises(_fixture_module().CollateralFixtureError, match=message):
+    with pytest.raises(_fixture_module().CollateralFixtureError, match=re.escape(message)):
         _fixture_module().build_collateral_fixture(fixture)
 
 

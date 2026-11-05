@@ -44,7 +44,10 @@ def test_collateral_figures_is_a_registered_separate_category():
 
 
 def _v2_collateral_case():
-    return copy.deepcopy(load_dataset("v2")["cases"][0])
+    return copy.deepcopy(next(
+        case for case in load_dataset("v2")["cases"]
+        if case["id"] == "collateral-correct-figure"
+    ))
 
 
 @pytest.mark.parametrize(

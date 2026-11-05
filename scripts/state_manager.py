@@ -431,8 +431,8 @@ def _entity_spread_problem(record: dict[str, Any], record_path: str) -> str | No
     financials = record.get("financials")
     ratios = record.get("ratios")
     fingerprints = record.get("spread_fingerprints")
-    if not isinstance(raw, dict) or not raw:
-        return f"{record_path}.multi_period_financials must contain at least one period before a spread can be stored"
+    if not isinstance(raw, dict):
+        return f"{record_path}.multi_period_financials must be an object keyed by framework period label"
     if not isinstance(financials, dict):
         return f"{record_path}.financials must be an object keyed by spread period"
     if not isinstance(ratios, dict):

@@ -256,9 +256,10 @@ def entity_spread_view(record: dict[str, Any]) -> dict[str, Any]:
         try:
             evaluated = evaluate_financial_model(raw)
             for period in sorted(raw):
-                if fingerprints.get(period) != entity_period_input_fingerprint(
-                    record.get("entity_id"), period, record,
-                ):
+                entity_id = record.get("entity_id")
+                if not isinstance(entity_id, str):
+                    continue
+                if fingerprints.get(period) != entity_period_input_fingerprint(entity_id, period, record):
                     continue
                 if stored_financials.get(period) != evaluated["financials"].get(period):
                     continue

@@ -263,3 +263,12 @@ def test_an_analysis_from_another_calculator_version_makes_the_result_cells_na(t
     rows = collateral_projection(_analysis())
     ws = _write_sheet(tmp_path, analysis, rows=rows)
     assert _cells(ws, 2) == ["N/A"] * 8
+
+
+def test_a_list_of_pairs_for_stored_inputs_makes_the_result_cells_na_not_an_error(tmp_path):
+    """CG562-1: a malformed nested member must fail closed in the workbook reader too."""
+    analysis = _analysis()
+    analysis["assets"][0]["inputs"] = list(analysis["assets"][0]["inputs"].items())
+    rows = collateral_projection(_analysis())
+    ws = _write_sheet(tmp_path, analysis, rows=rows)
+    assert _cells(ws, 2) == ["N/A"] * 8

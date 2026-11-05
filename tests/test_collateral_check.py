@@ -690,3 +690,30 @@ def test_a_non_analysis_is_not_current(value):
 def test_an_integer_too_large_for_a_float_is_a_refusal_not_an_overflow():
     with pytest.raises(CollateralInputError, match="valuation"):
         validate_collateral_payload(_payload(assets=[_asset(valuation=10**400)]))
+
+
+@pytest.mark.parametrize("shape", [
+    lambda inputs: list(inputs.items()),
+    lambda inputs: tuple(inputs.items()),
+    lambda inputs: [],
+    lambda inputs: "ab",
+    lambda inputs: None,
+], ids=["list-of-pairs", "tuple-of-pairs", "empty-list", "string", "none"])
+def test_a_non_mapping_inputs_member_is_stale_never_an_exception(shape):
+    """CG562-1: dict(list_of_pairs) passed the digest gate, then .items() raised AttributeError."""
+    analysis = _stored()
+    analysis["assets"][0]["inputs"] = shape(analysis["assets"][0]["inputs"])
+    assert not collateral_check.stored_analysis_is_current(analysis)
+
+
+def test_the_cli_refuses_an_integer_too_large_for_a_float_with_one_error_line(workdir):
+    """CG554-1: an overflow used to escape as a traceback; nothing may be written."""
+    payload = workdir / "payload.json"
+    payload.write_text(
+        json.dumps(_payload()).replace('"valuation": 100000', '"valuation": 1' + "0" * 400), encoding="utf-8")
+    result = _run_cli("--company", "Acme", "--proposal", "Loan", "--input-file", payload, cwd=workdir)
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr.count("\n") == 1 and result.stderr.startswith("error: ")
+    assert "Traceback" not in result.stderr
+    assert not (workdir / "deals").exists()

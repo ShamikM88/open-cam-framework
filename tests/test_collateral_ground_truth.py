@@ -331,3 +331,10 @@ def test_an_analysis_from_another_calculator_version_adds_no_collateral_keys():
     analysis = _analysis()
     analysis["calculator_version"] = "0.9.0"
     assert _per_asset_keys(_truth(analysis)) == set()
+
+
+def test_a_list_of_pairs_for_stored_inputs_adds_no_collateral_keys_and_does_not_raise():
+    """CG562-1: a malformed nested member must fail closed in the ground-truth reader too."""
+    analysis = _analysis()
+    analysis["assets"][0]["inputs"] = list(analysis["assets"][0]["inputs"].items())
+    assert _per_asset_keys(_truth(analysis)) == set()

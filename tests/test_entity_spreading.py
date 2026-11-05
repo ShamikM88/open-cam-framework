@@ -527,3 +527,144 @@ def test_a_stored_result_that_no_longer_equals_the_evaluator_makes_only_that_per
     view = spreading_check.entity_spread_view(record)
     assert set(view["financials"]) == {"FY-1"}
     assert view["stale_periods"] == ["FY-Current"]
+
+
+# --- record_entity_spread and compute_entity refusals (diff-coverage on the lines this PR changes). -------------
+
+
+def _spread_inputs(record):
+    evaluated = evaluate_financial_model(record["multi_period_financials"])
+    fingerprints = {period: state_manager.entity_period_input_fingerprint(record["entity_id"], period, record)
+                    for period in record["multi_period_financials"]}
+    return evaluated["financials"], evaluated["ratios"], fingerprints
+
+
+def _call_record_entity_spread(tmp_path, record, *, financials=None, ratios=None, entity_id=None,
+                               company=COMPANY, proposal=PROPOSAL):
+    fin, rat, fingerprints = _spread_inputs(record)
+    return state_manager.record_entity_spread(
+        company, proposal, entity_id or record["entity_id"],
+        fin if financials is None else financials, rat if ratios is None else ratios, fingerprints,
+        "2026-11-05T12:00:00+00:00", "scripts/spreading_check.py --entity-id", base_dir=str(tmp_path),
+    )
+
+
+@pytest.mark.parametrize("kind, fragment", [
+    ("blank-id", "entity_id must be a non-empty stable ID"),
+    ("no-deal", "no exact existing state.json"),
+    ("unknown-entity", "entity record was not found"),
+    ("financials-not-object", "must be period objects"),
+    ("ratios-not-object", "must be period objects"),
+    ("period-mismatch", "must exactly match the framework-computed raw periods"),
+    ("non-finite", "Nothing was changed"),
+])
+def test_record_entity_spread_refuses_each_bad_call_and_writes_nothing(tmp_path, kind, fragment):
+    path, _ = _seed_deal(tmp_path)
+    record = _entity()
+    before = path.read_bytes()
+    kwargs = {}
+    if kind == "blank-id":
+        kwargs["entity_id"] = " "
+    elif kind == "no-deal":
+        kwargs["proposal"] = "A proposal with no deal"
+    elif kind == "unknown-entity":
+        kwargs["entity_id"] = "not-registered"
+    elif kind == "financials-not-object":
+        kwargs["financials"] = []
+    elif kind == "ratios-not-object":
+        kwargs["ratios"] = []
+    elif kind == "period-mismatch":
+        fin, _, _ = _spread_inputs(record)
+        kwargs["financials"] = {"FY-1": fin["FY-1"]}
+    else:
+        fin, _, _ = _spread_inputs(record)
+        bad = copy.deepcopy(fin)
+        bad["FY-Current"]["ebitda"] = float("nan")
+        kwargs["financials"] = bad
+
+    with pytest.raises(state_manager.StateError) as excinfo:
+        _call_record_entity_spread(tmp_path, record, **kwargs)
+
+    assert fragment in str(excinfo.value)
+    assert path.read_bytes() == before
+
+
+def test_record_entity_spread_refuses_a_non_guarantor_and_an_entity_with_no_computed_periods(tmp_path):
+    subsidiary = _entity("synthetic-subsidiary", None, role="subsidiary")
+    supplied_only = _entity("synthetic-supplied-only", "GUARANTEE-SYN-002", raw={}, supplied={"FY-1": {"revenue": 10}})
+    path, _ = _seed_deal(tmp_path, [_entity(), subsidiary, supplied_only],
+                         ("GUARANTEE-SYN-001", "GUARANTEE-SYN-002"))
+    before = path.read_bytes()
+
+    with pytest.raises(state_manager.StateError, match="role must be 'guarantor'"):
+        _call_record_entity_spread(tmp_path, subsidiary)
+    with pytest.raises(state_manager.StateError, match="no framework-computed multi_period_financials"):
+        state_manager.record_entity_spread(
+            COMPANY, PROPOSAL, "synthetic-supplied-only", {}, {}, {},
+            "2026-11-05T12:00:00+00:00", "scripts/spreading_check.py --entity-id", base_dir=str(tmp_path))
+    assert path.read_bytes() == before
+
+
+def test_record_entity_spread_refuses_when_the_state_path_or_file_disappears(tmp_path, monkeypatch):
+    _seed_deal(tmp_path)
+    record = _entity()
+    monkeypatch.setattr(state_manager, "find_deal",
+                        lambda *a, **k: {"record_found": True, "date": None, "state_path": None})
+    with pytest.raises(state_manager.StateError, match="exact existing state path was not resolved"):
+        _call_record_entity_spread(tmp_path, record)
+    monkeypatch.undo()
+
+    real_find = state_manager.find_deal
+    monkeypatch.setattr(state_manager, "find_deal", real_find)
+    monkeypatch.setattr(state_manager, "read_state", lambda *a, **k: None)
+    with pytest.raises(state_manager.StateError, match="no longer exists"):
+        _call_record_entity_spread(tmp_path, record)
+
+
+def test_record_entity_spread_refuses_a_registry_entry_that_is_not_an_object(tmp_path, monkeypatch):
+    _seed_deal(tmp_path)
+    record = _entity()
+    real_read = state_manager.read_state
+    monkeypatch.setattr(
+        state_manager, "read_state",
+        lambda *a, **k: {**real_read(*a, **k), "entity_records": {"synthetic-guarantor": "not an object"}})
+    with pytest.raises(state_manager.StateError, match="entity record must be an object"):
+        _call_record_entity_spread(tmp_path, record)
+
+
+def test_the_stored_spread_validator_refuses_a_record_whose_raw_store_is_not_an_object():
+    problem = state_manager._entity_spread_problem(
+        {"spread_status": "spread", "role": "guarantor", "figures_basis": "recomputed",
+         "analyst_review_status": REVIEW_LABEL, "spread_timestamp": "2026-11-05T12:00:00+00:00",
+         "spread_source": "scripts/spreading_check.py --entity-id", "multi_period_financials": [],
+         "financials": {}, "ratios": {}, "spread_fingerprints": {}},
+        "entity_records['x']",
+    )
+    assert problem == "entity_records['x'].multi_period_financials must be an object keyed by framework period label"
+
+
+def test_compute_entity_refuses_a_registry_entry_that_is_not_an_object_or_has_no_raw_object(tmp_path, monkeypatch):
+    _seed_deal(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    real_read = spreading_check.read_state
+
+    def with_record(value):
+        return lambda *a, **k: {"entity_records": {"synthetic-guarantor": value}}
+
+    monkeypatch.setattr(spreading_check, "read_state", with_record("not an object"))
+    with pytest.raises(ValueError, match="must be an object"):
+        spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+    guarantor = {"entity_id": "synthetic-guarantor", "role": "guarantor", "multi_period_financials": None}
+    monkeypatch.setattr(spreading_check, "read_state", with_record(guarantor))
+    with pytest.raises(ValueError, match="multi_period_financials must be an object of raw periods"):
+        spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+    monkeypatch.setattr(spreading_check, "read_state", real_read)
+
+
+def test_compute_entity_reports_a_spread_that_is_saved_but_immediately_stale(tmp_path, monkeypatch):
+    _seed_deal(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(spreading_check, "entity_spread_view", lambda record: {"stale_periods": ["FY-1"]})
+    with pytest.raises(ValueError, match="saved but one or more periods are stale: FY-1"):
+        spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")

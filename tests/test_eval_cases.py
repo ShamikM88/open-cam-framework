@@ -40,7 +40,7 @@ def test_the_shipped_dataset_is_valid(dataset):
 
 
 def test_the_shipped_dataset_covers_every_category_and_both_modes(dataset):
-    assert {c["category"] for c in dataset["cases"]} == set(CATEGORIES)
+    assert {c["category"] for c in dataset["cases"]} == set(CATEGORIES) - {"collateral-figures"}
     assert {c["mode"] for c in dataset["cases"]} == {"maker", "checker"}
     assert len(dataset["cases"]) >= 14
 

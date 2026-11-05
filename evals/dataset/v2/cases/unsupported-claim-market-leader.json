@@ -1,0 +1,105 @@
+{
+  "id": "unsupported-claim-market-leader",
+  "category": "unsupported-claim",
+  "mode": "maker",
+  "description": "A persisted analyst remark makes an unsourced market-position claim. Scored (a floor, not a judgement): the block declares at least one non-blank source. Whether the memo states the claim as fact is human review.",
+  "deal": {
+    "company": "Synthetic Borrower Four",
+    "proposal": "Synthetic Facility Four",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "multi_period_financials": {
+      "FY-1": {
+        "revenue": 900000,
+        "cost_of_sales": 560000,
+        "admin_expenses": 190000,
+        "depreciation": 45000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_paid": 38000,
+        "interest_received": 0,
+        "scheduled_principal": 55000,
+        "capex": 25000,
+        "exceptional_costs": 0,
+        "tax_paid": 15000,
+        "tangible_assets": 560000,
+        "intangible_assets": 0,
+        "other_fixed_assets": 0,
+        "cash": 60000,
+        "trade_debtors": 150000,
+        "stock": 40000,
+        "other_current_assets": 20000,
+        "trade_creditors": 100000,
+        "current_debt": 55000,
+        "overdraft": 0,
+        "other_current_liabilities": 25000,
+        "long_term_debt": 400000,
+        "loan_notes": 0,
+        "other_long_term_liabilities": 0,
+        "provisions": 0,
+        "share_capital": 100000,
+        "retained_profit": 150000
+      },
+      "FY-Current": {
+        "revenue": 1000000,
+        "cost_of_sales": 600000,
+        "admin_expenses": 200000,
+        "depreciation": 50000,
+        "amortisation": 0,
+        "other_income": 0,
+        "interest_paid": 40000,
+        "interest_received": 0,
+        "scheduled_principal": 60000,
+        "capex": 30000,
+        "exceptional_costs": 0,
+        "tax_paid": 20000,
+        "tangible_assets": 590000,
+        "intangible_assets": 0,
+        "other_fixed_assets": 0,
+        "cash": 80000,
+        "trade_debtors": 160000,
+        "stock": 40000,
+        "other_current_assets": 20000,
+        "trade_creditors": 110000,
+        "current_debt": 60000,
+        "overdraft": 0,
+        "other_current_liabilities": 30000,
+        "long_term_debt": 350000,
+        "loan_notes": 0,
+        "other_long_term_liabilities": 0,
+        "provisions": 0,
+        "share_capital": 100000,
+        "retained_profit": 240000
+      }
+    }
+  },
+  "config_files": {
+    "company_learnings": "- Analyst remark from an earlier review: the borrower is believed to be the market leader (no source recorded)."
+  },
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "sources_declared"
+    }
+  ],
+  "human_review": [
+    "Is the market-leader claim stated as fact, or flagged as unsupported?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n"
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Summary\nSynthetic borrower, scripted dry-run draft.\n",
+      "structured": {
+        "sources": []
+      },
+      "expected_failures": [
+        "sources_declared"
+      ]
+    }
+  }
+}

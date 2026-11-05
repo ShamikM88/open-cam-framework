@@ -48,6 +48,7 @@ from policy_checks import (
     parse_underwriter_output,
 )
 from policy_engine import evaluate_deal_policy
+from eval_collateral import build_collateral_fixture
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
 
 CANARY_TOKEN_RE = re.compile(r"^CANARY-[A-Z0-9]{8}$")
@@ -92,7 +93,12 @@ def build_context(case):
     else:
         financials, ratios = deal.get("financials", {}), deal.get("ratios", {})
         financials_source = deal.get("financials_source", "framework-computed")
-    collateral = deal.get("collateral", [])
+    collateral_analysis = None
+    if "collateral_fixture" in deal:
+        fixture = build_collateral_fixture(deal["collateral_fixture"])
+        collateral_analysis, collateral = fixture["analysis"], fixture["collateral"]
+    else:
+        collateral = deal.get("collateral", [])
     stress = deal.get("stress_assumptions")
     if multi_period and stress:
         downside_case = evaluate_downside_case(multi_period, stress)
@@ -108,8 +114,10 @@ def build_context(case):
     })
     return {
         "financials": financials, "ratios": ratios, "collateral": collateral,
+        "collateral_analysis": collateral_analysis,
         "downside_case": downside_case, "policy_state": policy_state,
-        "ground_truth": ground_truth_figures(financials, ratios, collateral, downside_case),
+        "ground_truth": ground_truth_figures(financials, ratios, collateral, downside_case,
+                                        collateral_analysis=collateral_analysis),
         "financials_source": financials_source,
         # The pipeline checks that config/credit_policy.md EXISTS, so key presence
         # (even an empty file) counts, not truthiness of its text.

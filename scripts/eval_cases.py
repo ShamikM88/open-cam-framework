@@ -52,13 +52,14 @@ from eval_oracles import (
     self_check,
 )
 from pii_scan import scan_for_likely_real_data
+from eval_collateral import CollateralFixtureError, validate_collateral_fixture
 from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATASET_ROOT = os.path.join(REPO_ROOT, "evals", "dataset")  # absolute: independent of the cwd
 CATEGORIES = (
     "fabrication", "contradiction", "unsupported-claim", "analyst-supplied",
-    "conflicting-sources", "injection", "checker-judgement",
+    "conflicting-sources", "injection", "checker-judgement", "collateral-figures",
 )
 MODES = ("maker", "checker")
 CONFIG_FILE_KEYS = ("style_guide", "credit_policy", "credit_policy_notes",
@@ -78,7 +79,7 @@ CASE_KEYS = {"id", "category", "mode", "description", "deal", "config_files", "s
              "scripted", "canary", "assertions", "human_review", "dry_run", "_file"}
 DEAL_KEYS = {"company", "proposal", "deal_type", "pd", "lgd", "multi_period_financials", "financials",
              "ratios", "financials_source", "downside_case", "stress_assumptions", "collateral",
-             "covenants", "security_package", "guarantees"}
+             "covenants", "security_package", "guarantees", "collateral_fixture"}
 CANARY_KEYS = {"token", "planted_in", "parts"}
 DRY_RUN_KEYS = {"good", "bad"}
 SPEC_KEYS = {"draft_body", "structured", "omit_structured_block", "verdict", "notes", "raw_text",
@@ -346,6 +347,21 @@ def _validate_case(case):
          f"deal.deal_type {deal.get('deal_type')!r} has no shipped template in templates/cam "
          f"(known: {known_types}); the live runner seeds only templates/cam, so the prompt would differ")
     _validate_inputs(deal, need)
+    if "collateral_fixture" in deal:
+        if "collateral" in deal:
+            need(False, "deal.collateral and deal.collateral_fixture are mutually exclusive; the fixture builds its own projection")
+        try:
+            validate_collateral_fixture(deal["collateral_fixture"])
+        except CollateralFixtureError as exc:
+            need(False, f"deal.collateral_fixture is invalid: {exc}")
+    if case.get("category") == "collateral-figures":
+        need(case.get("mode") == "maker", "collateral-figures cases must be Maker cases")
+        scored_names = {a.get("oracle") for a in case.get("assertions", [])
+                        if isinstance(a, dict) and a.get("scored", True)}
+        need({"structured_block_present", "figures_grounded"} <= scored_names,
+             "collateral-figures cases need scored structured_block_present and figures_grounded assertions")
+        need("collateral_fixture" in deal or "collateral" in deal,
+             "collateral-figures cases need a calculator fixture or an explicit legacy collateral projection")
     if deal.get("financials_source") == "analyst-supplied":
         need(not deal.get("multi_period_financials"),
              "an analyst-supplied deal supplies financials/ratios, not multi_period_financials")

@@ -1,0 +1,62 @@
+{
+  "id": "collateral-stale-analysis",
+  "category": "collateral-figures",
+  "mode": "maker",
+  "description": "A stored analysis is tampered after calculation while its inputs and digest remain unchanged. The freshness guard rejects it, so the Maker must not cite its per-asset result.",
+  "deal": {
+    "company": "Synthetic Collateral Stale",
+    "proposal": "Synthetic Stale Analysis Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "collateral_fixture": {
+      "payload": {
+        "assets": [
+          {
+            "asset_id": "AST-001",
+            "valuation": 500000,
+            "down_payment_pct": 0.2,
+            "est_rv_pct": 0.1,
+            "lgd_pct": 0.25,
+            "cap_or_model_value": 400000,
+            "asset_class": "Machinery",
+            "perfection_status": "Registered"
+          }
+        ],
+        "mitigants": []
+      },
+      "state": "result-tampered"
+    }
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the draft avoid citing the altered persisted value and ask for /collateral to be rerun before giving a per-asset figure?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nNo per-asset figure is declared because the stored calculator analysis is stale; rerun /collateral before citing a value.\n",
+      "structured": {
+        "reported_figures": {}
+      }
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nThe stored AST-001 total exposure is 400,000.\n",
+      "structured": {
+        "reported_figures": {
+          "collateral_AST-001_total_exposure": 400000
+        }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
+    }
+  }
+}

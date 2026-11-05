@@ -98,6 +98,44 @@ commercial narrative; read its reasons in the review pack before reading anythin
   carries a flaw `policy_checks` cannot catch (an unsourced narrative claim), so a REJECTED verdict can
   only come from the model.
 
+## Dataset versions and v2 collateral figures
+
+The CLI default remains **v1** (15 cases). **v2** preserves the 15 v1 case files byte-for-byte and adds six synthetic Maker cases in the separate `collateral-figures` category (21 cases total). The datasets have different content hashes and are not like-for-like; keep v1 and any v1 baseline untouched.
+
+A v2 collateral case may add this strict field under `deal`:
+
+```json
+"collateral_fixture": {
+  "payload": {
+    "assets": [{
+      "asset_id": "AST-001",
+      "valuation": 500000,
+      "down_payment_pct": 0.2,
+      "est_rv_pct": 0.1,
+      "lgd_pct": 0.25,
+      "cap_or_model_value": 400000,
+      "asset_class": "Machinery",
+      "perfection_status": "Registered"
+    }],
+    "mitigants": []
+  },
+  "state": "current"
+}
+```
+
+The only states are `current`, `result-tampered` (a deterministic result-only edit, with inputs and digest retained), and `old-version` (a deterministic old calculator-version marker). Unknown keys, open-ended mutation instructions, malformed calculator payloads and unknown states are refused. A shared helper creates the calculator analysis and backward-compatible collateral projection. The oracle context and isolated runner use that same helper; the runner seeds both `collateral` and `collateral_analysis` into state and calls the pipeline without a replacement collateral payload. The freshness guard therefore sees the exact stored analysis, including in the stale case. The no-analysis case omits `collateral_fixture`; it retains only a legacy projection to demonstrate that legacy rows alone do not establish per-asset ground truth.
+
+The six cases cover: correct figure, wrong figure, unknown asset, N/A LGD omission, stale analysis and no analysis. Every case is a Maker case and scores `structured_block_present` and `figures_grounded`, with scripted good/bad outputs and a non-empty human-review list. A stale or absent analysis provides no per-asset ground-truth keys. An N/A metric is omitted, never interpreted as zero.
+
+**Do not overread the oracle.** `figures_grounded` checks only structured declarations against computed keys and passes when no figure is declared. It does not judge whether the narrative explains an N/A value, asks for a recalculation when analysis is stale, or otherwise handles the situation well. Those are human-review observations, not deterministic pass/fail. No live model call or spend is part of adding v2. The zero-call commands are:
+
+```bash
+python scripts/run_evals.py --dataset v2 --validate
+python scripts/run_evals.py --dataset v2 --dry-run --repeats 1 --max-calls 21
+```
+
+A v2 live subset is a separate maintainer action requiring its own authorization and credits; this PR neither runs nor schedules it.
+
 ## Dataset layout
 
 `evals/dataset/<version>/dataset.json` plus `cases/<id>.json` (file name = case id):
@@ -106,6 +144,7 @@ commercial narrative; read its reasons in the review pack before reading anythin
 { id, category, mode: "maker" | "checker", description,
   deal:           { company, proposal, deal_type, pd, lgd, multi_period_financials?, financials?,
                     ratios?, financials_source?, downside_case?, stress_assumptions?, collateral?,
+                    collateral_fixture?: { payload, state: "current" | "result-tampered" | "old-version" },
                     covenants?, security_package?, guarantees? },
   config_files?:  { style_guide?, credit_policy?, credit_policy_notes?, deal_learnings?, company_learnings? },
   source_block?:  { label, text },                       # maker cases only

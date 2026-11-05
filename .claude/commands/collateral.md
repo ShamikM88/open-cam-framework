@@ -97,7 +97,7 @@ intermediate artifacts — only the source documents themselves.
 
 Update this deal's state file with this step's results (merge with whatever you read above —
 never drop a field another step already recorded):
-- Write back to the existing `state.json` found above (never create one: no matching record is a stop).
+- Update the existing `state.json` found above and write back to that same file (never create one: no matching record is a stop).
 - Set/update: `company`, `proposal`, `date`, `deal_type` (if known), `inputs.pd`, `inputs.lgd`
   (exactly as given — never adjusted).
 - Do not set or write `collateral` or `collateral_analysis`, and do not append `collateral` to `steps_completed` yourself. The deterministic calculator writes `collateral_analysis`, refreshes the backward-compatible `collateral` projection, and appends the `collateral` step atomically only after successful validation. On a non-zero exit, leave those state values unchanged.

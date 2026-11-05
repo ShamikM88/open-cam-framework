@@ -513,8 +513,8 @@ extracts the Underwriter's trailing structured JSON block (`cp_ids_included`,
 guideline); `ground_truth_figures(financials, ratios, collateral, downside_case, collateral_analysis)` flattens the
 deal's actual computed figures into one lookup dict. FY-Current retains plain metric keys (for example,
 `ebitda` and `dscr`); every other base-case period uses `{metric}_{period}` (for example,
-`ebitda_FY-1` and `dscr_FY+1`). A stored, current `collateral_analysis` (its `input_digest` matches its
-stored inputs) adds `collateral_<asset_id>_<metric>` per asset and `collateral_max_lgd_pct` and
+`ebitda_FY-1` and `dscr_FY+1`). A stored, current `collateral_analysis` (`stored_analysis_is_current()`: same calculator version, input
+digest intact, and recalculating its stored inputs reproduces its stored results) adds `collateral_<asset_id>_<metric>` per asset and `collateral_max_lgd_pct` and
 `collateral_avg_lgd_pct`, copied from the calculator's results; a stale or N/A result is omitted, never
 defaulted. A per-asset `coverage_pct` and `lgd_pct` are fractions (0.75 = 75%), unlike the aggregate
 `collateral_cover_pct`, which is on a 0 to 100 scale. The asset ids `max` and `avg` are reserved (the calculator

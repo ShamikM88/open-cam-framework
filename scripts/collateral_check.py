@@ -63,7 +63,10 @@ def _finite_number(value: Any, field: str, context: str) -> float:
     """A number that must be finite; bools and strings are refused, not coerced."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise CollateralInputError(f"{context}: {field} must be a finite number; found {value!r}")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:  # an integer too large for a float is not a usable figure
+        raise CollateralInputError(f"{context}: {field} must be a finite number; found an integer too large") from None
     if number != number or number in (float("inf"), float("-inf")):
         raise CollateralInputError(f"{context}: {field} must be a finite number; found {value!r}")
     return number
@@ -222,6 +225,10 @@ def stored_analysis_digest_matches(analysis: Any) -> bool:
     """
     if not isinstance(analysis, dict) or not isinstance(analysis.get("assets"), list):
         return False
+    # Every asset must be an object with an object of inputs: dict(list_of_pairs) would otherwise pass the
+    # digest below and a later .items() would raise (review finding CG562-1).
+    if not all(isinstance(asset, dict) and isinstance(asset.get("inputs"), dict) for asset in analysis["assets"]):
+        return False
     try:
         recomputed = canonical_input_digest({
             "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in analysis["assets"]],
@@ -335,6 +342,38 @@ def calculate_collateral_analysis(payload: Any) -> dict:
         "input_digest": canonical_input_digest(validated),
         "calculator_version": CALCULATOR_VERSION,
     }
+
+
+def stored_analysis_is_current(analysis: Any) -> bool:
+    """True only for a stored analysis the current calculator would reproduce exactly (decision 5 on issue #266).
+
+    The one freshness rule every reader (the workbook, the policy ground truth) applies before using a stored
+    result (review finding CG559-3): the stored ``calculator_version`` equals the current one, the stored
+    ``input_digest`` still matches the stored inputs, and recalculating the stored inputs and mitigants with the
+    current calculator reproduces the stored per-asset and deal-level results exactly. A hand-edited result, an
+    analysis from another calculator version, a changed input or a malformed object is therefore "not current":
+    never an exception, and readers omit it rather than repair it.
+    """
+    if not stored_analysis_digest_matches(analysis) or analysis.get("calculator_version") != CALCULATOR_VERSION:
+        return False
+    try:
+        recomputed = calculate_collateral_analysis({
+            # None is how the calculator stores an absent optional input (lgd_pct): send it back as absent.
+            "assets": [
+                {**{key: value for key, value in asset["inputs"].items() if value is not None},
+                 "asset_id": asset["asset_id"]}
+                for asset in analysis["assets"]
+            ],
+            "mitigants": analysis.get("mitigants", []),
+        })
+    except (CollateralInputError, KeyError, TypeError, ValueError, OverflowError):
+        return False
+    return (
+        recomputed["input_digest"] == analysis["input_digest"]
+        and [asset["results"] for asset in recomputed["assets"]]
+        == [asset.get("results") for asset in analysis["assets"]]
+        and recomputed["results"] == analysis.get("results")
+    )
 
 
 def collateral_projection(analysis: dict) -> list:

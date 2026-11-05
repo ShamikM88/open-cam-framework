@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator import _build_grounding_context, parse_verdict
-from policy_checks import REQUIRED_RISK_TAXONOMY, parse_underwriter_output
+from policy_checks import COLLATERAL_GROUND_TRUTH_METRICS, REQUIRED_RISK_TAXONOMY, parse_underwriter_output
 
 FENCED_JSON_RE = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
@@ -127,7 +127,7 @@ def test_underwriter_prompt_no_longer_tells_the_underwriter_to_self_calculate_wo
 def test_underwriter_prompt_keys_non_current_reported_figures_by_period(underwriter_prompt):
     """Regression guard for issue #348: non-current reported figures must use
     their period-qualified key, after the distinct downside-key instruction and
-    before the per-asset collateral exception clause."""
+    before the per-asset collateral clause."""
     period_key_sentence = (
         "A figure for a non-current period is keyed as `{metric}_{period}`"
     )
@@ -138,22 +138,41 @@ def test_underwriter_prompt_keys_non_current_reported_figures_by_period(underwri
     assert underwriter_prompt.index(downside_sentence) < underwriter_prompt.index(
         period_key_sentence
     )
-    exception_clause = "Exception: the per-asset collateral metrics"
+    collateral_clause = "Per-asset collateral figures returned by the deterministic `/collateral` check"
     assert underwriter_prompt.index(period_key_sentence) < underwriter_prompt.index(
-        exception_clause
+        collateral_clause
     )
 
 
-def test_underwriter_prompt_carves_out_unenforced_collateral_metrics_from_reported_figures(
-    underwriter_prompt,
-):
-    """Regression guard for issue #99's collateral-side fallback: Gross/Net
-    Exposure, RV Exposure, and LGD % have no ground-truthed formula
-    (unlike collateral_cover_pct), so the Underwriter must be told not to
-    declare them in reported_figures -- otherwise check_reported_figures()
-    flags every single one as UNRESOLVABLE_REPORTED_FIGURE on every deal."""
-    assert "UNRESOLVABLE_REPORTED_FIGURE" in underwriter_prompt
-    assert "collateral_cover_pct" in underwriter_prompt
+def test_underwriter_prompt_declares_per_asset_collateral_figures_under_exact_keys(underwriter_prompt):
+    """Issue #266 (maintainer sign-off, comment 6654038702): the old carve-out that told the Underwriter to omit
+    per-asset collateral metrics predates the deterministic /collateral check and its persisted ground truth. The
+    prompt now has the Underwriter declare them under `collateral_<asset_id>_<metric>`, using only the check's values."""
+    text = " ".join(underwriter_prompt.split())
+    assert "Exception: the per-asset collateral metrics" not in text
+    assert "always fail as `UNRESOLVABLE_REPORTED_FIGURE`" not in text
+    for phrase in (
+        "are framework-computed figures and are not an exception to `reported_figures`",
+        "the flat key `collateral_<asset_id>_<metric>`",
+        "matching `[A-Za-z0-9-]{1,32}`",
+        "asset IDs are unique within this deal",
+        "do not calculate, estimate, round or reconstruct them yourself",
+        "Omit a metric only when the check reports it as unavailable or N/A.",
+        "If the check's figure is missing or stale, rerun `/collateral` instead of citing it.",
+        "`collateral_max_lgd_pct` and `collateral_avg_lgd_pct`",
+        "F-046's 0.5% relative tolerance",
+        "The aggregate `collateral_cover_pct` remains a separate deal-level figure on its existing 0-100 scale",
+        "per-asset `coverage_pct` is stored as a fraction (for example, 0.75 = 75%)",
+    ):
+        assert phrase in text, phrase
+
+
+def test_underwriter_prompt_per_asset_metric_vocabulary_is_the_ground_truth_vocabulary(underwriter_prompt):
+    """The nine metric names in the prompt are exactly the ground-truth metrics, so the prompt cannot drift from the code."""
+    text = underwriter_prompt
+    block = text[text.index("`<metric>` is one of:"):text.index("For example, `collateral_AST-001_net_uncovered_risk`")]
+    named = set(re.findall(r"`([a-z_]+)`", block))
+    assert named == set(COLLATERAL_GROUND_TRUTH_METRICS)
 
 
 def test_underwriter_prompt_has_a_parent_ubo_support_guideline(underwriter_prompt):

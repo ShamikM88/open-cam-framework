@@ -354,7 +354,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_checks:ground_truth_figures": "e008272f89cf688b",
     "policy_checks:collateral_analysis_ground_truth": "d9ed86dbd2f1fdba",
     "collateral_check:stored_analysis_is_current": "2aad06cd2b87b907",
-    "collateral_check:stored_analysis_digest_matches": "4aa2c46944bf6613",
+    "collateral_check:stored_analysis_digest_matches": "af17437a7d35d705",
     "policy_checks:values_match": "9c731a2d394a90b3",
     "policy_checks:check_reported_figures": "a741a70e6cff04b3",
     "policy_engine:_slugify": "264359bfb298ee76",

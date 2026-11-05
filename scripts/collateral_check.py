@@ -225,6 +225,10 @@ def stored_analysis_digest_matches(analysis: Any) -> bool:
     """
     if not isinstance(analysis, dict) or not isinstance(analysis.get("assets"), list):
         return False
+    # Every asset must be an object with an object of inputs: dict(list_of_pairs) would otherwise pass the
+    # digest below and a later .items() would raise (review finding CG562-1).
+    if not all(isinstance(asset, dict) and isinstance(asset.get("inputs"), dict) for asset in analysis["assets"]):
+        return False
     try:
         recomputed = canonical_input_digest({
             "assets": [dict(asset["inputs"], asset_id=asset["asset_id"]) for asset in analysis["assets"]],

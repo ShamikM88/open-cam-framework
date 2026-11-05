@@ -68,6 +68,10 @@ Percentage values in this calculator payload are fractions: for example, `0.4` m
 
 The command's `State: write` block no longer writes any collateral state: the calculator is the sole writer of `collateral`, `collateral_analysis` and the `collateral` step marker (maintainer decision, [#266 comment 6642820954](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954)); the command writes only the analyst inputs (`inputs.pd`, `inputs.lgd`) and the `security_package`.
 
+## Headless route (`orchestrator.py --collateral`)
+
+The headless pipeline accepts the same payload object as the calculator and records the same `collateral_analysis` and `collateral` projection through the same pure function, so an interactive and a headless run of the same inputs store identical results. The older flat-list file still works but is projection-only and discards an earlier analysis. See the [CLI reference](cli-reference.md#orchestrator).
+
 ## Command-line calculator
 
 The canonical CLI reference is [Collateral check](cli-reference.md#collateral-check). The command requires the deal identity and one input file:

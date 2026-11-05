@@ -66,7 +66,7 @@ Percentage values in this calculator payload are fractions: for example, `0.4` m
 4. **Run the deterministic calculator once.** Use the calculator's JSON output as the numeric source of truth. It validates the entire payload before writing.
 5. **Use the returned figures.** Explain the unrounded outputs without inventing substitutes. A non-zero exit prints one `error:` line; stop and do not write partial results or manually complete the step marker.
 
-The approved deterministic paragraph in `.claude/commands/collateral.md` instructs the command to invoke the calculator. There is, however, a separate prompt-consistency point still owned by the maintainer: the older `State: write` block in that command still describes hand-writing the legacy `collateral` list and appending the step marker. The proposed replacement is documented separately in [#266's unapproved wording comment](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954) and is not included in the command PR. Until that decision is signed off, do not treat those legacy instructions as a second state-writing route. The calculator itself is the implemented atomic writer for `collateral_analysis`, the backward-compatible projection and the `collateral` step.
+The command's `State: write` block no longer writes any collateral state: the calculator is the sole writer of `collateral`, `collateral_analysis` and the `collateral` step marker (maintainer decision, [#266 comment 6642820954](https://github.com/ShamikM88/open-cam-framework/issues/266#issuecomment-6642820954)); the command writes only the analyst inputs (`inputs.pd`, `inputs.lgd`) and the `security_package`.
 
 ## Command-line calculator
 

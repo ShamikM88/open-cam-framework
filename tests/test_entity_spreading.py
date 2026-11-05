@@ -238,12 +238,19 @@ def test_entity_spread_refuses_to_fall_back_to_borrower_or_analyst_supplied_stor
     before = path.read_bytes()
     monkeypatch.chdir(tmp_path)
 
+    empty_raw = _entity("synthetic-no-raw", "GUARANTEE-SYN-002", raw={})
+    path, _ = _seed_deal(
+        tmp_path, [supplied_only, empty_raw],
+        ("GUARANTEE-SYN-001", "GUARANTEE-SYN-002"),
+    )
+    before = path.read_bytes()
+    monkeypatch.chdir(tmp_path)
+
     with pytest.raises(ValueError, match="analyst-supplied.*not spread"):
         spreading_check.compute_entity(COMPANY, PROPOSAL, supplied_only["entity_id"])
-
-    assert path.read_bytes() == before
     with pytest.raises(ValueError, match="no framework-computed"):
-        spreading_check.compute_entity(COMPANY, PROPOSAL, "missing-raw-entity")
+        spreading_check.compute_entity(COMPANY, PROPOSAL, empty_raw["entity_id"])
+
     assert path.read_bytes() == before
 
 

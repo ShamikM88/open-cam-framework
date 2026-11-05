@@ -357,30 +357,30 @@ An analyst may explicitly authorise an export without sources. Only then pass `-
 
 ## Spreading check
 
-\`scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
-[--no-update-financials-source]\` recomputes the borrower-level \`financials\` and \`ratios\` from raw line items, derives the downside case
-when stress assumptions and at least one forward year exist, checkpoints everything to \`state.json\` and prints the
-updated state (\`financials\`, \`ratios\`, \`downside_case\`, \`financials_source\`) as one JSON object, indented two spaces and
+`scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
+[--no-update-financials-source]` recomputes the borrower-level `financials` and `ratios` from raw line items, derives the downside case
+when stress assumptions and at least one forward year exist, checkpoints everything to `state.json` and prints the
+updated state (`financials`, `ratios`, `downside_case`, `financials_source`) as one JSON object, indented two spaces and
 ending in one newline (read it as JSON; the order of its members is not a contract). It merges what it is given into what
-the deal already has, two levels deep: a correction to one period's \`revenue\` keeps that period's other fields, and
-re-confirming one stress shock keeps the others. Give \`--financials\` for new periods and omit it to recompute from
-what is already on file. \`--no-update-financials-source\` stops the call stamping \`framework-computed\`; \`/project\`
-always passes it. The keys must be the framework's period labels (\`FY-2\`, \`FY-1\`, \`FY-Current\`, \`FY+1\`, \`FY+2\`, \`FY+3\`): any other key, for example an entity name such as \`HoldCo\`, is refused with one \`error:\` line naming the key and listing the valid labels, exit status 1, and no state write (the evaluator has no entity dimension; D19 in [decisions](decisions.md)). Each supplied period must be an object of line items; a string, scalar, null or list period is refused with one
-\`error:\` line naming the period, exit status 1, and no state write. For recognised raw line-item fields, non-null values
+the deal already has, two levels deep: a correction to one period's `revenue` keeps that period's other fields, and
+re-confirming one stress shock keeps the others. Give `--financials` for new periods and omit it to recompute from
+what is already on file. `--no-update-financials-source` stops the call stamping `framework-computed`; `/project`
+always passes it. The keys must be the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`): any other key, for example an entity name such as `HoldCo`, is refused with one `error:` line naming the key and listing the valid labels, exit status 1, and no state write (the evaluator has no entity dimension; D19 in [decisions](decisions.md)). Each supplied period must be an object of line items; a string, scalar, null or list period is refused with one
+`error:` line naming the period, exit status 1, and no state write. For recognised raw line-item fields, non-null values
 must be finite JSON numbers; numeric strings and booleans are refused rather than coerced. Each stress value must also be
 a finite JSON number (not a string, boolean, null, list or object). Invalid input produces one key/period-naming
-\`error:\` line and leaves \`state.json\` byte-identical. A \`null\` raw line-item value retains the evaluator's existing
-behavior; omitted fields are also unchanged. The same rules apply to the orchestrator's \`--financials\` and \`--spread\` inputs. The slash
-commands \`/spread\` and \`/project\` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
+`error:` line and leaves `state.json` byte-identical. A `null` raw line-item value retains the evaluator's existing
+behavior; omitted fields are also unchanged. The same rules apply to the orchestrator's `--financials` and `--spread` inputs. The slash
+commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
 
 **Standalone guarantor (case C3).** To spread the already-registered guarantor identified by its stable entity ID,
-run \`python scripts/spreading_check.py --company ... --proposal ... --entity-id <entity ID>\`. The script reads
-only that entity record's \`multi_period_financials\`, calls the same \`evaluate_financial_model()\`, and stores the
+run `python scripts/spreading_check.py --company ... --proposal ... --entity-id <entity ID>`. The script reads
+only that entity record's `multi_period_financials`, calls the same `evaluate_financial_model()`, and stores the
 financials, ratios and one source-bound SHA-256 fingerprint per computed period inside the entity record. The
-borrower's top-level financial stores and \`financials_source\` are unchanged. Entity mode cannot be combined with
-\`--financials\`, \`--stress-assumptions\` or \`--no-update-financials-source\`. A period held only in
-\`analyst_supplied_financials\` is listed as unavailable and is never recomputed. Every result carries
-\`analyst_review_status: "not yet reviewed by an analyst"\`; missing/mismatched fingerprints or stored results
+borrower's top-level financial stores and `financials_source` are unchanged. Entity mode cannot be combined with
+`--financials`, `--stress-assumptions` or `--no-update-financials-source`. A period held only in
+`analyst_supplied_financials` is listed as unavailable and is never recomputed. Every result carries
+`analyst_review_status: "not yet reviewed by an analyst"`; missing/mismatched fingerprints or stored results
 that no longer match the evaluator are stale and are not printed as current.
 
 ```bash

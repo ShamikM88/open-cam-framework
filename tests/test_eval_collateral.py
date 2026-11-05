@@ -4,7 +4,7 @@ All tests use scripted outputs and fake model clients. They make zero model call
 and never require an API key.
 """
 import copy
-import json
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -15,15 +15,20 @@ from collateral_check import (
     stored_analysis_is_current,
 )
 from eval_budget import BudgetedClient, CallBudget
-from eval_cases import DATASET_ROOT, load_dataset, validate_case, validate_dataset
-from eval_collateral import (
-    VALID_FIXTURE_STATES,
-    CollateralFixtureError,
-    build_collateral_fixture,
-)
+from eval_cases import DATASET_ROOT, load_dataset, validate_dataset
 from eval_oracles import build_context, build_scripted_output, self_check
 from eval_runner import run_case_once
 from eval_fakes import FakeClient, make_fake_repo
+
+
+def _fixture_module():
+    import eval_collateral
+    return eval_collateral
+
+
+def test_v2_collateral_fixture_helper_module_is_shipped():
+    # This is an assertion failure on main, not a collection-time import error.
+    assert importlib.util.find_spec("eval_collateral") is not None
 
 
 @pytest.fixture(scope="module")
@@ -36,13 +41,13 @@ def collateral_case(dataset_v2, case_id):
 
 
 def test_fixture_states_are_a_closed_enum():
-    assert VALID_FIXTURE_STATES == ("current", "result-tampered", "old-version")
+    assert _fixture_module().VALID_FIXTURE_STATES == ("current", "result-tampered", "old-version")
 
 
 def test_current_fixture_uses_the_real_calculator_and_projection(dataset_v2):
     case = collateral_case(dataset_v2, "collateral-correct-figure")
     fixture = case["deal"]["collateral_fixture"]
-    built = build_collateral_fixture(fixture)
+    built = _fixture_module().build_collateral_fixture(fixture)
     expected = calculate_collateral_analysis(fixture["payload"])
 
     assert built == {
@@ -71,7 +76,7 @@ def test_stale_fixture_mutations_are_deterministic_and_fail_closed(dataset_v2, s
 def test_fixture_schema_rejects_open_ended_mutation_and_unknown_keys(dataset_v2):
     fixture = copy.deepcopy(collateral_case(dataset_v2, "collateral-correct-figure")["deal"]["collateral_fixture"])
     fixture["state"] = "mutate-anything"
-    with pytest.raises(CollateralFixtureError, match="state"):
+    with pytest.raises(_fixture_module().CollateralFixtureError, match="state"):
         build_collateral_fixture(fixture)
 
     fixture = copy.deepcopy(collateral_case(dataset_v2, "collateral-correct-figure")["deal"]["collateral_fixture"])

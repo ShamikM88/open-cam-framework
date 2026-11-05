@@ -721,8 +721,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     if collateral_analysis_in is not None:
         collateral, collateral_analysis = collateral_data, collateral_analysis_in
         collateral_analysis_write = {"collateral_analysis": collateral_analysis_in}
-    elif collateral_data:
-        # A legacy list replaces the collateral, so a calculator analysis of the old assets must not survive it.
+    elif collateral_data is not None:
+        # An explicitly supplied legacy list (even an empty one: the analyst removed every asset) replaces the collateral, so a calculator analysis of the old assets must not survive it.
         collateral, collateral_analysis = collateral_data, None
         collateral_analysis_write = {"collateral_analysis": None} if existing_state.get("collateral_analysis") else {}
     else:

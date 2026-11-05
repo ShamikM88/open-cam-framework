@@ -161,7 +161,7 @@ See [State manager](#state-manager).
   is the [collateral calculator](#collateral-check) payload: it is validated and calculated by the same pure code as
   `/collateral`, and the run records `collateral_analysis` plus the `collateral` projection, so the workbook's result
   columns and the policy ground truth see the same figures as the interactive route. A refused payload is one `error:`
-  line before anything is written. A **flat list** of asset objects is the legacy shape: it is recorded as the
+  line before anything is written. A **flat list** of asset objects (an empty list too, which clears the recorded collateral) is the legacy shape: it is recorded as the
   `collateral` list only, with no calculator results, and it discards any earlier `collateral_analysis` (that analysis
   described the assets the list replaces). Without `--collateral` a run keeps what the deal already has, and its
   policy ground truth uses a stored analysis only while it is current.

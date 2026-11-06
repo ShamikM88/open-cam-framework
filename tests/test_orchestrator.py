@@ -18,6 +18,7 @@ deliberately triggered code-enforced) REJECTED path don't need one.
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -3088,3 +3089,134 @@ def test_an_explicit_empty_legacy_list_on_a_deal_without_an_analysis_records_no_
                  collateral_data=[], client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
 
     assert read_state("Acme Corp", "Fleet Loan")["collateral"] == []
+
+
+# --- Issue #575: the Maker and the Checker are shown the stored collateral analysis (or why not). ---------------
+
+_CALC_HEADER = "Collateral calculator results"
+_FIGURES_RE = re.compile(r"<collateral_analysis_figures>\n(.*?)\n</collateral_analysis_figures>", re.S)
+
+
+def _stored_analysis(payload=None):
+    from collateral_check import calculate_collateral_analysis
+
+    return calculate_collateral_analysis(payload or _calculator_payload())
+
+
+def _context(collateral, analysis):
+    return _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", {"financials": {}, "ratios": {}}, collateral,
+        collateral_analysis=analysis)
+
+
+def _shown_figures(context):
+    match = _FIGURES_RE.search(context)
+    assert match, "no <collateral_analysis_figures> block in the context"
+    return json.loads(match.group(1))
+
+
+def test_a_current_analysis_is_shown_under_the_exact_declaration_keys():
+    from collateral_check import collateral_projection
+    from policy_checks import collateral_analysis_ground_truth
+
+    analysis = _stored_analysis()
+    context = _context(collateral_projection(analysis), analysis)
+
+    assert _CALC_HEADER in context
+    shown = _shown_figures(context)
+    assert shown == collateral_analysis_ground_truth(analysis)
+    assert "collateral_AST-001_total_exposure" in shown and "collateral_max_lgd_pct" in shown
+
+
+def test_the_figures_shown_are_exactly_the_per_asset_ground_truth_the_check_uses():
+    from collateral_check import collateral_projection
+    from orchestrator import _ground_truth_figures
+
+    analysis = _stored_analysis()
+    projection = collateral_projection(analysis)
+    truth = _ground_truth_figures({}, {}, projection, None, analysis)
+    checked = {key: value for key, value in truth.items()
+               if key.startswith("collateral_") and key != "collateral_cover_pct"}
+
+    assert _shown_figures(_context(projection, analysis)) == checked
+
+
+def test_an_unavailable_metric_is_not_shown_as_a_number():
+    from collateral_check import collateral_projection
+
+    payload = _calculator_payload()
+    del payload["assets"][0]["lgd_pct"]
+    analysis = _stored_analysis(payload)
+    shown = _shown_figures(_context(collateral_projection(analysis), analysis))
+
+    assert "collateral_AST-001_lgd_pct" not in shown and "collateral_max_lgd_pct" not in shown
+    assert "collateral_AST-001_total_exposure" in shown
+
+
+@pytest.mark.parametrize("tamper", ["result", "version"])
+def test_a_stale_analysis_shows_no_per_asset_figure_and_says_so(tamper):
+    from collateral_check import collateral_projection
+
+    analysis = _stored_analysis()
+    projection = collateral_projection(analysis)
+    if tamper == "result":
+        analysis["assets"][0]["results"]["total_exposure"] += 1.0
+    else:
+        analysis["calculator_version"] = "0.0.0"
+    context = _context(projection, analysis)
+
+    assert _CALC_HEADER in context and "stale or fails its integrity check" in context
+    assert "rerun /collateral" in context
+    assert "collateral_AST-001_" not in context and "<collateral_analysis_figures>" not in context
+
+
+def test_a_legacy_projection_without_an_analysis_is_labelled_as_not_calculator_certified():
+    from collateral_check import collateral_projection
+
+    projection = collateral_projection(_stored_analysis())
+    context = _context(projection, None)
+
+    assert "none recorded" in context and "legacy summary" in context
+    assert "collateral_AST-001_" not in context and "<collateral_analysis_figures>" not in context
+
+
+@pytest.mark.parametrize("collateral", [None, []])
+def test_a_deal_with_no_collateral_gets_no_calculator_section(collateral):
+    assert _CALC_HEADER not in _context(collateral, None)
+
+
+def _prompts(client):
+    """The Maker prompt (first call) and the Checker prompt (second call) the pipeline really sent."""
+    maker, checker = client.calls[0], client.calls[-1]
+    return maker["messages"][0]["content"], checker["messages"][0]["content"]
+
+
+def test_the_real_maker_and_checker_prompts_carry_the_current_figures(project_root):
+    from policy_checks import collateral_analysis_ground_truth
+
+    _seed_charge()
+    client = MockClient([_charged_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(), client=client)
+
+    expected = collateral_analysis_ground_truth(read_state("Acme Corp", "Fleet Loan")["collateral_analysis"])
+    maker_prompt, checker_prompt = _prompts(client)
+    assert _shown_figures(maker_prompt) == expected
+    assert _shown_figures(checker_prompt) == expected
+
+
+def test_the_real_prompts_say_a_tampered_stored_analysis_is_stale(project_root):
+    _seed_charge()
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    stored = read_state("Acme Corp", "Fleet Loan")["collateral_analysis"]
+    stored["assets"][0]["results"]["total_exposure"] += 1.0
+    write_state("Acme Corp", "Fleet Loan", collateral_analysis=stored)
+
+    client = MockClient([_charged_draft("# Draft v2"), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    for prompt in _prompts(client):
+        assert "stale or fails its integrity check" in prompt
+        assert "collateral_AST-001_" not in prompt and "<collateral_analysis_figures>" not in prompt

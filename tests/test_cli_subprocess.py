@@ -2849,3 +2849,66 @@ def test_state_manager_register_entity_record_help_lists_all_flags(cli):
         "--perimeter-confirmed", "--date",
     ):
         assert flag in result.stdout
+
+def test_entity_spreading_cli_selects_one_registered_guarantor_and_prints_review_label(cli):
+    workdir = cli.workdir
+    deal_dir = workdir / "deals" / "Synthetic Group Ltd" / "Synthetic Group Facility_2026-01-01"
+    deal_dir.mkdir(parents=True)
+    record = {
+        "entity_id": "synthetic-guarantor",
+        "legal_name": "Synthetic Guarantor Ltd",
+        "role": "guarantor",
+        "source": {"document": "Synthetic accounts", "accounting_basis": "UK GAAP", "date": "2026-02-01"},
+        "period_ends": {"FY-Current": "2025-12-31"},
+        "perimeter": {"included": True, "control_basis": "analyst-confirmed",
+                      "scope_rationale": "Synthetic", "confirmed": True, "confirmed_on": "2026-10-27"},
+        "raw_figures_source": "Synthetic source",
+        "multi_period_financials": {"FY-Current": {"revenue": 1000, "cost_of_sales": 400}},
+        "analyst_supplied_financials": {},
+        "spread_status": "not-spread",
+        "intercompany_lines": [],
+        "guarantee_ids": ["GUARANTEE-SYN-001"],
+    }
+    state = {
+        "company": "Synthetic Group Ltd", "proposal": "Synthetic Group Facility",
+        "date": "2026-01-01", "schema_version": "1.2.0",
+        "financials": {"FY-Current": {"ebitda": 777}},
+        "ratios": {"FY-Current": {"dscr": 7.7}},
+        "multi_period_financials": {"FY-Current": {"revenue": 888}},
+        "analyst_supplied_financials": {},
+        "financials_source": "analyst-supplied",
+        "guarantees": [{"guarantee_id": "GUARANTEE-SYN-001"}],
+        "entity_records": {"synthetic-guarantor": record},
+    }
+    (deal_dir / "state.json").write_text(json.dumps(state), encoding="utf-8")
+
+    result = cli("spreading_check", "--company", "Synthetic Group Ltd",
+                 "--proposal", "Synthetic Group Facility", "--entity-id", "synthetic-guarantor")
+    assert result.returncode == 0, result.stderr
+    output = json.loads(result.stdout)
+    assert output["analyst_review_status"] == "not yet reviewed by an analyst"
+    assert output["spread_status"] == "spread"
+    assert output["financials"]["FY-Current"]["gross_profit"] == 600
+
+    saved = json.loads((deal_dir / "state.json").read_text(encoding="utf-8"))
+    assert saved["financials"] == state["financials"]
+    assert saved["ratios"] == state["ratios"]
+    assert saved["multi_period_financials"] == state["multi_period_financials"]
+    assert saved["analyst_supplied_financials"] == state["analyst_supplied_financials"]
+    assert saved["financials_source"] == "analyst-supplied"
+
+    before_empty_id = (deal_dir / "state.json").read_bytes()
+    empty_id = cli("spreading_check", "--company", "Synthetic Group Ltd",
+                   "--proposal", "Synthetic Group Facility", "--entity-id", "")
+    assert empty_id.returncode == 1
+    assert "not found" in empty_id.stderr
+    assert (deal_dir / "state.json").read_bytes() == before_empty_id
+
+    empty_financials_path = cli(
+        "spreading_check", "--company", "Synthetic Group Ltd",
+        "--proposal", "Synthetic Group Facility", "--entity-id", "synthetic-guarantor",
+        "--financials", "",
+    )
+    assert empty_financials_path.returncode == 2
+    assert "cannot be combined" in empty_financials_path.stderr
+    assert (deal_dir / "state.json").read_bytes() == before_empty_id

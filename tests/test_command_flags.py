@@ -117,6 +117,7 @@ def test_the_scan_covers_the_command_files_and_the_docs_that_mention_scripts():
 def test_the_real_help_parser_finds_the_known_options():
     assert {"--dry-run", "--live", "--allow-partial", "--export-baseline", "--help"} <= real_options("run_evals")
     assert {"--no-update-financials-source", "--stress-assumptions"} <= real_options("spreading_check")
+    assert {"--entity-id"} <= real_options("spreading_check")
     assert {"--check-sources", "--step", "--file"} <= real_options("source_manifest")
     assert {"--changed-files", "--scope-body", "--summary-file", "--help"} <= real_options("pr_scope_check")
     assert real_options("no_such_script") is None

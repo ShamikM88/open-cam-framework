@@ -42,6 +42,7 @@ import math
 import os
 import re
 
+from eval_collateral import CollateralFixtureError, validate_collateral_fixture
 from eval_oracles import (
     CANARY_TOKEN_RE,
     ORACLES,
@@ -52,7 +53,6 @@ from eval_oracles import (
     self_check,
 )
 from pii_scan import scan_for_likely_real_data
-from eval_collateral import CollateralFixtureError, validate_collateral_fixture
 from spreading_builder import FIELD_LABELS, FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

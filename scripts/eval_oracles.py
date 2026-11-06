@@ -40,6 +40,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from eval_collateral import build_collateral_fixture
 from policy_checks import (
     REQUIRED_RISK_TAXONOMY,
     check_draft_compliance,
@@ -48,7 +49,6 @@ from policy_checks import (
     parse_underwriter_output,
 )
 from policy_engine import evaluate_deal_policy
-from eval_collateral import build_collateral_fixture
 from spreading_builder import evaluate_downside_case, evaluate_financial_model
 
 CANARY_TOKEN_RE = re.compile(r"^CANARY-[A-Z0-9]{8}$")

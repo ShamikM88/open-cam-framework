@@ -12,6 +12,7 @@ from policy_checks import (
     FENCED_JSON_RE,
     REQUIRED_RISK_TAXONOMY,
     check_draft_compliance,
+    collateral_analysis_ground_truth,
     compute_collateral_cover_pct as _compute_collateral_cover_pct,
     ground_truth_figures as _ground_truth_figures,
     normalize_category as _normalize_category,
@@ -19,7 +20,12 @@ from policy_checks import (
     values_match as _values_match,
     check_reported_figures as _check_reported_figures,
 )
-from collateral_check import CollateralInputError, calculate_collateral_analysis, collateral_projection
+from collateral_check import (
+    CollateralInputError,
+    calculate_collateral_analysis,
+    collateral_projection,
+    stored_analysis_is_current,
+)
 from policy_engine import evaluate_deal_policy
 from numeric_validation import (
     FinancialInputError,
@@ -298,11 +304,40 @@ def _xml_block(tag, content):
     return f"<{tag}>\n{content}\n</{tag}>"
 
 
+def _collateral_analysis_section(collateral_analysis, has_collateral):
+    """What the model is told about the stored calculator results (issue #575).
+
+    The policy check compares a draft's `collateral_<asset_id>_<metric>` figures with the stored analysis, so the
+    Maker (who must declare them) and the Checker (who audits them) have to see the same figures. They are rendered
+    from policy_checks.collateral_analysis_ground_truth(), the dictionary the check uses, so the two cannot drift.
+    A stale or missing analysis shows no figure at all; a deal with no collateral gets no section.
+    """
+    if collateral_analysis and stored_analysis_is_current(collateral_analysis):
+        figures = collateral_analysis_ground_truth(collateral_analysis)
+        return [
+            "\nCollateral calculator results (from state.json -- the deterministic /collateral check; cite any "
+            "per-asset or deal-level LGD collateral figure in your structured output's `reported_figures` under "
+            "exactly these keys, unrounded, and omit a key that is not listed, because that metric is unavailable):",
+            _xml_block("collateral_analysis_figures", json.dumps(figures, indent=2)),
+        ]
+    if collateral_analysis:
+        return [
+            "\nCollateral calculator results: the recorded analysis is stale or fails its integrity check. "
+            "Do not cite any per-asset collateral figure; rerun /collateral first."
+        ]
+    if has_collateral:
+        return [
+            "\nCollateral calculator results: none recorded. The collateral rows above are a legacy summary, "
+            "not calculator-certified per-asset results. Do not cite any per-asset collateral figure."
+        ]
+    return []
+
+
 def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
                               collateral_data, policy_state: Mapping[str, Any] | None = None, downside_case=None,
                               financials_source=None, credit_policy=None,
                               financials_source_note=None, credit_policy_notes=None,
-                              company_learnings=None, enterprise_learnings=None):
+                              company_learnings=None, enterprise_learnings=None, collateral_analysis=None):
     """The only place raw financials/ratios/collateral/policy data are
     injected into either agent's prompt -- both the Maker (draft + revision
     calls) and the Checker (audit call) receive exactly this block, so the
@@ -432,6 +467,7 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     if collateral_data:
         parts.append("\nCollateral / exposure data (from state.json):")
         parts.append(_xml_block("collateral", json.dumps(collateral_data, indent=2)))
+    parts.extend(_collateral_analysis_section(collateral_analysis, bool(collateral_data)))
     if downside_case and (downside_case.get("financials") or downside_case.get("ratios")):
         parts.append(
             "\nDownside (stressed) forward-year financials and ratios (from "
@@ -820,6 +856,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         credit_policy_notes=credit_policy_notes,
         company_learnings=company_learnings,
         enterprise_learnings=enterprise_learnings,
+        collateral_analysis=collateral_analysis,
     )
 
     print(f"[1/3] Underwriter Agent drafting CAM for {company}...")

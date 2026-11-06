@@ -403,6 +403,11 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     harmlessly inert there -- included via the same shared parts list only
     because that's this module's one existing injection point, not because
     the Checker is meant to act on it.
+
+    `collateral_analysis` (issue #575) is the stored calculator analysis. While
+    it is current, the per-asset figures the policy check compares a draft with
+    are shown to both models under their exact keys; a stale or missing one is
+    named as such and shows no figure (see _collateral_analysis_section()).
     """
     parts = [
         f"\nCompany: {company}",

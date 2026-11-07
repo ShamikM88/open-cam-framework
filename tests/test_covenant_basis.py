@@ -312,3 +312,22 @@ def test_recorded_period_without_a_current_spread_has_an_explicit_fallback_reaso
     assert view["period_reasons"]["FY-Current"] == (
         "guarantor period FY-Current has no fresh framework-computed spread"
     )
+
+def test_resolve_covenant_views_reuses_the_same_fresh_view_for_duplicate_entity_ids(monkeypatch):
+    import covenant_basis
+
+    record = _record("synthetic-guarantor", "G-1")
+    state = _state(record)
+    original = covenant_basis.resolve_covenant_view
+    calls = []
+
+    def counted_resolve(selected_state, covenant):
+        calls.append(covenant)
+        return original(selected_state, covenant)
+
+    monkeypatch.setattr(covenant_basis, "resolve_covenant_view", counted_resolve)
+    views = resolve_covenant_views(state, [_covenant(), _covenant()])
+
+    assert len(calls) == 1
+    assert views[0] is views[1]
+    assert views[0]["basis_entity_id"] == "synthetic-guarantor"

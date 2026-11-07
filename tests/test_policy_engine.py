@@ -2291,3 +2291,11 @@ def test_guarantor_downside_adds_only_unresolvable_rows_for_passing_forward_peri
     assert [(row["year"], row["actual"]) for row in result["forward_covenant_results"]] == [
         ("FY+1", 2.0), ("FY+2", 0.5),
     ]
+
+def test_policy_engine_ignores_a_security_charge_with_no_asset_id():
+    result = evaluate_deal_policy({
+        "security_package": [{"secures_asset_id": ""}],
+    })
+
+    assert result["security_gaps"] == []
+    assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT

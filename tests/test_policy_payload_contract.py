@@ -15,7 +15,6 @@ a downside breach), every status, a unit mismatch, a zero threshold, a duplicate
 UNRESOLVABLE breaches and an unavailable downside year, every kind of security gap, and colliding guarantee and asset ids.
 Only invented names and figures appear here.
 """
-import base64
 import copy
 import json
 import os
@@ -233,22 +232,3 @@ def test_the_rich_guarantor_case_records_its_entity_identity_and_uses_its_own_fo
     assert len(downside) == 1
     assert downside[0]["downside_status"] == "UNRESOLVABLE"
     assert downside[0]["downside_actual"] is None
-
-
-def test_C4_DIAGNOSTIC_CAPTURE_RICH_GUARANTOR_GOLDENS(tmp_path):
-    """Temporary CI-only capture; remove after creating the two new checked-in goldens."""
-    state = all_cases()["rich_guarantor"]
-    folder = tmp_path / "deals" / state["company"] / f"{state['proposal']}_{state['date']}"
-    folder.mkdir(parents=True)
-    (folder / "state.json").write_text(json.dumps(state), encoding="utf-8")
-    result = subprocess.run(
-        [sys.executable, str(SCRIPTS / "policy_check.py"), "--company", state["company"], "--proposal", state["proposal"]],
-        cwd=tmp_path, env=child_env(), capture_output=True, timeout=120, stdin=subprocess.DEVNULL,
-    )
-    assert result.returncode == 0, result.stderr
-    captured = {
-        "engine": engine_bytes(state).decode("utf-8"),
-        "cli": result.stdout.decode("utf-8"),
-    }
-    encoded = base64.b64encode(json.dumps(captured, sort_keys=True).encode("utf-8")).decode("ascii")
-    pytest.fail("C4_GOLDEN_CAPTURE:" + encoded)

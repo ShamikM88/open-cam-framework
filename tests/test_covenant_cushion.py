@@ -916,3 +916,46 @@ def test_guarantor_cushion_marks_a_stale_entity_period_unresolvable():
     assert current["actual"] is None
     assert "stale" in current["reason"]
     assert current["basis_entity_id"] == entity_id
+
+def test_guarantor_cushion_preserves_a_global_unresolvable_reason(monkeypatch):
+    entity_id = "synthetic-unresolvable-guarantor"
+    covenant = guarantor_covenant(entity_id)
+    view = {
+        "basis": "guarantor_group",
+        "basis_entity_id": entity_id,
+        "financials": {},
+        "ratios": {},
+        "recorded_periods": ["FY-Current"],
+        "period_reasons": {"FY-Current": "selected entity is not linked"},
+        "unresolvable_reason": "selected entity is not linked",
+    }
+    monkeypatch.setattr(covenant_cushion, "resolve_covenant_views", lambda *_: [view])
+
+    report = compute_from_state({"covenants": [covenant]})
+    result = report["covenants"][0]["periods"][0]["result"]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["reason"] == "selected entity is not linked"
+
+
+def test_guarantor_cushion_reports_missing_period_figures_when_reason_map_is_not_an_object(monkeypatch):
+    entity_id = "synthetic-missing-period-guarantor"
+    covenant = guarantor_covenant(entity_id)
+    view = {
+        "basis": "guarantor_group",
+        "basis_entity_id": entity_id,
+        "financials": None,
+        "ratios": None,
+        "recorded_periods": ["FY-Current"],
+        "period_reasons": None,
+        "unresolvable_reason": None,
+    }
+    monkeypatch.setattr(covenant_cushion, "resolve_covenant_views", lambda *_: [view])
+
+    report = compute_from_state({"covenants": [covenant]})
+    result = report["covenants"][0]["periods"][0]["result"]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["reason"] == "no fresh guarantor figures are recorded for FY-Current"

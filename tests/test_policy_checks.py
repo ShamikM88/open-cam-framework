@@ -1042,3 +1042,24 @@ def test_ground_truth_namespaces_only_numeric_fresh_guarantor_values_and_keeps_b
     assert prefix + "nullable" not in truth
     assert prefix + "label" not in truth
     assert prefix + "raw" not in truth
+
+def test_ground_truth_skips_malformed_downside_periods_and_non_mapping_guarantor_views():
+    truth = ground_truth_figures(
+        None,
+        None,
+        [],
+        downside_case={
+            "ratios": {"FY+1": []},
+            "financials": {"FY+1": []},
+        },
+        resolved_views=[
+            {
+                "basis": "guarantor_group",
+                "basis_entity_id": "synthetic-guarantor",
+                "ratios": None,
+                "financials": None,
+            },
+        ],
+    )
+
+    assert truth == {}

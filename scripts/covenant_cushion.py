@@ -446,7 +446,7 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
 
     caveats: list[str] = []
     covenant_reports: list[dict[str, object]] = []
-    for covenant, view in zip(covenants, resolved_views):
+    for covenant, view in zip(covenants, resolved_views, strict=True):
         if not isinstance(covenant, Mapping):
             continue
         guarantor_basis = covenant.get("basis") == "guarantor_group"

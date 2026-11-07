@@ -831,7 +831,7 @@ def evaluate_deal_policy(
 
     has_guarantor_basis = any(covenant.get("basis") == "guarantor_group" for covenant in covenants)
     covenant_results: list[CovenantResult] = []
-    for covenant, view in zip(covenants, resolved_views):
+    for covenant, view in zip(covenants, resolved_views, strict=True):
         if covenant.get("basis") == "guarantor_group":
             covenant_results.append(_evaluate_resolved_covenant(covenant, view, "FY-Current"))
         else:
@@ -848,7 +848,7 @@ def evaluate_deal_policy(
     )
     if has_guarantor_basis:
         used_downside_ids = {item["breach_id"] for item in downside_covenant_breaches}
-        for covenant, view in zip(covenants, resolved_views):
+        for covenant, view in zip(covenants, resolved_views, strict=True):
             if covenant.get("basis") != "guarantor_group":
                 continue
             recorded_periods = set(view.get("recorded_periods") or [])
@@ -878,16 +878,17 @@ def evaluate_deal_policy(
                 }
                 downside_covenant_breaches.append(breach)
 
+    forward_covenant_results: list[ForwardCovenantResult]
     if not has_guarantor_basis:
         forward_covenant_results = _evaluate_forward_covenants(
             covenants, all_ratios, base_financials, recorded_view,
         )
     else:
-        forward_covenant_results: list[ForwardCovenantResult] = []
+        forward_covenant_results = []
         used_forward_ids: set[str] = set()
         for period in FORWARD_PERIOD_KEYS:
             borrower_period_ratios = all_ratios.get(period)
-            for covenant, view in zip(covenants, resolved_views):
+            for covenant, view in zip(covenants, resolved_views, strict=True):
                 if covenant.get("basis") == "guarantor_group":
                     if period not in set(view.get("recorded_periods") or []):
                         continue

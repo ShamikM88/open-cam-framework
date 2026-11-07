@@ -310,9 +310,13 @@ def _collateral_analysis_section(collateral_analysis, has_collateral):
     The policy check compares a draft's `collateral_<asset_id>_<metric>` figures with the stored analysis, so the
     Maker (who must declare them) and the Checker (who audits them) have to see the same figures. They are rendered
     from policy_checks.collateral_analysis_ground_truth(), the dictionary the check uses, so the two cannot drift.
-    A stale or missing analysis shows no figure at all; a deal with no collateral gets no section.
+    A stale, malformed or missing analysis shows no figure at all (`None` is absent; any other recorded object that
+    is not current is stale, empty or not); a deal with no collateral, or a current analysis of no assets, gets no
+    section.
     """
-    if collateral_analysis and stored_analysis_is_current(collateral_analysis):
+    if collateral_analysis is not None and stored_analysis_is_current(collateral_analysis):
+        if not collateral_analysis["assets"]:
+            return []  # a valid analysis of no assets: nothing to cite, and no collateral to explain
         figures = collateral_analysis_ground_truth(collateral_analysis)
         return [
             "\nCollateral calculator results (from state.json -- the deterministic /collateral check; cite any "
@@ -320,7 +324,7 @@ def _collateral_analysis_section(collateral_analysis, has_collateral):
             "exactly these keys, unrounded, and omit a key that is not listed, because that metric is unavailable):",
             _xml_block("collateral_analysis_figures", json.dumps(figures, indent=2)),
         ]
-    if collateral_analysis:
+    if collateral_analysis is not None:
         return [
             "\nCollateral calculator results: the recorded analysis is stale or fails its integrity check. "
             "Do not cite any per-asset collateral figure; rerun /collateral first."

@@ -823,6 +823,8 @@ def evaluate_deal_policy(
     unavailable_downside = downside_case.get("unavailable") or {}
 
     base_financials = state_dict.get("financials")
+    # A recorded group_basis means the deal's recorded figures are borrower-supplied consolidated group accounts
+    # (issue #48, case A); otherwise they are the borrower's own. A covenant is tested only on its own basis.
     recorded_view = "consolidated" if isinstance(state_dict.get("group_basis"), dict) else DEFAULT_COVENANT_BASIS
     if resolved_views is None:
         resolved_views = resolve_covenant_views(state_dict, covenants)

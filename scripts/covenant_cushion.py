@@ -440,6 +440,10 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
     financials = state.get("financials") if isinstance(state.get("financials"), Mapping) else {}
     covenants = state.get("covenants") if isinstance(state.get("covenants"), list) else []
     stress = state.get("stress_assumptions") if isinstance(state.get("stress_assumptions"), Mapping) else {}
+    # A present malformed or negative recorded shock is a domain error, never a silent zero
+    # shock: the shared write-path validator (numeric_validation) refuses the vector, so this
+    # report refuses with its reason instead of searching as though nothing had been recorded.
+    # Only an absent shock key defaults to zero.
     validate_stress_assumptions(stress)
     recorded_view = "consolidated" if isinstance(state.get("group_basis"), Mapping) else "borrower"
     resolved_views = resolve_covenant_views(state, covenants)

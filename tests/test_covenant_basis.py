@@ -1,0 +1,234 @@
+"""C4 contract: a guarantor covenant resolves only to its named, fresh, linked entity."""
+
+import copy
+
+import pytest
+
+from covenant_basis import resolve_covenant_view, resolve_covenant_views
+from spreading_builder import evaluate_financial_model
+from state_manager import entity_period_input_fingerprint
+
+REVIEW_LABEL = "not yet reviewed by an analyst"
+RAW = {
+    "FY-1": {
+        "revenue": 1000, "cost_of_sales": 400, "admin_expenses": 100,
+        "interest_paid": 30, "scheduled_principal": 70, "tax_paid": 40,
+        "cash": 60, "trade_debtors": 80, "stock": 90, "trade_creditors": 70,
+        "current_debt": 15, "long_term_debt": 300, "share_capital": 100,
+        "retained_profit": 200,
+    },
+    "FY-Current": {
+        "revenue": 1200, "cost_of_sales": 500, "admin_expenses": 110,
+        "interest_paid": 35, "scheduled_principal": 75, "tax_paid": 45,
+        "cash": 65, "trade_debtors": 95, "stock": 100, "trade_creditors": 75,
+        "current_debt": 20, "long_term_debt": 310, "share_capital": 100,
+        "retained_profit": 220,
+    },
+}
+
+
+def _record(entity_id, guarantee_id, *, role="guarantor", raw=None, supplied=None):
+    raw_periods = copy.deepcopy(RAW if raw is None else raw)
+    supplied_periods = copy.deepcopy(supplied or {})
+    period_ends = {
+        period: "2025-12-31" if period == "FY-Current" else "2024-12-31"
+        for period in set(raw_periods) | set(supplied_periods)
+    }
+    model = evaluate_financial_model(raw_periods) if raw_periods else {"financials": {}, "ratios": {}}
+    record = {
+        "entity_id": entity_id,
+        "legal_name": f"Synthetic {entity_id} Ltd",
+        "role": role,
+        "source": {
+            "document": "Synthetic standalone accounts",
+            "accounting_basis": "UK GAAP",
+            "date": "2026-02-01",
+        },
+        "period_ends": period_ends,
+        "perimeter": {
+            "included": True,
+            "control_basis": "analyst-confirmed",
+            "scope_rationale": "Synthetic standalone guarantor perimeter",
+            "confirmed": True,
+            "confirmed_on": "2026-10-27",
+        },
+        "raw_figures_source": "Synthetic source document",
+        "multi_period_financials": raw_periods,
+        "analyst_supplied_financials": supplied_periods,
+        "spread_status": "spread",
+        "figures_basis": "recomputed",
+        "spread_timestamp": "2026-11-06T12:00:00+00:00",
+        "spread_source": "scripts/spreading_check.py --entity-id",
+        "analyst_review_status": REVIEW_LABEL,
+        "financials": model["financials"],
+        "ratios": model["ratios"],
+        "spread_fingerprints": {},
+        "intercompany_lines": [],
+        "guarantee_ids": [guarantee_id] if guarantee_id else [],
+    }
+    record["spread_fingerprints"] = {
+        period: entity_period_input_fingerprint(entity_id, period, record)
+        for period in raw_periods
+    }
+    return record
+
+
+def _state(*records, guarantees=None, borrower_dscr=7.7):
+    guarantee_rows = guarantees if guarantees is not None else [
+        {"guarantee_id": record["guarantee_ids"][0], "provider": record["legal_name"]}
+        for record in records if record["guarantee_ids"]
+    ]
+    return {
+        "financials": {"FY-Current": {"ebitda": 777}},
+        "ratios": {"FY-Current": {"dscr": borrower_dscr}, "FY+1": {"dscr": borrower_dscr - 0.2}},
+        "entity_records": {record["entity_id"]: record for record in records},
+        "guarantees": guarantee_rows,
+    }
+
+
+def _covenant(entity_id="synthetic-guarantor"):
+    return {
+        "metric": "dscr",
+        "type": "minimum",
+        "threshold": 1.25,
+        "basis": "guarantor_group",
+        "basis_entity_id": entity_id,
+    }
+
+
+def test_borrower_and_case_a_resolution_preserve_the_legacy_views_and_shape():
+    state = _state(_record("synthetic-guarantor", "G-1"))
+    borrower = resolve_covenant_view(state, {"metric": "dscr", "type": "minimum", "threshold": 1.0})
+    consolidated = resolve_covenant_view(
+        {**state, "group_basis": {"basis": "supplied_consolidated"}},
+        {"metric": "dscr", "type": "minimum", "threshold": 1.0, "basis": "consolidated"},
+    )
+
+    assert borrower["basis"] == "borrower"
+    assert borrower["ratios"] is state["ratios"]
+    assert "basis_entity_id" not in borrower
+    assert consolidated["basis"] == "consolidated"
+    assert consolidated["ratios"] is state["ratios"]
+    assert "basis_entity_id" not in consolidated
+
+
+def test_a_valid_named_guarantor_uses_only_its_own_fresh_periods():
+    record = _record("synthetic-guarantor-a", "G-A")
+    state = _state(record, borrower_dscr=77.0)
+    view = resolve_covenant_view(state, _covenant("synthetic-guarantor-a"))
+
+    assert view["basis"] == "guarantor_group"
+    assert view["basis_entity_id"] == "synthetic-guarantor-a"
+    assert view["ratios"]["FY-Current"] == record["ratios"]["FY-Current"]
+    assert view["ratios"]["FY-Current"]["dscr"] != state["ratios"]["FY-Current"]["dscr"]
+    assert set(view["eligible_raw_periods"]) == {"FY-1", "FY-Current"}
+    assert view["unresolvable_reason"] is None
+    assert view["period_reasons"] == {}
+
+
+def test_two_named_guarantors_cannot_cross_route_or_collide():
+    first = _record("synthetic-guarantor-a", "G-A")
+    second_raw = copy.deepcopy(RAW)
+    second_raw["FY-Current"]["revenue"] = 5000
+    second = _record("synthetic-guarantor-b", "G-B", raw=second_raw)
+    state = _state(first, second, borrower_dscr=88.0)
+
+    views = resolve_covenant_views(state, [_covenant(first["entity_id"]), _covenant(second["entity_id"])])
+
+    assert [view["basis_entity_id"] for view in views] == [
+        "synthetic-guarantor-a", "synthetic-guarantor-b",
+    ]
+    assert views[0]["ratios"]["FY-Current"]["dscr"] == first["ratios"]["FY-Current"]["dscr"]
+    assert views[1]["ratios"]["FY-Current"]["dscr"] == second["ratios"]["FY-Current"]["dscr"]
+    assert views[0]["ratios"]["FY-Current"]["dscr"] != views[1]["ratios"]["FY-Current"]["dscr"]
+
+
+@pytest.mark.parametrize("entity_id", [None, "", "   ", "unknown-entity"])
+def test_missing_blank_or_unknown_entity_id_fails_closed_without_borrower_fallback(entity_id):
+    record = _record("synthetic-guarantor", "G-1")
+    state = _state(record, borrower_dscr=99.0)
+    covenant = _covenant(entity_id)
+    if entity_id is None:
+        covenant.pop("basis_entity_id")
+
+    view = resolve_covenant_view(state, covenant)
+
+    assert view["basis"] == "guarantor_group"
+    assert view["basis_entity_id"] == (entity_id if isinstance(entity_id, str) and entity_id.strip() else None)
+    assert view["unresolvable_reason"]
+    assert view["ratios"] == {}
+    assert view["financials"] == {}
+
+
+def test_only_a_record_with_role_guarantor_is_eligible():
+    parent = _record("synthetic-parent", "G-1", role="parent")
+    view = resolve_covenant_view(_state(parent), _covenant("synthetic-parent"))
+
+    assert "role" in view["unresolvable_reason"].lower()
+    assert view["ratios"] == {}
+
+
+def test_missing_spread_is_unresolvable_even_when_raw_accounts_exist():
+    record = _record("synthetic-guarantor", "G-1")
+    record["spread_status"] = "not-spread"
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert view["unresolvable_reason"]
+    assert view["ratios"] == {}
+
+
+def test_stale_fingerprint_withholds_only_the_affected_period():
+    record = _record("synthetic-guarantor", "G-1")
+    record["multi_period_financials"]["FY-1"]["revenue"] += 1
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert "FY-1" in view["period_reasons"]
+    assert "FY-1" not in view["eligible_raw_periods"]
+    assert "FY-Current" in view["eligible_raw_periods"]
+
+
+def test_evaluator_output_staleness_withholds_a_period_even_when_its_input_hash_matches():
+    record = _record("synthetic-guarantor", "G-1")
+    record["financials"]["FY-Current"]["ebitda"] += 1
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert "FY-Current" in view["period_reasons"]
+    assert "FY-Current" not in view["ratios"]
+
+
+def test_analyst_supplied_only_period_is_never_used_as_a_computed_spread():
+    record = _record(
+        "synthetic-guarantor", "G-1", raw={},
+        supplied={"FY-Current": {"revenue": 500}},
+    )
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert "FY-Current" in view["period_reasons"]
+    assert "analyst-supplied" in view["period_reasons"]["FY-Current"]
+    assert "FY-Current" not in view["ratios"]
+
+
+@pytest.mark.parametrize(
+    "guarantees",
+    [
+        [],
+        [{"guarantee_id": "OTHER", "provider": "Synthetic guarantor"}],
+        [{"guarantee_id": "G-1"}, {"guarantee_id": "G-1"}],
+    ],
+    ids=["missing", "wrong-id-name-coincidence", "duplicate-id"],
+)
+def test_missing_wrong_or_ambiguous_explicit_guarantee_link_is_unresolvable(guarantees):
+    record = _record("synthetic-guarantor", "G-1")
+    view = resolve_covenant_view(_state(record, guarantees=guarantees), _covenant())
+
+    assert view["unresolvable_reason"]
+    assert "guarantee" in view["unresolvable_reason"].lower()
+    assert view["ratios"] == {}
+
+
+def test_a_guarantor_record_without_any_explicit_guarantee_id_is_unresolvable():
+    record = _record("synthetic-guarantor", None)
+    view = resolve_covenant_view(_state(record, guarantees=[]), _covenant())
+
+    assert view["unresolvable_reason"]
+    assert "guarantee" in view["unresolvable_reason"].lower()

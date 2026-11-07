@@ -321,7 +321,9 @@ def _collateral_analysis_section(collateral_analysis, has_collateral):
         return [
             "\nCollateral calculator results (from state.json -- the deterministic /collateral check; cite any "
             "per-asset or deal-level LGD collateral figure in your structured output's `reported_figures` under "
-            "exactly these keys, unrounded, and omit a key that is not listed, because that metric is unavailable):",
+            "exactly these keys, unrounded, and omit a key that is not listed, because that metric is unavailable. "
+            "For these keys this instruction and the keys listed here take precedence over any other instruction to "
+            "omit per-asset collateral metrics from `reported_figures`):",
             _xml_block("collateral_analysis_figures", json.dumps(figures, indent=2)),
         ]
     if collateral_analysis is not None:

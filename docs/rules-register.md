@@ -49,7 +49,7 @@ Not covered entries from that audit each link their own gap issue, which asks fo
 batch links [issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) for its outstanding test-citation
 verification; existing behavioural tests do not make a new rule Covered until they cite its ID.
 
-**Inventory at this revision:** 41 IDs ever issued; 32 active Covered; 6 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 42 IDs ever issued; 32 active Covered; 7 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -99,6 +99,7 @@ independently proven by the gate.
 - `R-POL-018`
 - `R-POL-019`
 - `R-POL-020`
+- `R-POL-021`
 - `R-STATE-001`
 - `R-STATE-002`
 - `R-STATE-003`
@@ -296,6 +297,14 @@ independently proven by the gate.
 - **Implemented in:** `scripts/policy_checks.py::compute_collateral_cover_pct`
 - **Status:** Covered
 - **Tracking:** —
+
+### R-POL-021 — A guarantor covenant requires an exact linked entity and fresh figures
+
+- **Claim:** A `guarantor_group` covenant uses only the exact named, explicitly guarantee-linked entity's current framework-computed spread; a missing or invalid ID, role, guarantee link or period makes the result UNRESOLVABLE, with no borrower or other-entity fallback.
+- **Source:** [Guarantor-group covenant routing (case C step C4)](data-model.md#guarantor-group-covenant-routing-case-c-step-c4).
+- **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
+- **Status:** Not covered
+- **Tracking:** [Issue #473](https://github.com/ShamikM88/open-cam-framework/issues/473)
 
 ## State persistence and validation (STATE)
 

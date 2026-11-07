@@ -12,6 +12,7 @@ import math
 
 import pytest
 
+from guarantor_test_support import make_guarantor_record, guarantor_covenant, guarantee_row
 from policy_engine import (
     STANDARD_CONDITIONS_PRECEDENT,
     STANDARD_CONDITIONS_SUBSEQUENT,
@@ -2063,10 +2064,11 @@ def test_a_guarantor_group_covenant_is_unresolvable_on_every_deal_because_no_suc
     grouped = evaluate_deal_policy(_basis_state([_dscr("guarantor_group")], GROUP_BASIS))["covenant_results"][0]
 
     assert (ordinary["status"], ordinary["actual"]) == ("UNRESOLVABLE", None)
-    assert ordinary["reason"] == CONSOLIDATED_ON_BORROWER.replace("consolidated basis", "guarantor_group basis") \
-        .replace("no consolidated figures", "no guarantor_group figures")
+    assert ordinary["reason"] == "guarantor_group covenant has no non-blank basis_entity_id"
+    assert ordinary["basis_entity_id"] is None
     assert (grouped["status"], grouped["actual"]) == ("UNRESOLVABLE", None)
-    assert "guarantor_group basis but the recorded figures are the consolidated view" in grouped["reason"]
+    assert grouped["reason"] == "guarantor_group covenant has no non-blank basis_entity_id"
+    assert grouped["basis_entity_id"] is None
 
 
 @pytest.mark.parametrize("basis", ["parent", "", "Borrower", " borrower", 5, ["borrower"], {"b": 1}, True])
@@ -2186,3 +2188,140 @@ def test_basis_results_are_deterministic_and_do_not_change_the_other_policy_outp
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
     for key in ("security_gaps", "required_conditions_precedent", "required_conditions_subsequent"):
         assert first[key] == evaluate_deal_policy(plain)[key]
+
+
+
+def test_guarantor_covenant_uses_only_its_named_fresh_view_for_current_and_forward_and_never_borrower_downside():
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    state = {
+        "financials": {"FY-Current": {"ebitda": 9999}},
+        "ratios": {"FY-Current": {"dscr": 99.0}, "FY+1": {"dscr": 98.0}},
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+        "downside_case": {"ratios": {"FY+1": {"dscr": 0.1}}},
+    }
+
+    result = evaluate_deal_policy(state)
+
+    current = result["covenant_results"][0]
+    assert current["basis"] == "guarantor_group"
+    assert current["basis_entity_id"] == entity_id
+    assert current["actual"] == record["ratios"]["FY-Current"]["dscr"]
+    assert current["actual"] != state["ratios"]["FY-Current"]["dscr"]
+    forward = [row for row in result["forward_covenant_results"] if row.get("basis_entity_id") == entity_id]
+    assert len(forward) == 1
+    assert forward[0]["year"] == "FY+1"
+    assert forward[0]["actual"] == record["ratios"]["FY+1"]["dscr"]
+    downside = [row for row in result["downside_covenant_breaches"] if row.get("basis_entity_id") == entity_id]
+    assert len(downside) == 1
+    assert downside[0]["year"] == "FY+1"
+    assert downside[0]["downside_status"] == "UNRESOLVABLE"
+    assert downside[0]["downside_actual"] is None
+    assert "borrower's downside case is not a substitute" in downside[0]["reason"]
+
+
+@pytest.mark.parametrize(
+    ("period_reasons", "expected_reason"),
+    [
+        ({"FY-Current": "the guarantor period is stale"}, "the guarantor period is stale"),
+        ({}, "no fresh guarantor figures are recorded for FY-Current"),
+    ],
+    ids=["recorded-period-reason", "missing-current-ratio"],
+)
+def test_guarantor_current_result_is_unresolvable_without_fresh_period_figures(period_reasons, expected_reason):
+    covenant = guarantor_covenant("synthetic-guarantor")
+    state = {"covenants": [covenant], "ratios": {"FY-Current": {"dscr": 99.0}}}
+    view = {
+        "basis": "guarantor_group",
+        "basis_entity_id": "synthetic-guarantor",
+        "financials": {},
+        "ratios": {},
+        "recorded_periods": ["FY-Current"],
+        "period_reasons": period_reasons,
+        "unresolvable_reason": None,
+    }
+
+    result = evaluate_deal_policy(state, resolved_views=[view])["covenant_results"][0]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["basis_entity_id"] == "synthetic-guarantor"
+    assert result["reason"] == expected_reason
+
+
+def test_resolved_covenant_views_must_match_the_recorded_covenant_count():
+    with pytest.raises(ValueError, match="resolved covenant views must match"):
+        evaluate_deal_policy(
+            {"covenants": [guarantor_covenant()]},
+            resolved_views=[],
+        )
+
+
+def test_guarantor_downside_adds_only_unresolvable_rows_for_passing_forward_periods():
+    covenant = guarantor_covenant("synthetic-guarantor")
+    view = {
+        "basis": "guarantor_group",
+        "basis_entity_id": "synthetic-guarantor",
+        "financials": {},
+        "ratios": {
+            "FY+1": {"dscr": 2.0},
+            "FY+2": {"dscr": 0.5},
+        },
+        "recorded_periods": ["FY-1", "FY+1", "FY+2"],
+        "period_reasons": {},
+        "unresolvable_reason": None,
+    }
+    state = {
+        "covenants": [covenant],
+        "downside_case": {
+            "ratios": {
+                "FY-1": {"dscr": 0.1},
+                "FY+1": {"dscr": 0.1},
+                "FY+2": {"dscr": 0.1},
+            },
+        },
+    }
+
+    result = evaluate_deal_policy(state, resolved_views=[view])
+
+    assert [(row["year"], row["downside_status"], row["downside_actual"])
+            for row in result["downside_covenant_breaches"]] == [("FY+1", "UNRESOLVABLE", None)]
+    assert [(row["year"], row["actual"]) for row in result["forward_covenant_results"]] == [
+        ("FY+1", 2.0), ("FY+2", 0.5),
+    ]
+
+def test_policy_engine_ignores_a_security_charge_with_no_asset_id():
+    result = evaluate_deal_policy({
+        "security_package": [{"secures_asset_id": ""}],
+    })
+
+    assert result["security_gaps"] == []
+    assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT
+
+
+@pytest.mark.parametrize("failure", ["not-spread", "wrong-role", "missing-link", "no-link"])
+def test_forward_periods_of_an_ineligible_guarantor_are_reported_unresolvable_not_dropped(failure):
+    """CG578-1: a recorded forward period of a guarantor that fails a global check is disclosed, never silently absent."""
+    record = make_guarantor_record("synthetic-guarantor")
+    if failure == "not-spread":
+        record["spread_status"] = "not-spread"
+    elif failure == "wrong-role":
+        record["role"] = "parent"
+    elif failure == "missing-link":
+        record["guarantee_ids"] = ["G-MISSING"]
+    else:
+        record["guarantee_ids"] = []
+    state = {
+        "covenants": [guarantor_covenant("synthetic-guarantor")],
+        "guarantees": [guarantee_row()],
+        "entity_records": {"synthetic-guarantor": record},
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert [row["status"] for row in result["covenant_results"]] == ["UNRESOLVABLE"]
+    assert [(row["year"], row["status"], row["actual"], row["basis_entity_id"])
+            for row in result["forward_covenant_results"]] == [("FY+1", "UNRESOLVABLE", None, "synthetic-guarantor")]
+    assert result["forward_covenant_results"][0]["reason"]

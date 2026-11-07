@@ -55,6 +55,7 @@ import sys
 from collections.abc import Callable, Mapping
 
 from policy_engine import DEFAULT_COVENANT_BASIS, evaluate_single_covenant
+from covenant_basis import resolve_covenant_views
 from numeric_validation import validate_raw_line_items, validate_stress_assumptions
 from spreading_builder import FIELD_LABELS, apply_stress_shocks, evaluate_financial_model
 from state_manager import (StateError, find_deal, read_state, sanitize_path_component,
@@ -445,35 +446,78 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
     # Only an absent shock key defaults to zero.
     validate_stress_assumptions(stress)
     recorded_view = "consolidated" if isinstance(state.get("group_basis"), Mapping) else "borrower"
+    resolved_views = resolve_covenant_views(state, covenants)
 
     caveats: list[str] = []
     covenant_reports: list[dict[str, object]] = []
-    for covenant in covenants:
+    for covenant, view in zip(covenants, resolved_views, strict=True):
         if not isinstance(covenant, Mapping):
             continue
+        guarantor_basis = covenant.get("basis") == "guarantor_group"
+        if guarantor_basis:
+            recorded_periods = set(view.get("recorded_periods") or [])
+            periods = ["FY-Current"] + [period for period in FORWARD_PERIOD_KEYS if period in recorded_periods]
+        else:
+            periods = _report_periods(ratios)
+
         period_entries: list[dict[str, object]] = []
-        for period in _report_periods(ratios):
-            raw, unavailable_reason = _period_raw(period, state)
-            result = evaluate_single_covenant(
-                dict(covenant), ratios.get(period) or {},
-                financials.get(period) if isinstance(financials.get(period), Mapping) else None,
-                recorded_view)
-            if raw is None:
-                break_even: dict[str, object] = {"metric": covenant.get("metric"), "break_even_ebitda": None,
-                                                "pass_side": None, "note": None,
-                                                "reason": unavailable_reason}
+        for period in periods:
+            if guarantor_basis:
+                period_ratios = view.get("ratios")
+                period_financials = view.get("financials")
+                selected_ratios = period_ratios.get(period) if isinstance(period_ratios, Mapping) else None
+                selected_financials = period_financials.get(period) if isinstance(period_financials, Mapping) else None
+                result = evaluate_single_covenant(
+                    dict(covenant),
+                    dict(selected_ratios) if isinstance(selected_ratios, Mapping) else {},
+                    dict(selected_financials) if isinstance(selected_financials, Mapping) else None,
+                    "guarantor_group",
+                )
+                reason = view.get("unresolvable_reason")
+                period_reasons = view.get("period_reasons")
+                if not reason and isinstance(period_reasons, Mapping):
+                    reason = period_reasons.get(period)
+                if not reason and not isinstance(selected_ratios, Mapping):
+                    reason = f"no fresh guarantor figures are recorded for {period}"
+                if reason:
+                    result["actual"] = None
+                    result["status"] = "UNRESOLVABLE"
+                    result["headroom_pct"] = None
+                    result["reason"] = reason
+                result["basis_entity_id"] = view.get("basis_entity_id")
+                unavailable_reason = (
+                    "guarantor-specific break-even and shock searches are unavailable in C4; "
+                    "the borrower's raw inputs and stress assumptions are not a substitute"
+                )
+                break_even: dict[str, object] = {
+                    "metric": covenant.get("metric"),
+                    "break_even_ebitda": None,
+                    "pass_side": None,
+                    "note": None,
+                    "reason": unavailable_reason,
+                }
                 shocks: list[dict[str, object]] | None = None
             else:
-                break_even = ebitda_break_even(covenant, raw)
-                shocks = _shock_rows(covenant, period, raw, recorded_view, stress)
-                re_evaluated = _evaluate_at(covenant, raw, {}, period, recorded_view)
-                if "refused" not in re_evaluated and (
-                        (re_evaluated.get("actual"), re_evaluated.get("status"))
-                        != (result.get("actual"), result.get("status"))):
-                    caveats.append(
-                        f"the recorded ratios for {period} disagree with a re-evaluation of the recorded "
-                        f"raw line items (metric {covenant.get('metric')}: recorded {result.get('actual')}, "
-                        f"re-evaluated {re_evaluated.get('actual')}); the shock search uses the re-evaluated model")
+                raw, unavailable_reason = _period_raw(period, state)
+                result = evaluate_single_covenant(
+                    dict(covenant), ratios.get(period) or {},
+                    financials.get(period) if isinstance(financials.get(period), Mapping) else None,
+                    recorded_view)
+                if raw is None:
+                    break_even = {"metric": covenant.get("metric"), "break_even_ebitda": None,
+                                  "pass_side": None, "note": None, "reason": unavailable_reason}
+                    shocks = None
+                else:
+                    break_even = ebitda_break_even(covenant, raw)
+                    shocks = _shock_rows(covenant, period, raw, recorded_view, stress)
+                    re_evaluated = _evaluate_at(covenant, raw, {}, period, recorded_view)
+                    if "refused" not in re_evaluated and (
+                            (re_evaluated.get("actual"), re_evaluated.get("status"))
+                            != (result.get("actual"), result.get("status"))):
+                        caveats.append(
+                            f"the recorded ratios for {period} disagree with a re-evaluation of the recorded "
+                            f"raw line items (metric {covenant.get('metric')}: recorded {result.get('actual')}, "
+                            f"re-evaluated {re_evaluated.get('actual')}); the shock search uses the re-evaluated model")
             if period == "FY-Current" and result.get("status") == "UNRESOLVABLE":
                 caveats.append(
                     f"the {covenant.get('metric')} covenant is UNRESOLVABLE at FY-Current "

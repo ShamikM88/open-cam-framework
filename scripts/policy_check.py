@@ -16,6 +16,7 @@ import sys
 from typing import Any, TypedDict
 
 from policy_checks import check_draft_compliance, ground_truth_figures
+from covenant_basis import resolve_covenant_views
 from policy_engine import PolicyState, evaluate_deal_policy
 from state_manager import read_state, state_path, validate_state
 
@@ -92,7 +93,7 @@ def compute_from_state(
     # as orchestrator.py's own read of config/style_guide.md.
     credit_policy_present = os.path.exists("config/credit_policy.md")
 
-    policy_state = evaluate_deal_policy({
+    policy_input = {
         "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,
@@ -101,7 +102,10 @@ def compute_from_state(
         "guarantees": state.get("guarantees") or [],
         "downside_case": downside_case,
         "group_basis": state.get("group_basis"),   # tells the engine which figures the covenants are tested on
-    })
+        "entity_records": state.get("entity_records"),
+    }
+    resolved_views = resolve_covenant_views(policy_input, covenants)
+    policy_state = evaluate_deal_policy(policy_input, resolved_views=resolved_views)
 
     draft_text = None
     if draft_path:
@@ -115,7 +119,10 @@ def compute_from_state(
     lint_options = {"deal_type": resolved_deal_type} if resolved_deal_type else {}
     reasons = check_draft_compliance(
         draft_text, policy_state,
-        ground_truth_figures(financials, ratios, collateral, downside_case, state.get("collateral_analysis")),
+        ground_truth_figures(
+            financials, ratios, collateral, downside_case, state.get("collateral_analysis"),
+            resolved_views=resolved_views,
+        ),
         financials_source=financials_source,
         credit_policy_present=credit_policy_present,
         **lint_options,

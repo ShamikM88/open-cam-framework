@@ -146,9 +146,9 @@ checkpoint, or an analyst-supplied ratio), the covenant is still UNRESOLVABLE an
 A covenant is tested only on its own **basis**: `borrower`, `consolidated` or `guarantor_group` (an absent or null
 `basis` means `borrower`, which is what every covenant recorded before the field existed meant). The deal's recorded
 figures are one view: the borrower's, or, when the deal records `group_basis` (borrower-supplied consolidated group
-accounts), the consolidated group's. A covenant on a different basis than the recorded view is **UNRESOLVABLE**, with a
+accounts), the consolidated group's. A `borrower` or `consolidated` covenant on a different basis than the recorded view is **UNRESOLVABLE**, with a
 reason that says so, and so is a covenant whose basis is not one of the three: the engine never tests it against the
-figures that happen to be recorded. Example: a deal that records consolidated group accounts and a covenant on the
+figures that happen to be recorded. A `guarantor_group` covenant is the exception: it is never tested against the recorded view but resolved per covenant against its own named entity (see "The financial basis is selected per covenant" in the Covenants section below). Example: a deal that records consolidated group accounts and a covenant on the
 borrower's own DSCR (the default, because the covenant states no basis) is UNRESOLVABLE until the covenant states its
 basis or borrower figures are recorded. Nothing is refused; the engine computes and reports the result. The
 decided next step, delivered by a separate change and not yet in the commands, is that the interactive steps will
@@ -165,21 +165,23 @@ threshold's sign. In the example, DSCR 2.0 against a minimum of 1.25 has headroo
 maximum of 3.5 has 0.4286. A threshold of exactly 0 has no percentage headroom (it is `null`), but the status is
 still decided by comparison.
 
+**The financial basis is selected per covenant.** An absent or null `basis` means `borrower` and retains the existing deal-level behaviour. `consolidated` uses the borrower-supplied view recorded in `group_basis`. `guarantor_group` requires a non-blank `basis_entity_id` and resolves exactly one registered guarantor by that ID, with an explicit `guarantee_id` link to the deal's guarantees. Its figures come only from that entity's current C3 framework-computed spread. A missing/invalid entity ID, wrong role, missing or ambiguous link, unspread record, stale fingerprint/output or analyst-supplied-only period yields UNRESOLVABLE. When the entity is identified but fails the role, link or spread check, each period it records (labels only; no figure is exposed) is still reported UNRESOLVABLE with that reason, never silently omitted. A guarantor result carries both `basis: "guarantor_group"` and `basis_entity_id`; a missing ID is reported as `null`. The borrower and case-A result shapes are unchanged, and no borrower or other-guarantor figures are used as fallback.
+
 Covenants are tested in three places, with three different consequences:
 
 | Where | Which period | A FAIL or UNRESOLVABLE... |
 | :--- | :--- | :--- |
 | `covenant_results` | `FY-Current` | **rejects** the draft by code until the figures or the covenant record change |
-| `downside_covenant_breaches` | each forward year, **only** where the base case passes and the stressed case fails or cannot be tested | **rejects** the draft unless it addresses the breach by id (`downside_breaches_acknowledged`); each record carries `basis` only when present on the base-case covenant result (same rule as `covenant_results`) |
-| `forward_covenant_results` | each projected forward year's own base case | **never rejects**; it is recorded, and the non-passing entries are shown to the model as plain data |
+| `downside_covenant_breaches` | each forward year, **only** where the base case passes and the stressed case fails or cannot be tested | **rejects** the draft unless it addresses the breach by id (`downside_breaches_acknowledged`); each record carries `basis` and `basis_entity_id` only when present on the base-case result |
+| `forward_covenant_results` | each projected forward year's own base case | **never rejects**; it is recorded, and the non-passing entries are shown to the model as plain data; guarantor rows identify their `basis_entity_id` |
 
-Each `downside_covenant_breaches` record carries `basis` only when the corresponding base-case result from
-`_evaluate_covenant()` has that key, copied without re-deriving the rule. When a breach carries `basis`, it is the basis the covenant stated, and it equals the recorded view (a covenant on any other basis is UNRESOLVABLE in the base case and never a breach). An ordinary borrower covenant with no stated
-basis keeps the key absent (not null). On consolidated-view figures, an unstated basis defaults to borrower and is
-UNRESOLVABLE, so it cannot produce a downside breach.
+Each `downside_covenant_breaches` record carries `basis` and `basis_entity_id` only when the corresponding base-case result has those keys, copied without re-deriving the rule. For a guarantor covenant, C3 supplies the base/forward spread but no guarantor-specific downside. Where its base-period covenant passes and a matching deal downside period exists, C4 records an UNRESOLVABLE downside item with `downside_actual: null` and the guarantor identity; it never compares the borrower's downside ratios with guarantor actuals. A base-case FAIL or UNRESOLVABLE is not also a downside breach. An ordinary borrower covenant with no stated basis keeps the key absent (not null). On consolidated-view figures, an unstated basis defaults to borrower and is UNRESOLVABLE, so it cannot produce a downside breach.
 
 A forward year with no projection recorded is not tested, and the state carries no covenant tenor, so a covenant that
-really ends earlier is still reported for later projected years.
+really ends earlier is still reported for later projected years. For a guarantor covenant, each recorded forward period
+on the selected entity is evaluated against that entity's own current spread; a recorded but stale, analyst-supplied-only
+or otherwise unavailable period is disclosed as UNRESOLVABLE with its entity identity. A period not recorded for that
+entity is not invented from the borrower's projection.
 
 ## The forward base case
 
@@ -263,8 +265,11 @@ only an absent shock key defaults to zero.
 Because the searches re-evaluate the raw line items, a period whose figures are analyst-supplied
 (`financials_source` for FY-Current, `forecast_source` for a forward year) or absent from
 `multi_period_financials` reports its break-even and searches as unavailable with the reason; a recorded ratio that
-disagrees with a re-evaluation of the raw lines is flagged as a caveat. Forward-year rows are disclosure only,
-exactly as the policy engine records them. The formulas are register entries
+disagrees with a re-evaluation of the raw lines is flagged as a caveat. For `guarantor_group`, the baseline result
+uses the same exact-entity resolver as policy evaluation. C4 deliberately reports guarantor EBITDA break-even and
+reverse-stress searches as unavailable: the framework has no guarantor-specific stress basis, and borrower raw lines
+and stress assumptions must not be applied to a guarantor. Forward-year rows are disclosure only, exactly as the
+policy engine records them. The formulas are register entries
 [F-059..F-063](formula-register.md); the report is not a credit decision, and `policy_check.py` remains
 authoritative.
 

@@ -9,6 +9,7 @@ import math
 
 import pytest
 
+from guarantor_test_support import make_guarantor_record, guarantor_covenant, guarantee_row
 import covenant_cushion
 from covenant_cushion import (
     STATE_KEYS_READ,
@@ -861,3 +862,129 @@ def test_evaluate_single_covenant_delegates_to_the_engine():
     # stays UNRESOLVABLE through it too.
     unresolved = evaluate_single_covenant(covenant, {}, None)
     assert unresolved["status"] == "UNRESOLVABLE"
+
+
+
+def test_guarantor_cushion_uses_its_fresh_periods_and_discloses_unavailable_searches(monkeypatch):
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    state = {
+        "financials": {"FY-Current": {"ebitda": 9999.0}},
+        "ratios": {"FY-Current": {"dscr": 99.0}, "FY+1": {"dscr": 98.0}},
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+    }
+
+    def forbidden_search(*args, **kwargs):
+        raise AssertionError("C4 must not use borrower break-even or shock searches for a guarantor")
+
+    monkeypatch.setattr(covenant_cushion, "ebitda_break_even", forbidden_search)
+    monkeypatch.setattr(covenant_cushion, "_shock_rows", forbidden_search)
+
+    report = compute_from_state(state)
+    periods = report["covenants"][0]["periods"]
+
+    assert [entry["period"] for entry in periods] == ["FY-Current", "FY+1"]
+    assert periods[0]["result"]["basis"] == "guarantor_group"
+    assert periods[0]["result"]["basis_entity_id"] == entity_id
+    assert periods[0]["result"]["actual"] == record["ratios"]["FY-Current"]["dscr"]
+    assert periods[0]["result"]["actual"] != state["ratios"]["FY-Current"]["dscr"]
+    assert periods[1]["result"]["actual"] == record["ratios"]["FY+1"]["dscr"]
+    for entry in periods:
+        assert entry["break_even_ebitda"]["break_even_ebitda"] is None
+        assert "unavailable in C4" in entry["break_even_ebitda"]["reason"]
+        assert entry["shocks"] is None
+
+
+def test_guarantor_cushion_marks_a_stale_entity_period_unresolvable():
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    record["multi_period_financials"]["FY-Current"]["revenue"] += 1
+    state = {
+        "financials": {"FY-Current": {"ebitda": 9999.0}},
+        "ratios": {"FY-Current": {"dscr": 99.0}},
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+    }
+
+    report = compute_from_state(state)
+    current = report["covenants"][0]["periods"][0]["result"]
+
+    assert current["status"] == "UNRESOLVABLE"
+    assert current["actual"] is None
+    assert "stale" in current["reason"]
+    assert current["basis_entity_id"] == entity_id
+
+def test_guarantor_cushion_preserves_a_global_unresolvable_reason(monkeypatch):
+    entity_id = "synthetic-unresolvable-guarantor"
+    covenant = guarantor_covenant(entity_id)
+    view = {
+        "basis": "guarantor_group",
+        "basis_entity_id": entity_id,
+        "financials": {},
+        "ratios": {},
+        "recorded_periods": ["FY-Current"],
+        "period_reasons": {"FY-Current": "selected entity is not linked"},
+        "unresolvable_reason": "selected entity is not linked",
+    }
+    monkeypatch.setattr(covenant_cushion, "resolve_covenant_views", lambda *_: [view])
+
+    report = compute_from_state({"covenants": [covenant]})
+    result = report["covenants"][0]["periods"][0]["result"]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["reason"] == "selected entity is not linked"
+
+
+def test_guarantor_cushion_reports_missing_period_figures_when_reason_map_is_not_an_object(monkeypatch):
+    entity_id = "synthetic-missing-period-guarantor"
+    covenant = guarantor_covenant(entity_id)
+    view = {
+        "basis": "guarantor_group",
+        "basis_entity_id": entity_id,
+        "financials": None,
+        "ratios": None,
+        "recorded_periods": ["FY-Current"],
+        "period_reasons": None,
+        "unresolvable_reason": None,
+    }
+    monkeypatch.setattr(covenant_cushion, "resolve_covenant_views", lambda *_: [view])
+
+    report = compute_from_state({"covenants": [covenant]})
+    result = report["covenants"][0]["periods"][0]["result"]
+
+    assert result["status"] == "UNRESOLVABLE"
+    assert result["actual"] is None
+    assert result["reason"] == "no fresh guarantor figures are recorded for FY-Current"
+
+
+@pytest.mark.parametrize("failure", ["not-spread", "wrong-role", "missing-link", "no-link"])
+def test_guarantor_cushion_lists_the_recorded_forward_period_of_an_ineligible_guarantor(failure):
+    """CG578-1: the cushion report must not drop a recorded forward period when the guarantor fails a global check."""
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    if failure == "not-spread":
+        record["spread_status"] = "not-spread"
+    elif failure == "wrong-role":
+        record["role"] = "parent"
+    elif failure == "missing-link":
+        record["guarantee_ids"] = ["G-MISSING"]
+    else:
+        record["guarantee_ids"] = []
+    state = {
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+    }
+
+    periods = compute_from_state(state)["covenants"][0]["periods"]
+
+    assert [entry["period"] for entry in periods] == ["FY-Current", "FY+1"]
+    for entry in periods:
+        assert entry["result"]["status"] == "UNRESOLVABLE"
+        assert entry["result"]["actual"] is None
+        assert entry["result"]["reason"]
+        assert entry["result"]["basis_entity_id"] == entity_id

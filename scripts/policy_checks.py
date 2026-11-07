@@ -18,6 +18,7 @@ import math
 import re
 import sys
 from collections.abc import Iterable, Mapping
+from urllib.parse import quote
 from typing import Any, TypedDict
 
 from collateral_check import stored_analysis_is_current
@@ -200,6 +201,7 @@ def ground_truth_figures(
     financials: dict[str, Any] | None, ratios: dict[str, Any] | None,
     collateral: Iterable[dict[str, Any]] | None, downside_case: dict[str, Any] | None = None,
     collateral_analysis: dict[str, Any] | None = None,
+    resolved_views: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
@@ -293,6 +295,36 @@ def ground_truth_figures(
                 if metric == "raw" or value is None:
                     continue
                 truth[f"{metric}_{period}_downside"] = value
+
+    # Guarantor keys are entity-qualified and cannot collide with borrower
+    # keys. Only fresh framework-computed values from the shared resolver are
+    # made available to the narrative-accuracy check.
+    for view in resolved_views or []:
+        if view.get("basis") != "guarantor_group":
+            continue
+        entity_id = view.get("basis_entity_id")
+        if not isinstance(entity_id, str) or not entity_id.strip():
+            continue
+        entity_key = quote(entity_id, safe="")
+        entity_prefix = f"guarantor_group::{entity_key}::"
+        entity_ratios = view.get("ratios")
+        entity_financials = view.get("financials")
+        if isinstance(entity_ratios, Mapping):
+            for period, period_values in entity_ratios.items():
+                if not isinstance(period_values, Mapping):
+                    continue
+                suffix = "" if period == "FY-Current" else f"_{period}"
+                for metric, value in period_values.items():
+                    if _plain_number(value):
+                        truth[f"{entity_prefix}{metric}{suffix}"] = value
+        if isinstance(entity_financials, Mapping):
+            for period, period_values in entity_financials.items():
+                if not isinstance(period_values, Mapping):
+                    continue
+                suffix = "" if period == "FY-Current" else f"_{period}"
+                for metric, value in period_values.items():
+                    if metric != "raw" and _plain_number(value):
+                        truth[f"{entity_prefix}{metric}{suffix}"] = value
 
     return truth
 

@@ -325,7 +325,9 @@ output file, and it makes no network call and needs no `ANTHROPIC_API_KEY`.
 - **Availability:** the searches re-evaluate the recorded raw line items through the spreading builder's own
   shock and model functions, so a period whose figures are analyst-supplied (financials_source for FY-Current,
   forecast_source for a forward year) or absent from `multi_period_financials` reports its break-even and
-  searches as unavailable with the reason; nothing is invented.
+  searches as unavailable with the reason; nothing is invented. For `guarantor_group`, the baseline follows the
+  selected entity's fresh spread, while C4's guarantor break-even and reverse-stress searches are explicitly
+  unavailable; borrower raw inputs and shocks are never reused.
 - **Nothing is judged:** the report is the mechanical distance to a covenant's first non-PASS result under one
   shock at a time; it is not a credit decision, and the policy check remains authoritative. A recorded ratio
   that disagrees with a re-evaluation of the raw lines is flagged as a caveat rather than silently trusted.
@@ -518,6 +520,12 @@ file's trailing structured JSON block and client-facing prose. The optional `--d
 recorded type; when supplied alongside a recorded type it must match. Otherwise the recorded type selects the shipped
 CAM template or local override for Rule B. It exits `0` whether or not `reasons` is empty (an unusable `state.json` is
 the exception: one `error:` line, exit `1`); the caller decides what a non-empty `reasons` means.
+
+The policy engine resolves each covenant's `basis` independently. A `guarantor_group` covenant must name a registered
+`basis_entity_id` whose record has role `guarantor`, an explicit unique `guarantee_id` link and a current C3 spread.
+The `covenant_results` and `forward_covenant_results` identify that entity with `basis` and `basis_entity_id`;
+missing IDs are shown as `null`. Missing/ambiguous links, wrong roles, stale or unavailable periods are
+UNRESOLVABLE, never tested against borrower or another entity's figures. The command and its flags are unchanged.
 
 ```bash
 python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \

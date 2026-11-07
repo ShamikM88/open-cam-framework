@@ -3128,6 +3128,19 @@ def test_a_current_analysis_is_shown_under_the_exact_declaration_keys():
     assert "collateral_AST-001_total_exposure" in shown and "collateral_max_lgd_pct" in shown
 
 
+def test_the_figures_lead_in_says_it_overrides_an_instruction_to_omit_per_asset_metrics():
+    """CG576-1 (PR #576 review): main's Underwriter prompt may still say per-asset metrics are omitted from
+    reported_figures; the lead-in must make the precedence unambiguous within the same request."""
+    from collateral_check import collateral_projection
+
+    analysis = _stored_analysis()
+    context = _context(collateral_projection(analysis), analysis)
+    lead_in = context[context.index(_CALC_HEADER):context.index("<collateral_analysis_figures>")]
+
+    assert "take precedence over any other instruction to omit per-asset collateral metrics" in lead_in
+    assert "reported_figures" in lead_in
+
+
 def test_the_figures_shown_are_exactly_the_per_asset_ground_truth_the_check_uses():
     from collateral_check import collateral_projection
     from orchestrator import _ground_truth_figures

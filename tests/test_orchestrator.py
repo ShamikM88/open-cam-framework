@@ -3185,6 +3185,28 @@ def test_a_deal_with_no_collateral_gets_no_calculator_section(collateral):
     assert _CALC_HEADER not in _context(collateral, None)
 
 
+@pytest.mark.parametrize("recorded", [{}, [], "", 0, {"assets": "x"}])
+def test_a_recorded_but_malformed_analysis_is_stale_not_absent(recorded):
+    """CG576-2 (PR #576 review): an empty or malformed recorded object is not the same as no analysis."""
+    from collateral_check import collateral_projection
+
+    projection = collateral_projection(_stored_analysis())
+    context = _context(projection, recorded)
+
+    assert "stale or fails its integrity check" in context
+    assert "none recorded" not in context and "<collateral_analysis_figures>" not in context
+
+
+def test_a_current_analysis_with_no_assets_gets_no_calculator_section():
+    """CG576-2 (PR #576 review): a valid analysis of an empty asset list must not emit an empty figures block."""
+    from collateral_check import calculate_collateral_analysis
+
+    analysis = calculate_collateral_analysis({"assets": [], "mitigants": []})
+
+    assert _CALC_HEADER not in _context([], analysis)
+    assert "<collateral_analysis_figures>" not in _context([], analysis)
+
+
 def _prompts(client):
     """The Maker prompt (first call) and the Checker prompt (second call) the pipeline really sent."""
     maker, checker = client.calls[0], client.calls[-1]

@@ -2773,7 +2773,10 @@ def test_run_pipeline_hands_the_states_group_basis_to_the_policy_engine(project_
 
     seen = []
     real = orchestrator.evaluate_deal_policy
-    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
+    monkeypatch.setattr(
+        orchestrator, "evaluate_deal_policy",
+        lambda state, **kwargs: seen.append(state) or real(state, **kwargs),
+    )
     group_basis = _recomputed_group_basis()
     write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
                 group_basis=group_basis,
@@ -2794,7 +2797,10 @@ def test_run_pipeline_passes_no_group_basis_for_an_ordinary_deal(project_root, m
 
     seen = []
     real = orchestrator.evaluate_deal_policy
-    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
+    monkeypatch.setattr(
+        orchestrator, "evaluate_deal_policy",
+        lambda state, **kwargs: seen.append(state) or real(state, **kwargs),
+    )
 
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1)

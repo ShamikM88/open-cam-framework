@@ -145,7 +145,7 @@ def resolve_covenant_views(
     cache: dict[str | None, dict[str, Any]] = {}
     views: list[dict[str, Any]] = []
     for covenant in covenants:
-        if covenant.get("basis") != "guarantor_group":
+        if not isinstance(covenant, Mapping) or covenant.get("basis") != "guarantor_group":
             views.append(_ordinary_view(state))
             continue
         raw_id = covenant.get("basis_entity_id")

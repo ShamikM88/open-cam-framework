@@ -234,6 +234,8 @@ def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=Non
         "evaluate_deal_policy": [],
         "ground_truth_figures": [],
         "check_draft_compliance": [],
+        "evaluate_views": [],
+        "ground_truth_views": [],
     }
     result_policy_state = {"synthetic": "policy state"} if policy_state is None else policy_state
     result_truth = {"synthetic_figure": 12.5} if truth is None else truth
@@ -243,12 +245,16 @@ def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=Non
         calls["read_state"].append((company, proposal, keys))
         return loaded_state
 
-    def fake_evaluate_deal_policy(policy_input):
+    def fake_evaluate_deal_policy(policy_input, resolved_views=None):
         calls["evaluate_deal_policy"].append(policy_input)
+        calls["evaluate_views"].append(resolved_views)
         return result_policy_state
 
-    def fake_ground_truth_figures(financials, ratios, collateral, downside_case, collateral_analysis=None):
+    def fake_ground_truth_figures(
+        financials, ratios, collateral, downside_case, collateral_analysis=None, resolved_views=None,
+    ):
         calls["ground_truth_figures"].append((financials, ratios, collateral, downside_case))
+        calls["ground_truth_views"].append(resolved_views)
         return result_truth
 
     def fake_check_draft_compliance(
@@ -329,6 +335,7 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
         "guarantees": loaded_state["guarantees"],
         "downside_case": loaded_state["downside_case"],
         "group_basis": None,
+        "entity_records": loaded_state.get("entity_records"),
     }]
     assert calls["ground_truth_figures"] == [(
         loaded_state["financials"], loaded_state["ratios"],
@@ -378,6 +385,7 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
         "guarantees": [],
         "downside_case": {},
         "group_basis": None,
+        "entity_records": None,
     }
     assert result == {
         "policy_state": policy_state,

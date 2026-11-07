@@ -2063,10 +2063,11 @@ def test_a_guarantor_group_covenant_is_unresolvable_on_every_deal_because_no_suc
     grouped = evaluate_deal_policy(_basis_state([_dscr("guarantor_group")], GROUP_BASIS))["covenant_results"][0]
 
     assert (ordinary["status"], ordinary["actual"]) == ("UNRESOLVABLE", None)
-    assert ordinary["reason"] == CONSOLIDATED_ON_BORROWER.replace("consolidated basis", "guarantor_group basis") \
-        .replace("no consolidated figures", "no guarantor_group figures")
+    assert ordinary["reason"] == "guarantor_group covenant has no non-blank basis_entity_id"
+    assert ordinary["basis_entity_id"] is None
     assert (grouped["status"], grouped["actual"]) == ("UNRESOLVABLE", None)
-    assert "guarantor_group basis but the recorded figures are the consolidated view" in grouped["reason"]
+    assert grouped["reason"] == "guarantor_group covenant has no non-blank basis_entity_id"
+    assert grouped["basis_entity_id"] is None
 
 
 @pytest.mark.parametrize("basis", ["parent", "", "Borrower", " borrower", 5, ["borrower"], {"b": 1}, True])

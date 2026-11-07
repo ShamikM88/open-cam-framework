@@ -45,6 +45,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from eval_budget import BudgetedClient, CallBudget, CallCapExceeded
+from eval_collateral import build_collateral_fixture
 from eval_oracles import RunOutput, build_context, evaluate_case
 from eval_report import REPO_ROOT, append_run_line, build_record, live_run
 from policy_checks import FENCED_JSON_RE
@@ -363,6 +364,11 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
         prepare_workdir(case, repo_root, workdir)
         os.chdir(workdir)
         extras = {k: deal[k] for k in STATE_EXTRAS if deal.get(k)}
+        collateral_fixture = deal.get("collateral_fixture")
+        if collateral_fixture is not None:
+            fixture_state = build_collateral_fixture(collateral_fixture)
+            extras["collateral"] = fixture_state["collateral"]
+            extras["collateral_analysis"] = fixture_state["analysis"]
         if not deal.get("multi_period_financials"):
             for key in ("financials", "ratios", "financials_source", "downside_case"):
                 if deal.get(key):
@@ -375,7 +381,7 @@ def run_case_once(case, label, ctx, live_client, repo_root, work_root, keep_work
                 orchestrator.run_pipeline(
                     deal["company"], deal["proposal"], deal["pd"], deal["lgd"], deal["deal_type"],
                     multi_period_financials=deal.get("multi_period_financials"),
-                    collateral_data=deal.get("collateral"),
+                    collateral_data=None if collateral_fixture is not None else deal.get("collateral"),
                     stress_assumptions=deal.get("stress_assumptions"),
                     client=router, max_iterations=1)
         except StopRun:

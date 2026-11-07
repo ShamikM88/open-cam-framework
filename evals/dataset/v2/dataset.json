@@ -1,0 +1,4 @@
+{
+  "version": "v2",
+  "description": "Dataset v2 preserves the 15 v1 case files byte-for-byte and adds six synthetic Maker cases in the separate collateral-figures category for per-asset deterministic collateral ground truth. v2 is a distinct dataset hash and is not like-for-like with v1."
+}

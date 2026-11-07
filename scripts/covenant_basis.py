@@ -19,7 +19,6 @@ def _ordinary_view(state: Mapping[str, Any]) -> dict[str, Any]:
     ratios = state.get("ratios")
     return {
         "basis": recorded_basis,
-        "basis_entity_id": None,
         "financials": financials if isinstance(financials, Mapping) else {},
         "ratios": ratios if isinstance(ratios, Mapping) else {},
         "eligible_raw_periods": [],

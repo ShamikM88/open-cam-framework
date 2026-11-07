@@ -959,3 +959,32 @@ def test_guarantor_cushion_reports_missing_period_figures_when_reason_map_is_not
     assert result["status"] == "UNRESOLVABLE"
     assert result["actual"] is None
     assert result["reason"] == "no fresh guarantor figures are recorded for FY-Current"
+
+
+@pytest.mark.parametrize("failure", ["not-spread", "wrong-role", "missing-link", "no-link"])
+def test_guarantor_cushion_lists_the_recorded_forward_period_of_an_ineligible_guarantor(failure):
+    """CG578-1: the cushion report must not drop a recorded forward period when the guarantor fails a global check."""
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    if failure == "not-spread":
+        record["spread_status"] = "not-spread"
+    elif failure == "wrong-role":
+        record["role"] = "parent"
+    elif failure == "missing-link":
+        record["guarantee_ids"] = ["G-MISSING"]
+    else:
+        record["guarantee_ids"] = []
+    state = {
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+    }
+
+    periods = compute_from_state(state)["covenants"][0]["periods"]
+
+    assert [entry["period"] for entry in periods] == ["FY-Current", "FY+1"]
+    for entry in periods:
+        assert entry["result"]["status"] == "UNRESOLVABLE"
+        assert entry["result"]["actual"] is None
+        assert entry["result"]["reason"]
+        assert entry["result"]["basis_entity_id"] == entity_id

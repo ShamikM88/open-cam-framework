@@ -2299,3 +2299,29 @@ def test_policy_engine_ignores_a_security_charge_with_no_asset_id():
 
     assert result["security_gaps"] == []
     assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT
+
+
+@pytest.mark.parametrize("failure", ["not-spread", "wrong-role", "missing-link", "no-link"])
+def test_forward_periods_of_an_ineligible_guarantor_are_reported_unresolvable_not_dropped(failure):
+    """CG578-1: a recorded forward period of a guarantor that fails a global check is disclosed, never silently absent."""
+    record = make_guarantor_record("synthetic-guarantor")
+    if failure == "not-spread":
+        record["spread_status"] = "not-spread"
+    elif failure == "wrong-role":
+        record["role"] = "parent"
+    elif failure == "missing-link":
+        record["guarantee_ids"] = ["G-MISSING"]
+    else:
+        record["guarantee_ids"] = []
+    state = {
+        "covenants": [guarantor_covenant("synthetic-guarantor")],
+        "guarantees": [guarantee_row()],
+        "entity_records": {"synthetic-guarantor": record},
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert [row["status"] for row in result["covenant_results"]] == ["UNRESOLVABLE"]
+    assert [(row["year"], row["status"], row["actual"], row["basis_entity_id"])
+            for row in result["forward_covenant_results"]] == [("FY+1", "UNRESOLVABLE", None, "synthetic-guarantor")]
+    assert result["forward_covenant_results"][0]["reason"]

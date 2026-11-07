@@ -331,3 +331,47 @@ def test_resolve_covenant_views_reuses_the_same_fresh_view_for_duplicate_entity_
     assert len(calls) == 1
     assert views[0] is views[1]
     assert views[0]["basis_entity_id"] == "synthetic-guarantor"
+
+
+_GLOBAL_FAILURES = ["not-spread", "wrong-role", "missing-link", "no-link"]
+
+
+def _ineligible_guarantor(failure):
+    """A recorded guarantor that fails one global eligibility check but still holds raw FY-Current and FY+1 periods."""
+    from guarantor_test_support import make_guarantor_record
+
+    record = make_guarantor_record("synthetic-guarantor")
+    if failure == "not-spread":
+        record["spread_status"] = "not-spread"
+    elif failure == "wrong-role":
+        record["role"] = "parent"
+    elif failure == "missing-link":
+        record["guarantee_ids"] = ["G-MISSING"]
+    else:
+        record["guarantee_ids"] = []
+    return record
+
+
+@pytest.mark.parametrize("failure", _GLOBAL_FAILURES)
+def test_a_recorded_guarantor_failing_a_global_check_still_discloses_its_recorded_periods(failure):
+    """CG578-1: the period inventory (keys only, never figures) survives a global eligibility failure."""
+    record = _ineligible_guarantor(failure)
+    state = _state(record, guarantees=[{"guarantee_id": "G-C4-01", "provider": "Synthetic Guarantor"}])
+
+    view = resolve_covenant_view(state, _covenant())
+
+    assert view["unresolvable_reason"]
+    assert view["recorded_periods"] == ["FY+1", "FY-Current"]
+    assert view["financials"] == {} and view["ratios"] == {}
+    assert view["eligible_raw_periods"] == []
+
+
+def test_an_entity_whose_identity_is_not_established_discloses_no_periods():
+    from guarantor_test_support import make_guarantor_record
+
+    record = make_guarantor_record("synthetic-guarantor")
+    assert resolve_covenant_view(_state(record), _covenant("unknown-entity"))["recorded_periods"] == []
+
+    mismatched = _state(record)
+    mismatched["entity_records"]["synthetic-guarantor"]["entity_id"] = "another-entity"
+    assert resolve_covenant_view(mismatched, _covenant())["recorded_periods"] == []

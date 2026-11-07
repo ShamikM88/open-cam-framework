@@ -26,6 +26,7 @@ from types import SimpleNamespace
 import docx
 import pytest
 
+from guarantor_test_support import make_guarantor_record, guarantor_covenant, guarantee_row
 from orchestrator import (
     MAX_REVIEW_ITERATIONS,
     MISSING_CREDENTIALS_MESSAGE,
@@ -3261,3 +3262,48 @@ def test_the_real_prompts_say_a_tampered_stored_analysis_is_stale(project_root):
     for prompt in _prompts(client):
         assert "stale or fails its integrity check" in prompt
         assert "collateral_AST-001_" not in prompt and "<collateral_analysis_figures>" not in prompt
+
+
+
+def test_run_pipeline_shares_one_resolved_guarantor_view_with_policy_and_ground_truth(project_root, monkeypatch):
+    import orchestrator
+
+    entity_id = "synthetic-c4-orchestrator"
+    record = make_guarantor_record(entity_id)
+    write_state(
+        "Acme Corp",
+        "Fleet Loan",
+        date_str="2026-01-10",
+        deal_type="corporate_credit",
+        covenants=[guarantor_covenant(entity_id)],
+        guarantees=[guarantee_row()],
+        entity_records={entity_id: record},
+    )
+    policy_views = []
+    truth_views = []
+    real_engine = orchestrator.evaluate_deal_policy
+    real_truth = orchestrator._ground_truth_figures
+
+    def capture_engine(policy_input, resolved_views=None):
+        policy_views.append(resolved_views)
+        assert policy_input["entity_records"][entity_id]["entity_id"] == entity_id
+        return real_engine(policy_input, resolved_views=resolved_views)
+
+    def capture_truth(*args, resolved_views=None, **kwargs):
+        truth_views.append(resolved_views)
+        return real_truth(*args, resolved_views=resolved_views, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", capture_engine)
+    monkeypatch.setattr(orchestrator, "_ground_truth_figures", capture_truth)
+
+    # The standard draft fixture intentionally omits the new guarantee-specific CP,
+    # so the code-enforced draft gate exits after both integration boundaries ran.
+    with pytest.raises(SystemExit):
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1,
+        )
+
+    assert policy_views and truth_views
+    assert policy_views[0] is truth_views[0]
+    assert policy_views[0][0]["basis_entity_id"] == entity_id

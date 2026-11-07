@@ -469,6 +469,41 @@ def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_complian
 
 
 
+def test_compute_reuses_one_resolved_guarantor_view_for_engine_and_ground_truth(monkeypatch):
+    entity_id = "synthetic-guarantor"
+    covenant = {
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "basis": "guarantor_group", "basis_entity_id": entity_id,
+    }
+    entity_records = {entity_id: {"synthetic": "record loaded from state"}}
+    loaded_state = {
+        "financials": {"FY-Current": {"ebitda": 200.0}},
+        "ratios": {"FY-Current": {"dscr": 99.0}},
+        "collateral": [],
+        "covenants": [covenant],
+        "security_package": [],
+        "guarantees": [{"guarantee_id": "G-C4-01"}],
+        "downside_case": {},
+        "financials_source": "framework-computed",
+        "entity_records": entity_records,
+    }
+    calls, _, _, _ = pc_stub_compute_collaborators(monkeypatch, loaded_state, reasons=[])
+    shared_views = [{"basis": "guarantor_group", "basis_entity_id": entity_id}]
+
+    def resolve(policy_input, covenants):
+        assert policy_input["entity_records"] is entity_records
+        assert covenants == [covenant]
+        return shared_views
+
+    monkeypatch.setattr(policy_check, "resolve_covenant_views", resolve)
+
+    compute("Synthetic Co", "Synthetic Facility")
+
+    assert calls["evaluate_views"][0] is shared_views
+    assert calls["ground_truth_views"][0] is shared_views
+    assert calls["evaluate_deal_policy"][0]["entity_records"] is entity_records
+
+
 # ---------------------------------------------------------------------------
 # Covenant basis (issue #48): the state's group_basis reaches the engine, and a malformed one is refused.
 # ---------------------------------------------------------------------------

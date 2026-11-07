@@ -15,6 +15,7 @@ a downside breach), every status, a unit mismatch, a zero threshold, a duplicate
 UNRESOLVABLE breaches and an unavailable downside year, every kind of security gap, and colliding guarantee and asset ids.
 Only invented names and figures appear here.
 """
+import base64
 import copy
 import json
 import os
@@ -24,6 +25,7 @@ from pathlib import Path
 
 import pytest
 
+from guarantor_test_support import make_guarantor_record, guarantor_covenant, guarantee_row
 from policy_engine import evaluate_deal_policy
 
 TESTS = Path(__file__).resolve().parent
@@ -116,6 +118,18 @@ CONSOLIDATED_STATE = {**copy.deepcopy(RICH_STATE), "financials_source": "analyst
                           "perimeter_confirmed": True, "perimeter_confirmed_on": "2026-01-01"}}
 
 
+RICH_GUARANTOR_ENTITY_ID = "synthetic-rich-guarantor"
+
+
+def rich_guarantor_state():
+    state = copy.deepcopy(RICH_STATE)
+    record = make_guarantor_record(RICH_GUARANTOR_ENTITY_ID, "G-RICH-C4")
+    state["entity_records"] = {RICH_GUARANTOR_ENTITY_ID: record}
+    state["guarantees"].append(guarantee_row("G-RICH-C4", "Synthetic Rich Guarantor"))
+    state["covenants"].append(guarantor_covenant(RICH_GUARANTOR_ENTITY_ID))
+    return state
+
+
 def load_legacy(name):
     return json.loads((STATE_FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
 
@@ -124,10 +138,11 @@ def all_cases():
     cases = {name: load_legacy(name) for name in LEGACY}
     cases["rich"] = copy.deepcopy(RICH_STATE)
     cases["rich_consolidated"] = copy.deepcopy(CONSOLIDATED_STATE)
+    cases["rich_guarantor"] = rich_guarantor_state()
     return cases
 
 
-CASE_NAMES = [*LEGACY, "rich", "rich_consolidated"]
+CASE_NAMES = [*LEGACY, "rich", "rich_consolidated", "rich_guarantor"]
 
 
 def golden(name, kind):
@@ -197,3 +212,43 @@ def test_the_rich_cases_reach_every_shape_the_payload_can_take():
         assert any("basis" in b and list(b)[-1] == "basis" for b in breaches)
     assert any(b["downside_status"] == "FAIL" and b["reason"] is None for b in rich["downside_covenant_breaches"])
     assert any("basis" not in b for b in rich["downside_covenant_breaches"])
+
+
+
+def test_the_rich_guarantor_case_records_its_entity_identity_and_uses_its_own_forward_figures():
+    state = all_cases()["rich_guarantor"]
+    result = evaluate_deal_policy(state)
+    guarantor = [row for row in result["covenant_results"] if row.get("basis_entity_id") == RICH_GUARANTOR_ENTITY_ID]
+
+    assert len(guarantor) == 1
+    assert guarantor[0]["basis"] == "guarantor_group"
+    assert guarantor[0]["status"] == "PASS"
+    assert guarantor[0]["actual"] == state["entity_records"][RICH_GUARANTOR_ENTITY_ID]["ratios"]["FY-Current"]["dscr"]
+    forward = [row for row in result["forward_covenant_results"] if row.get("basis_entity_id") == RICH_GUARANTOR_ENTITY_ID]
+    assert [(row["year"], row["actual"]) for row in forward] == [
+        ("FY+1", state["entity_records"][RICH_GUARANTOR_ENTITY_ID]["ratios"]["FY+1"]["dscr"]),
+    ]
+    downside = [row for row in result["downside_covenant_breaches"]
+                if row.get("basis_entity_id") == RICH_GUARANTOR_ENTITY_ID]
+    assert len(downside) == 1
+    assert downside[0]["downside_status"] == "UNRESOLVABLE"
+    assert downside[0]["downside_actual"] is None
+
+
+def test_C4_DIAGNOSTIC_CAPTURE_RICH_GUARANTOR_GOLDENS(tmp_path):
+    """Temporary CI-only capture; remove after creating the two new checked-in goldens."""
+    state = all_cases()["rich_guarantor"]
+    folder = tmp_path / "deals" / state["company"] / f"{state['proposal']}_{state['date']}"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "policy_check.py"), "--company", state["company"], "--proposal", state["proposal"]],
+        cwd=tmp_path, env=child_env(), capture_output=True, timeout=120, stdin=subprocess.DEVNULL,
+    )
+    assert result.returncode == 0, result.stderr
+    captured = {
+        "engine": engine_bytes(state).decode("utf-8"),
+        "cli": result.stdout.decode("utf-8"),
+    }
+    encoded = base64.b64encode(json.dumps(captured, sort_keys=True).encode("utf-8")).decode("ascii")
+    pytest.fail("C4_GOLDEN_CAPTURE:" + encoded)

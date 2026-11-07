@@ -232,3 +232,83 @@ def test_a_guarantor_record_without_any_explicit_guarantee_id_is_unresolvable():
 
     assert view["unresolvable_reason"]
     assert "guarantee" in view["unresolvable_reason"].lower()
+
+
+
+def test_non_object_entity_registry_is_unresolvable():
+    record = _record("synthetic-guarantor", "G-1")
+    state = _state(record)
+    state["entity_records"] = None
+
+    view = resolve_covenant_view(state, _covenant())
+
+    assert view["unresolvable_reason"] == "entity_records is absent or is not an object"
+    assert view["ratios"] == {}
+
+
+def test_registry_key_must_match_the_record_entity_id():
+    record = _record("synthetic-guarantor", "G-1")
+    state = _state(record)
+    state["entity_records"]["synthetic-guarantor"]["entity_id"] = "another-entity"
+
+    view = resolve_covenant_view(state, _covenant())
+
+    assert "key does not match entity_id" in view["unresolvable_reason"]
+
+
+def test_non_object_entity_record_is_unresolvable():
+    view = resolve_covenant_view(
+        {
+            "entity_records": {"synthetic-guarantor": []},
+            "guarantees": [{"guarantee_id": "G-1"}],
+        },
+        _covenant(),
+    )
+
+    assert "is not recorded" in view["unresolvable_reason"]
+
+
+@pytest.mark.parametrize("guarantee_ids", [[None], ["  "]], ids=["non-string", "blank"])
+def test_invalid_guarantee_id_members_are_unresolvable(guarantee_ids):
+    record = _record("synthetic-guarantor", "G-1")
+    record["guarantee_ids"] = guarantee_ids
+
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert "blank or invalid guarantee_id" in view["unresolvable_reason"]
+
+
+def test_duplicate_guarantee_ids_on_the_entity_record_are_unresolvable():
+    record = _record("synthetic-guarantor", "G-1")
+    record["guarantee_ids"] = ["G-1", "G-1"]
+
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert "duplicate guarantee_ids" in view["unresolvable_reason"]
+
+
+def test_non_list_deal_guarantees_are_unresolvable():
+    record = _record("synthetic-guarantor", "G-1")
+    state = _state(record)
+    state["guarantees"] = None
+
+    view = resolve_covenant_view(state, _covenant())
+
+    assert view["unresolvable_reason"] == "the deal's guarantees list is absent or invalid"
+
+
+def test_recorded_period_without_a_current_spread_has_an_explicit_fallback_reason(monkeypatch):
+    import covenant_basis
+
+    record = _record("synthetic-guarantor", "G-1")
+    monkeypatch.setattr(
+        covenant_basis,
+        "entity_spread_view",
+        lambda _: {"financials": {}, "ratios": {}, "stale_periods": []},
+    )
+
+    view = resolve_covenant_view(_state(record), _covenant())
+
+    assert view["period_reasons"]["FY-Current"] == (
+        "guarantor period FY-Current has no fresh framework-computed spread"
+    )

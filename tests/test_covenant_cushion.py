@@ -9,6 +9,7 @@ import math
 
 import pytest
 
+from guarantor_test_support import make_guarantor_record, guarantor_covenant, guarantee_row
 import covenant_cushion
 from covenant_cushion import (
     STATE_KEYS_READ,
@@ -861,3 +862,57 @@ def test_evaluate_single_covenant_delegates_to_the_engine():
     # stays UNRESOLVABLE through it too.
     unresolved = evaluate_single_covenant(covenant, {}, None)
     assert unresolved["status"] == "UNRESOLVABLE"
+
+
+
+def test_guarantor_cushion_uses_its_fresh_periods_and_discloses_unavailable_searches(monkeypatch):
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    state = {
+        "financials": {"FY-Current": {"ebitda": 9999.0}},
+        "ratios": {"FY-Current": {"dscr": 99.0}, "FY+1": {"dscr": 98.0}},
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+    }
+
+    def forbidden_search(*args, **kwargs):
+        raise AssertionError("C4 must not use borrower break-even or shock searches for a guarantor")
+
+    monkeypatch.setattr(covenant_cushion, "ebitda_break_even", forbidden_search)
+    monkeypatch.setattr(covenant_cushion, "_shock_rows", forbidden_search)
+
+    report = compute_from_state(state)
+    periods = report["covenants"][0]["periods"]
+
+    assert [entry["period"] for entry in periods] == ["FY-Current", "FY+1"]
+    assert periods[0]["result"]["basis"] == "guarantor_group"
+    assert periods[0]["result"]["basis_entity_id"] == entity_id
+    assert periods[0]["result"]["actual"] == record["ratios"]["FY-Current"]["dscr"]
+    assert periods[0]["result"]["actual"] != state["ratios"]["FY-Current"]["dscr"]
+    assert periods[1]["result"]["actual"] == record["ratios"]["FY+1"]["dscr"]
+    for entry in periods:
+        assert entry["break_even_ebitda"]["break_even_ebitda"] is None
+        assert "unavailable in C4" in entry["break_even_ebitda"]["reason"]
+        assert entry["shocks"] is None
+
+
+def test_guarantor_cushion_marks_a_stale_entity_period_unresolvable():
+    entity_id = "synthetic-guarantor"
+    record = make_guarantor_record(entity_id)
+    record["multi_period_financials"]["FY-Current"]["revenue"] += 1
+    state = {
+        "financials": {"FY-Current": {"ebitda": 9999.0}},
+        "ratios": {"FY-Current": {"dscr": 99.0}},
+        "covenants": [guarantor_covenant(entity_id)],
+        "entity_records": {entity_id: record},
+        "guarantees": [guarantee_row()],
+    }
+
+    report = compute_from_state(state)
+    current = report["covenants"][0]["periods"][0]["result"]
+
+    assert current["status"] == "UNRESOLVABLE"
+    assert current["actual"] is None
+    assert "stale" in current["reason"]
+    assert current["basis_entity_id"] == entity_id

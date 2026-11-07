@@ -15,6 +15,7 @@ import math
 
 import pytest
 
+from guarantor_test_support import make_guarantor_record
 from policy_checks import (
     REQUIRED_RISK_TAXONOMY,
     check_draft_compliance,
@@ -999,3 +1000,45 @@ def test_check_draft_compliance_still_raises_for_a_template_that_cannot_be_read(
     (tmp_path / "templates" / "cam" / "corporate_credit_cam.md").write_text("<!-- never closed\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Unterminated HTML comment in template"):
         check_draft_compliance("# Synthetic CAM\n", _policy_state(), {}, deal_type="corporate_credit")
+
+
+
+def test_ground_truth_namespaces_only_numeric_fresh_guarantor_values_and_keeps_borrower_keys():
+    entity_id = "Synthetic Guarantor/OpCo"
+    views = [
+        {"basis": "borrower", "ratios": {"FY-Current": {"dscr": 999.0}}},
+        {"basis": "guarantor_group", "basis_entity_id": "  ", "ratios": {"FY-Current": {"dscr": 888.0}}},
+        {
+            "basis": "guarantor_group",
+            "basis_entity_id": entity_id,
+            "ratios": {
+                "FY-Current": {"dscr": 5.2, "nullable": None, "label": "not numeric"},
+                "FY+1": {"dscr": 4.8},
+                "FY+2": "not a period object",
+            },
+            "financials": {
+                "FY-Current": {"ebitda": 250.0, "raw": {"revenue": 1200.0}},
+                "FY+1": {"ebitda": 280.0},
+                "FY+2": [],
+            },
+        },
+    ]
+
+    truth = ground_truth_figures(
+        {"FY-Current": {"ebitda": 999.0}},
+        {"FY-Current": {"dscr": 99.0}, "FY+1": {"dscr": 98.0}},
+        [],
+        {},
+        resolved_views=views,
+    )
+
+    prefix = "guarantor_group::Synthetic%20Guarantor%2FOpCo::"
+    assert truth["dscr"] == 99.0
+    assert truth["dscr_FY+1"] == 98.0
+    assert truth[prefix + "dscr"] == 5.2
+    assert truth[prefix + "dscr_FY+1"] == 4.8
+    assert truth[prefix + "ebitda"] == 250.0
+    assert truth[prefix + "ebitda_FY+1"] == 280.0
+    assert prefix + "nullable" not in truth
+    assert prefix + "label" not in truth
+    assert prefix + "raw" not in truth

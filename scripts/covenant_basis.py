@@ -28,6 +28,16 @@ def _ordinary_view(state: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _recorded_period_labels(record: Mapping[str, Any]) -> list[str]:
+    """The period labels a record holds in any figure store (labels only, never values)."""
+    labels: set[str] = set()
+    for field in ("multi_period_financials", "analyst_supplied_financials", "financials", "ratios"):
+        value = record.get(field)
+        if isinstance(value, Mapping):
+            labels.update(str(period) for period in value)
+    return sorted(labels)
+
+
 def resolve_covenant_view(
     state: Mapping[str, Any], covenant: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -44,14 +54,14 @@ def resolve_covenant_view(
     raw_id = covenant.get("basis_entity_id")
     entity_id = raw_id if isinstance(raw_id, str) and raw_id.strip() else None
 
-    def unresolved(reason: str) -> dict[str, Any]:
+    def unresolved(reason: str, recorded_periods: list[str] | None = None) -> dict[str, Any]:
         return {
             "basis": "guarantor_group",
             "basis_entity_id": entity_id,
             "financials": {},
             "ratios": {},
             "eligible_raw_periods": [],
-            "recorded_periods": [],
+            "recorded_periods": list(recorded_periods or []),
             "period_reasons": {},
             "unresolvable_reason": reason,
         }
@@ -66,19 +76,24 @@ def resolve_covenant_view(
         return unresolved(f"guarantor entity {entity_id!r} is not recorded")
     if record.get("entity_id") != entity_id:
         return unresolved(f"guarantor entity record key does not match entity_id {entity_id!r}")
+    # The record is now identified, so its recorded period labels (never its figures) are kept: a period the
+    # selected entity records but cannot supply is reported UNRESOLVABLE, not silently dropped (CG578-1).
+    inventory = _recorded_period_labels(record)
     if record.get("role") != "guarantor":
-        return unresolved(f"entity {entity_id!r} has role {record.get('role')!r}; role must be 'guarantor'")
+        return unresolved(
+            f"entity {entity_id!r} has role {record.get('role')!r}; role must be 'guarantor'", inventory,
+        )
 
     guarantee_ids = record.get("guarantee_ids")
     if not isinstance(guarantee_ids, list) or not guarantee_ids:
-        return unresolved(f"guarantor entity {entity_id!r} has no explicit guarantee_ids link")
+        return unresolved(f"guarantor entity {entity_id!r} has no explicit guarantee_ids link", inventory)
     if any(not isinstance(value, str) or not value.strip() for value in guarantee_ids):
-        return unresolved(f"guarantor entity {entity_id!r} has a blank or invalid guarantee_id link")
+        return unresolved(f"guarantor entity {entity_id!r} has a blank or invalid guarantee_id link", inventory)
     if len(set(guarantee_ids)) != len(guarantee_ids):
-        return unresolved(f"guarantor entity {entity_id!r} has duplicate guarantee_ids links")
+        return unresolved(f"guarantor entity {entity_id!r} has duplicate guarantee_ids links", inventory)
     guarantees = state.get("guarantees")
     if not isinstance(guarantees, list):
-        return unresolved("the deal's guarantees list is absent or invalid")
+        return unresolved("the deal's guarantees list is absent or invalid", inventory)
     for guarantee_id in guarantee_ids:
         matches = [
             item for item in guarantees
@@ -88,13 +103,15 @@ def resolve_covenant_view(
             qualifier = "missing" if not matches else "ambiguous"
             return unresolved(
                 f"guarantor entity {entity_id!r} guarantee link {guarantee_id!r} is {qualifier}; "
-                "exactly one explicit guarantee_id is required"
+                "exactly one explicit guarantee_id is required",
+                inventory,
             )
 
     if record.get("spread_status") != "spread":
         return unresolved(
             f"guarantor entity {entity_id!r} has no completed framework spread "
-            f"(spread_status={record.get('spread_status')!r})"
+            f"(spread_status={record.get('spread_status')!r})",
+            inventory,
         )
 
     spread = entity_spread_view(record)

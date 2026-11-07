@@ -302,7 +302,7 @@ independently proven by the gate.
 
 - **Claim:** A `guarantor_group` covenant uses only the exact named, explicitly guarantee-linked entity's current framework-computed spread; a missing or invalid ID, role, guarantee link or period makes the result UNRESOLVABLE, with no borrower or other-entity fallback.
 - **Source:** [Guarantor-group covenant routing (case C step C4)](data-model.md#guarantor-group-covenant-routing-case-c-step-c4).
-- **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`; `scripts/policy_engine.py::_evaluate_resolved_covenant`
+- **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
 - **Status:** Not covered
 - **Tracking:** [Issue #473](https://github.com/ShamikM88/open-cam-framework/issues/473)
 

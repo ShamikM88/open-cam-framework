@@ -839,7 +839,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Edge rules:** a year with no projection (absent, null or empty) is not evaluated; state.json carries no
   covenant tenor, so "covered by the projection" is the whole definition — a covenant that really ends earlier
   is still reported for later projected years. Each guarantor covenant is evaluated against the selected entity's
-  own recorded forward periods; a stale, analyst-supplied-only or otherwise unavailable recorded period is
+  own recorded forward periods (every recorded period of an identified entity that fails the role, link or spread check is included); a stale, analyst-supplied-only or otherwise unavailable recorded period is
   UNRESOLVABLE with its `basis` and `basis_entity_id`, never replaced by a borrower period.
 - **State keys:** —
 - **Workbook rows:** —

@@ -146,9 +146,9 @@ checkpoint, or an analyst-supplied ratio), the covenant is still UNRESOLVABLE an
 A covenant is tested only on its own **basis**: `borrower`, `consolidated` or `guarantor_group` (an absent or null
 `basis` means `borrower`, which is what every covenant recorded before the field existed meant). The deal's recorded
 figures are one view: the borrower's, or, when the deal records `group_basis` (borrower-supplied consolidated group
-accounts), the consolidated group's. A covenant on a different basis than the recorded view is **UNRESOLVABLE**, with a
+accounts), the consolidated group's. A `borrower` or `consolidated` covenant on a different basis than the recorded view is **UNRESOLVABLE**, with a
 reason that says so, and so is a covenant whose basis is not one of the three: the engine never tests it against the
-figures that happen to be recorded. Example: a deal that records consolidated group accounts and a covenant on the
+figures that happen to be recorded. A `guarantor_group` covenant is the exception: it is never tested against the recorded view but resolved per covenant against its own named entity (see "The financial basis is selected per covenant" in the Covenants section below). Example: a deal that records consolidated group accounts and a covenant on the
 borrower's own DSCR (the default, because the covenant states no basis) is UNRESOLVABLE until the covenant states its
 basis or borrower figures are recorded. Nothing is refused; the engine computes and reports the result. The
 decided next step, delivered by a separate change and not yet in the commands, is that the interactive steps will
@@ -165,7 +165,7 @@ threshold's sign. In the example, DSCR 2.0 against a minimum of 1.25 has headroo
 maximum of 3.5 has 0.4286. A threshold of exactly 0 has no percentage headroom (it is `null`), but the status is
 still decided by comparison.
 
-**The financial basis is selected per covenant.** An absent or null `basis` means `borrower` and retains the existing deal-level behaviour. `consolidated` uses the borrower-supplied view recorded in `group_basis`. `guarantor_group` requires a non-blank `basis_entity_id` and resolves exactly one registered guarantor by that ID, with an explicit `guarantee_id` link to the deal's guarantees. Its figures come only from that entity's current C3 framework-computed spread. A missing/invalid entity ID, wrong role, missing or ambiguous link, unspread record, stale fingerprint/output or analyst-supplied-only period yields UNRESOLVABLE. A guarantor result carries both `basis: "guarantor_group"` and `basis_entity_id`; a missing ID is reported as `null`. The borrower and case-A result shapes are unchanged, and no borrower or other-guarantor figures are used as fallback.
+**The financial basis is selected per covenant.** An absent or null `basis` means `borrower` and retains the existing deal-level behaviour. `consolidated` uses the borrower-supplied view recorded in `group_basis`. `guarantor_group` requires a non-blank `basis_entity_id` and resolves exactly one registered guarantor by that ID, with an explicit `guarantee_id` link to the deal's guarantees. Its figures come only from that entity's current C3 framework-computed spread. A missing/invalid entity ID, wrong role, missing or ambiguous link, unspread record, stale fingerprint/output or analyst-supplied-only period yields UNRESOLVABLE. When the entity is identified but fails the role, link or spread check, each period it records (labels only; no figure is exposed) is still reported UNRESOLVABLE with that reason, never silently omitted. A guarantor result carries both `basis: "guarantor_group"` and `basis_entity_id`; a missing ID is reported as `null`. The borrower and case-A result shapes are unchanged, and no borrower or other-guarantor figures are used as fallback.
 
 Covenants are tested in three places, with three different consequences:
 

@@ -260,3 +260,53 @@ def test_runner_seeds_the_same_analysis_the_oracle_checked_and_does_not_recalcul
     assert captured["state"]["collateral"] == ctx["collateral"]
     assert captured["state"]["collateral_analysis"] == ctx["collateral_analysis"]
     assert not stored_analysis_is_current(captured["state"]["collateral_analysis"])
+
+
+_CASE_CONTEXT = {
+    "collateral-correct-figure": "current",
+    "collateral-wrong-figure": "current",
+    "collateral-unknown-asset": "current",
+    "collateral-na-lgd-omitted": "current",
+    "collateral-stale-analysis": "stale",
+    "collateral-no-analysis": "legacy",
+}
+
+
+@pytest.mark.parametrize("case_id", sorted(_CASE_CONTEXT))
+def test_the_real_maker_prompt_of_each_case_shows_what_the_case_assumes(case_id, dataset_v2, tmp_path):
+    """CG569-4 / issue #575: the prompt the live Maker would receive carries the calculator figures (current),
+    the stale line (tampered or old-version) or the legacy line (no analysis), as the case's design assumes."""
+    import json
+
+    from policy_checks import collateral_analysis_ground_truth
+
+    case = collateral_case(dataset_v2, case_id)
+    ctx = build_context(case)
+    repo = make_fake_repo(tmp_path)
+    work_root = tmp_path / "run" / "work"
+    work_root.mkdir(parents=True)
+    prompts = []
+
+    def answer(kwargs):
+        prompts.append(kwargs["messages"][0]["content"])
+        return build_scripted_output(case, case["dry_run"]["good"], ctx).draft_text
+
+    run_case_once(case, "repeat-1", ctx, BudgetedClient(FakeClient(answer), CallBudget(2)),
+                  str(repo), str(work_root), keep_work=True)
+
+    assert len(prompts) == 1
+    prompt = prompts[0]
+    match = re.search(r"<collateral_analysis_figures>\n(.*?)\n</collateral_analysis_figures>", prompt, re.S)
+    kind = _CASE_CONTEXT[case_id]
+    if kind == "current":
+        assert match, "a current analysis must reach the Maker as keyed figures"
+        shown = json.loads(match.group(1))
+        assert shown == collateral_analysis_ground_truth(ctx["collateral_analysis"])
+        assert any(key.startswith("collateral_AST-") for key in shown)
+        assert "stale or fails its integrity check" not in prompt and "legacy summary" not in prompt
+    elif kind == "stale":
+        assert not match and "stale or fails its integrity check" in prompt
+        assert "collateral_AST-" not in prompt
+    else:
+        assert not match and "legacy summary" in prompt and "none recorded" in prompt
+        assert "collateral_AST-" not in prompt

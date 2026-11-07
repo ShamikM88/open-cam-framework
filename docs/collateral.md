@@ -72,6 +72,8 @@ The command's `State: write` block no longer writes any collateral state: the ca
 
 The headless pipeline accepts the same payload object as the calculator and records the same `collateral_analysis` and `collateral` projection through the same pure function, so an interactive and a headless run of the same inputs store identical results. The older flat-list file still works but is projection-only and discards an earlier analysis. See the [CLI reference](cli-reference.md#orchestrator).
 
+**What the Maker and the Checker are shown (issue #575).** Both models receive one shared grounding block. Besides the legacy `<collateral>` rows it carries one of three things. While the stored analysis is current, a `<collateral_analysis_figures>` block lists each per-asset figure under its exact `collateral_<asset_id>_<metric>` key plus the deal-level LGD keys, the same values the policy check compares a draft with; a metric that is unavailable is not listed. The lead-in says these keys take precedence over any other instruction to omit per-asset collateral metrics from `reported_figures`, so an Underwriter prompt that still says to omit them (before draft PR #567 lands) does not contradict it. If an analysis is recorded but is stale, malformed (an empty object included) or fails its integrity check, one line says so and no per-asset figure appears. If the deal has collateral rows but no analysis, one line says they are a legacy summary and no per-asset figure appears. A deal with no collateral, or a current analysis of no assets, gets nothing.
+
 ## Command-line calculator
 
 The canonical CLI reference is [Collateral check](cli-reference.md#collateral-check). The command requires the deal identity and one input file:

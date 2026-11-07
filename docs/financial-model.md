@@ -268,6 +268,30 @@ exactly as the policy engine records them. The formulas are register entries
 [F-059..F-063](formula-register.md); the report is not a credit decision, and `policy_check.py` remains
 authoritative.
 
+
+## Standalone entity spread (case C, C3)
+
+`spreading_check.py --entity-id <entity ID>` is the script-level path for one registered guarantor. It selects one
+`entity_records` entry and calls the existing `evaluate_financial_model()` with only that entry's
+`multi_period_financials`. The existing borrower computation and its formulas are not changed or reused as a
+fallback. Returned `financials` and `ratios` are stored inside the selected entity record with
+`figures_basis: "recomputed"`; the borrower-level financial stores and `financials_source` are left unchanged.
+The state schema remains 1.2.0. Case C remains standalone; this is not a credit aggregation or consolidation.
+
+The entity record stores one SHA-256 input fingerprint per computed period. Each canonical JSON payload includes
+the contract tag, entity ID, period label and end date, full source metadata, raw-figure source, selected raw store
+name and complete raw period. It uses sorted compact UTF-8 JSON, preserves non-ASCII text and refuses non-finite
+JSON values. The calculated values and display/perimeter/guarantee metadata are not inputs to that hash. A missing
+or mismatched digest or malformed payload makes the period stale. The display helper also compares stored
+financials/ratios with the existing evaluator's current output, so a dependent later period is withheld when a
+changed prior-period working-capital input changes its FCF-after-working-capital or cash-flow DSCR. No evaluator
+formula is duplicated or changed.
+
+Only `multi_period_financials` is evaluated. A period present only in `analyst_supplied_financials` stays
+uncomputed and unavailable; there is no blending or fallback. Every stored and user-visible C3 result carries
+`analyst_review_status: "not yet reviewed by an analyst"` until a credit reviewer signs off. C3 does not
+change covenant routing, legal CP/CS, or CAM/workbook presentation.
+
 ## Analyst-supplied figures
 
 By default every subtotal and ratio is recomputed from raw line items. An institution may instead supply its own

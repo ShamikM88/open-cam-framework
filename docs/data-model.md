@@ -221,6 +221,51 @@ periods in the prior review with their next-older labels in the current review, 
 differences, marks pairs `consistent`, `restated`, or `not_comparable`, and never includes forward periods. The
 flag records the analyst's confirmation; period roll-forward is never inferred.
 
+
+### Standalone guarantor spread (case C step 3)
+
+C3 spreads one registered guarantor by stable `entity_id`, not by its legal name or a borrower-level alias. The
+script selects exactly one `entity_records[entity_id]` whose role is `guarantor`, passes only that record's
+`multi_period_financials` map to the existing `evaluate_financial_model()`, and stores the returned
+`financials` and `ratios` inside that same record. It never combines entity records, reads the borrower's
+raw figures as a fallback, or changes the borrower's top-level `financials`, `ratios`,
+`multi_period_financials`, `analyst_supplied_financials` or `financials_source`. The state schema remains
+`1.2.0`; the spread adds no top-level state key.
+
+A record is either `spread_status: "not-spread"` with no spread payload, or `spread_status: "spread"`
+with all of the following nested fields: `figures_basis: "recomputed"`, `spread_timestamp` (timezone-aware
+ISO-8601), `spread_source` (the script provenance reference), `financials`, `ratios`,
+`spread_fingerprints` (one 64-character lowercase SHA-256 digest per computed period), and
+`analyst_review_status: "not yet reviewed by an analyst"`. The latter is a stored disclosure and appears
+in every user-visible spread result: C3 does not imply that a credit reviewer has signed it off.
+
+Only periods held in `multi_period_financials` are computed. A period held only in
+`analyst_supplied_financials` remains preserved as supplied input and is listed as unavailable; it is not
+recomputed, blended with the other store or replaced with borrower data. A guarantor with no
+framework-computed periods has no C3 spread.
+
+**Per-period fingerprint.** For each computed period, the canonical payload contains only: contract tag
+`open-cam-entity-spread-input/v1`, `entity_id`, the period label, that period's end date, the full
+`source` object, `raw_figures_source`, selected store name `multi_period_financials`, and that period's
+complete raw-line object. It is encoded as
+`json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")`
+and hashed with SHA-256. Calculated outputs, display name, perimeter and `guarantee_ids` are excluded.
+The digest fingerprints values recorded in state; it does not prove the source document's authenticity.
+A raw-line or period-end correction changes that period's digest; changing the shared `source` object or `raw_figures_source` changes every period digest because those complete values appear in every period payload.
+
+A missing/mismatched digest or malformed payload is stale, never current. Before a period is exposed, its
+digest is recomputed and its stored `financials`/`ratios` are compared with the existing evaluator's
+current output. That second check preserves the evaluator's existing prior-period working-capital dependency:
+if a prior period changes and consequently changes a later period's FCF-after-working-capital or cash-flow DSCR,
+the later stored result is also withheld as stale even though its own raw-input digest did not change. Unaffected
+periods remain available. Re-spreading writes the new period results and fingerprints through one locked,
+atomic state update.
+
+Use `python scripts/spreading_check.py --company ... --proposal ... --entity-id <entity ID>` for this
+script-level operation. It takes the input already recorded in the selected entity record; it does not accept
+`--financials` or stress assumptions in entity mode. No multi-entity downside, aggregation, elimination,
+covenant routing, CAM presentation or legal guarantee condition is added by C3.
+
 ### Schema versions and validation
 
 `schema_version` is `MAJOR.MINOR.PATCH`. A state written by an older or unversioned framework is read and upgraded on

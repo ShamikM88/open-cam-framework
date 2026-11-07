@@ -27,6 +27,7 @@ from collateral_check import (
     stored_analysis_is_current,
 )
 from policy_engine import evaluate_deal_policy
+from covenant_basis import resolve_covenant_views
 from numeric_validation import (
     FinancialInputError,
     MalformedCollateralInputError,
@@ -826,7 +827,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # a pure function of these plus the freshly (re)computed ratios/
     # collateral/downside_case above, so it's recomputed every run rather
     # than cached.
-    policy_state = evaluate_deal_policy({
+    policy_input = {
         "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,
@@ -835,12 +836,18 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         "guarantees": existing_state.get("guarantees") or [],
         "downside_case": downside_case,
         "group_basis": existing_state.get("group_basis"),
-    })
+        "entity_records": existing_state.get("entity_records"),
+    }
+    policy_covenants = policy_input["covenants"]
+    resolved_views = resolve_covenant_views(policy_input, policy_covenants)
+    policy_state = evaluate_deal_policy(policy_input, resolved_views=resolved_views)
     # Same inputs the loop below already holds fixed across iterations
     # (financials/ratios/collateral/downside_case don't change draft-to-draft
     # within one run), so this is computed once and reused rather than
     # per-iteration.
-    ground_truth_figures = _ground_truth_figures(financials, ratios, collateral, downside_case, collateral_analysis)
+    ground_truth_figures = _ground_truth_figures(
+        financials, ratios, collateral, downside_case, collateral_analysis, resolved_views=resolved_views,
+    )
 
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these

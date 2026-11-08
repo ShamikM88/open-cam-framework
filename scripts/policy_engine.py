@@ -43,6 +43,7 @@ from financial_conventions import PERCENT_TYPE_RATIOS
 from numeric_validation import validate_finite_numbers
 from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 from state_manager import JsonValue
+from covenant_basis import resolve_covenant_views
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
 
@@ -65,6 +66,7 @@ class CovenantResult(TypedDict):
     headroom_pct: int | float | None
     reason: str | None
     basis: NotRequired[JsonValue]
+    basis_entity_id: NotRequired[str | None]
 
 
 class ForwardCovenantResult(CovenantResult):
@@ -86,6 +88,7 @@ class DownsideBreach(TypedDict):
     downside_status: Literal["FAIL", "UNRESOLVABLE"]
     reason: str | None
     basis: NotRequired[JsonValue]
+    basis_entity_id: NotRequired[str | None]
 
 
 class ConditionPrecedent(TypedDict):
@@ -733,8 +736,49 @@ def _period_dict(financials: object, period: str) -> dict[str, Any] | None:
     value = financials.get(period) if isinstance(financials, dict) else None
     return value if isinstance(value, dict) else None
 
+def _evaluate_resolved_covenant(
+    covenant: dict[str, Any], view: dict[str, Any], period: str,
+) -> CovenantResult:
+    """Evaluate one guarantor covenant against its exact resolved period."""
+    reason = view.get("unresolvable_reason")
+    period_reasons = view.get("period_reasons")
+    if not reason and isinstance(period_reasons, dict):
+        reason = period_reasons.get(period)
+    ratios = view.get("ratios")
+    financials = view.get("financials")
+    period_ratios = ratios.get(period) if isinstance(ratios, dict) else None
+    period_financials = financials.get(period) if isinstance(financials, dict) else None
+    if reason:
+        result = _evaluate_covenant(covenant, {}, None, "guarantor_group")
+        result["reason"] = reason
+    elif not isinstance(period_ratios, dict) or not period_ratios:
+        result = _evaluate_covenant(covenant, {}, None, "guarantor_group")
+        result["reason"] = f"no fresh guarantor figures are recorded for {period}"
+    else:
+        result = _evaluate_covenant(
+            covenant,
+            period_ratios,
+            period_financials if isinstance(period_financials, dict) else None,
+            "guarantor_group",
+        )
+    return {
+        "metric": result["metric"],
+        "type": result["type"],
+        "threshold": result["threshold"],
+        "basis": "guarantor_group",
+        "basis_entity_id": view.get("basis_entity_id"),
+        "actual": result["actual"],
+        "status": result["status"],
+        "headroom_pct": result["headroom_pct"],
+        "reason": result["reason"],
+    }
 
-def evaluate_deal_policy(state_dict: dict[str, Any] | None) -> PolicyState:
+
+
+def evaluate_deal_policy(
+    state_dict: dict[str, Any] | None,
+    resolved_views: list[dict[str, Any]] | None = None,
+) -> PolicyState:
     """Evaluate one deal's state against deterministic credit policy rules.
 
     Reads (all optional, default to empty): `ratios` (the full multi-period
@@ -774,21 +818,97 @@ def evaluate_deal_policy(state_dict: dict[str, Any] | None) -> PolicyState:
     security_package = state_dict.get("security_package") or []
     guarantees = state_dict.get("guarantees") or []
     covenants = state_dict.get("covenants") or []
-    downside_ratios = (state_dict.get("downside_case") or {}).get("ratios") or {}
+    downside_case = state_dict.get("downside_case") or {}
+    downside_ratios = downside_case.get("ratios") or {}
+    unavailable_downside = downside_case.get("unavailable") or {}
 
     base_financials = state_dict.get("financials")
     # A recorded group_basis means the deal's recorded figures are borrower-supplied consolidated group accounts
     # (issue #48, case A); otherwise they are the borrower's own. A covenant is tested only on its own basis.
     recorded_view = "consolidated" if isinstance(state_dict.get("group_basis"), dict) else DEFAULT_COVENANT_BASIS
-    covenant_results = [_evaluate_covenant(covenant, ratios, _period_dict(base_financials, "FY-Current"), recorded_view)
-                        for covenant in covenants]
+    if resolved_views is None:
+        resolved_views = resolve_covenant_views(state_dict, covenants)
+    if len(resolved_views) != len(covenants):
+        raise ValueError("resolved covenant views must match the recorded covenant list")
+
+    has_guarantor_basis = any(covenant.get("basis") == "guarantor_group" for covenant in covenants)
+    covenant_results: list[CovenantResult] = []
+    for covenant, view in zip(covenants, resolved_views, strict=True):
+        if covenant.get("basis") == "guarantor_group":
+            covenant_results.append(_evaluate_resolved_covenant(covenant, view, "FY-Current"))
+        else:
+            covenant_results.append(
+                _evaluate_covenant(covenant, ratios, _period_dict(base_financials, "FY-Current"), recorded_view)
+            )
+
     security_gaps, security_cps = _evaluate_security(collateral, security_package)
     guarantee_cps = _guarantee_cps(guarantees)
+
     downside_covenant_breaches = _evaluate_downside_covenants(
         covenants, all_ratios, downside_ratios, base_financials,
-        (state_dict.get("downside_case") or {}).get("financials"),
-        (state_dict.get("downside_case") or {}).get("unavailable"), recorded_view)
-    forward_covenant_results = _evaluate_forward_covenants(covenants, all_ratios, base_financials, recorded_view)
+        downside_case.get("financials"), unavailable_downside, recorded_view,
+    )
+    if has_guarantor_basis:
+        used_downside_ids = {item["breach_id"] for item in downside_covenant_breaches}
+        for covenant, view in zip(covenants, resolved_views, strict=True):
+            if covenant.get("basis") != "guarantor_group":
+                continue
+            recorded_periods = set(view.get("recorded_periods") or [])
+            downside_periods = set(downside_ratios) | set(unavailable_downside)
+            for period in sorted(downside_periods & recorded_periods):
+                if period not in FORWARD_PERIOD_KEYS:
+                    continue
+                base_result = _evaluate_resolved_covenant(covenant, view, period)
+                if base_result["status"] != "PASS":
+                    continue
+                breach: DownsideBreach = {
+                    "year": period,
+                    "metric": covenant.get("metric"),
+                    "base_actual": base_result["actual"],
+                    "downside_actual": None,
+                    "threshold": base_result["threshold"],
+                    "breach_id": _unique_id(
+                        "DOWNSIDE", f"{_slugify(period)}-{_slugify(covenant.get('metric'))}", used_downside_ids,
+                    ),
+                    "downside_status": "UNRESOLVABLE",
+                    "reason": (
+                        f"guarantor-specific downside figures are unavailable for {period}; "
+                        "the borrower's downside case is not a substitute"
+                    ),
+                    "basis": "guarantor_group",
+                    "basis_entity_id": view.get("basis_entity_id"),
+                }
+                downside_covenant_breaches.append(breach)
+
+    forward_covenant_results: list[ForwardCovenantResult]
+    if not has_guarantor_basis:
+        forward_covenant_results = _evaluate_forward_covenants(
+            covenants, all_ratios, base_financials, recorded_view,
+        )
+    else:
+        forward_covenant_results = []
+        used_forward_ids: set[str] = set()
+        for period in FORWARD_PERIOD_KEYS:
+            borrower_period_ratios = all_ratios.get(period)
+            for covenant, view in zip(covenants, resolved_views, strict=True):
+                if covenant.get("basis") == "guarantor_group":
+                    if period not in set(view.get("recorded_periods") or []):
+                        continue
+                    result = _evaluate_resolved_covenant(covenant, view, period)
+                else:
+                    if not isinstance(borrower_period_ratios, dict) or not borrower_period_ratios:
+                        continue
+                    result = _evaluate_covenant(
+                        covenant, borrower_period_ratios, _period_dict(base_financials, period), recorded_view,
+                    )
+                forward_result: ForwardCovenantResult = {
+                    **result,
+                    "year": period,
+                    "forward_id": _unique_id(
+                        "FORWARD", f"{_slugify(period)}-{_slugify(covenant.get('metric'))}", used_forward_ids,
+                    ),
+                }
+                forward_covenant_results.append(forward_result)
 
     required_conditions_precedent = (
         list(STANDARD_CONDITIONS_PRECEDENT) + security_cps + guarantee_cps

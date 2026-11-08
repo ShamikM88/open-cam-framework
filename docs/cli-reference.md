@@ -157,7 +157,14 @@ See [State manager](#state-manager).
   periods (one `error:` line, exit status 1, nothing written, `financials_source` unchanged). Record changes to
   supplied figures with `/spread`'s analyst-supplied mode; an interactive, forward-only `/project` call is the
   one allowed way to add framework-computed forward years to such a deal ([data model](data-model.md#two-raw-figure-stores-never-blended-within-a-period)).
-- `--collateral` is a JSON file holding a flat list of asset objects.
+- `--collateral` is a JSON file in one of two shapes (issue #266). An **object** with `assets` and optional `mitigants`
+  is the [collateral calculator](#collateral-check) payload: it is validated and calculated by the same pure code as
+  `/collateral`, and the run records `collateral_analysis` plus the `collateral` projection, so the workbook's result
+  columns and the policy ground truth see the same figures as the interactive route. A refused payload is one `error:`
+  line before anything is written. A **flat list** of asset objects (an empty list too, which clears the recorded collateral) is the legacy shape: it is recorded as the
+  `collateral` list only, with no calculator results, and it discards any earlier `collateral_analysis` (that analysis
+  described the assets the list replaces). A file that holds JSON `null` is refused with one `error:` line before anything is written, as is one given to `--stress-assumptions`: `null` would read as "not supplied" and silently keep the old record (CG563-2); omit the flag to keep it. Without `--collateral` a run keeps what the deal already has, and its
+  policy ground truth uses a stored analysis only while it is current.
 - `--stress-assumptions` (for a deal whose forecast is analyst-supplied: it must equal what is recorded, or the run is
   refused with one `error:` line before anything is written) is a JSON file of the downside shocks (`revenue_haircut_pct`, `opex_increase_pct`,
   `interest_rate_bump_bps`), applied to the forward years only and ignored if there are none. Each supplied value must be a
@@ -318,7 +325,9 @@ output file, and it makes no network call and needs no `ANTHROPIC_API_KEY`.
 - **Availability:** the searches re-evaluate the recorded raw line items through the spreading builder's own
   shock and model functions, so a period whose figures are analyst-supplied (financials_source for FY-Current,
   forecast_source for a forward year) or absent from `multi_period_financials` reports its break-even and
-  searches as unavailable with the reason; nothing is invented.
+  searches as unavailable with the reason; nothing is invented. For `guarantor_group`, the baseline follows the
+  selected entity's fresh spread, while C4's guarantor break-even and reverse-stress searches are explicitly
+  unavailable; borrower raw inputs and shocks are never reused.
 - **Nothing is judged:** the report is the mechanical distance to a covenant's first non-PASS result under one
   shock at a time; it is not a credit decision, and the policy check remains authoritative. A recorded ratio
   that disagrees with a re-evaluation of the raw lines is flagged as a caveat rather than silently trusted.
@@ -358,7 +367,7 @@ An analyst may explicitly authorise an export without sources. Only then pass `-
 ## Spreading check
 
 `scripts/spreading_check.py --company ... --proposal ... [--financials <json>] [--stress-assumptions <json>]
-[--no-update-financials-source]` recomputes `financials` and `ratios` from raw line items, derives the downside case
+[--no-update-financials-source]` recomputes the borrower-level `financials` and `ratios` from raw line items, derives the downside case
 when stress assumptions and at least one forward year exist, checkpoints everything to `state.json` and prints the
 updated state (`financials`, `ratios`, `downside_case`, `financials_source`) as one JSON object, indented two spaces and
 ending in one newline (read it as JSON; the order of its members is not a contract). It merges what it is given into what
@@ -372,6 +381,16 @@ a finite JSON number (not a string, boolean, null, list or object). Invalid inpu
 `error:` line and leaves `state.json` byte-identical. A `null` raw line-item value retains the evaluator's existing
 behavior; omitted fields are also unchanged. The same rules apply to the orchestrator's `--financials` and `--spread` inputs. The slash
 commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).
+
+**Standalone guarantor (case C3).** To spread the already-registered guarantor identified by its stable entity ID,
+run `python scripts/spreading_check.py --company ... --proposal ... --entity-id <entity ID>`. The script reads
+only that entity record's `multi_period_financials`, calls the same `evaluate_financial_model()`, and stores the
+financials, ratios and one source-bound SHA-256 fingerprint per computed period inside the entity record. The
+borrower's top-level financial stores and `financials_source` are unchanged. Entity mode cannot be combined with
+`--financials`, `--stress-assumptions` or `--no-update-financials-source`. A period held only in
+`analyst_supplied_financials` is listed as unavailable and is never recomputed. Every result carries
+`analyst_review_status: "not yet reviewed by an analyst"`; missing/mismatched fingerprints or stored results
+that no longer match the evaluator are stale and are not printed as current.
 
 ```bash
 python scripts/spreading_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \
@@ -501,6 +520,12 @@ file's trailing structured JSON block and client-facing prose. The optional `--d
 recorded type; when supplied alongside a recorded type it must match. Otherwise the recorded type selects the shipped
 CAM template or local override for Rule B. It exits `0` whether or not `reasons` is empty (an unusable `state.json` is
 the exception: one `error:` line, exit `1`); the caller decides what a non-empty `reasons` means.
+
+The policy engine resolves each covenant's `basis` independently. A `guarantor_group` covenant must name a registered
+`basis_entity_id` whose record has role `guarantor`, an explicit unique `guarantee_id` link and a current C3 spread.
+The `covenant_results` and `forward_covenant_results` identify that entity with `basis` and `basis_entity_id`;
+missing IDs are shown as `null`. Missing/ambiguous links, wrong roles, stale or unavailable periods are
+UNRESOLVABLE, never tested against borrower or another entity's figures. The command and its flags are unchanged.
 
 ```bash
 python scripts/policy_check.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" \

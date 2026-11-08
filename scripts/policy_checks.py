@@ -18,9 +18,10 @@ import math
 import re
 import sys
 from collections.abc import Iterable, Mapping
+from urllib.parse import quote
 from typing import Any, TypedDict
 
-from collateral_check import ASSET_ID_RE, RESERVED_ASSET_IDS, stored_analysis_digest_matches
+from collateral_check import stored_analysis_is_current
 from draft_lint import DraftContentError, lint_draft
 from template_resolver import cam_template_path
 
@@ -166,50 +167,33 @@ COLLATERAL_DEAL_LGD_KEYS = ("collateral_max_lgd_pct", "collateral_avg_lgd_pct")
 
 
 def _plain_number(value: Any) -> bool:
-    """A real, finite number that fits a float (a huge int is not a figure: math.isfinite would overflow)."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return False
-    try:
-        return math.isfinite(float(value))
-    except OverflowError:
-        return False
+    """A recorded figure: a real number, not the N/A (None) the calculator stores for an unresolvable metric."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def collateral_analysis_ground_truth(collateral_analysis: Any) -> dict[str, Any]:
     """The stored per-asset collateral results as flat ``collateral_<asset_id>_<metric>`` ground truth.
 
     Reads the figures the deterministic calculator already stored (``scripts/collateral_check.py``);
-    nothing is recalculated here. A result is used only while the analysis's ``input_digest`` still
-    matches its stored inputs (decision 5), and an analysis with a missing, malformed or duplicated
-    asset id yields no per-asset keys at all (the key would be ambiguous). A metric that is N/A
-    (``None``), missing or not a plain number is omitted, never defaulted to zero. The two deal-level
-    LGD aggregates are added the same way when the calculator could resolve them.
+    nothing is recalculated here. A result is used only while the analysis is current
+    (``stored_analysis_is_current``: same calculator version, input digest intact, and recalculating the
+    stored inputs reproduces the stored results exactly, decision 5 and review finding CG559-3), which
+    also guarantees the asset ids are unique, conforming and not reserved. A metric that is N/A
+    (``None``) is omitted, never defaulted to zero. The two deal-level LGD aggregates are added the
+    same way when the calculator could resolve them.
     """
-    if not stored_analysis_digest_matches(collateral_analysis):
-        return {}
-    assets = collateral_analysis["assets"]
-    asset_ids = [asset.get("asset_id") if isinstance(asset, dict) else None for asset in assets]
-    # Check every id is a conforming, non-reserved string before building a set from them: an unhashable id
-    # (a list or object in a hand-edited state) would otherwise raise instead of being omitted (CG559-2).
-    if not all(
-        isinstance(asset_id, str) and ASSET_ID_RE.fullmatch(asset_id) and asset_id not in RESERVED_ASSET_IDS
-        for asset_id in asset_ids
-    ) or len(set(asset_ids)) != len(asset_ids):
+    if not stored_analysis_is_current(collateral_analysis):
         return {}
     truth: dict[str, Any] = {}
-    for asset_id, asset in zip(asset_ids, assets, strict=True):
-        results = asset.get("results")
-        if not isinstance(results, Mapping):
-            continue
+    for asset in collateral_analysis["assets"]:
         for metric in COLLATERAL_GROUND_TRUTH_METRICS:
-            value = results.get(metric)
+            value = asset["results"].get(metric)
             if _plain_number(value):
-                truth[f"collateral_{asset_id}_{metric}"] = value
-    deal_results = collateral_analysis.get("results")
-    if isinstance(deal_results, Mapping):
-        for key in COLLATERAL_DEAL_LGD_KEYS:
-            if _plain_number(deal_results.get(key)):
-                truth[key] = deal_results[key]
+                truth[f"collateral_{asset['asset_id']}_{metric}"] = value
+    for key in COLLATERAL_DEAL_LGD_KEYS:
+        value = collateral_analysis["results"].get(key)
+        if _plain_number(value):
+            truth[key] = value
     return truth
 
 
@@ -217,6 +201,7 @@ def ground_truth_figures(
     financials: dict[str, Any] | None, ratios: dict[str, Any] | None,
     collateral: Iterable[dict[str, Any]] | None, downside_case: dict[str, Any] | None = None,
     collateral_analysis: dict[str, Any] | None = None,
+    resolved_views: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The complete set of figures the Underwriter is allowed to cite a
     number for, and what that number must actually be: every FY-Current
@@ -310,6 +295,36 @@ def ground_truth_figures(
                 if metric == "raw" or value is None:
                     continue
                 truth[f"{metric}_{period}_downside"] = value
+
+    # Guarantor keys are entity-qualified and cannot collide with borrower
+    # keys. Only fresh framework-computed values from the shared resolver are
+    # made available to the narrative-accuracy check.
+    for view in resolved_views or []:
+        if view.get("basis") != "guarantor_group":
+            continue
+        entity_id = view.get("basis_entity_id")
+        if not isinstance(entity_id, str) or not entity_id.strip():
+            continue
+        entity_key = quote(entity_id, safe="")
+        entity_prefix = f"guarantor_group::{entity_key}::"
+        entity_ratios = view.get("ratios")
+        entity_financials = view.get("financials")
+        if isinstance(entity_ratios, Mapping):
+            for period, period_values in entity_ratios.items():
+                if not isinstance(period_values, Mapping):
+                    continue
+                suffix = "" if period == "FY-Current" else f"_{period}"
+                for metric, value in period_values.items():
+                    if _plain_number(value):
+                        truth[f"{entity_prefix}{metric}{suffix}"] = value
+        if isinstance(entity_financials, Mapping):
+            for period, period_values in entity_financials.items():
+                if not isinstance(period_values, Mapping):
+                    continue
+                suffix = "" if period == "FY-Current" else f"_{period}"
+                for metric, value in period_values.items():
+                    if metric != "raw" and _plain_number(value):
+                        truth[f"{entity_prefix}{metric}{suffix}"] = value
 
     return truth
 

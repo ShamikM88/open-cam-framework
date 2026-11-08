@@ -18,6 +18,7 @@ deliberately triggered code-enforced) REJECTED path don't need one.
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -25,6 +26,7 @@ from types import SimpleNamespace
 import docx
 import pytest
 
+from guarantor_test_support import make_guarantor_record, guarantor_covenant, guarantee_row
 from orchestrator import (
     MAX_REVIEW_ITERATIONS,
     MISSING_CREDENTIALS_MESSAGE,
@@ -499,7 +501,7 @@ def _bad_value_for(key):
 
 # What run_pipeline reads from an existing state, pinned as a LITERAL (parametrizing over the module's own constant
 # would let a dropped key take its test with it).
-ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral",
+ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                            "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                            "security_package", "guarantees", "review_trail")
 
@@ -2772,7 +2774,10 @@ def test_run_pipeline_hands_the_states_group_basis_to_the_policy_engine(project_
 
     seen = []
     real = orchestrator.evaluate_deal_policy
-    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
+    monkeypatch.setattr(
+        orchestrator, "evaluate_deal_policy",
+        lambda state, **kwargs: seen.append(state) or real(state, **kwargs),
+    )
     group_basis = _recomputed_group_basis()
     write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
                 group_basis=group_basis,
@@ -2793,7 +2798,10 @@ def test_run_pipeline_passes_no_group_basis_for_an_ordinary_deal(project_root, m
 
     seen = []
     real = orchestrator.evaluate_deal_policy
-    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", lambda state: seen.append(state) or real(state))
+    monkeypatch.setattr(
+        orchestrator, "evaluate_deal_policy",
+        lambda state, **kwargs: seen.append(state) or real(state, **kwargs),
+    )
 
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1)
@@ -2871,3 +2879,431 @@ def test_a_deal_type_with_a_space_still_runs_the_pipeline_without_a_template(pro
     client = MockClient([_compliant_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "Asset Finance", client=client)
     assert client.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Headless --collateral accepts the calculator payload too (issue #266, option C)
+# ---------------------------------------------------------------------------
+
+def _charged_draft(body="# Draft CAM"):
+    """A compliant draft that also covers the condition subsequent a perfected first charge on AST-001 requires."""
+    return _compliant_draft(body, cs_ids=[*STANDARD_CS_IDS, "CS-SEC-REPERFECT-AST-001"])
+
+
+def _calculator_payload():
+    return {
+        "assets": [{
+            "asset_id": "AST-001", "asset_class": "Synthetic excavator", "valuation": 100000,
+            "down_payment_pct": 0.2, "est_rv_pct": 0.4, "cap_or_model_value": 60000,
+            "number_of_units": 1, "perfection_status": "Pending", "lgd_pct": 0.45,
+        }],
+        "mitigants": [{"mitigant_id": "M-1", "amount": 5000, "eligible_for_netting": True}],
+    }
+
+
+def _seed_charge():
+    """AST-001 needs a perfected first charge, or the policy engine (rightly) rejects the draft as uncharged."""
+    write_state("Acme Corp", "Fleet Loan", security_package=[
+        {"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"}])
+
+
+def test_run_pipeline_records_the_calculator_analysis_and_projection_for_an_object_payload(project_root):
+    _seed_charge()
+    from collateral_check import calculate_collateral_analysis, collateral_projection
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    expected = calculate_collateral_analysis(_calculator_payload())
+    assert state["collateral_analysis"] == expected
+    assert state["collateral"] == collateral_projection(expected)
+
+
+def test_the_headless_analysis_is_identical_to_the_one_the_calculator_cli_records(project_root):
+    _seed_charge()
+    from collateral_check import main as collateral_main
+
+    write_state("Acme Corp", "Cli Deal")
+    payload_file = project_root / "payload.json"
+    payload_file.write_text(json.dumps(_calculator_payload()), encoding="utf-8")
+    try:
+        collateral_main(["--company", "Acme Corp", "--proposal", "Cli Deal", "--input-file", str(payload_file)])
+    except SystemExit:
+        pass
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+
+    assert read_state("Acme Corp", "Fleet Loan")["collateral_analysis"] == \
+        read_state("Acme Corp", "Cli Deal")["collateral_analysis"]
+
+
+def test_a_legacy_list_replacing_an_analysis_invalidates_it(project_root):
+    _seed_charge()
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    legacy = [{"asset_id": "AST-001", "asset_class": "HGV", "exposure": 100, "collateral_value": 80,
+               "perfection_status": "Registered"}]
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=legacy,
+                 client=MockClient([_charged_draft("# Draft v2"), _approved_json()]))
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["collateral"] == legacy
+    assert not state.get("collateral_analysis")
+
+
+def test_a_rerun_without_collateral_keeps_the_analysis_and_the_projection(project_root):
+    _seed_charge()
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    before = read_state("Acme Corp", "Fleet Loan")
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=MockClient([_charged_draft("# Draft v2"), _approved_json()]))
+
+    after = read_state("Acme Corp", "Fleet Loan")
+    assert after["collateral_analysis"] == before["collateral_analysis"]
+    assert after["collateral"] == before["collateral"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"assets": "x"}, {"assets": [{"asset_id": "max", "valuation": 1, "down_payment_pct": 0, "est_rv_pct": 0}]},
+    {"assets": [], "mitigants": [{"amount": 1}]}, {"mitigants": []}, {},
+], ids=["assets-not-list", "reserved-id", "mitigant-without-flag", "no-assets", "empty-object"])
+def test_a_refused_object_payload_raises_one_collateral_error_and_writes_nothing(project_root, payload):
+    from numeric_validation import FinancialInputError
+
+    with pytest.raises(FinancialInputError):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     collateral_data=payload, client=MockClient([]))
+
+    assert read_state("Acme Corp", "Fleet Loan") is None
+
+
+def test_a_non_finite_number_in_an_object_payload_is_refused(project_root):
+    from numeric_validation import FinancialInputError
+
+    payload = _calculator_payload()
+    payload["assets"][0]["valuation"] = float("nan")
+    with pytest.raises(FinancialInputError):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     collateral_data=payload, client=MockClient([]))
+
+
+def test_an_object_payload_is_accepted_for_an_analyst_supplied_deal(project_root):
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied")
+    _seed_charge()
+
+    draft = _compliant_draft(cs_ids=[*STANDARD_CS_IDS, "CS-SEC-REPERFECT-AST-001"], financials_source_disclosed=True)
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([draft, _approved_json()]))
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials_source"] == "analyst-supplied"
+    assert state["collateral_analysis"]["assets"][0]["asset_id"] == "AST-001"
+
+
+def test_ground_truth_is_built_from_the_analysis_the_run_records(project_root, monkeypatch):
+    _seed_charge()
+    import orchestrator
+    from collateral_check import calculate_collateral_analysis
+
+    seen = []
+    real = orchestrator._ground_truth_figures
+
+    def spy(*args, **kwargs):
+        seen.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "_ground_truth_figures", spy)
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+
+    args, kwargs = seen[0]
+    analysis = args[4] if len(args) > 4 else kwargs["collateral_analysis"]
+    assert analysis == calculate_collateral_analysis(_calculator_payload())
+
+
+def test_ground_truth_uses_a_stored_analysis_when_no_collateral_is_supplied(project_root, monkeypatch):
+    import orchestrator
+    from collateral_check import calculate_collateral_analysis, collateral_projection
+
+    analysis = calculate_collateral_analysis(_calculator_payload())
+    write_state("Acme Corp", "Fleet Loan", collateral=collateral_projection(analysis), collateral_analysis=analysis,
+                security_package=[{"secures_asset_id": "AST-001", "perfection_status": "Perfected", "ranking": "First"}])
+    seen = []
+    real = orchestrator._ground_truth_figures
+
+    def spy(*args, **kwargs):
+        seen.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "_ground_truth_figures", spy)
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 client=MockClient([_charged_draft(), _approved_json()]))
+
+    args, kwargs = seen[0]
+    assert (args[4] if len(args) > 4 else kwargs["collateral_analysis"]) == analysis
+
+
+def test_a_legacy_list_run_gives_the_ground_truth_no_analysis(project_root, monkeypatch):
+    import orchestrator
+
+    seen = []
+    real = orchestrator._ground_truth_figures
+
+    def spy(*args, **kwargs):
+        seen.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "_ground_truth_figures", spy)
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[{"asset_class": "HGV", "exposure": 100, "collateral_value": 80}],
+                 client=MockClient([_charged_draft(), _approved_json()]))
+
+    args, kwargs = seen[0]
+    assert (args[4] if len(args) > 4 else kwargs.get("collateral_analysis")) is None
+
+
+def test_an_explicit_empty_legacy_list_clears_the_collateral_and_its_analysis(project_root):
+    """CG563-1: [] was treated as 'not supplied', so the old assets and their analysis survived."""
+    _seed_charge()
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    assert read_state("Acme Corp", "Fleet Loan")["collateral_analysis"]
+    write_state("Acme Corp", "Fleet Loan", security_package=[])
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[], client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
+
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["collateral"] == []
+    assert not state.get("collateral_analysis")
+
+
+def test_an_explicit_empty_legacy_list_on_a_deal_without_an_analysis_records_no_collateral(project_root):
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[{"asset_class": "HGV", "exposure": 100, "collateral_value": 80}],
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=[], client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
+
+    assert read_state("Acme Corp", "Fleet Loan")["collateral"] == []
+
+
+# --- Issue #575: the Maker and the Checker are shown the stored collateral analysis (or why not). ---------------
+
+_CALC_HEADER = "Collateral calculator results"
+_FIGURES_RE = re.compile(r"<collateral_analysis_figures>\n(.*?)\n</collateral_analysis_figures>", re.S)
+
+
+def _stored_analysis(payload=None):
+    from collateral_check import calculate_collateral_analysis
+
+    return calculate_collateral_analysis(payload or _calculator_payload())
+
+
+def _context(collateral, analysis):
+    return _build_grounding_context(
+        "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", {"financials": {}, "ratios": {}}, collateral,
+        collateral_analysis=analysis)
+
+
+def _shown_figures(context):
+    match = _FIGURES_RE.search(context)
+    assert match, "no <collateral_analysis_figures> block in the context"
+    return json.loads(match.group(1))
+
+
+def test_a_current_analysis_is_shown_under_the_exact_declaration_keys():
+    from collateral_check import collateral_projection
+    from policy_checks import collateral_analysis_ground_truth
+
+    analysis = _stored_analysis()
+    context = _context(collateral_projection(analysis), analysis)
+
+    assert _CALC_HEADER in context
+    shown = _shown_figures(context)
+    assert shown == collateral_analysis_ground_truth(analysis)
+    assert "collateral_AST-001_total_exposure" in shown and "collateral_max_lgd_pct" in shown
+
+
+def test_the_figures_lead_in_says_it_overrides_an_instruction_to_omit_per_asset_metrics():
+    """CG576-1 (PR #576 review): main's Underwriter prompt may still say per-asset metrics are omitted from
+    reported_figures; the lead-in must make the precedence unambiguous within the same request."""
+    from collateral_check import collateral_projection
+
+    analysis = _stored_analysis()
+    context = _context(collateral_projection(analysis), analysis)
+    lead_in = context[context.index(_CALC_HEADER):context.index("<collateral_analysis_figures>")]
+
+    assert "take precedence over any other instruction to omit per-asset collateral metrics" in lead_in
+    assert "reported_figures" in lead_in
+
+
+def test_the_figures_shown_are_exactly_the_per_asset_ground_truth_the_check_uses():
+    from collateral_check import collateral_projection
+    from orchestrator import _ground_truth_figures
+
+    analysis = _stored_analysis()
+    projection = collateral_projection(analysis)
+    truth = _ground_truth_figures({}, {}, projection, None, analysis)
+    checked = {key: value for key, value in truth.items()
+               if key.startswith("collateral_") and key != "collateral_cover_pct"}
+
+    assert _shown_figures(_context(projection, analysis)) == checked
+
+
+def test_an_unavailable_metric_is_not_shown_as_a_number():
+    from collateral_check import collateral_projection
+
+    payload = _calculator_payload()
+    del payload["assets"][0]["lgd_pct"]
+    analysis = _stored_analysis(payload)
+    shown = _shown_figures(_context(collateral_projection(analysis), analysis))
+
+    assert "collateral_AST-001_lgd_pct" not in shown and "collateral_max_lgd_pct" not in shown
+    assert "collateral_AST-001_total_exposure" in shown
+
+
+@pytest.mark.parametrize("tamper", ["result", "version"])
+def test_a_stale_analysis_shows_no_per_asset_figure_and_says_so(tamper):
+    from collateral_check import collateral_projection
+
+    analysis = _stored_analysis()
+    projection = collateral_projection(analysis)
+    if tamper == "result":
+        analysis["assets"][0]["results"]["total_exposure"] += 1.0
+    else:
+        analysis["calculator_version"] = "0.0.0"
+    context = _context(projection, analysis)
+
+    assert _CALC_HEADER in context and "stale or fails its integrity check" in context
+    assert "rerun /collateral" in context
+    assert "collateral_AST-001_" not in context and "<collateral_analysis_figures>" not in context
+
+
+def test_a_legacy_projection_without_an_analysis_is_labelled_as_not_calculator_certified():
+    from collateral_check import collateral_projection
+
+    projection = collateral_projection(_stored_analysis())
+    context = _context(projection, None)
+
+    assert "none recorded" in context and "legacy summary" in context
+    assert "collateral_AST-001_" not in context and "<collateral_analysis_figures>" not in context
+
+
+@pytest.mark.parametrize("collateral", [None, []])
+def test_a_deal_with_no_collateral_gets_no_calculator_section(collateral):
+    assert _CALC_HEADER not in _context(collateral, None)
+
+
+@pytest.mark.parametrize("recorded", [{}, [], "", 0, {"assets": "x"}])
+def test_a_recorded_but_malformed_analysis_is_stale_not_absent(recorded):
+    """CG576-2 (PR #576 review): an empty or malformed recorded object is not the same as no analysis."""
+    from collateral_check import collateral_projection
+
+    projection = collateral_projection(_stored_analysis())
+    context = _context(projection, recorded)
+
+    assert "stale or fails its integrity check" in context
+    assert "none recorded" not in context and "<collateral_analysis_figures>" not in context
+
+
+def test_a_current_analysis_with_no_assets_gets_no_calculator_section():
+    """CG576-2 (PR #576 review): a valid analysis of an empty asset list must not emit an empty figures block."""
+    from collateral_check import calculate_collateral_analysis
+
+    analysis = calculate_collateral_analysis({"assets": [], "mitigants": []})
+
+    assert _CALC_HEADER not in _context([], analysis)
+    assert "<collateral_analysis_figures>" not in _context([], analysis)
+
+
+def _prompts(client):
+    """The Maker prompt (first call) and the Checker prompt (second call) the pipeline really sent."""
+    maker, checker = client.calls[0], client.calls[-1]
+    return maker["messages"][0]["content"], checker["messages"][0]["content"]
+
+
+def test_the_real_maker_and_checker_prompts_carry_the_current_figures(project_root):
+    from policy_checks import collateral_analysis_ground_truth
+
+    _seed_charge()
+    client = MockClient([_charged_draft(), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(), client=client)
+
+    expected = collateral_analysis_ground_truth(read_state("Acme Corp", "Fleet Loan")["collateral_analysis"])
+    maker_prompt, checker_prompt = _prompts(client)
+    assert _shown_figures(maker_prompt) == expected
+    assert _shown_figures(checker_prompt) == expected
+
+
+def test_the_real_prompts_say_a_tampered_stored_analysis_is_stale(project_root):
+    _seed_charge()
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 collateral_data=_calculator_payload(),
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    stored = read_state("Acme Corp", "Fleet Loan")["collateral_analysis"]
+    stored["assets"][0]["results"]["total_exposure"] += 1.0
+    write_state("Acme Corp", "Fleet Loan", collateral_analysis=stored)
+
+    client = MockClient([_charged_draft("# Draft v2"), _approved_json()])
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    for prompt in _prompts(client):
+        assert "stale or fails its integrity check" in prompt
+        assert "collateral_AST-001_" not in prompt and "<collateral_analysis_figures>" not in prompt
+
+
+
+def test_run_pipeline_shares_one_resolved_guarantor_view_with_policy_and_ground_truth(project_root, monkeypatch):
+    import orchestrator
+
+    entity_id = "synthetic-c4-orchestrator"
+    record = make_guarantor_record(entity_id)
+    write_state(
+        "Acme Corp",
+        "Fleet Loan",
+        date_str="2026-01-10",
+        deal_type="corporate_credit",
+        covenants=[guarantor_covenant(entity_id)],
+        guarantees=[guarantee_row()],
+        entity_records={entity_id: record},
+    )
+    policy_views = []
+    truth_views = []
+    real_engine = orchestrator.evaluate_deal_policy
+    real_truth = orchestrator._ground_truth_figures
+
+    def capture_engine(policy_input, resolved_views=None):
+        policy_views.append(resolved_views)
+        assert policy_input["entity_records"][entity_id]["entity_id"] == entity_id
+        return real_engine(policy_input, resolved_views=resolved_views)
+
+    def capture_truth(*args, resolved_views=None, **kwargs):
+        truth_views.append(resolved_views)
+        return real_truth(*args, resolved_views=resolved_views, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "evaluate_deal_policy", capture_engine)
+    monkeypatch.setattr(orchestrator, "_ground_truth_figures", capture_truth)
+
+    # The standard draft fixture intentionally omits the new guarantee-specific CP,
+    # so the code-enforced draft gate exits after both integration boundaries ran.
+    with pytest.raises(SystemExit):
+        run_pipeline(
+            "Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+            client=MockClient([_compliant_draft(), _approved_json()]), max_iterations=1,
+        )
+
+    assert policy_views and truth_views
+    assert policy_views[0] is truth_views[0]
+    assert policy_views[0][0]["basis_entity_id"] == entity_id

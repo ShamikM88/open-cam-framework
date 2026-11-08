@@ -234,6 +234,8 @@ def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=Non
         "evaluate_deal_policy": [],
         "ground_truth_figures": [],
         "check_draft_compliance": [],
+        "evaluate_views": [],
+        "ground_truth_views": [],
     }
     result_policy_state = {"synthetic": "policy state"} if policy_state is None else policy_state
     result_truth = {"synthetic_figure": 12.5} if truth is None else truth
@@ -243,12 +245,16 @@ def pc_stub_compute_collaborators(monkeypatch, loaded_state, *, policy_state=Non
         calls["read_state"].append((company, proposal, keys))
         return loaded_state
 
-    def fake_evaluate_deal_policy(policy_input):
+    def fake_evaluate_deal_policy(policy_input, resolved_views=None):
         calls["evaluate_deal_policy"].append(policy_input)
+        calls["evaluate_views"].append(resolved_views)
         return result_policy_state
 
-    def fake_ground_truth_figures(financials, ratios, collateral, downside_case, collateral_analysis=None):
+    def fake_ground_truth_figures(
+        financials, ratios, collateral, downside_case, collateral_analysis=None, resolved_views=None,
+    ):
         calls["ground_truth_figures"].append((financials, ratios, collateral, downside_case))
+        calls["ground_truth_views"].append(resolved_views)
         return result_truth
 
     def fake_check_draft_compliance(
@@ -329,6 +335,7 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
         "guarantees": loaded_state["guarantees"],
         "downside_case": loaded_state["downside_case"],
         "group_basis": None,
+        "entity_records": loaded_state.get("entity_records"),
     }]
     assert calls["ground_truth_figures"] == [(
         loaded_state["financials"], loaded_state["ratios"],
@@ -378,6 +385,7 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
         "guarantees": [],
         "downside_case": {},
         "group_basis": None,
+        "entity_records": None,
     }
     assert result == {
         "policy_state": policy_state,
@@ -459,6 +467,41 @@ def test_compute_propagates_a_missing_draft_file_before_ground_truth_or_complian
     assert calls["ground_truth_figures"] == []
     assert calls["check_draft_compliance"] == []
 
+
+
+def test_compute_reuses_one_resolved_guarantor_view_for_engine_and_ground_truth(monkeypatch):
+    entity_id = "synthetic-guarantor"
+    covenant = {
+        "metric": "dscr", "type": "minimum", "threshold": 1.25,
+        "basis": "guarantor_group", "basis_entity_id": entity_id,
+    }
+    entity_records = {entity_id: {"synthetic": "record loaded from state"}}
+    loaded_state = {
+        "financials": {"FY-Current": {"ebitda": 200.0}},
+        "ratios": {"FY-Current": {"dscr": 99.0}},
+        "collateral": [],
+        "covenants": [covenant],
+        "security_package": [],
+        "guarantees": [{"guarantee_id": "G-C4-01"}],
+        "downside_case": {},
+        "financials_source": "framework-computed",
+        "entity_records": entity_records,
+    }
+    calls, _, _, _ = pc_stub_compute_collaborators(monkeypatch, loaded_state, reasons=[])
+    shared_views = [{"basis": "guarantor_group", "basis_entity_id": entity_id}]
+
+    def resolve(policy_input, covenants):
+        assert policy_input["entity_records"] is entity_records
+        assert covenants == [covenant]
+        return shared_views
+
+    monkeypatch.setattr(policy_check, "resolve_covenant_views", resolve)
+
+    compute("Synthetic Co", "Synthetic Facility")
+
+    assert calls["evaluate_views"][0] is shared_views
+    assert calls["ground_truth_views"][0] is shared_views
+    assert calls["evaluate_deal_policy"][0]["entity_records"] is entity_records
 
 
 # ---------------------------------------------------------------------------

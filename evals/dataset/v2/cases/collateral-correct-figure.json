@@ -1,0 +1,64 @@
+{
+  "id": "collateral-correct-figure",
+  "category": "collateral-figures",
+  "mode": "maker",
+  "description": "A current calculator analysis has one known asset. The Maker must declare its exact total exposure under that asset's structured ground-truth key.",
+  "deal": {
+    "company": "Synthetic Collateral Correct",
+    "proposal": "Synthetic Correct Figure Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "collateral_fixture": {
+      "payload": {
+        "assets": [
+          {
+            "asset_id": "AST-001",
+            "valuation": 500000,
+            "down_payment_pct": 0.2,
+            "est_rv_pct": 0.1,
+            "lgd_pct": 0.25,
+            "cap_or_model_value": 400000,
+            "asset_class": "Machinery",
+            "perfection_status": "Registered"
+          }
+        ],
+        "mitigants": []
+      },
+      "state": "current"
+    }
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the narrative identify the correct asset and metric, state the unit, and explain the figure without relying on a rounded substitute?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nFor AST-001, the calculator-grounded total exposure is 400,000.\n",
+      "structured": {
+        "reported_figures": {
+          "collateral_AST-001_total_exposure": 400000
+        }
+      }
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nFor AST-001, the total exposure is 395,000.\n",
+      "structured": {
+        "reported_figures": {
+          "collateral_AST-001_total_exposure": 395000
+        }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
+    }
+  }
+}

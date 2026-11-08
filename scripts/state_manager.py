@@ -25,6 +25,7 @@ left to each caller -- see its docstring.
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
 import re
@@ -34,7 +35,7 @@ import time
 from collections.abc import Iterable
 from datetime import date, datetime
 from types import TracebackType
-from typing import Any, Literal, Self, TypedDict, overload
+from typing import Any, Literal, NotRequired, Self, TypedDict, overload
 
 from numeric_validation import (
     NonFiniteNumberError, validate_finite_numbers, validate_period_keys, validate_period_objects,
@@ -87,7 +88,14 @@ class EntityRecord(TypedDict):
     raw_figures_source: str
     multi_period_financials: dict[str, dict[str, JsonValue]]
     analyst_supplied_financials: dict[str, dict[str, JsonValue]]
-    spread_status: Literal["not-spread"]
+    spread_status: Literal["not-spread", "spread"]
+    figures_basis: NotRequired[Literal["recomputed"]]
+    spread_timestamp: NotRequired[str]
+    spread_source: NotRequired[str]
+    analyst_review_status: NotRequired[Literal["not yet reviewed by an analyst"]]
+    financials: NotRequired[dict[str, dict[str, JsonValue]]]
+    ratios: NotRequired[dict[str, dict[str, JsonValue]]]
+    spread_fingerprints: NotRequired[dict[str, str]]
     intercompany_lines: list[EntityIntercompanyLine]
     guarantee_ids: list[str]
 
@@ -328,12 +336,139 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
     return None
 
 
-def _entity_records_problems(value: object, guarantees: object = None) -> list[str]:
+
+
+_ENTITY_SPREAD_REVIEW_LABEL = "not yet reviewed by an analyst"
+_ENTITY_SPREAD_FINGERPRINT_CONTRACT = "open-cam-entity-spread-input/v1"
+_ENTITY_SPREAD_PAYLOAD_FIELDS = (
+    "figures_basis", "spread_timestamp", "spread_source", "analyst_review_status",
+    "financials", "ratios", "spread_fingerprints",
+)
+
+
+def entity_period_input_fingerprint(entity_id: str, period: str, record: object) -> str:
+    """Fingerprint the exact C3 input contract for one entity-period.
+
+    The digest deliberately excludes calculated outputs, display name, perimeter
+    and guarantee links. It is a deterministic fingerprint of state values, not
+    proof that the original source document is authentic.
+    """
+    if not isinstance(record, dict):
+        raise StateShapeError("Cannot fingerprint an entity spread: the entity record must be an object.")
+    if record.get("entity_id") != entity_id:
+        raise StateShapeError("Cannot fingerprint an entity spread: entity_id does not match the selected record.")
+    period_ends = record.get("period_ends")
+    source = record.get("source")
+    multi = record.get("multi_period_financials")
+    if not isinstance(period_ends, dict) or period not in period_ends:
+        raise StateShapeError(f"Cannot fingerprint entity {entity_id!r}, period {period!r}: period end is missing.")
+    if not isinstance(source, dict):
+        raise StateShapeError(f"Cannot fingerprint entity {entity_id!r}: source must be an object.")
+    if not isinstance(multi, dict) or period not in multi or not isinstance(multi[period], dict):
+        raise StateShapeError(
+            f"Cannot fingerprint entity {entity_id!r}, period {period!r}: "
+            "multi_period_financials raw lines are missing."
+        )
+    raw_source = record.get("raw_figures_source")
+    if not isinstance(raw_source, str) or not raw_source.strip():
+        raise StateShapeError(f"Cannot fingerprint entity {entity_id!r}: raw_figures_source is missing.")
+    payload = {
+        "contract": _ENTITY_SPREAD_FINGERPRINT_CONTRACT,
+        "entity_id": entity_id,
+        "period": period,
+        "period_end": period_ends[period],
+        "source": source,
+        "raw_figures_source": raw_source,
+        "store": "multi_period_financials",
+        "raw_lines": multi[period],
+    }
+    try:
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise StateShapeError(
+            f"Cannot fingerprint entity {entity_id!r}, period {period!r}: inputs are not canonical JSON ({exc})."
+        ) from exc
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _entity_spread_problem(record: dict[str, Any], record_path: str) -> str | None:
+    """Validate the all-or-nothing C3 spread payload nested in one entity record."""
+    status = record.get("spread_status")
+    if status == "not-spread":
+        present = [field for field in _ENTITY_SPREAD_PAYLOAD_FIELDS if field in record]
+        if present:
+            return (
+                f'{record_path}.spread_status is "not-spread" but spread payload field '
+                f"{present[0]!r} is present"
+            )
+        return None
+    if status != "spread":
+        return f'{record_path}.spread_status must be "not-spread" or "spread"; found {status!r}'
+    if record.get("role") != "guarantor":
+        return f'{record_path}.spread_status "spread" is only valid for role "guarantor"'
+    if record.get("figures_basis") != "recomputed":
+        return f'{record_path}.figures_basis must be "recomputed"'
+    if record.get("analyst_review_status") != _ENTITY_SPREAD_REVIEW_LABEL:
+        return f'{record_path}.analyst_review_status must be "{_ENTITY_SPREAD_REVIEW_LABEL}"'
+
+    timestamp = record.get("spread_timestamp")
+    if not isinstance(timestamp, str) or not timestamp.strip():
+        return f"{record_path}.spread_timestamp must be an ISO-8601 timestamp with a timezone"
+    try:
+        parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return f"{record_path}.spread_timestamp must be an ISO-8601 timestamp with a timezone"
+    if parsed_timestamp.tzinfo is None:
+        return f"{record_path}.spread_timestamp must include a timezone"
+
+    spread_source = record.get("spread_source")
+    if not isinstance(spread_source, str) or not spread_source.strip():
+        return f"{record_path}.spread_source must be a non-empty provenance reference"
+
+    raw = record.get("multi_period_financials")
+    financials = record.get("financials")
+    ratios = record.get("ratios")
+    fingerprints = record.get("spread_fingerprints")
+    if not isinstance(raw, dict):
+        return f"{record_path}.multi_period_financials must be an object keyed by framework period label"
+    if not isinstance(financials, dict):
+        return f"{record_path}.financials must be an object keyed by spread period"
+    if not isinstance(ratios, dict):
+        return f"{record_path}.ratios must be an object keyed by spread period"
+    if not isinstance(fingerprints, dict):
+        return f"{record_path}.spread_fingerprints must be an object keyed by spread period"
+
+    for field, value in (("financials", financials), ("ratios", ratios)):
+        try:
+            validate_period_objects(value, path=f"{record_path}.{field}")
+            validate_period_keys(value, _ENTITY_RECORD_PERIOD_KEYS, path=f"{record_path}.{field}")
+            validate_finite_numbers(value, path=f"{record_path}.{field}")
+        except ValueError as exc:
+            return str(exc)
+    try:
+        validate_period_keys(fingerprints, _ENTITY_RECORD_PERIOD_KEYS, path=f"{record_path}.spread_fingerprints")
+    except ValueError as exc:
+        return str(exc)
+
+    # Keep period-level gaps/mismatches readable so the spread view can mark
+    # only affected periods stale. A raw period may be added/removed after a
+    # spread, and one missing digest must not hide unrelated current periods.
+    # Each map's keys are still restricted to known framework period labels;
+    # currentness and the digest's exact format are checked before exposure.
+    return None
+
+
+def _entity_records_problems(value: object, guarantees: object = None, registering: str | None = None) -> list[str]:
     """Validate the full entity registry and return its first deterministic problem.
 
     Unknown fields inside each record are deliberately allowed and preserved.
     This validates stored inputs only; it does not spread, aggregate or calculate
     anything from an entity record.
+
+    `registering` names the one record that `record_entity_record()` is adding: a new registration is always
+    "not-spread" (CG568-5), while a stored record may carry the validated spread that `record_entity_spread()` wrote.
     """
     if not isinstance(value, dict):
         return [f'"entity_records" must be an object, found {_json_type(value)}']
@@ -405,9 +540,8 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
 
         if not nonempty_text(record.get("raw_figures_source")):
             return [f"{record_path}.raw_figures_source must be a non-empty string"]
-        if record.get("spread_status") != "not-spread":
+        if entity_key == registering and record.get("spread_status") != "not-spread":
             return [f'{record_path}.spread_status must be "not-spread" in step 1']
-
         raw_stores: dict[str, dict[Any, Any]] = {}
         for store_name in ("multi_period_financials", "analyst_supplied_financials"):
             raw_store = record.get(store_name)
@@ -432,6 +566,10 @@ def _entity_records_problems(value: object, guarantees: object = None) -> list[s
             supplied_raw = supplied.get(period)
             if isinstance(raw, dict) and raw and isinstance(supplied_raw, dict) and supplied_raw:
                 return [f"{record_path} has figures in both raw stores for period {period!r}"]
+
+        spread_problem = _entity_spread_problem(record, record_path)
+        if spread_problem is not None:
+            return [spread_problem]
 
         intercompany_lines = record.get("intercompany_lines")
         if not isinstance(intercompany_lines, list):
@@ -645,7 +783,7 @@ def record_entity_record(
 
         registry: EntityRegistry = dict(existing_registry)
         registry[entity_id] = record
-        problems = _entity_records_problems(registry, state.get("guarantees"))
+        problems = _entity_records_problems(registry, state.get("guarantees"), registering=entity_id)
         if problems:
             raise StateError(f"Refusing to register entity_record: {problems[0]}. Nothing was changed.")
         # The entity contract has already validated every recognized raw line and intercompany amount.
@@ -659,6 +797,92 @@ def record_entity_record(
         "state_path": path,
         "spread_status": "not-spread",
     }
+
+
+def record_entity_spread(
+    company: str, proposal: str, entity_id: str,
+    financials: dict[str, dict[str, Any]], ratios: dict[str, dict[str, Any]],
+    spread_fingerprints: dict[str, str], spread_timestamp: str, spread_source: str,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """Persist one guarantor's recomputed spread without touching borrower figures.
+
+    The selected raw inputs are fingerprinted again while holding the existing
+    per-deal lock. A concurrent input/provenance change therefore refuses the
+    write, and the nested payload is committed once through _merge_and_write().
+    """
+    company = sanitize_path_component(company, "company")
+    proposal = sanitize_path_component(proposal, "proposal")
+    if not isinstance(entity_id, str) or not entity_id.strip():
+        raise StateError("Refusing to spread an entity: entity_id must be a non-empty stable ID.")
+    found = find_deal(company, proposal, base_dir=base_dir)
+    if not found["record_found"]:
+        raise StateError(
+            f"Refusing to spread entity {entity_id!r}: no exact existing state.json for company {company!r} "
+            f"and proposal {proposal!r}; no deal was created."
+        )
+    record_date = found["date"]
+    path = found["state_path"]
+    if not isinstance(record_date, str) or not isinstance(path, str):
+        raise StateError("Refusing to spread entity: exact existing state path was not resolved.")
+
+    with _FileLock(path):
+        state = read_state(
+            company, proposal, date_str=record_date, base_dir=base_dir,
+            keys=("guarantees", "entity_records"),
+        )
+        if state is None:
+            raise StateError(f"Refusing to spread entity: state.json at {path!r} no longer exists.")
+        registry = state.get("entity_records")
+        if not isinstance(registry, dict) or entity_id not in registry:
+            raise StateError(f"Refusing to spread entity {entity_id!r}: entity record was not found.")
+        original = registry[entity_id]
+        if not isinstance(original, dict):
+            raise StateError(f"Refusing to spread entity {entity_id!r}: entity record must be an object.")
+        if original.get("role") != "guarantor":
+            raise StateError(f"Refusing to spread entity {entity_id!r}: role must be 'guarantor' for C3.")
+        raw = original.get("multi_period_financials")
+        if not isinstance(raw, dict) or not raw:
+            raise StateError(
+                f"Refusing to spread entity {entity_id!r}: no framework-computed multi_period_financials are available."
+            )
+        current_fingerprints = {
+            period: entity_period_input_fingerprint(entity_id, period, original)
+            for period in raw
+        }
+        if spread_fingerprints != current_fingerprints:
+            raise StateError(
+                f"Refusing to spread entity {entity_id!r}: input changed after evaluation; "
+                "the spread was not written."
+            )
+        if not isinstance(financials, dict) or not isinstance(ratios, dict):
+            raise StateError("Refusing to spread entity: calculated financials and ratios must be period objects.")
+        if set(financials) != set(raw) or set(ratios) != set(raw):
+            raise StateError(
+                "Refusing to spread entity: calculated financials and ratios must exactly match "
+                "the framework-computed raw periods."
+            )
+
+        updated_record = dict(original)
+        updated_record.update({
+            "spread_status": "spread",
+            "figures_basis": "recomputed",
+            "spread_timestamp": spread_timestamp,
+            "spread_source": spread_source,
+            "analyst_review_status": _ENTITY_SPREAD_REVIEW_LABEL,
+            "financials": financials,
+            "ratios": ratios,
+            "spread_fingerprints": current_fingerprints,
+        })
+        updated_registry = dict(registry)
+        updated_registry[entity_id] = updated_record
+        problems = _entity_records_problems(updated_registry, state.get("guarantees"))
+        if problems:
+            raise StateError(f"Refusing to spread entity {entity_id!r}: {problems[0]}. Nothing was changed.")
+        return _merge_and_write(
+            path, company, proposal, record_date, base_dir,
+            {"entity_records": updated_registry},
+        )
 
 
 def _problems_with_periods(label: str, value: object) -> list[str]:

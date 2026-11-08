@@ -28,6 +28,25 @@ The test suite proves the code around the model works; this harness is the only 
 - A small synthetic dataset cannot show how the model behaves on a real, messy deal.
 - A rate holds for the model and prompts that produced it. A different model, a prompt edit or a new dataset version is a new measurement.
 
+## Dataset versions and v2 collateral figures
+
+The default dataset remains **v1** (15 cases). **v2** is an additive, separately hashed dataset: it carries those 15 case files byte-for-byte unchanged and adds six Maker cases in the distinct `collateral-figures` category. Do not edit v1 to add these cases, relabel a v1 baseline, or compare v1 and v2 as like-for-like measurements.
+
+Each new case exercises one boundary: a correct per-asset figure, a wrong value, an unknown asset id, an N/A LGD that must be omitted, a stale stored analysis, or no calculator analysis. A v2 case may carry `deal.collateral_fixture` with exactly a calculator `payload` and a closed `state` value: `current`, `result-tampered`, or `old-version`. No arbitrary mutation text or executable fixture content is accepted. One shared helper runs the real collateral calculator and creates the legacy `collateral` projection; for stale cases it then applies only the named deterministic mutation to the stored analysis. The isolated runner seeds both objects into `state.json` and passes no replacement collateral payload to the pipeline, so a stale fixture is not repaired during setup. The no-analysis case omits the fixture and may retain only a legacy collateral projection.
+
+The oracle context passes the stored analysis to `ground_truth_figures()`. Per-asset keys exist only when `stored_analysis_is_current()` accepts the analysis; stale or absent analysis exposes no per-asset keys, and an N/A metric such as missing `lgd_pct` is omitted rather than set to zero. The `collateral-figures` category is therefore a separate structured-declaration measurement.
+
+**What the Maker is shown in these cases (fixed in issue #575).** The headless pipeline puts the stored calculator results into the grounding context the Maker and the Checker share: the keyed per-asset figures while the analysis is current, one line saying it is stale or fails its integrity check, or one line saying the collateral rows are a legacy summary when there is no analysis. A zero-call test runs each of the six cases through the real prompt assembly and checks that the Maker's prompt carries exactly that for the case, so a live subset measures a model that can see the values it is asked to declare. See [collateral](collateral.md#headless-route-orchestratorpy---collateral).
+
+**The v2 `figures_grounded` result remains a form check, not a narrative judgement.** It can establish that a declared number matches a current calculator key (or that no number was declared); it cannot establish that the prose explains an N/A value, identifies a stale result, or avoids an unsupported narrative claim. Those observations stay in each case's non-scored `human_review` questions. The six cases are suitable for the approved zero-call validation/dry-run only; no live call or spend is part of this build. Any future live subset requires the separate prompt approval and maintainer decision already recorded on #266.
+If a later live subset is separately approved after the prompt contract and API credits are available, keep it to the six new cases and the 30-call ceiling:
+
+```bash
+python scripts/run_evals.py --dataset v2 --cases collateral-correct-figure,collateral-wrong-figure,collateral-unknown-asset,collateral-na-lgd-omitted,collateral-stale-analysis,collateral-no-analysis --repeats 5 --max-calls 30 --live
+```
+
+Leave the normal typed confirmation enabled; do not add `--yes`. This command is documentation for a later separately authorised run only; it is not run or scheduled by this PR.
+
 ## Reading a result
 
 1. **Look at the denominator.** A run that errored, was refused or was cut off at the token limit stays in the count as a non-pass, so a high rate over few completed runs is weaker than it looks. Check the status counts, then the rate.

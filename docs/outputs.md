@@ -82,8 +82,9 @@ returns `N/A` when its denominator is not positive, matching `state.json`'s `nul
 Status`, filled from the deal's `collateral` list. When the state carries a `collateral_analysis` (issue #266),
 the same rows gain eight value columns with the calculator's persisted per-asset figures — `Non-RV Funded
 Exposure`, `RV Exposure`, `Total Exposure (Inc. RV)`, `Net Exposure`, `Coverage %`, `Uncovered Risk (Gross)`,
-`Net Uncovered Risk` and `LGD %` — joined by `asset_id` and used only when the stored `input_digest` matches the
-stored inputs; otherwise the cells read `N/A`. These are written values, not a second Excel implementation of the
+`Net Uncovered Risk` and `LGD %` — joined by `asset_id` and used only when the stored analysis is current (same
+calculator version, input digest intact, stored results reproduced by recalculating the stored inputs); otherwise the cells
+read `N/A`. These are written values, not a second Excel implementation of the
 formulas, and the deal-level LGD figures stay out of the workbook.
 
 For an analyst-supplied historical basis, the historical raw-input cells are filled from

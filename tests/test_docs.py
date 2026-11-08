@@ -213,3 +213,11 @@ def test_a_heading_with_inline_code_keeps_its_code_text_in_the_anchor():
 def test_pull_request_template_links_to_mergeability_rubric():
     template = (REPO / ".github" / "pull_request_template.md").read_text(encoding="utf-8")
     assert "[mergeability rubric](../docs/contributing.md#mergeability-rubric)" in template
+
+
+def test_the_commands_page_describes_each_command_once():
+    """A scripted edit once pasted 130 lines of the page over itself, leaving every later section twice."""
+    text = (REPO / "docs" / "commands.md").read_text(encoding="utf-8")
+    headings = [line for line in text.splitlines() if line.startswith("### ")]
+    repeated = sorted({heading for heading in headings if headings.count(heading) > 1})
+    assert not repeated, f"repeated command sections in docs/commands.md: {repeated}"

@@ -45,9 +45,11 @@ The active rules in this register began as Not covered with
 [issue #500](https://github.com/ShamikM88/open-cam-framework/issues/500)
 as the temporary citation and verification tracker. During #500, candidate test bodies were checked against each
 Claim; only tests whose assertions verify the whole Claim received a citation and a Covered status. The remaining
-Not covered entries each link their own gap issue, which asks for the missing test.
+Not covered entries from that audit each link their own gap issue, which asks for the missing test. The second
+batch links [issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) for its outstanding test-citation
+verification; existing behavioural tests do not make a new rule Covered until they cite its ID.
 
-**Inventory at this revision:** 35 IDs ever issued; 32 active Covered; 0 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 42 IDs ever issued; 32 active Covered; 7 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -97,6 +99,7 @@ independently proven by the gate.
 - `R-POL-018`
 - `R-POL-019`
 - `R-POL-020`
+- `R-POL-021`
 - `R-STATE-001`
 - `R-STATE-002`
 - `R-STATE-003`
@@ -112,6 +115,12 @@ independently proven by the gate.
 - `R-EXPORT-004`
 - `R-EXPORT-005`
 - `R-EXPORT-006`
+- `R-SPREAD-006`
+- `R-SPREAD-007`
+- `R-EXPORT-007`
+- `R-EXPORT-008`
+- `R-STATE-005`
+- `R-STATE-006`
 
 ## Policy engine and checks (POL)
 
@@ -289,6 +298,14 @@ independently proven by the gate.
 - **Status:** Covered
 - **Tracking:** —
 
+### R-POL-021 — A guarantor covenant requires an exact linked entity and fresh figures
+
+- **Claim:** A `guarantor_group` covenant uses only the exact named, explicitly guarantee-linked entity's current framework-computed spread; a missing or invalid ID, role, guarantee link or period makes the result UNRESOLVABLE, with no borrower or other-entity fallback.
+- **Source:** [Guarantor-group covenant routing (case C step C4)](data-model.md#guarantor-group-covenant-routing-case-c-step-c4).
+- **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
+- **Status:** Not covered
+- **Tracking:** [Issue #473](https://github.com/ShamikM88/open-cam-framework/issues/473)
+
 ## State persistence and validation (STATE)
 
 ### R-STATE-001 — write_state refuses a newer schema version
@@ -322,6 +339,22 @@ independently proven by the gate.
 - **Implemented in:** `scripts/state_manager.py::append_review_trail`
 - **Status:** Covered
 - **Tracking:** —
+
+### R-STATE-005 — Unreplaced unknown state fields survive write_state
+
+- **Claim:** An otherwise permitted `write_state()` preserves each pre-existing unknown top-level field unless the caller supplies that field in the update.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::_merge_and_write`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530)
+
+### R-STATE-006 — An ordinary write_state call stamps the current schema version
+
+- **Claim:** On a permitted `write_state()` call that omits `schema_version` from its supplied fields, the resulting state records the current `SCHEMA_VERSION`.
+- **Source:** [State manager and state.json](data-model.md#state-manager-and-statejson).
+- **Implemented in:** `scripts/state_manager.py::_merge_and_write`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530)
 
 ## Spreading and financial calculations (SPREAD)
 
@@ -364,6 +397,23 @@ independently proven by the gate.
 - **Implemented in:** `scripts/supplied_forecast.py::record`
 - **Status:** Covered
 - **Tracking:** —
+
+### R-SPREAD-006 — a non-positive denominator makes a computed ratio N/A
+
+- **Claim:** A framework-computed ratio with a zero or negative denominator is N/A.
+- **Source:** [N/A and UNRESOLVABLE](financial-model.md#na-and-unresolvable).
+- **Implemented in:** `scripts/spreading_builder.py::evaluate_financial_model`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) (test citation and verification).
+
+### R-SPREAD-007 — framework spreading refuses analyst-supplied history
+
+- **Claim:** `spreading_check` refuses historical raw-period input on an analyst-supplied deal even when
+  `update_financials_source` is false.
+- **Source:** [Analyst-supplied figures](financial-model.md#analyst-supplied-figures).
+- **Implemented in:** `scripts/spreading_check.py::plan_fields`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) (test citation and verification).
 
 ## Export and rendered output (EXPORT)
 
@@ -415,3 +465,19 @@ independently proven by the gate.
 - **Status:** Covered
 - **Tracking:** —
 
+### R-EXPORT-007 — auto-saved CAM templates stay local
+
+- **Claim:** `export_deal()` writes an auto-saved CAM template under `templates/local/cam/`, never under the
+  shipped `templates/cam/`.
+- **Source:** [Confidentiality rule for new features](../CLAUDE.md#confidentiality-rule-for-new-features).
+- **Implemented in:** `scripts/deal_export.py::export_deal`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) (test citation and verification).
+
+### R-EXPORT-008 — an unterminated HTML comment refuses DOCX export
+
+- **Claim:** An unterminated HTML comment outside a closed fenced code block causes `docx_builder` to refuse DOCX export.
+- **Source:** [Calibrated overrides](outputs.md#calibrated-overrides-templateslocal).
+- **Implemented in:** `scripts/docx_builder.py::_strip_html_comments`
+- **Status:** Not covered
+- **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) (test citation and verification).

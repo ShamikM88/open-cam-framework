@@ -54,8 +54,8 @@ shortened):
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
 | `collateral`, `security_package` | `/collateral` | One entry per asset; one per charge |
-| `collateral_analysis` | `collateral_check.py` (issue #266 PR B) | The full recorded collateral analysis: `assets` (one record per asset — `asset_id`, the validated `inputs` and the computed `results`), `mitigants` (the validated list, each with `amount`, `eligible_for_netting` and optional `mitigant_id`), deal-level `results` (total exposure, total collateral value, coverage, gross and net uncovered risk, excess mitigant, `collateral_max_lgd_pct`, `collateral_avg_lgd_pct`), `input_digest` (SHA-256 of the canonical inputs) and `calculator_version`. Written atomically with the legacy `collateral` projection refreshed from the same results; a missing per-asset LGD makes max and average LGD `null`, never zero |
-| `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries, each optionally with a `basis` (`borrower`, `consolidated` or `guarantor_group`; absent or null means `borrower`); `{"provider", "type", "amount"}` entries |
+| `collateral_analysis` | `collateral_check.py` (issue #266 PR B) | The full recorded collateral analysis: `assets` (one record per asset — `asset_id`, the validated `inputs` and the computed `results`), `mitigants` (the validated list, each with `amount`, `eligible_for_netting` and optional `mitigant_id`), deal-level `results` (total exposure, total collateral value, coverage, gross and net uncovered risk, excess mitigant, `collateral_max_lgd_pct`, `collateral_avg_lgd_pct`), `input_digest` (SHA-256 of the canonical inputs) and `calculator_version`. A reader (the workbook, the policy ground truth) uses it only while it is current: same `calculator_version`, `input_digest` intact, and recalculating the stored inputs and mitigants reproduces the stored results exactly; an edited result, another version or a changed input is stale and omitted, never repaired. Written atomically with the legacy `collateral` projection refreshed from the same results; a missing per-asset LGD makes max and average LGD `null`, never zero |
+| `covenants`, `guarantees` | `/project` | `{"metric", "type", "threshold"}` entries, each optionally with a `basis` (`borrower`, `consolidated` or `guarantor_group`; absent or null means `borrower`) and `basis_entity_id` (required and non-blank for `guarantor_group`); `{"provider", "type", "amount"}` guarantee entries may carry an explicit `guarantee_id` for entity-record linkage |
 | `policy_state` | `/assemble`, the orchestrator | The computed conditions, covenant results, security gaps, downside breaches and forward covenant results, stored whole |
 | `review_trail`, `review_verdict` | `/review`, the orchestrator's audit | The append-only history of verdicts and notes; the latest verdict |
 | `deal_structure_notes.review_cap` | `/research` review checkpoint, when the analyst sets a lower maximum | Optional lower per-deal REJECTED-pass threshold; it takes precedence over the default third-pass checkpoint and is recorded when set. This is an optional nested deal note, not a schema-version bump |
@@ -220,6 +220,59 @@ The opt-in `--periods-rolled-one-year` check is a separate section after the by-
 periods in the prior review with their next-older labels in the current review, reports exact recorded values and
 differences, marks pairs `consistent`, `restated`, or `not_comparable`, and never includes forward periods. The
 flag records the analyst's confirmation; period roll-forward is never inferred.
+
+
+### Standalone guarantor spread (case C step 3)
+
+C3 spreads one registered guarantor by stable `entity_id`, not by its legal name or a borrower-level alias. The
+script selects exactly one `entity_records[entity_id]` whose role is `guarantor`, passes only that record's
+`multi_period_financials` map to the existing `evaluate_financial_model()`, and stores the returned
+`financials` and `ratios` inside that same record. It never combines entity records, reads the borrower's
+raw figures as a fallback, or changes the borrower's top-level `financials`, `ratios`,
+`multi_period_financials`, `analyst_supplied_financials` or `financials_source`. The state schema remains
+`1.2.0`; the spread adds no top-level state key.
+
+A record is either `spread_status: "not-spread"` with no spread payload, or `spread_status: "spread"`
+with all of the following nested fields: `figures_basis: "recomputed"`, `spread_timestamp` (timezone-aware
+ISO-8601), `spread_source` (the script provenance reference), `financials`, `ratios`,
+`spread_fingerprints` (one 64-character lowercase SHA-256 digest per computed period), and
+`analyst_review_status: "not yet reviewed by an analyst"`. The latter is a stored disclosure and appears
+in every user-visible spread result: C3 does not imply that a credit reviewer has signed it off.
+
+Only periods held in `multi_period_financials` are computed. A period held only in
+`analyst_supplied_financials` remains preserved as supplied input and is listed as unavailable; it is not
+recomputed, blended with the other store or replaced with borrower data. A guarantor with no
+framework-computed periods has no C3 spread.
+
+**Per-period fingerprint.** For each computed period, the canonical payload contains only: contract tag
+`open-cam-entity-spread-input/v1`, `entity_id`, the period label, that period's end date, the full
+`source` object, `raw_figures_source`, selected store name `multi_period_financials`, and that period's
+complete raw-line object. It is encoded as
+`json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")`
+and hashed with SHA-256. Calculated outputs, display name, perimeter and `guarantee_ids` are excluded.
+The digest fingerprints values recorded in state; it does not prove the source document's authenticity.
+A raw-line or period-end correction changes that period's digest; changing the shared `source` object or `raw_figures_source` changes every period digest because those complete values appear in every period payload.
+
+A missing/mismatched digest or malformed payload is stale, never current. Before a period is exposed, its
+digest is recomputed and its stored `financials`/`ratios` are compared with the existing evaluator's
+current output. That second check preserves the evaluator's existing prior-period working-capital dependency:
+if a prior period changes and consequently changes a later period's FCF-after-working-capital or cash-flow DSCR,
+the later stored result is also withheld as stale even though its own raw-input digest did not change. Unaffected
+periods remain available. Re-spreading writes the new period results and fingerprints through one locked,
+atomic state update.
+
+Use `python scripts/spreading_check.py --company ... --proposal ... --entity-id <entity ID>` for this
+script-level operation. It takes the input already recorded in the selected entity record; it does not accept
+`--financials` or stress assumptions in entity mode. No multi-entity downside, aggregation, elimination,
+covenant routing, CAM presentation or legal guarantee condition is added by C3.
+
+### Guarantor-group covenant routing (case C step C4)
+
+A covenant with `basis: "guarantor_group"` names exactly one entity in its non-blank `basis_entity_id`. The resolver selects `entity_records[basis_entity_id]` by exact ID; the registry key must equal the record's `entity_id`, the record role must be `guarantor`, and each `guarantee_ids` value on that record must match exactly one explicit `guarantee_id` in the deal's `guarantees` list. Legal names and provider names are never lookup keys or fallbacks. A missing, malformed, ambiguous or mismatched link makes that covenant UNRESOLVABLE.
+
+The selected record must have `spread_status: "spread"`. C4 reuses C3's `entity_spread_view()`: only periods whose input fingerprint and stored evaluator outputs are current are available. A stale, missing, analyst-supplied-only or otherwise unavailable recorded period is UNRESOLVABLE for that covenant and period. The same holds when the entity is identified but fails the role, guarantee-link or spread-status check: its recorded period labels (never its figures) are kept, so each recorded period is still reported UNRESOLVABLE with the global reason. The engine never substitutes borrower figures or another entity's figures. Current and forward guarantor results carry `basis: "guarantor_group"` and the selected `basis_entity_id`; when the ID itself is absent, the result carries `basis_entity_id: null` and an explicit reason. Borrower and case-A result shapes remain unchanged.
+
+The selected-record check is per covenant so a broken link is reported as UNRESOLVABLE rather than silently changing the basis or using a different entity. Registration and state-write validation remain strict. C4 adds no top-level state key, migration or schema-version change; `entity_records` and the C3 fingerprint contract are unchanged.
 
 ### Schema versions and validation
 

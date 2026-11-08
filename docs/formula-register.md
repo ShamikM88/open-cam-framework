@@ -766,13 +766,20 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `borrower`): the engine states which one view the recorded ratios represent (`consolidated` when the state
   records a `group_basis`, otherwise `borrower`), and a covenant on any other basis, or on a basis that is not one
   of the three, is UNRESOLVABLE with a one-sentence reason — never tested against the figures that happen to be
-  recorded (issue #48). A result names its `basis` when the covenant stated one or the recorded view is not the
-  borrower's; an ordinary deal's results keep their earlier shape
-- **State keys:** `covenants[].basis`, `group_basis`
+  recorded (issue #48). A `guarantor_group` covenant additionally requires an exact non-blank `basis_entity_id`,
+  a matching registry/entity ID, role `guarantor`, an explicit `guarantee_id` link that resolves exactly once, and
+  a fresh framework-computed period from the selected entity's C3 spread. A failed identity, link, role or freshness
+  check is UNRESOLVABLE; no borrower or other-guarantor fallback is permitted. Guarantor current results carry both
+  `basis` and `basis_entity_id` (null when the ID is missing); borrower and case-A result shapes remain unchanged.
+  A result names its `basis` when the covenant stated one or the recorded view is not the borrower's; an ordinary
+  deal's results keep their earlier shape
+- **State keys:** `covenants[].basis`, `covenants[].basis_entity_id`, `group_basis`, `entity_records`,
+  `guarantees[].guarantee_id`
 - **Workbook rows:** —
 - **Policy outputs:** `covenant_results`
-- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_covenant()` (called by
-  `evaluate_deal_policy()`, which hands each period's financials to the reason sentence via `_period_dict()`)
+- **Implemented in:** `scripts/covenant_basis.py` — `resolve_covenant_view()` and `resolve_covenant_views()`;
+  `scripts/policy_engine.py` — `_evaluate_resolved_covenant()`, `_evaluate_covenant()` and
+  `evaluate_deal_policy()` (with `_period_dict()` for the existing denominator explanation)
 - **Basis:** house convention (issue #169 equality and N/A rules)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -803,18 +810,20 @@ the entry says so and it is listed under [Known differences](#known-differences)
   (the stress drove a denominator to zero or below) counts as a breach exactly like a FAIL; a downside year
   with no analysis (the unavailable rule of [F-036](#f-036--downside-case-evaluation)) records the same way when the base case PASSes
 - **Unit and storage:** a list of breach records (year, metric, base_actual, downside_actual, threshold,
-  breach_id, downside_status, reason, and optional `basis` copied from the base-case covenant result when present);
+  breach_id, downside_status, reason, and optional `basis` / `basis_entity_id` copied from the base-case covenant result when present);
   `reason` is `None` for a FAIL and one sentence for an UNRESOLVABLE; never mutates the base case
 - **Edge rules:** a breach is only recorded where the base case PASSes — a covenant already failing in the
   base case is that failure, not a downside breach; a covenant whose basis is not the recorded view (F-038) is
-  UNRESOLVABLE in the base case, so it is never a downside breach. The `basis` key is copied only when present in
-  the base-case result; absence remains absence, not null. An unstated basis on consolidated-view figures is
-  UNRESOLVABLE and cannot produce a breach
+  UNRESOLVABLE in the base case, so it is never a downside breach. The `basis` and `basis_entity_id` keys are
+  copied only when present in the base-case result; absence remains absence, not null. When a guarantor base result
+  passes but the matching deal downside period has no guarantor-specific downside view, record an UNRESOLVABLE
+  downside row with null `downside_actual` and the selected identity; never substitute the borrower's downside
+  figures. An unstated basis on consolidated-view figures is UNRESOLVABLE and cannot produce a breach
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `downside_covenant_breaches`
-- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_downside_covenants()` (called by
-  `evaluate_deal_policy()`)
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_downside_covenants()` (borrower/case-A path),
+  `_evaluate_resolved_covenant()` and `evaluate_deal_policy()` (C4 guarantor downside disclosure)
 - **Basis:** house convention (issue #169 / #124 rules carried into the stress)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -829,13 +838,14 @@ the entry says so and it is listed under [Known differences](#known-differences)
   go unrecorded
 - **Edge rules:** a year with no projection (absent, null or empty) is not evaluated; state.json carries no
   covenant tenor, so "covered by the projection" is the whole definition — a covenant that really ends earlier
-  is still reported for later projected years; a covenant whose basis is not the recorded view (F-038) is
-  reported UNRESOLVABLE for every projected year, with its `basis`
+  is still reported for later projected years. Each guarantor covenant is evaluated against the selected entity's
+  own recorded forward periods (every recorded period of an identified entity that fails the role, link or spread check is included); a stale, analyst-supplied-only or otherwise unavailable recorded period is
+  UNRESOLVABLE with its `basis` and `basis_entity_id`, never replaced by a borrower period.
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `forward_covenant_results`
-- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_forward_covenants()` (called by
-  `evaluate_deal_policy()`)
+- **Implemented in:** `scripts/policy_engine.py` — `_evaluate_forward_covenants()` (borrower/case-A path),
+  `_evaluate_resolved_covenant()` and `evaluate_deal_policy()` (C4 guarantor periods)
 - **Basis:** house convention (issue #176)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -917,14 +927,16 @@ the entry says so and it is listed under [Known differences](#known-differences)
   entirely (it is not a figure this deal has a number for), as is the collateral cover when unresolvable
 - **Edge rules:** an unknown reported figure is flagged UNRESOLVABLE rather than ignored; the nested `raw`
   input dicts are not figures and are excluded. A stored collateral result is used only while the
-  analysis's `input_digest` matches its stored inputs; a stale, malformed or ambiguous (missing, duplicate
-  or non-conforming `asset_id`) analysis adds no collateral keys, and an N/A or non-numeric metric is
-  omitted, never defaulted to zero. Without a `collateral_analysis` the set is exactly what it was
+  analysis is current (`stored_analysis_is_current()`: its `calculator_version` is the calculator's, its
+  `input_digest` matches its stored inputs, and recalculating the stored inputs reproduces the stored
+  results exactly); a stale, edited, malformed or ambiguous (missing, duplicate, reserved or non-conforming
+  `asset_id`) analysis adds no collateral keys, and an N/A metric is omitted, never defaulted to zero. Without a `collateral_analysis` the set is exactly what it was
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** —
 - **Implemented in:** `scripts/policy_checks.py` — `ground_truth_figures()` and
-  `collateral_analysis_ground_truth()`; `scripts/collateral_check.py` — `stored_analysis_digest_matches()`
+  `collateral_analysis_ground_truth()`; `scripts/collateral_check.py` — `stored_analysis_is_current()` and
+  `stored_analysis_digest_matches()`
 - **Basis:** house convention; the collateral keys follow decisions 3, 4 and 10 on issue #266
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -982,8 +994,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
   The interactive `/collateral` route is not covered until PR C of issue #266, so a negative can still be
   recorded there; [Known differences](#known-differences) KD-2 says so and is narrowed to the scale difference
   and that route. The same function also writes the sheet's persisted result columns (F-049 to F-055, F-066):
-  literal values joined by `asset_id`, used only when the stored `input_digest` matches the stored inputs
-  (decision 5 on issue #266) — never a second Excel implementation of those formulas; the CV % column itself
+  literal values joined by `asset_id`, used only when the stored analysis is current (same calculator version,
+  `input_digest` intact, stored results reproduced by recalculating the stored inputs; decision 5 on issue #266) — never a second Excel implementation of those formulas; the CV % column itself
   is unchanged. The total row's aggregate Coverage % is summed collateral / summed total exposure (F-058)
 - **State keys:** —
 - **Workbook rows:** CV % of Exposure

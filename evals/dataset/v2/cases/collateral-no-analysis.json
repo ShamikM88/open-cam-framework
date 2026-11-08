@@ -1,0 +1,57 @@
+{
+  "id": "collateral-no-analysis",
+  "category": "collateral-figures",
+  "mode": "maker",
+  "description": "Only a legacy collateral projection is present; no calculator analysis is seeded. Legacy rows alone do not establish certified per-asset ground truth.",
+  "deal": {
+    "company": "Synthetic Collateral Absent",
+    "proposal": "Synthetic No Analysis Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "collateral": [
+      {
+        "asset_id": "AST-001",
+        "asset_class": "Machinery",
+        "exposure": 400000,
+        "number_of_units": 1,
+        "cap_value": 400000,
+        "non_recovery": 0,
+        "costs": 0,
+        "collateral_value": 400000,
+        "perfection_status": "Registered"
+      }
+    ]
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the narrative distinguish the legacy collateral schedule from a current deterministic per-asset analysis and avoid inventing a certified figure?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nNo calculator-backed per-asset figure is available; the legacy collateral schedule is not a substitute for a current analysis.\n",
+      "structured": {
+        "reported_figures": {}
+      }
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nAST-001 total exposure is 400,000 based on the legacy collateral row.\n",
+      "structured": {
+        "reported_figures": {
+          "collateral_AST-001_total_exposure": 400000
+        }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
+    }
+  }
+}

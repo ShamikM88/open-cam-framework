@@ -1,0 +1,64 @@
+{
+  "id": "collateral-na-lgd-omitted",
+  "category": "collateral-figures",
+  "mode": "maker",
+  "description": "The calculator input omits lgd_pct. LGD is N/A and has no per-asset ground-truth key; it must be omitted rather than declared as zero.",
+  "deal": {
+    "company": "Synthetic Collateral LGD",
+    "proposal": "Synthetic N A LGD Facility",
+    "deal_type": "corporate_credit",
+    "pd": "0.50%",
+    "lgd": "LGD 3 (25%)",
+    "collateral_fixture": {
+      "payload": {
+        "assets": [
+          {
+            "asset_id": "AST-001",
+            "valuation": 500000,
+            "down_payment_pct": 0.2,
+            "est_rv_pct": 0.1,
+            "cap_or_model_value": 400000,
+            "asset_class": "Machinery",
+            "perfection_status": "Registered"
+          }
+        ],
+        "mitigants": []
+      },
+      "state": "current"
+    }
+  },
+  "config_files": {},
+  "assertions": [
+    {
+      "oracle": "structured_block_present"
+    },
+    {
+      "oracle": "figures_grounded"
+    }
+  ],
+  "human_review": [
+    "Does the narrative say LGD is unavailable because it was not supplied, without presenting zero or fabricating a numeric LGD?"
+  ],
+  "dry_run": {
+    "good": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nAST-001 total exposure is 400,000. LGD is unavailable because no LGD input was supplied.\n",
+      "structured": {
+        "reported_figures": {
+          "collateral_AST-001_total_exposure": 400000
+        }
+      }
+    },
+    "bad": {
+      "draft_body": "# Credit Assessment Memorandum\n\n## Collateral analysis\nAST-001 total exposure is 400,000 and LGD is 0%.\n",
+      "structured": {
+        "reported_figures": {
+          "collateral_AST-001_total_exposure": 400000,
+          "collateral_AST-001_lgd_pct": 0
+        }
+      },
+      "expected_failures": [
+        "figures_grounded"
+      ]
+    }
+  }
+}

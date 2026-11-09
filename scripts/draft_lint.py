@@ -235,6 +235,116 @@ def _finding(rule, matched_text, line):
     return {"rule": rule, "match": matched, "line": line, "message": message}
 
 
+CITATION_URL_RE = re.compile(r"https?://[^\s)\]]+")
+CITATION_LINK_RE = re.compile(r"\[([^\]\r\n]{1,120})\]\((https?://[^)\s]+)\)")
+CITATION_DEFINITION_RE = re.compile(r"^\[([^\]\r\n]{1,120})\]:\s*(https?://\S+)\s*$")
+CITATION_SECTION_RE = re.compile(r"^ {0,3}#{1,6}\s*(?:sources|references)\s*$", re.IGNORECASE)
+CITATION_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s")
+CITATION_ENTRY_RE = re.compile(r"^ {0,3}[-*]\s+(.*)$")
+CITATION_KEY_RE = re.compile(r"(?<!\\)\[([^\]\r\n]{1,120})\](?!\s*\()")
+
+
+def citation_link_warnings(text):
+    """Return advisory warnings for citations that will not be clickable links in the export.
+
+    Guideline 1 asks for citations a reader can click, written as
+    [readable citation](url). This check reports two gaps and changes
+    nothing: a bare http(s):// URL in a Sources entry that is not inside a
+    [title](url) link, and an in-text [Key] that is not a link although a
+    Sources entry defines that key and carries a URL (an in-text
+    page-qualified key like [FY25 accounts, p. 12] matches the source key
+    "FY25 accounts"). It is advisory only -- a code-enforced policy reason
+    rejects a deal -- so it returns a list of {"line", "message"}
+    warnings, sorted by line, and never raises: a source without a URL
+    (Guideline 1 forbids inventing one) and a correctly linked citation
+    both pass silently, and a draft it cannot analyse yields no warnings.
+    """
+    if not isinstance(text, str):
+        return []
+    try:
+        visible, source_lines = _visible_text_and_lines(text)
+    except DraftContentError:
+        # An unterminated HTML comment makes the draft unanalysable; this
+        # check is advisory, so it stays silent instead of raising.
+        return []
+    # Rebuild line-structured visible text: comment spans are gone, fenced
+    # blocks are skipped, and each surviving line keeps its source number.
+    fenced = _fenced_line_indexes(text.splitlines())
+    lines = []
+    position = 0
+    while position < len(visible):
+        line_number = source_lines[position] if position < len(source_lines) else 1
+        end = visible.find("\n", position)
+        if end < 0:
+            end = len(visible)
+        line_text = visible[position:end].rstrip("\r")
+        if line_text and line_number - 1 not in fenced:
+            lines.append((line_number, line_text))
+        position = end + 1
+
+    section_start = next(
+        (index for index, (_number, line_text) in enumerate(lines) if CITATION_SECTION_RE.match(line_text)),
+        None,
+    )
+    if section_start is None:
+        # No Sources or References section: no key is defined anywhere and
+        # only Sources entries carry the bare-URL warning.
+        return []
+    section_end = len(lines)
+    for offset in range(section_start + 1, len(lines)):
+        if CITATION_HEADING_RE.match(lines[offset][1]):
+            section_end = offset
+            break
+    body_lines = lines[:section_start] + lines[section_end:]
+    entries = [
+        (line_number, CITATION_ENTRY_RE.match(line_text).group(1))
+        for line_number, line_text in lines[section_start + 1:section_end]
+        if CITATION_ENTRY_RE.match(line_text)
+    ]
+
+    warnings = []
+    defined_keys = {}
+    for line_number, entry_text in entries:
+        remainder = CITATION_LINK_RE.sub(" ", entry_text)
+        remainder = CITATION_DEFINITION_RE.sub(" ", remainder.strip())
+        has_url = bool(CITATION_URL_RE.search(entry_text))
+        key = None
+        link = CITATION_LINK_RE.search(entry_text)
+        definition = CITATION_DEFINITION_RE.match(entry_text.strip())
+        if link:
+            key = link.group(1)
+        elif definition:
+            key = definition.group(1)
+        elif ":" in entry_text:
+            key = entry_text.split(":", 1)[0].strip()
+        if key:
+            defined_keys[key] = has_url or defined_keys.get(key, False)
+        bare = CITATION_URL_RE.search(remainder)
+        if bare:
+            warnings.append((
+                line_number, 1,
+                f"Line {line_number}: bare URL {bare.group(0)} in a Sources entry is not a link; "
+                "write [readable citation](url).",
+            ))
+
+    for line_number, line_text in body_lines:
+        for match in CITATION_KEY_RE.finditer(line_text):
+            key = match.group(1).strip()
+            for defined_key, key_has_url in defined_keys.items():
+                if not key_has_url:
+                    continue
+                if key == defined_key or key.startswith(defined_key + ","):
+                    warnings.append((
+                        line_number, 0,
+                        f"Line {line_number}: in-text citation [{key}] is not a link although its source "
+                        f"has a URL; write [{key}](url).",
+                    ))
+                    break
+
+    warnings.sort(key=lambda item: (item[0], item[1]))
+    return [{"line": line, "message": message} for line, _order, message in warnings]
+
+
 def lint_draft(draft_text, *, document_kind, template_text=None):
     """Return stable, line-numbered findings for a CAM or research brief."""
     if document_kind not in {"cam", "research-brief"}:

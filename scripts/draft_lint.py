@@ -238,8 +238,8 @@ def _finding(rule, matched_text, line):
 CITATION_URL_RE = re.compile(r"https?://[^\s)\]]+")
 CITATION_LINK_RE = re.compile(r"\[([^\]\r\n]{1,120})\]\((https?://[^)\s]+)\)")
 CITATION_DEFINITION_RE = re.compile(r"^\[([^\]\r\n]{1,120})\]:\s*(https?://\S+)\s*$")
-CITATION_SECTION_RE = re.compile(r"^ {0,3}#{1,6}\s*(?:sources|references)\s*$", re.IGNORECASE)
-CITATION_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s")
+CITATION_SECTION_RE = re.compile(r"^ {0,3}(#{1,6})\s*(?:sources|references)\s*$", re.IGNORECASE)
+CITATION_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})\s")
 CITATION_ENTRY_RE = re.compile(r"^ {0,3}[-*]\s+(.*)$")
 CITATION_KEY_RE = re.compile(r"(?<!\\)\[([^\]\r\n]{1,120})\](?!\s*\()")
 
@@ -282,17 +282,24 @@ def citation_link_warnings(text):
             lines.append((line_number, line_text))
         position = end + 1
 
-    section_start = next(
-        (index for index, (_number, line_text) in enumerate(lines) if CITATION_SECTION_RE.match(line_text)),
-        None,
-    )
+    section_start = None
+    section_level = None
+    for index, (_number, line_text) in enumerate(lines):
+        heading = CITATION_SECTION_RE.match(line_text)
+        if heading:
+            section_start = index
+            section_level = len(heading.group(1))
+            break
     if section_start is None:
         # No Sources or References section: no key is defined anywhere and
         # only Sources entries carry the bare-URL warning.
         return []
     section_end = len(lines)
     for offset in range(section_start + 1, len(lines)):
-        if CITATION_HEADING_RE.match(lines[offset][1]):
+        heading = CITATION_HEADING_RE.match(lines[offset][1])
+        # Same rule as the exporter's sources check: the section ends at the
+        # next heading of the same or a higher level; a deeper heading stays.
+        if heading and len(heading.group(1)) <= section_level:
             section_end = offset
             break
     body_lines = lines[:section_start] + lines[section_end:]

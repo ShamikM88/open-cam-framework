@@ -221,3 +221,15 @@ def test_an_in_text_bracket_that_matches_no_source_key_is_ignored():
         "## Sources\n\n- [FY25 accounts](https://example.invalid/filing)\n"
     )
     assert citation_link_warnings(brief) == []
+
+
+def test_a_deeper_heading_inside_the_sources_section_does_not_end_it():
+    # Same rule as the exporter's sources check: only a heading of the same
+    # or a higher level ends the section, so entries under a deeper
+    # subheading are still Sources entries, not in-text citations.
+    brief = (
+        "# Research brief\n\n## Sources\n\n### Filed\n\n- FY25 accounts: https://example.invalid/filing\n\n"
+        "## Appendix\n\nSee [FY25 accounts].\n"
+    )
+    warnings = citation_link_warnings(brief)
+    assert [warning["line"] for warning in warnings] == [7, 11]

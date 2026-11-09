@@ -318,7 +318,12 @@ def citation_link_warnings(text):
         key = None
         link = CITATION_LINK_RE.search(entry_text)
         definition = CITATION_DEFINITION_RE.match(entry_text.strip())
-        if link:
+        label = re.match(r"^\*\*([^*]+?):?\*\*:?\s", entry_text)
+        if label:
+            # The house Sources style is "- **Key:** title: url": the bold label is the key,
+            # whether or not the title after it is itself a link.
+            key = label.group(1).strip()
+        elif link:
             key = link.group(1)
         elif definition:
             key = definition.group(1)

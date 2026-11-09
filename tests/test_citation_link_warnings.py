@@ -233,3 +233,27 @@ def test_a_deeper_heading_inside_the_sources_section_does_not_end_it():
     )
     warnings = citation_link_warnings(brief)
     assert [warning["line"] for warning in warnings] == [7, 11]
+
+
+def test_a_bold_key_in_a_sources_entry_still_defines_the_key():
+    """Review finding CL581-1: the house Sources style is `- **Key:** title: url`; the key must lose its bold markers."""
+    text = (
+        "# Brief\n\nThe rating is Baa2 ([Moody's]) and profit was 2.7m ([FY25 accounts], p. 12).\n\n"
+        "## Sources\n\n"
+        "- **Moody's:** Moody's credit opinion, 13 July 2026: https://example.com/moodys.pdf\n"
+        "- **FY25 accounts:** Example Ltd accounts, year to 31 December 2025: https://example.com/fy25.pdf\n"
+    )
+    messages = [w["message"] for w in citation_link_warnings(text)]
+    assert any("in-text citation [Moody's]" in m for m in messages)
+    assert any("in-text citation [FY25 accounts]" in m for m in messages)
+
+
+def test_a_bold_key_with_a_linked_title_still_defines_the_key():
+    """CL581-1: `- **Key:** [title](url)` defines `Key`, so an unlinked in-text [Key] warns."""
+    text = (
+        "# Brief\n\nThe rating is Baa2 ([Moody's]).\n\n"
+        "## Sources\n\n"
+        "- **Moody's:** [Moody's credit opinion](https://example.com/moodys.pdf)\n"
+    )
+    messages = [w["message"] for w in citation_link_warnings(text)]
+    assert any("in-text citation [Moody's]" in m for m in messages)

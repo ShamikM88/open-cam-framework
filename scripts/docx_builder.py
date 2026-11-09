@@ -93,9 +93,12 @@ def _add_hyperlink_run(paragraph: Paragraph, url: str, text: str, bold: bool = F
     """Add a real, clickable Word hyperlink run -- python-docx has no
     high-level API for this, so it's built directly in OOXML: a
     w:hyperlink element referencing an external relationship on the
-    paragraph's part, wrapping a w:r styled with the built-in "Hyperlink"
-    character style (Word recognizes this style id even though this
-    document never explicitly defines it in styles.xml).
+    paragraph's part, wrapping a w:r. The link look (Word's default
+    hyperlink blue 0563C1 plus a single underline) is applied directly on
+    the run, not via a character style, because this document never
+    defines a "Hyperlink" style in styles.xml and an undefined style
+    reference leaves the run looking like plain body text. Bold links
+    keep their bold weight alongside the link colour.
     """
     part = paragraph.part
     r_id = part.relate_to(url, RELATIONSHIP_TYPE.HYPERLINK, is_external=True)
@@ -105,11 +108,14 @@ def _add_hyperlink_run(paragraph: Paragraph, url: str, text: str, bold: bool = F
 
     run = OxmlElement("w:r")
     run_pr = OxmlElement("w:rPr")
-    style = OxmlElement("w:rStyle")
-    style.set(qn("w:val"), "Hyperlink")
-    run_pr.append(style)
     if bold:
         run_pr.append(OxmlElement("w:b"))
+    colour = OxmlElement("w:color")
+    colour.set(qn("w:val"), "0563C1")
+    run_pr.append(colour)
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    run_pr.append(underline)
     run.append(run_pr)
 
     text_el = OxmlElement("w:t")

@@ -42,7 +42,7 @@ Body rows wider than the header are preserved by widening the table and emit a w
 | a pipe table | a Word table; the header row is bold and `:---:` / `---:` alignment markers are honoured |
 | `A \\| B` within a table cell | a literal `|` inside one cell |
 | `**bold**`, `*italic*`, `` `code` `` | bold, italic, and monospace text |
-| `[text](url)` | a real hyperlink only for `http`, `https` or `mailto`; other targets remain visible as plain text with a warning |
+| `[text](url)` | a real hyperlink only for `http`, `https` or `mailto`, rendered blue and underlined (Word's default link look; a bold link keeps its bold weight); other targets remain visible as plain text with a warning |
 | a fenced block (no tag, or any tag except `json`) | monospace lines, whitespace kept exactly (the ownership-tree diagram uses this) |
 | a fenced block tagged `json` | **removed**: it is reserved for the Underwriter's structured-output block, never shown to a client |
 | `![caption](path.png)` on its own line | an embedded image, scaled down (never up) to the page's text width, with the caption in italics; see below |
@@ -149,6 +149,8 @@ with its rationale, then the company and sector sections), using the same render
 workbook, no structured JSON block and no template side effects.
 
 The export requires a populated final `Sources` or `References` section. For `/research`, keep this as a flat `## Sources` list of every document the brief relies on, include URLs where available, and define short-form citation keys used in the body. The exporter checks for at least one list item or HTTP(S) URL and refuses a missing or empty section before it creates output. A nested list is not suitable because the DOCX builder does not render nested bullets as intended.
+
+Citations a reader can click are written as Markdown links whose text is the readable citation, for example `[FY25 accounts, p. 12](url)`; a bare URL pasted into a Sources entry, or an in-text `[FY25 accounts]` key whose source has a URL, renders as plain text in the Word document. The research brief and CAM exporters each report these gaps as advisory `Citation link warning:` lines on standard error (prefixed `[research_export]` or `[deal_export]`, naming the line) and then carry on: the exit status and the output files are unchanged, and no draft text is altered. The warning is advisory only — it is never a code-enforced policy reason, which would reject a deal. A source with no URL (for example a management call) produces no warning: never invent a URL to silence it.
 
 Only after the analyst explicitly authorises export without sources in chat and supplies a non-empty reason may the session pass `--analyst-override-no-sources "<reason>"`. That exception appears as a dated final paragraph in the DOCX and is not written to `state.json`; a source-complete brief gets no override footnote.
 

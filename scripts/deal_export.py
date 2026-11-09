@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 
 from docx_builder import check_exportable, export_to_docx
+from draft_lint import citation_link_warnings
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import (
     StateError, existing_state_date_str, read_state, resolve_export_date_str, sanitize_path_component,
@@ -262,6 +263,10 @@ def export_deal(
     workbook_inputs = workbook_inputs_from_state(state)
     # Refuse an unexportable draft before any folder is created or any template is auto-saved from it.
     check_exportable(draft_markdown)
+    # Advisory only (issue #580): report citations that will not be clickable
+    # links in the exported document, then carry on with the export.
+    for warning in citation_link_warnings(draft_markdown):
+        print(f"[deal_export] Citation link warning: {warning['message']}", file=sys.stderr)
 
     os.makedirs(output_dir, exist_ok=True)
 

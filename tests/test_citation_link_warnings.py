@@ -200,3 +200,24 @@ def test_policy_checks_does_not_use_the_citation_link_check():
 
     source = (Path(__file__).resolve().parents[1] / "scripts" / "policy_checks.py").read_text(encoding="utf-8")
     assert "citation_link" not in source
+
+
+def test_the_sources_section_ends_at_the_next_heading():
+    # Text after a later heading is body text again: an unlinked key there is
+    # reported, while a bare URL there is not a Sources entry.
+    brief = (
+        "# Research brief\n\n## Sources\n\n- FY25 accounts: https://example.invalid/filing\n\n"
+        "## Appendix\n\nSee [FY25 accounts] and https://example.invalid/body.\n"
+    )
+    warnings = citation_link_warnings(brief)
+    lines = [warning["line"] for warning in warnings]
+    assert lines == [5, 9]
+    assert "bare URL" in warnings[0]["message"] and "[FY25 accounts]" in warnings[1]["message"]
+
+
+def test_an_in_text_bracket_that_matches_no_source_key_is_ignored():
+    brief = (
+        "# Research brief\n\nA note [see below] and [FY25 accounts](https://example.invalid/filing).\n\n"
+        "## Sources\n\n- [FY25 accounts](https://example.invalid/filing)\n"
+    )
+    assert citation_link_warnings(brief) == []

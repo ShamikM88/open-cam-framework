@@ -306,7 +306,8 @@ def test_the_real_maker_prompt_of_each_case_shows_what_the_case_assumes(case_id,
         assert "stale or fails its integrity check" not in prompt and "legacy summary" not in prompt
     elif kind == "stale":
         assert not match and "stale or fails its integrity check" in prompt
-        assert "collateral_AST-" not in prompt
+        # The Underwriter prompt may itself quote example keys; only the calculator section of the context counts.
+        assert "collateral_AST-" not in prompt[prompt.index("Collateral calculator results"):]
     else:
         assert not match and "legacy summary" in prompt and "none recorded" in prompt
-        assert "collateral_AST-" not in prompt
+        assert "collateral_AST-" not in prompt[prompt.index("Collateral calculator results"):]

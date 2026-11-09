@@ -317,6 +317,35 @@ def test_deal_export_writes_the_docx_and_xlsx_into_the_dated_folder(cli):
     assert (folder / "Acme_Loan_CAM.docx").stat().st_size > 0 and (folder / "Acme_Loan_Spreading.xlsx").stat().st_size > 0
 
 
+def test_deal_export_prints_citation_link_warnings_and_still_exports(cli):
+    # Issue #580: advisory only. The warnings go to stderr, the exit status stays 0 and both files are written.
+    draft = cli.workdir / "draft.md"
+    draft.write_text(
+        "# Credit Assessment Memorandum\n\nTurnover per [FY25 accounts, p. 12].\n\n"
+        "## Sources\n\n- FY25 accounts: https://example.invalid/filing\n"
+        "- Management call: conversation with the borrower, no document\n", encoding="utf-8")
+    result = cli("deal_export", "--company", "Acme", "--proposal", "Loan", "--type", "corporate_credit",
+                 "--draft", draft)
+    assert result.returncode == 0, result.stderr
+    assert "Done! Files generated in" in result.stdout
+    assert "[deal_export] Citation link warning: Line 3: in-text citation [FY25 accounts, p. 12]" in result.stderr
+    assert "[deal_export] Citation link warning: Line 7: bare URL https://example.invalid/filing" in result.stderr
+    assert len(result.stderr.splitlines()) == 2  # the source with no URL adds nothing
+    folder = next(cli.workdir.glob("deals/Acme/Loan_*"))
+    assert (folder / "Acme_Loan_CAM.docx").stat().st_size > 0 and (folder / "Acme_Loan_Spreading.xlsx").stat().st_size > 0
+
+
+def test_deal_export_prints_no_citation_warning_for_a_linked_draft(cli):
+    draft = cli.workdir / "draft.md"
+    draft.write_text(
+        "# Credit Assessment Memorandum\n\nTurnover per [FY25 accounts, p. 12](https://example.invalid/filing).\n\n"
+        "## Sources\n\n- [FY25 accounts](https://example.invalid/filing)\n", encoding="utf-8")
+    result = cli("deal_export", "--company", "Acme", "--proposal", "Loan", "--type", "corporate_credit",
+                 "--draft", draft)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
+
 def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     draft = cli.workdir / "draft.md"
     draft.write_text("# T\n", encoding="utf-8")
@@ -344,6 +373,37 @@ def test_research_export_writes_the_brief_docx(cli):
     assert result.returncode == 0, result.stderr
     assert "Research brief exported to" in result.stdout
     assert list(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+
+
+def test_research_export_prints_citation_link_warnings_and_still_exports(cli):
+    # Issue #580: the citation-link check is advisory. Both gaps are named on
+    # stderr (the bare Sources URL and the unlinked in-text key), and the
+    # export still succeeds with exit status 0 and the DOCX written.
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Research brief\n\n- **Verdict:** Go\n\nFindings per [FY25 accounts].\n\n"
+        "## Sources\n\n- FY25 accounts: https://example.invalid/filing\n",
+        encoding="utf-8")
+    result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
+    assert result.returncode == 0, result.stderr
+    assert "Research brief exported to" in result.stdout
+    assert "[research_export] Citation link warning: Line 5: in-text citation [FY25 accounts]" in result.stderr
+    assert "[research_export] Citation link warning: Line 9: bare URL https://example.invalid/filing" in result.stderr
+    assert len(result.stderr.splitlines()) == 2
+    assert "Traceback" not in result.stderr
+    assert list(cli.workdir.glob("deals/Acme/Brief_*/*Research_Brief.docx"))
+
+
+def test_research_export_prints_no_citation_warning_for_a_linked_brief(cli):
+    brief = cli.workdir / "brief.md"
+    brief.write_text(
+        "# Research brief\n\n- **Verdict:** Go\n\nFindings per "
+        "[FY25 accounts](https://example.invalid/filing).\n\n## Sources\n\n"
+        "- [FY25 accounts](https://example.invalid/filing)\n",
+        encoding="utf-8")
+    result = cli("research_export", "--company", "Acme", "--proposal", "Brief", "--brief", brief)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
 
 
 def test_research_export_without_sources_fails_cleanly_without_writing(cli):

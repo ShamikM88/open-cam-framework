@@ -1851,3 +1851,26 @@ def test_financial_data_from_state_does_not_merge_raw_fields_from_both_stores_wi
     assert _financial_data_from_state(state) == {
         "FY-Current": {"revenue": 5000},
     }
+
+
+def test_export_deal_prints_citation_link_warnings_and_still_exports(tmp_path, capsys):
+    base = str(tmp_path)
+    draft = (
+        "# Acme Corp CAM\n\nTurnover per [FY25 accounts, p. 12].\n\n"
+        "## Sources\n\n- FY25 accounts: https://example.invalid/filing\n"
+    )
+    output_dir = export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=base)
+    captured = capsys.readouterr()
+    assert os.path.isfile(os.path.join(output_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+    assert [line for line in captured.err.splitlines() if "Citation link warning" in line] == [
+        "[deal_export] Citation link warning: Line 3: in-text citation [FY25 accounts, p. 12] is not a link although "
+        "its source has a URL; write [FY25 accounts, p. 12](url).",
+        "[deal_export] Citation link warning: Line 7: bare URL https://example.invalid/filing in a Sources entry is "
+        "not a link; write [readable citation](url).",
+    ]
+
+
+def test_export_deal_prints_no_citation_warning_for_a_source_with_no_url(tmp_path, capsys):
+    draft = "# Acme Corp CAM\n\nPer [management call].\n\n## Sources\n\n- Management call: supplied by the analyst\n"
+    export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
+    assert "Citation link warning" not in capsys.readouterr().err

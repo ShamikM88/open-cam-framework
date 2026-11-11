@@ -274,6 +274,31 @@ policy engine records them. The formulas are register entries
 authoritative.
 
 
+## Credit aggregation inputs (case B, B2a)
+
+Case B aggregates the borrower and selected registered entities. B2a records and validates the inputs
+only: `credit_aggregation.py` persists, under the top-level `credit_aggregation` key, each
+requested period's manifest (participants, the common period end and its evidence, per-entity confirmed
+scope) and one SHA-256 input fingerprint over the canonical input payload. **B2a computes nothing**:
+no elimination, subtotal, ratio or covenant result. The accounting-gated B2b step will later fill each
+period's optional `computed` object (`financials` and `ratios` in the same shape as the borrower's
+top-level `financials[period]` and `ratios[period]`); until it exists no period has `computed`, and
+every consumer treats a missing or stale `computed` as UNRESOLVABLE with a reason. The full key contract
+is documented in [the data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a).
+
+The participants are the reserved token `@borrower` (the existing legacy borrower stores, never an
+entity record) plus explicit `entity_records` IDs whose perimeter is included and confirmed; nothing is
+inferred. Every participant must carry the same period label and exactly the same ISO date per period,
+with the borrower's date supplied in the request with an evidence reference; a missing date or any
+mismatch refuses the whole aggregation before any write. Intercompany counterparties resolve by exact ID
+to a selected participant of that line's own period, or to `@borrower`; a dangling, unselected,
+out-of-perimeter or unconfirmed reference is a named hard error, and an unconfirmed line is refused.
+Analyst-supplied-only figures are refused rather than silently reconciled (D4 is not overridden), a deal
+that already carries a case-A `group_basis` is refused fail-closed, and non-finite or boolean numbers
+are refused. This is a **credit aggregation**, never a statutory consolidation: it does not describe
+the aggregation as a consolidation, and it creates no elimination logic, adjusted raw line, new formula
+or register entry — those belong to the gated B2b step and the formula register's own change control.
+
 ## Standalone entity spread (case C, C3)
 
 `spreading_check.py --entity-id <entity ID>` is the script-level path for one registered guarantor. It selects one
@@ -281,7 +306,8 @@ authoritative.
 `multi_period_financials`. The existing borrower computation and its formulas are not changed or reused as a
 fallback. Returned `financials` and `ratios` are stored inside the selected entity record with
 `figures_basis: "recomputed"`; the borrower-level financial stores and `financials_source` are left unchanged.
-The state schema remains 1.2.0. Case C remains standalone; this is not a credit aggregation or consolidation.
+Case C remains standalone; this is not a credit aggregation or consolidation, and the spread adds no
+top-level state key of its own.
 
 The entity record stores one SHA-256 input fingerprint per computed period. Each canonical JSON payload includes
 the contract tag, entity ID, period label and end date, full source metadata, raw-figure source, selected raw store

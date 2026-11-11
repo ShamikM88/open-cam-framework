@@ -649,6 +649,28 @@ python scripts/state_manager.py --export-reviewer-view --company "Synthetic Co" 
 python scripts/state_manager.py --record-group-basis --company "Synthetic Group Ltd" --proposal "Synthetic Group Facility" --group-basis-file group-basis.json --perimeter-confirmed --date 2026-10-21
 ```
 
+## Credit aggregation
+
+`scripts/credit_aggregation.py --company ... --proposal ... --request-file <json file>` records case-B
+credit aggregation inputs (step B2a) on an **exact existing deal only**. The UTF-8 JSON file supplies
+`{"periods": {"<period>": {"participants": [...], "borrower_period_end": "YYYY-MM-DD", "borrower_period_end_evidence": "...", "scope_confirmed": true}}}`:
+the participants are the reserved `@borrower` token plus explicit `entity_records` IDs whose perimeter is
+included and confirmed, never inferred; every participant must carry the same period label and exactly the
+same ISO date per period, and every intercompany counterparty of a selected participant must resolve to a
+selected participant of that line's own period or to `@borrower`. The command validates the whole request
+against the live state under the per-deal lock before one atomic write, and persists each period's manifest
+and SHA-256 input fingerprint under the top-level `credit_aggregation` key (schema version `1.3.0`). It
+computes nothing — eliminations and calculation are the separately gated B2b step, whose optional
+`computed` object this contract reserves — and it never touches borrower figures, either raw store,
+`entity_records` or `group_basis`. Refusals include: a missing or false `scope_confirmed`, a missing
+`@borrower` token, duplicate, unknown or out-of-perimeter participants, missing or mismatched period
+ends, dangling, unselected, out-of-perimeter or unconfirmed counterparties, unconfirmed lines,
+analyst-supplied-only figures, a deal that already carries a case-A `group_basis`, non-finite or boolean
+numbers, and unknown keys. A successful command prints one JSON line with `recorded`, `periods` and
+`state_path`; any refusal prints one `error:` line, exits `1`, and leaves `state.json` byte-for-byte
+unchanged (no deal is ever created). See the
+[data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a) for the full contract.
+
 ## Source manifest
 
 `scripts/source_manifest.py --company ... --proposal ... --step <step> --claim <text> --file <path> [--url <url>]

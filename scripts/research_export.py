@@ -9,7 +9,7 @@ import sys
 from datetime import date
 
 from docx_builder import check_exportable, export_to_docx
-from draft_lint import lint_draft
+from draft_lint import citation_link_warnings, lint_draft
 from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
 
@@ -179,6 +179,11 @@ def export_research_brief(
         brief_markdown = _insert_after_first_heading(brief_markdown, status)
     # The text that will be rendered, including any exporter-added disclosure, must be exportable before the first write.
     check_exportable(brief_markdown)
+    # Advisory only (issue #580): report citations that will not be clickable
+    # links in the exported document, then carry on with the export. Printed
+    # after every refusal, so a failed export keeps its single clean error line.
+    for warning in citation_link_warnings(brief_markdown):
+        print(f"[research_export] Citation link warning: {warning['message']}", file=sys.stderr)
     deals_root = os.path.join(base_dir, "deals") if base_dir else "deals"
     output_dir = os.path.join(deals_root, company, f"{proposal}_{date_str}")
     os.makedirs(output_dir, exist_ok=True)

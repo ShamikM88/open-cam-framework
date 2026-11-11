@@ -472,6 +472,46 @@ def test_mailto_link_renders_as_a_real_hyperlink(tmp_path):
     assert _hyperlink_targets(doc, doc.paragraphs[0]) == ["mailto:credit@example.invalid"]
 
 
+def _hyperlink_run_formatting(paragraph):
+    """(colour, underline, bold, style id) carried by the first hyperlink run.
+
+    Direct OOXML read-back: python-docx has no high-level API for hyperlink
+    runs, and the link look is applied at the run level (issue #579), not via
+    a character style the API would expose.
+    """
+    hyperlink = paragraph._p.findall(qn("w:hyperlink"))[0]
+    run = hyperlink.find(qn("w:r"))
+    properties = run.find(qn("w:rPr"))
+    colour = properties.find(qn("w:color"))
+    underline = properties.find(qn("w:u"))
+    bold = properties.find(qn("w:b"))
+    style = properties.find(qn("w:rStyle"))
+    return (
+        colour.get(qn("w:val")) if colour is not None else None,
+        underline.get(qn("w:val")) if underline is not None else None,
+        bold is not None,
+        style.get(qn("w:val")) if style is not None else None,
+    )
+
+
+def test_hyperlink_run_carries_direct_link_formatting(tmp_path):
+    doc = _build(tmp_path, "See [Companies House](https://example.com/company/123) for details.\n")
+    # A reader must be able to tell the link is clickable: the run itself
+    # carries the link colour and a single underline. This document defines
+    # no Hyperlink style in styles.xml, so a w:rStyle reference alone renders
+    # as plain black body text (issue #579) -- hence direct formatting and
+    # no style reference at all.
+    assert _hyperlink_run_formatting(doc.paragraphs[0]) == ("0563C1", "single", False, None)
+
+
+def test_bold_hyperlink_keeps_its_weight_and_the_link_formatting(tmp_path):
+    # A table header cell renders bold; a link inside it must keep the bold
+    # weight and still look like a link.
+    doc = _build(tmp_path, "| [Companies House](https://example.com/company/123) |\n| --- |\n")
+    paragraph = doc.tables[0].rows[0].cells[0].paragraphs[0]
+    assert _hyperlink_run_formatting(paragraph) == ("0563C1", "single", True, None)
+
+
 @pytest.mark.parametrize("target", [
     "file://synthetic-host/share/extract.pdf",
     r"\\synthetic-host\share\annex.docx",
@@ -696,7 +736,7 @@ def test_408_empty_list_is_not_a_table_separator_row():
     assert docx_builder._is_separator_row(["---", ":---:"]) is True
 
 
-def test_408_hyperlink_run_keeps_style_bold_target_and_boundary_spaces(
+def test_408_hyperlink_run_keeps_formatting_bold_target_and_boundary_spaces(
     tmp_path,
 ):
     url = "https://example.invalid/path"
@@ -714,9 +754,14 @@ def test_408_hyperlink_run_keeps_style_bold_target_and_boundary_spaces(
     assert hyperlink_run is not None
     run_properties = hyperlink_run.find(qn("w:rPr"))
     assert run_properties is not None
-    style = run_properties.find(qn("w:rStyle"))
-    assert style is not None
-    assert style.get(qn("w:val")) == "Hyperlink"
+    # The link look is direct run formatting (issue #579): the run carries the
+    # link colour and underline itself, with no reference to a style this
+    # document never defines.
+    colour = run_properties.find(qn("w:color"))
+    assert colour is not None and colour.get(qn("w:val")) == "0563C1"
+    underline = run_properties.find(qn("w:u"))
+    assert underline is not None and underline.get(qn("w:val")) == "single"
+    assert run_properties.find(qn("w:rStyle")) is None
     assert run_properties.find(qn("w:b")) is not None
     text_element = hyperlink_run.find(qn("w:t"))
     assert text_element is not None

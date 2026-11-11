@@ -456,3 +456,34 @@ def test_an_unterminated_comment_in_the_release_reason_is_refused_before_anythin
         )
     assert state_file.read_bytes() == before
     assert not list(state_file.parent.glob("*.docx"))
+
+
+def test_citation_link_warnings_go_to_stderr_and_the_export_still_succeeds(tmp_path, capsys):
+    brief = (
+        "# Synthetic Research Brief\n\n## Go/No-Go\n\nGO -- per [FY25 accounts].\n\n"
+        "## Sources\n\n- FY25 accounts: https://example.invalid/filing\n"
+    )
+    output_path = export_research_brief("Acme Corp", "Fleet Loan", brief, date_str="2026-01-15", base_dir=str(tmp_path))
+    captured = capsys.readouterr()
+    assert os.path.isfile(output_path)
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        "[research_export] Citation link warning: Line 5: in-text citation [FY25 accounts] is not a link although its "
+        "source has a URL; write [FY25 accounts](url).",
+        "[research_export] Citation link warning: Line 9: bare URL https://example.invalid/filing in a Sources entry "
+        "is not a link; write [readable citation](url).",
+    ]
+
+
+def test_an_override_footnote_does_not_trigger_a_citation_warning(tmp_path, capsys):
+    export_research_brief(
+        "Acme Corp", "Fleet Loan", "# Synthetic Research Brief\n\nSynthetic findings only.\n",
+        date_str="2026-01-15", base_dir=str(tmp_path), analyst_override_no_sources="Synthetic reason",
+    )
+    assert capsys.readouterr().err == ""
+
+
+def test_a_failed_export_prints_no_citation_warning(tmp_path, capsys):
+    with pytest.raises(ValueError, match="Sources or References"):
+        export_research_brief("Acme Corp", "Fleet Loan", NO_SOURCES_BRIEF, date_str="2026-01-15", base_dir=str(tmp_path))
+    assert capsys.readouterr().err == ""

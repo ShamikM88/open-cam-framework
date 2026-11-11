@@ -712,3 +712,65 @@ def test_spread_inputs_pin_the_p_and_l_charge_basis():
     docs_heading = "### /spread"
     spread_section = " ".join(markdown_section(read("docs/commands.md"), docs_heading).split())
     assert_markdown_section_contains(spread_section, docs_heading, (SPREAD_DOCS_BASIS_NOTE,))
+
+
+# ---------------------------------------------------------------------------
+# Citation-link wording (issue #582): the maintainer-authorised text, pinned
+# ---------------------------------------------------------------------------
+
+# Verbatim from the maintainer-approved comment on issue #582 (2026-11-10). A PR may change placement and
+# formatting only; any other change to this text needs a fresh authorisation on that issue.
+AUTHORISED_RESEARCH_CITATIONS = (
+    "**Citations.** Write each citation as a Markdown link whose text is the readable citation, for example "
+    "`[FY25 accounts, p. 12](url)`, so the exported document shows a clickable link. A source with no URL needs no "
+    "link; never invent one. In the final Sources section, write each entry as `- **Key:** [title](url)`. Do not "
+    "leave a bare URL."
+)
+# /assemble carries only the first two sentences until the CAM has a Sources section (issue #583).
+AUTHORISED_ASSEMBLE_CITATIONS = (
+    "Write each citation as a Markdown link whose text is the readable citation, for example "
+    "`[FY25 accounts, p. 12](url)`, so the exported document shows a clickable link. A source with no URL needs no "
+    "link; never invent one."
+)
+
+
+def _squashed(text):
+    """Collapse whitespace so a line-wrapped command paragraph compares equal to the approved one-line text."""
+    return re.sub(r"\s+", " ", text)
+
+
+def citation_wording_problems(command_text, wording):
+    """Return a problem if the authorised wording is not present verbatim (line breaks aside)."""
+    if wording not in _squashed(command_text):
+        return ["the maintainer-authorised citation wording is missing or has been changed"]
+    return []
+
+
+@pytest.mark.parametrize(
+    ("path", "wording"),
+    [
+        (".claude/commands/research.md", AUTHORISED_RESEARCH_CITATIONS),
+        (".claude/commands/assemble.md", AUTHORISED_ASSEMBLE_CITATIONS),
+    ],
+)
+def test_the_citation_commands_carry_the_authorised_wording_verbatim(path, wording):
+    assert citation_wording_problems(read(path), wording) == []
+
+
+@pytest.mark.parametrize(
+    "weakened",
+    [
+        # The sentence boundary and clause the maintainer approved, each changed in turn.
+        AUTHORISED_ASSEMBLE_CITATIONS.replace("link. A source", "link; a source"),
+        AUTHORISED_ASSEMBLE_CITATIONS.replace("needs no link; never", "needs no link, and never"),
+        # A deletion of the whole instruction.
+        "",
+    ],
+)
+def test_the_citation_wording_guard_detects_a_changed_or_deleted_instruction(weakened):
+    command = read(".claude/commands/assemble.md")
+    broken = command.replace(
+        command[command.index("Write each citation as a Markdown link"):command.index("Render every entry in policy_state")],
+        weakened + " ",
+    )
+    assert citation_wording_problems(broken, AUTHORISED_ASSEMBLE_CITATIONS) != []

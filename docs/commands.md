@@ -115,7 +115,7 @@ worked examples are in [Workflows](workflows.md).
   Only the explicit manual-review choice permits `--analyst-release-unapproved "<reason>"`, which inserts a dated
   not-approved status near the top of the DOCX and appends a record to the append-only `review_stopped_by_analyst` list in state. No saved sources
   (same check as `/triage`) or a missing/empty Sources/References section still blocks export before output is written.
-  A populated final `## Sources` list is required, including document URLs and citation keys for short-form references. If the analyst sets a lower per-deal review maximum, `/research` uses that threshold and records it under `deal_structure_notes.review_cap` in `state.json`.
+  A populated final `## Sources` list is required, including document URLs and citation keys for short-form references. Each citation is written as a Markdown link whose text is the readable citation, for example `[FY25 accounts, p. 12](url)`, and each Sources entry as `- **Key:** [title](url)`, with no bare URL; a source with no URL needs no link. If the analyst sets a lower per-deal review maximum, `/research` uses that threshold and records it under `deal_structure_notes.review_cap` in `state.json`.
   Export without it requires the analyst's explicit chat authorisation and a reason, shown in a final DOCX footnote;
   the command never offers or infers this override. For a group borrower or related-party links, open the primary charge
   instruments and the borrower's accounts notes, check parent guarantees and direct subsidiary holders, and inspect

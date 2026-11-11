@@ -38,7 +38,7 @@ def test_read_state_returns_none_when_no_file_exists(tmp_path):
 def test_write_state_stamps_the_current_schema_version_on_a_fresh_deal(tmp_path):
     base = str(tmp_path)
     state = write_state("Acme Corp", "Fleet Loan", date_str="2026-01-15", base_dir=base)
-    assert state["schema_version"] == SCHEMA_VERSION == "1.2.0"
+    assert state["schema_version"] == SCHEMA_VERSION == "1.3.0"
 
 
 def test_write_state_sets_schema_version_on_every_subsequent_write_too(tmp_path):
@@ -3901,7 +3901,7 @@ def test_record_entity_record_round_trips_a_shared_registry_and_preserves_unknow
         base_dir=str(tmp_path), keys=("entity_records", "guarantees"),
     )
     assert saved is not None
-    assert saved["schema_version"] == "1.2.0"
+    assert saved["schema_version"] == "1.3.0"
     assert set(saved["entity_records"]) == {"synthetic-parent", "synthetic-opco"}
     assert saved["entity_records"]["synthetic-opco"]["entity_id"] == "synthetic-opco"
     assert saved["entity_records"]["synthetic-opco"]["intercompany_lines"][0]["counterparty_entity_id"] == "synthetic-parent"

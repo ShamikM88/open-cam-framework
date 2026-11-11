@@ -36,7 +36,7 @@ SCRIPTS_DIR = REPO_ROOT / "scripts"
 # Every script that defines a command-line entry point. A new one must be added here AND given tests below;
 # test_the_list_matches_the_scripts_that_have_a_main_block fails until it is.
 CLI_SCRIPTS = (
-    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "collateral_check", "committee_summary", "conventions", "covenant_cushion", "deal_export", "draft_lint",
+    "calibrate", "check_coverage", "check_model_freshness", "check_test_count", "collateral_check", "committee_summary", "conventions", "covenant_cushion", "credit_aggregation", "deal_export", "draft_lint",
     "export_readback", "mutation_report", "orchestrator", "pii_scan", "pr_base_fail_check", "pr_scope_check", "policy_check", "research_export", "review_compare", "run_evals", "source_manifest",
     "spreading_check", "state_manager",
     "supplied_forecast", "transcription_check", "wiki_publish",
@@ -476,6 +476,66 @@ def test_spreading_check_no_update_financials_source_leaves_the_flag_alone(cli):
 
 def test_spreading_check_on_a_missing_input_fails_cleanly(cli):
     result = cli("spreading_check", "--company", "A", "--proposal", "P", "--financials", "nope.json")
+    _assert_a_clean_state_error(result, "nope.json")
+
+
+def test_credit_aggregation_records_the_request_and_prints_one_line(cli):
+    """A full end-to-end CLI run: seed a deal, register one entity, record FY-Current."""
+    import state_manager
+    state_manager.write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(cli.workdir),
+                              financials={"FY-Current": {"raw": {"revenue": 900}}})
+    record = {
+        "entity_id": "synthetic-opco", "legal_name": "Synthetic Opco Ltd", "role": "subsidiary",
+        "source": {"document": "Synthetic accounts", "accounting_basis": "UK GAAP", "date": "2026-02-01"},
+        "period_ends": {"FY-Current": "2025-12-31"},
+        "perimeter": {"included": True, "control_basis": "analyst-confirmed",
+                      "scope_rationale": "Synthetic perimeter", "confirmed": True, "confirmed_on": "2026-10-27"},
+        "raw_figures_source": "Synthetic source document",
+        "multi_period_financials": {"FY-Current": {"revenue": 300}}, "analyst_supplied_financials": {},
+        "spread_status": "not-spread", "intercompany_lines": [], "guarantee_ids": [],
+    }
+    record_file = cli.workdir / "entity.json"
+    record_file.write_text(json.dumps(record), encoding="utf-8")
+    cli("state_manager", "--company", "Acme", "--proposal", "Loan", "--register-entity-record",
+        "--entity-record-file", record_file, "--perimeter-confirmed")
+    request = {
+        "periods": {"FY-Current": {
+            "participants": ["@borrower", "synthetic-opco"], "borrower_period_end": "2025-12-31",
+            "borrower_period_end_evidence": "Synthetic audited accounts FY2025", "scope_confirmed": True,
+        }},
+    }
+    request_file = cli.workdir / "request.json"
+    request_file.write_text(json.dumps(request), encoding="utf-8")
+
+    result = cli("credit_aggregation", "--company", "Acme", "--proposal", "Loan",
+                 "--request-file", request_file)
+
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["recorded"] is True and report["periods"] == ["FY-Current"]
+    state = json.loads(next(cli.workdir.glob("deals/Acme/Loan_*/state.json")).read_text(encoding="utf-8"))
+    assert state["schema_version"] == "1.3.0"
+    assert "credit_aggregation" in state and "FY-Current" in state["credit_aggregation"]
+    assert state["credit_aggregation"]["FY-Current"]["manifest"]["participants"] == [
+        "@borrower", "synthetic-opco"]
+
+
+def test_credit_aggregation_refuses_and_leaves_the_state_untouched(cli):
+    request_file = cli.workdir / "request.json"
+    request_file.write_text(json.dumps({"periods": {"FY-Current": {
+        "participants": ["@borrower"], "borrower_period_end": "2025-12-31",
+        "borrower_period_end_evidence": "Synthetic accounts", "scope_confirmed": False,
+    }}}), encoding="utf-8")
+    # No deal exists at all: the refusal must name it and create nothing.
+    result = cli("credit_aggregation", "--company", "Acme", "--proposal", "Loan",
+                 "--request-file", request_file)
+    _assert_a_clean_state_error(result, "no exact existing")
+    assert not (cli.workdir / "deals").exists()
+
+
+def test_credit_aggregation_reports_a_missing_request_file_cleanly(cli):
+    result = cli("credit_aggregation", "--company", "Acme", "--proposal", "Loan",
+                 "--request-file", "nope.json")
     _assert_a_clean_state_error(result, "nope.json")
 
 

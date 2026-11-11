@@ -142,9 +142,10 @@ def _write_request(tmp_path, request, name="aggregation-request.json"):
     return str(request_file)
 
 
-def _record(tmp_path, request=None, **kwargs):
+def _record(tmp_path, request=None, name="aggregation-request.json", **kwargs):
     return record_credit_aggregation(
-        COMPANY, PROPOSAL, _write_request(tmp_path, request or _request()), base_dir=str(tmp_path), **kwargs)
+        COMPANY, PROPOSAL, _write_request(tmp_path, request or _request(), name=name),
+        base_dir=str(tmp_path), **kwargs)
 
 
 def _state_file(tmp_path):
@@ -191,7 +192,7 @@ def test_recording_stamps_the_new_schema_version_and_touches_no_other_key(tmp_pa
     assert after["schema_version"] == "1.3.0"
     for key in ("financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
                 "entity_records", "group_basis", "financials_source", "guarantees"):
-        assert after[key] == before[key], f"the recording must not touch {key}"
+        assert after.get(key) == before.get(key), f"the recording must not touch {key}"
     assert set(after["credit_aggregation"]) == {"FY-Current"}
 
 
@@ -399,6 +400,7 @@ def test_a_request_without_at_borrower_is_refused(tmp_path):
 
 
 def test_an_at_borrower_entity_record_key_is_refused_by_the_state_manager(tmp_path):
+    _seed_deal(tmp_path)
     record = _entity_record("@borrower")
     record_file = tmp_path / "entity-record.json"
     record_file.write_text(json.dumps(record), encoding="utf-8")
@@ -495,7 +497,7 @@ def test_a_borrower_period_missing_from_the_store_is_refused(tmp_path):
 # Counterparties: exact-ID joins, never matched by name
 # ---------------------------------------------------------------------------
 
-def _line(counterparty, **overrides):
+def _line(counterparty=HOLDCO_ID, **overrides):
     line = {"period": "FY-Current", "line_key": "trade_debtors", "counterparty_entity_id": counterparty,
             "direction": "payable", "amount": 25, "confirmed": True}
     line.update(overrides)
@@ -533,7 +535,7 @@ def test_an_at_borrower_counterparty_resolves_to_the_borrower_view(tmp_path):
 
 def test_an_unconfirmed_intercompany_line_is_refused(tmp_path):
     _seed_deal(tmp_path)
-    _register_entity(tmp_path, _entity_record(intercompany_lines=[_line(OPCO_ID, confirmed=False)]))
+    _register_entity(tmp_path, _entity_record(intercompany_lines=[_line(HOLDCO_ID, confirmed=False)]))
     with pytest.raises(AggregationError, match="confirmed"):
         _record(tmp_path)
 
@@ -542,7 +544,7 @@ def test_a_counterparty_is_checked_against_its_own_period_s_participants(tmp_pat
     """A counterparty selected for FY-Current but not for FY+1 must fail the FY+1 request."""
     _seed_deal(tmp_path)
     _register_entity(tmp_path, _entity_record(intercompany_lines=[
-        _line(OPCO_ID), _line(OPCO_ID, period="FY+1"),
+        _line(HOLDCO_ID), _line(HOLDCO_ID, period="FY+1"),
     ]))
     _register_entity(tmp_path, _entity_record(HOLDCO_ID))
     with pytest.raises(AggregationError, match=HOLDCO_ID):
@@ -554,7 +556,7 @@ def test_a_counterparty_is_checked_against_its_own_period_s_participants(tmp_pat
 
 def test_a_line_outside_the_requested_periods_is_not_checked(tmp_path):
     _seed_deal(tmp_path)
-    _register_entity(tmp_path, _entity_record(intercompany_lines=[_line("ghost-entity", period="FY-2")]))
+    _register_entity(tmp_path, _entity_record(intercompany_lines=[_line("ghost-entity", period="FY+1")]))
     _record(tmp_path)       # the FY-2 line is irrelevant to an FY-Current aggregation
 
 
@@ -572,19 +574,21 @@ def test_missing_or_false_scope_confirmation_is_refused(tmp_path):
         _record(tmp_path, {"periods": {"FY-Current": _period_request(scope_confirmed=False)}})
 
 
-def test_analyst_supplied_only_inputs_are_refused(tmp_path):
-    # The borrower's historical store is analyst-supplied.
-    _seed_deal(tmp_path, financials_source="analyst-supplied",
+def test_analyst_supplied_only_borrower_figures_are_refused(tmp_path):
+    _seed_deal(tmp_path, financials={}, financials_source="analyst-supplied",
                analyst_supplied_financials={"FY-Current": {"revenue": 900}})
     _register_entity(tmp_path, _entity_record())
     with pytest.raises(AggregationError, match="analyst-supplied"):
         _record(tmp_path)
 
-    # The entity's only figures for the period are analyst-supplied.
+
+def test_analyst_supplied_only_entity_figures_are_refused(tmp_path):
     _seed_deal(tmp_path)
-    _register_entity(tmp_path, _entity_record(raw={}, analyst_supplied={"FY-Current": {"revenue": 300}}))
+    _register_entity(tmp_path, _entity_record(HOLDCO_ID, raw={},
+                                              analyst_supplied={"FY-Current": {"revenue": 300}}))
     with pytest.raises(AggregationError, match="analyst-supplied"):
-        _record(tmp_path)
+        _record(tmp_path, {"periods": {"FY-Current": _period_request(
+            participants=["@borrower", HOLDCO_ID])}})
 
 
 def test_an_analyst_supplied_forecast_is_refused_for_a_forward_period(tmp_path):
@@ -595,7 +599,7 @@ def test_an_analyst_supplied_forecast_is_refused_for_a_forward_period(tmp_path):
 
 
 def test_a_case_a_deal_is_refused_fail_closed(tmp_path):
-    _seed_deal(tmp_path, group_basis={
+    _seed_deal(tmp_path, financials_source="analyst-supplied", group_basis={
         "basis": "supplied_consolidated", "reporting_entity": "Synthetic Parent",
         "entities_covered": ["Synthetic Parent"], "source": {"document": "Synthetic group accounts",
                                                             "accounting_basis": "UK GAAP", "date": "2026-01-01"},
@@ -612,7 +616,9 @@ def test_non_finite_and_boolean_numbers_are_refused(tmp_path):
     state = json.loads(_state_file(tmp_path).read_text(encoding="utf-8"))
     state["financials"]["FY-Current"]["raw"]["revenue"] = float("nan")
     _state_file(tmp_path).write_text(json.dumps(state, allow_nan=True), encoding="utf-8")
-    with pytest.raises(AggregationError, match="finite|NaN"):
+    # The shared read path refuses the non-finite figure before the aggregation is even
+    # resolved; nothing is written either way.
+    with pytest.raises((AggregationError, StateShapeError), match="non-finite"):
         _record(tmp_path)
 
     state["financials"]["FY-Current"]["raw"]["revenue"] = True
@@ -668,7 +674,15 @@ def test_every_refusal_leaves_state_json_byte_for_byte_unchanged(tmp_path, scena
     _register_entity(tmp_path, _entity_record(intercompany_lines=[_line("ghost-entity")]))
     if scenario == "case_a_collision":
         state = json.loads(path.read_text(encoding="utf-8"))
-        state["group_basis"] = {"basis": "supplied_consolidated"}
+        state["group_basis"] = {
+            "basis": "supplied_consolidated", "reporting_entity": "Synthetic Parent",
+            "entities_covered": ["Synthetic Parent"],
+            "source": {"document": "Synthetic group accounts", "accounting_basis": "UK GAAP",
+                       "date": "2026-01-01"},
+            "period_end": "2025-12-31", "periods": ["FY-Current"], "figures_basis": "supplied",
+            "perimeter_confirmed": True, "perimeter_confirmed_on": "2026-01-01",
+        }
+        state["financials_source"] = "analyst-supplied"
         path.write_text(json.dumps(state), encoding="utf-8")
     requests = {
         "missing_scope": {"periods": {"FY-Current": _period_request(scope_confirmed=False)}},
@@ -687,7 +701,7 @@ def test_every_refusal_leaves_state_json_byte_for_byte_unchanged(tmp_path, scena
                                                   intercompany_lines=[]))
         state = json.loads(path.read_text(encoding="utf-8"))
         state["entity_records"]["second-entity"]["intercompany_lines"] = [
-            _line("second-entity", confirmed=False)]
+            _line(OPCO_ID, confirmed=False)]
         path.write_text(json.dumps(state), encoding="utf-8")
     if scenario == "analyst_supplied":
         state = json.loads(path.read_text(encoding="utf-8"))
@@ -755,3 +769,156 @@ def test_resolve_request_does_not_write_the_state(tmp_path):
     state = _read_full(tmp_path)
     resolve_request(state, _request())
     assert path.read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# Validation branches reached through the pure resolver on hand-built state
+# ---------------------------------------------------------------------------
+
+def _hand_state(**overrides):
+    """A minimal in-memory state the pure resolver accepts, for branch tests."""
+    state = {
+        "financials": {"FY-Current": {"raw": dict(BORROWER_RAW["FY-Current"])}},
+        "financials_source": "framework-computed",
+        "entity_records": {OPCO_ID: _entity_record()},
+    }
+    state.update(overrides)
+    return state
+
+
+def test_an_invalid_period_end_date_is_refused(tmp_path):
+    _seed_two_entity_deal(tmp_path)
+    state = _read_full(tmp_path)
+    for bad_date in ("2025-13-45", "2025-12-3", "31/12/2025", 20251231, None):
+        with pytest.raises(AggregationError, match="calendar date"):
+            resolve_request(state, {"periods": {"FY-Current": _period_request(borrower_period_end=bad_date)}})
+
+
+def test_a_boolean_inside_a_nested_list_of_raw_figures_is_refused(tmp_path):
+    with pytest.raises(AggregationError, match="boolean"):
+        credit_aggregation._reject_boolean_numbers({"lines": [1, True]}, "raw")
+
+
+def test_a_non_finite_raw_line_is_refused_by_the_resolver(tmp_path):
+    state = _hand_state()
+    state["financials"]["FY-Current"]["raw"]["revenue"] = float("nan")
+    with pytest.raises(AggregationError, match="non-finite"):
+        resolve_request(state, _request())
+
+
+def test_borrower_figures_in_both_raw_stores_are_refused(tmp_path):
+    state = _hand_state(analyst_supplied_financials={"FY-Current": {"revenue": 900}})
+    with pytest.raises(AggregationError, match="both raw stores"):
+        resolve_request(state, _request())
+
+
+def test_an_absent_entity_registry_is_refused_for_an_entity_participant():
+    state = _hand_state()
+    del state["entity_records"]
+    with pytest.raises(AggregationError, match="entity_records is absent"):
+        resolve_request(state, _request())
+
+
+def test_an_entity_participant_whose_record_key_mismatches_is_refused():
+    state = _hand_state()
+    state["entity_records"][OPCO_ID]["entity_id"] = "someone-else"
+    with pytest.raises(AggregationError, match="not a registered entity record"):
+        resolve_request(state, _request())
+
+
+def test_an_entity_participant_with_an_unconfirmed_perimeter_is_refused():
+    state = _hand_state()
+    state["entity_records"][OPCO_ID]["perimeter"]["confirmed"] = False
+    with pytest.raises(AggregationError, match="unconfirmed perimeter"):
+        resolve_request(state, _request())
+
+
+def test_an_entity_participant_with_no_figures_at_all_is_refused():
+    state = _hand_state()
+    state["entity_records"][OPCO_ID]["multi_period_financials"] = {}
+    with pytest.raises(AggregationError, match="no raw figures"):
+        resolve_request(state, _request())
+
+
+def test_an_intercompany_line_without_a_counterparty_id_is_refused():
+    state = _hand_state()
+    state["entity_records"][OPCO_ID]["intercompany_lines"] = [
+        {k: v for k, v in _line(HOLDCO_ID).items() if k != "counterparty_entity_id"}]
+    with pytest.raises(AggregationError, match="counterparty_entity_id"):
+        resolve_request(state, _request())
+
+
+def test_a_counterparty_with_an_unconfirmed_perimeter_is_refused():
+    state = _hand_state()
+    state["entity_records"][HOLDCO_ID] = _entity_record(HOLDCO_ID)
+    state["entity_records"][HOLDCO_ID]["perimeter"]["confirmed"] = False
+    state["entity_records"][OPCO_ID]["intercompany_lines"] = [_line(HOLDCO_ID)]
+    with pytest.raises(AggregationError, match="unconfirmed"):
+        resolve_request(state, _request())
+
+
+def test_a_line_held_by_a_record_without_a_lines_list_is_skipped():
+    state = _hand_state()
+    del state["entity_records"][OPCO_ID]["intercompany_lines"]
+    resolve_request(state, _request())       # must not raise
+
+
+def test_a_non_canonical_payload_is_refused():
+    with pytest.raises(AggregationError, match="canonical JSON"):
+        credit_aggregation._canonical_digest({"unserialisable": object()})
+
+
+def test_a_period_request_that_is_not_an_object_is_refused():
+    state = _hand_state()
+    with pytest.raises(AggregationError, match="must be a JSON object"):
+        resolve_request(state, {"periods": {"FY-Current": "not an object"}})
+
+
+def test_a_non_string_participant_is_refused():
+    state = _hand_state()
+    with pytest.raises(AggregationError, match="non-empty strings"):
+        resolve_request(state, {"periods": {"FY-Current": _period_request(participants=["@borrower", 5])}})
+
+
+def test_an_empty_borrower_period_end_evidence_is_refused():
+    state = _hand_state()
+    with pytest.raises(AggregationError, match="borrower_period_end_evidence"):
+        resolve_request(state, {"periods": {"FY-Current": _period_request(
+            borrower_period_end_evidence="  ")}})
+
+
+def test_a_request_that_is_not_an_object_is_refused():
+    with pytest.raises(AggregationError, match="must be a JSON object"):
+        resolve_request(_hand_state(), ["not", "an", "object"])
+
+
+def test_an_empty_periods_object_is_refused():
+    with pytest.raises(AggregationError, match="periods"):
+        resolve_request(_hand_state(), {"periods": {}})
+
+
+def test_a_status_lookup_on_an_entry_without_a_manifest_is_stale():
+    state = _hand_state(credit_aggregation={"FY-Current": {"input_fingerprint": "x" * 64}})
+    status = aggregation_period_status(state, "FY-Current")
+    assert status["status"] == "stale"
+    assert status["input_fingerprint"] == "x" * 64
+
+
+def test_a_missing_request_file_is_refused_by_the_library_call(tmp_path):
+    _seed_deal(tmp_path)
+    with pytest.raises(AggregationError, match="nope.json"):
+        record_credit_aggregation(COMPANY, PROPOSAL, str(tmp_path / "nope.json"), base_dir=str(tmp_path))
+
+
+def test_a_state_that_disappears_under_the_lock_is_refused(tmp_path, monkeypatch):
+    _seed_two_entity_deal(tmp_path)
+    monkeypatch.setattr(credit_aggregation, "read_state", lambda *args, **kwargs: None)
+    with pytest.raises(AggregationError, match="no longer exists"):
+        _record(tmp_path)
+
+
+def test_an_unresolvable_state_path_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(credit_aggregation, "find_deal",
+                        lambda *args, **kwargs: {"record_found": True, "date": None, "state_path": 123})
+    with pytest.raises(AggregationError, match="was not resolved"):
+        _record(tmp_path)

@@ -534,6 +534,8 @@ def test_credit_aggregation_refuses_and_leaves_the_state_untouched(cli):
 
 
 def test_credit_aggregation_reports_a_missing_request_file_cleanly(cli):
+    import state_manager
+    state_manager.write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(cli.workdir))
     result = cli("credit_aggregation", "--company", "Acme", "--proposal", "Loan",
                  "--request-file", "nope.json")
     _assert_a_clean_state_error(result, "nope.json")
@@ -2921,7 +2923,7 @@ def test_state_manager_register_entity_record_subprocess_round_trips_and_preserv
         "deals/Synthetic Group Ltd/Synthetic Group Facility_2026-01-01/state.json"
     )
     saved = json.loads(state_path.read_text(encoding="utf-8"))
-    assert saved["schema_version"] == "1.2.0"
+    assert saved["schema_version"] == "1.3.0"
     assert saved["entity_records"]["synthetic-parent"]["perimeter"]["confirmed"] is True
     assert saved["entity_records"]["synthetic-parent"]["perimeter"]["confirmed_on"] == "2026-10-27"
     assert saved["entity_records"]["synthetic-parent"]["future_metadata"] == {"preserve": True}

@@ -72,7 +72,7 @@ guarantees to condition on; don't treat its absence as a missing step.
    independently recompute a risk grade. Never state a fact or figure that wasn't grounded in one
    of the prior steps or a source the user supplied. Write each citation as a Markdown link whose
    text is the readable citation, for example `[FY25 accounts, p. 12](url)`, so the exported
-   document shows a clickable link; a source with no URL needs no link, and never invent one.
+   document shows a clickable link. A source with no URL needs no link; never invent one.
    Render every entry in policy_state's
    `required_conditions_precedent` (from step 3) as prose in the CAM's Conditions Precedent
    section, and end your response with the structured JSON block `agents/underwriter_agent.md`'s

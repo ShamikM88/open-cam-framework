@@ -1353,6 +1353,7 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
         "blank_downside_periods": blank_downside_periods,
         "derived_downside_fields": derived_downside_fields,
         "group_basis": group_basis,
+        "credit_aggregation": None,
     }
     assert Path(returned) == expected_folder
     assert expected_folder.is_dir()
@@ -1775,7 +1776,7 @@ def test_workbook_inputs_from_state_selects_one_raw_store_per_period_and_passes_
     assert set(inputs) == {
         "financial_data", "collateral_data", "collateral_analysis", "downside_financial_data",
         "supplied_values", "supplied_downside_values", "blank_downside_periods",
-        "derived_downside_fields", "group_basis"}
+        "derived_downside_fields", "group_basis", "credit_aggregation"}
     assert inputs["financial_data"] == {"FY-Current": {"revenue": 500}, "FY+1": {"revenue": 600}}
     assert inputs["collateral_data"] == [{"asset": "Synthetic asset"}]
     assert inputs["collateral_analysis"] is None
@@ -1788,7 +1789,7 @@ def test_workbook_inputs_from_state_for_an_empty_state_is_all_none():
         "financial_data": None, "collateral_data": None, "collateral_analysis": None,
         "downside_financial_data": None, "supplied_values": None,
         "supplied_downside_values": None, "blank_downside_periods": None, "derived_downside_fields": None,
-        "group_basis": None}
+        "group_basis": None, "credit_aggregation": None}
 
 
 def test_the_workbook_export_receives_exactly_the_shared_inputs(tmp_path, monkeypatch):

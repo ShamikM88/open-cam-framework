@@ -13,6 +13,7 @@ import sys
 from datetime import datetime
 from typing import Any
 
+from credit_aggregation import aggregation_sheet_rows
 from docx_builder import check_exportable, export_to_docx
 from draft_lint import citation_link_warnings
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
@@ -202,6 +203,7 @@ def workbook_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
         "blank_downside_periods": blank_downside_periods or None,
         "derived_downside_fields": derived_downside_fields or None,
         "group_basis": state.get("group_basis"),
+        "credit_aggregation": aggregation_sheet_rows(state),
     }
 
 

@@ -158,3 +158,10 @@ def test_forward_and_downside_stay_unresolvable_for_an_aggregation_covenant(curr
     assert all(item["status"] == "UNRESOLVABLE" for item in result["forward_covenant_results"])
     assert all(item.get("downside_status") != "FAIL" or item.get("basis") for item in
                result["downside_covenant_breaches"])
+
+
+def test_ground_truth_ignores_malformed_aggregation_view_stores():
+    views = [{"view_source": "credit_aggregation", "basis": "consolidated",
+              "ratios": "not-a-mapping", "financials": {"FY-Current": "not-a-mapping", "FY+1": {"ebitda": 7.0, "raw": {}}}}]
+    truth = policy_checks.ground_truth_figures({}, {}, [], resolved_views=views)
+    assert truth == {"credit_aggregation::ebitda_FY+1": 7.0}

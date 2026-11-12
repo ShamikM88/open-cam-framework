@@ -124,6 +124,10 @@ figures basis, and analyst perimeter-confirmation state/date. It discloses metad
 no consolidated amounts or new calculations on this sheet. A deal without `group_basis` receives
 no extra sheet, and the existing Financial Spreading and Collateral & Exposure sheets are unchanged.
 
+### Credit aggregation sheet and summary section (case B, issue #472 B4)
+
+When the deal's state records a `credit_aggregation`, the spreading workbook adds one last sheet, `Credit aggregation`, and the committee summary adds a `Credit aggregation (not a consolidation)` section. Both state that this is a credit aggregation, never a statutory consolidation, and that equity, goodwill, non-controlling interests and other material adjustments are not covered. For each recorded period they show the participants, the confirmed scope, the common period end and its evidence, the status (`current`, `not calculated`, `stale`, `invalid` or `absent`, from the same freshness check the covenant routing uses), the first 16 characters of the input fingerprint and, for a `current` period only, the computed subtotals and ratios. A period that is not current shows its reason and no figures. Borrower and entity figures are never summed in either output, and no elimination before-and-after rows exist yet (the accounting-gated B2b step owns them). A deal with no `credit_aggregation` gets no extra sheet or section, and `export_readback.py` regenerates the sheet from the same rows.
+
 ### Checking an export later
 
 `python scripts/export_readback.py --company ... --proposal ...` regenerates the expected workbook and document from the

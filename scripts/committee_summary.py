@@ -23,6 +23,7 @@ from policy_check import STATE_KEYS_READ, compute_from_state
 from policy_engine import PolicyState
 from source_manifest import missing_saved_sources, read_manifest, sources_declared
 from spreading_builder import PERIOD_KEYS
+from credit_aggregation import aggregation_period_status
 from state_manager import (
     JsonValue, StateError, find_deal, read_state, required_steps_completed, sanitize_path_component, state_path,
     validate_iso_date_str, validate_state,
@@ -48,6 +49,11 @@ HARD_PREREQUISITE_STEPS = ("spread",)
 
 GROUP_DISCLOSURE = ("Credit aggregation of consolidated accounts supplied by the borrower; "
                     "not a statutory consolidation prepared by this framework.")
+
+AGGREGATION_DISCLOSURE = (
+    "Credit aggregation of the borrower and the entities the analyst confirmed, never a statutory consolidation. "
+    "It does not cover equity, goodwill, non-controlling interests or other material adjustments."
+)
 
 LIMITS = (
     "This summary quotes recorded values and the deterministic policy check. It makes no credit decision, "
@@ -199,6 +205,35 @@ def render_markdown(data: CommitteeSummaryData) -> str:
             ("Common period end", "period_end"), ("Periods covered", "periods"),
             ("Figures basis", "figures_basis"), ("Perimeter confirmed on", "perimeter_confirmed_on"))]
         lines.append("")
+
+    aggregation = state.get("credit_aggregation")
+    if isinstance(aggregation, dict) and aggregation:
+        lines += ["## Credit aggregation (not a consolidation)", "", AGGREGATION_DISCLOSURE, ""]
+        for period in _ordered_periods(aggregation):
+            entry = aggregation.get(period)
+            manifest = entry.get("manifest") if isinstance(entry, dict) else None
+            manifest = manifest if isinstance(manifest, dict) else {}
+            status = aggregation_period_status(state, period)
+            fingerprint = status.get("input_fingerprint")
+            participants = manifest.get("participants")
+            lines += [f"**{_cell(period)}**", ""]
+            lines += [
+                f"- **Participants:** {_cell(', '.join(participants) if isinstance(participants, list) else None)}",
+                f"- **Confirmed scope:** {_cell(', '.join(sorted(manifest.get('scope_confirmations') or {})))}",
+                f"- **Period end:** {_cell(manifest.get('period_end'))} "
+                f"(evidence: {_cell(manifest.get('period_end_evidence'))})",
+                f"- **Status:** {_cell(str(status.get('status')).replace('_', ' '))}",
+                f"- **Input fingerprint:** {_cell(fingerprint[:16] if isinstance(fingerprint, str) else None)}",
+            ]
+            if status.get("reason"):
+                lines.append(f"- **Reason:** {_cell(status['reason'])}")
+            computed = entry.get("computed") if isinstance(entry, dict) else None
+            if status.get("status") == "current" and isinstance(computed, dict):
+                lines += ["", "Computed credit-aggregation subtotals and ratios:", ""]
+                rows = [[name, value] for group in ("financials", "ratios")
+                        for name, value in sorted(computed[group].items()) if name != "raw"]
+                lines += _table(["Figure", "Value"], rows)
+            lines.append("")
 
     inputs = inputs if isinstance(inputs := state.get("inputs"), dict) else {}
     lines += ["## Facility and key terms", ""]

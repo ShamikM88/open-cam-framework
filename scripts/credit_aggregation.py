@@ -475,6 +475,52 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
     return {"status": "current", "reason": None, "input_fingerprint": fingerprint}
 
 
+AGGREGATION_SHEET_DISCLOSURE = (
+    "Credit aggregation of the borrower and the entities the analyst confirmed, never a statutory consolidation. "
+    "It does not cover equity, goodwill, non-controlling interests or other material adjustments."
+)
+
+
+def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
+    """The rows of the workbook's "Credit aggregation" sheet (issue #472, B4), or None when none is recorded.
+
+    Output only: it reads the recorded manifest, the freshness status from ``aggregation_period_status`` and, for
+    a ``current`` period only, the ``computed`` figures. A period that is not current shows its status and reason
+    and no figures. Borrower and entity figures are never summed here.
+    """
+    recorded = state.get("credit_aggregation") if isinstance(state, dict) else None
+    if not isinstance(recorded, dict) or not recorded:
+        return None
+    rows: list[list[Any]] = [[AGGREGATION_SHEET_DISCLOSURE]]
+    for period in PERIOD_KEYS:
+        entry = recorded.get(period)
+        if not isinstance(entry, dict):
+            continue
+        manifest = entry.get("manifest") if isinstance(entry.get("manifest"), dict) else {}
+        status = aggregation_period_status(state, period)
+        participants = manifest.get("participants")
+        fingerprint = status.get("input_fingerprint")
+        rows += [
+            [],
+            ["Period", period],
+            ["Participants", ", ".join(participants) if isinstance(participants, list) else None],
+            ["Confirmed scope", ", ".join(sorted(manifest.get("scope_confirmations") or {}))],
+            ["Period end", manifest.get("period_end")],
+            ["Period end evidence", manifest.get("period_end_evidence")],
+            ["Status", str(status.get("status")).replace("_", " ")],
+            ["Input fingerprint", fingerprint[:16] if isinstance(fingerprint, str) else None],
+        ]
+        if status.get("reason"):
+            rows.append(["Reason", status["reason"]])
+        computed = entry.get("computed")
+        if status.get("status") == "current" and isinstance(computed, dict):
+            for group in ("financials", "ratios"):
+                for name, value in sorted(computed[group].items()):
+                    if name != "raw":
+                        rows.append([name, value])
+    return rows
+
+
 def record_credit_aggregation(
     company: str, proposal: str, request_file: str,
     base_dir: str | None = None,

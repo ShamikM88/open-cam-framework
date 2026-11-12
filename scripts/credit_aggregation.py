@@ -495,7 +495,8 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
         entry = recorded.get(period)
         if not isinstance(entry, dict):
             continue
-        manifest = entry.get("manifest") if isinstance(entry.get("manifest"), dict) else {}
+        recorded_manifest = entry.get("manifest")
+        manifest: dict[str, Any] = recorded_manifest if isinstance(recorded_manifest, dict) else {}
         status = aggregation_period_status(state, period)
         participants = manifest.get("participants")
         fingerprint = status.get("input_fingerprint")

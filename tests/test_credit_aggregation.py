@@ -203,16 +203,16 @@ def test_recording_preserves_periods_not_in_the_request_and_drops_recomputed_com
         "FY+1": _period_request(participants=["@borrower", OPCO_ID], borrower_period_end="2026-12-31"),
     }})
     state = _read_full(tmp_path)
-    state["credit_aggregation"]["FY+1"]["computed"] = {"financials": {"FY+1": {"ebitda": 99}},
-                                                      "ratios": {"FY+1": {"dscr": 1.1}}}
+    state["credit_aggregation"]["FY+1"]["computed"] = {"financials": {"ebitda": 99},
+                                                      "ratios": {"dscr": 1.1}}
     _state_file(tmp_path).write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     _record(tmp_path)      # FY-Current only: FY+1 is preserved untouched
 
     after = _read_full(tmp_path)
     assert set(after["credit_aggregation"]) == {"FY-Current", "FY+1"}
-    assert after["credit_aggregation"]["FY+1"]["computed"] == {"financials": {"FY+1": {"ebitda": 99}},
-                                                              "ratios": {"FY+1": {"dscr": 1.1}}}
+    assert after["credit_aggregation"]["FY+1"]["computed"] == {"financials": {"ebitda": 99},
+                                                              "ratios": {"dscr": 1.1}}
 
 
 def test_re_recording_a_period_replaces_its_own_computed(tmp_path):

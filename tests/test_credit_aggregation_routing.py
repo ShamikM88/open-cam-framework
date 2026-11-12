@@ -148,3 +148,13 @@ def test_ground_truth_has_no_aggregation_keys_for_a_stale_period(current_state):
 def test_status_function_is_the_one_imported_by_the_resolver():
     import covenant_basis
     assert covenant_basis.aggregation_period_status is aggregation_period_status
+
+
+def test_forward_and_downside_stay_unresolvable_for_an_aggregation_covenant(current_state):
+    current_state["ratios"]["FY+1"] = {"gross_leverage": 1.0}
+    current_state["downside_case"] = {"ratios": {"FY+1": {"gross_leverage": 9.0}}, "financials": {}}
+    result = policy_engine.evaluate_deal_policy(current_state)
+    assert result["forward_covenant_results"]
+    assert all(item["status"] == "UNRESOLVABLE" for item in result["forward_covenant_results"])
+    assert all(item.get("downside_status") != "FAIL" or item.get("basis") for item in
+               result["downside_covenant_breaches"])

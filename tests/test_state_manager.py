@@ -4599,3 +4599,92 @@ def test_record_entity_record_refuses_if_state_disappears_before_locked_read(tmp
         f"Refusing to record entity_record: state.json at {str(path)!r} no longer exists; nothing was created."
     )
     assert path.read_bytes() == before
+
+
+# --- credit_aggregation shape validation (issue #472, B2a) ---------------------------------------------
+
+def _valid_credit_aggregation_for_tests():
+    return {
+        "FY-Current": {
+            "manifest": {
+                "participants": ["@borrower", "sub_a"],
+                "period_end": "2024-12-31",
+                "period_end_evidence": "Borrower FY-Current accounts, balance sheet date",
+                "scope_confirmations": {"sub_a": {"confirmed": True}},
+            },
+            "input_fingerprint": "a" * 64,
+        }
+    }
+
+
+def _credit_aggregation_problems_for(value):
+    try:
+        state_manager.validate_state({"credit_aggregation": value}, keys=("credit_aggregation",))
+    except state_manager.StateShapeError as exc:
+        return str(exc)
+    return ""
+
+
+def test_credit_aggregation_valid_record_and_null_are_accepted():
+    good = {"credit_aggregation": _valid_credit_aggregation_for_tests()}
+    assert state_manager.validate_state(good, keys=("credit_aggregation",)) == good
+    absent = {"credit_aggregation": None}
+    assert state_manager.validate_state(absent, keys=("credit_aggregation",)) == absent
+
+
+def test_credit_aggregation_computed_object_shape_is_checked():
+    value = _valid_credit_aggregation_for_tests()
+    value["FY-Current"]["computed"] = {"financials": {}, "ratios": {}}
+    assert _credit_aggregation_problems_for(value) == ""
+    value["FY-Current"]["computed"] = {"financials": {}}
+    assert '"financials" and "ratios"' in _credit_aggregation_problems_for(value)
+    value["FY-Current"]["computed"] = "x"
+    assert "computed must be an object" in _credit_aggregation_problems_for(value)
+
+
+def test_credit_aggregation_top_level_and_entry_shape_problems():
+    assert "must be an object keyed by period" in _credit_aggregation_problems_for(["x"])
+    assert "unknown period label" in _credit_aggregation_problems_for({"FY-9": {}})
+    assert "must be an object" in _credit_aggregation_problems_for({"FY-Current": "x"})
+    value = _valid_credit_aggregation_for_tests()
+    value["FY-Current"]["extra"] = 1
+    assert "unexpected key(s)" in _credit_aggregation_problems_for(value)
+
+
+def test_credit_aggregation_missing_and_malformed_manifest_and_fingerprint():
+    msg = _credit_aggregation_problems_for({"FY-Current": {}})
+    assert "manifest is required" in msg and "input_fingerprint is required" in msg
+    value = _valid_credit_aggregation_for_tests()
+    value["FY-Current"]["manifest"] = []
+    assert "manifest must be an object" in _credit_aggregation_problems_for(value)
+    value = _valid_credit_aggregation_for_tests()
+    value["FY-Current"]["input_fingerprint"] = "ABC"
+    assert "lowercase 64-character SHA-256" in _credit_aggregation_problems_for(value)
+
+
+@pytest.mark.parametrize(
+    "mutate, expected",
+    [
+        (lambda m: m.update(unknown=1), "manifest has unexpected key(s)"),
+        (lambda m: m.update(participants=[]), "non-empty list of distinct participant IDs"),
+        (lambda m: m.update(participants="x"), "non-empty list of distinct participant IDs"),
+        (lambda m: m.update(participants=["@borrower", ""]), "participants[1] must be a non-empty string"),
+        (lambda m: m.update(participants=["@borrower", "sub_a", "sub_a"]), "duplicate participant"),
+        (lambda m: m.update(participants=["sub_a"]), 'must include the reserved token "@borrower"'),
+        (lambda m: m.update(period_end="31/12/2024"), "period_end"),
+        (lambda m: m.update(period_end_evidence=" "), "period_end_evidence must be a non-empty string"),
+        (lambda m: m.update(scope_confirmations=[]), "scope_confirmations must be an object"),
+        (lambda m: m.update(scope_confirmations={"ghost": {}}), "who is not among the recorded participants"),
+        (lambda m: m.update(scope_confirmations={"sub_a": "x"}), "scope_confirmations['sub_a'] must be an object"),
+    ],
+)
+def test_credit_aggregation_manifest_problems(mutate, expected):
+    value = _valid_credit_aggregation_for_tests()
+    mutate(value["FY-Current"]["manifest"])
+    assert expected in _credit_aggregation_problems_for(value)
+
+
+def test_entity_records_refuse_the_reserved_borrower_key():
+    record = {"@borrower": {"perimeter": {"included": True}}}
+    with pytest.raises(state_manager.StateShapeError, match="reserved for the borrower view"):
+        state_manager.validate_state({"entity_records": record}, keys=("entity_records",))

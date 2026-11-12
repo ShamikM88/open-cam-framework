@@ -165,3 +165,21 @@ def test_ground_truth_ignores_malformed_aggregation_view_stores():
               "ratios": "not-a-mapping", "financials": {"FY-Current": "not-a-mapping", "FY+1": {"ebitda": 7.0, "raw": {}}}}]
     truth = policy_checks.ground_truth_figures({}, {}, [], resolved_views=views)
     assert truth == {"credit_aggregation::ebitda_FY+1": 7.0}
+
+
+@pytest.mark.parametrize("corrupt", [[], "corrupt", 7, ["x"]])
+def test_a_malformed_credit_aggregation_fails_closed_even_beside_a_valid_group_basis(corrupt):
+    """CG587-5: a non-mapping case-B key must never fall back to the case-A view."""
+    state = {"ratios": {PERIOD: {"gross_leverage": 1.0}}, "financials": {PERIOD: {"ebitda": 1.0}},
+             "group_basis": {"basis": "supplied_consolidated"}, "credit_aggregation": corrupt}
+    view = resolve_covenant_view(state, COVENANT)
+    assert view["ratios"] == {} and view["financials"] == {}
+    assert "credit_aggregation" in view["unresolvable_reason"] and "malformed" in view["unresolvable_reason"]
+    result = policy_engine.evaluate_deal_policy({**state, "covenants": [dict(COVENANT)]})["covenant_results"][0]
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
+
+
+def test_an_absent_null_or_empty_credit_aggregation_still_leaves_the_ordinary_view():
+    for value in (None, {}):
+        state = {"ratios": {PERIOD: {"gross_leverage": 1.0}}, "financials": {}, "credit_aggregation": value}
+        assert resolve_covenant_view(state, COVENANT)["ratios"] == state["ratios"]

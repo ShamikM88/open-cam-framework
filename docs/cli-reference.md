@@ -656,8 +656,8 @@ credit aggregation inputs (step B2a) on an **exact existing deal only**. The UTF
 `{"periods": {"<period>": {"participants": [...], "borrower_period_end": "YYYY-MM-DD", "borrower_period_end_evidence": "...", "scope_confirmed": true}}}`:
 the participants are the reserved `@borrower` token plus explicit `entity_records` IDs whose perimeter is
 included and confirmed, never inferred; every participant must carry the same period label and exactly the
-same ISO date per period, and every intercompany counterparty of a selected participant must resolve to a
-selected participant of that line's own period or to `@borrower`. The command validates the whole request
+same ISO date per period, and every intercompany counterparty on a selected participant's lines for that period must resolve to a
+selected participant of that period or to `@borrower` (lines of other periods are not inputs of this period). The command validates the whole request
 against the live state under the per-deal lock before one atomic write, and persists each period's manifest
 and SHA-256 input fingerprint under the top-level `credit_aggregation` key (schema version `1.3.0`). It
 computes nothing — eliminations and calculation are the separately gated B2b step, whose optional
@@ -666,7 +666,7 @@ computes nothing — eliminations and calculation are the separately gated B2b s
 `@borrower` token, duplicate, unknown or out-of-perimeter participants, missing or mismatched period
 ends, dangling, unselected, out-of-perimeter or unconfirmed counterparties, unconfirmed lines,
 analyst-supplied-only figures, a deal that already carries a case-A `group_basis`, non-finite or boolean
-numbers, and unknown keys. A successful command prints one JSON line with `recorded`, `periods` and
+numbers, and unknown keys. A successful command prints one JSON object (pretty-printed, so several lines) with `recorded`, `periods` and
 `state_path`; any refusal prints one `error:` line, exits `1`, and leaves `state.json` byte-for-byte
 unchanged (no deal is ever created). See the
 [data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a) for the full contract.

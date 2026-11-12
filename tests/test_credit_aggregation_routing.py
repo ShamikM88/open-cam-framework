@@ -156,8 +156,7 @@ def test_forward_and_downside_stay_unresolvable_for_an_aggregation_covenant(curr
     result = policy_engine.evaluate_deal_policy(current_state)
     assert result["forward_covenant_results"]
     assert all(item["status"] == "UNRESOLVABLE" for item in result["forward_covenant_results"])
-    assert all(item.get("downside_status") != "FAIL" or item.get("basis") for item in
-               result["downside_covenant_breaches"])
+    assert result["downside_covenant_breaches"] == []
 
 
 def test_ground_truth_ignores_malformed_aggregation_view_stores():

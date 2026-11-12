@@ -34,7 +34,9 @@ def deal(tmp_path):
     _seed_two_entity_deal(tmp_path)
     _record(tmp_path)
     state = _read_full(tmp_path)
-    state["credit_aggregation"]["FY-Current"]["computed"] = copy.deepcopy(COMPUTED)
+    entry = state["credit_aggregation"]["FY-Current"]
+    entry["computed"] = {**copy.deepcopy(COMPUTED), "output_digest": credit_aggregation.computed_output_digest(
+        entry["input_fingerprint"], COMPUTED["financials"], COMPUTED["ratios"])}
     state["covenants"] = [dict(COVENANT)]
     state["ratios"] = {"FY-Current": {"gross_leverage": 5.0}}
     _write(tmp_path, state)

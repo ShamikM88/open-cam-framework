@@ -334,8 +334,10 @@ def test_a_recorded_period_with_computed_is_current(tmp_path):
     _seed_two_entity_deal(tmp_path)
     _record(tmp_path)
     state = _read_full(tmp_path)
-    state["credit_aggregation"]["FY-Current"]["computed"] = {"financials": {"ebitda": 99},
-                                                            "ratios": {"dscr": 1.1}}
+    entry = state["credit_aggregation"]["FY-Current"]
+    entry["computed"] = {"financials": {"ebitda": 99}, "ratios": {"dscr": 1.1},
+                         "output_digest": credit_aggregation.computed_output_digest(
+                             entry["input_fingerprint"], {"ebitda": 99}, {"dscr": 1.1})}
     status = aggregation_period_status(state, "FY-Current")
     assert status["status"] == "current"
     assert status["reason"] is None
@@ -671,7 +673,10 @@ def test_a_deal_that_does_not_exist_is_refused_and_nothing_is_created(tmp_path):
 ])
 def test_every_refusal_leaves_state_json_byte_for_byte_unchanged(tmp_path, scenario):
     path = _seed_deal(tmp_path)
-    _register_entity(tmp_path, _entity_record(intercompany_lines=[_line("ghost-entity")]))
+    # Each scenario reaches its own refusal: a stray line must not pre-empt it (Cubic).
+    lines = {"dangling_counterparty": [_line("ghost-entity")],
+             "unconfirmed_line": [_line(HOLDCO_ID, confirmed=False)]}.get(scenario, [])
+    _register_entity(tmp_path, _entity_record(intercompany_lines=lines))
     if scenario == "case_a_collision":
         state = json.loads(path.read_text(encoding="utf-8"))
         state["group_basis"] = {
@@ -696,13 +701,6 @@ def test_every_refusal_leaves_state_json_byte_for_byte_unchanged(tmp_path, scena
         "case_a_collision": _request(),
         "unknown_key": {"periods": {"FY-Current": _period_request(unexpected=1)}},
     }
-    if scenario == "unconfirmed_line":
-        _register_entity(tmp_path, _entity_record(entity_id="second-entity",
-                                                  intercompany_lines=[]))
-        state = json.loads(path.read_text(encoding="utf-8"))
-        state["entity_records"]["second-entity"]["intercompany_lines"] = [
-            _line(OPCO_ID, confirmed=False)]
-        path.write_text(json.dumps(state), encoding="utf-8")
     if scenario == "analyst_supplied":
         state = json.loads(path.read_text(encoding="utf-8"))
         state["financials_source"] = "analyst-supplied"
@@ -857,10 +855,11 @@ def test_a_counterparty_with_an_unconfirmed_perimeter_is_refused():
         resolve_request(state, _request())
 
 
-def test_a_line_held_by_a_record_without_a_lines_list_is_skipped():
+def test_a_line_held_by_a_record_without_a_lines_list_is_refused():
     state = _hand_state()
     del state["entity_records"][OPCO_ID]["intercompany_lines"]
-    resolve_request(state, _request())       # must not raise
+    with pytest.raises(AggregationError, match="intercompany_lines"):     # a corrupt record is not "no lines"
+        resolve_request(state, _request())
 
 
 def test_a_non_canonical_payload_is_refused():

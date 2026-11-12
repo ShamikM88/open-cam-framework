@@ -78,7 +78,7 @@ def test_a_period_that_is_not_current_shows_its_status_and_reason_but_no_figures
 def test_the_borrower_ratios_are_never_summed_with_entity_figures(status):
     status("current")
     text = _render(_state())
-    assert "5.0" in text or "5" in text  # the borrower's own figure stays in its own table
+    assert "| gross_leverage | 5.0 |" in text  # the borrower's own row stays in its own table
     assert "6.8" not in text and "600" not in text
 
 
@@ -131,7 +131,7 @@ def test_the_workbook_gets_a_credit_aggregation_sheet_last_and_only_when_rows_ar
     export_to_xlsx("Co", plain)
     assert "Credit aggregation" not in openpyxl.load_workbook(plain).sheetnames
     path = tmp_path / "b.xlsx"
-    export_to_xlsx("Co", path, credit_aggregation=ca.aggregation_sheet_rows(_state()))
+    export_to_xlsx("Co", path, **{"credit_aggregation": workbook_inputs_from_state(_state())["credit_aggregation"]})
     workbook = openpyxl.load_workbook(path)
     assert workbook.sheetnames[-1] == "Credit aggregation"
     values = [cell for row in workbook["Credit aggregation"].iter_rows(values_only=True) for cell in row]

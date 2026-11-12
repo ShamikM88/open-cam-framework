@@ -215,12 +215,13 @@ def resolve_covenant_views(
 ) -> list[dict[str, Any]]:
     """Resolve covenants in order and reuse one view object per selected entity."""
     cache: dict[str | None, dict[str, Any]] = {}
+    consolidated: dict[str, Any] | None = None     # its own slot: "consolidated" is also a legal entity ID
     views: list[dict[str, Any]] = []
     for covenant in covenants:
         if isinstance(covenant, Mapping) and covenant.get("basis") == "consolidated":
-            if "consolidated" not in cache:
-                cache["consolidated"] = resolve_covenant_view(state, covenant)
-            views.append(cache["consolidated"])
+            if consolidated is None:
+                consolidated = resolve_covenant_view(state, covenant)
+            views.append(consolidated)
             continue
         if not isinstance(covenant, Mapping) or covenant.get("basis") != "guarantor_group":
             views.append(_ordinary_view(state))

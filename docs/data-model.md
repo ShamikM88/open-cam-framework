@@ -151,7 +151,7 @@ Each requested period resolves to one entry:
       "scope_confirmations": {"synthetic-opco": {"included": true, "...": "..."}}
     },
     "input_fingerprint": "<64-character lowercase SHA-256 hex>",
-    "computed": {"financials": {"ebitda": 500.0, "...": "..."}, "ratios": {"gross_leverage": 1.8, "...": "..."}}
+    "computed": {"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}, "output_digest": "<64-character lowercase SHA-256 hex>"}
   }
 }
 ```
@@ -177,17 +177,23 @@ same shape as the borrower's top-level `financials[period]` and `ratios[period]`
 period has `computed`; every consumer treats a missing or stale `computed` as UNRESOLVABLE with a reason
 (`credit_aggregation.aggregation_period_status()` reports `current`, `not_calculated`, `stale`,
 `invalid` or `absent`). The shape is flat and per period, for example
-`{"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}}`: each metric maps to a finite number
-or `null`, never to a nested per-period object, a boolean or a non-finite value; a nested or non-numeric
-`computed` is `invalid` and the state validator refuses it. B3 and B4 read this contract only.
+`{"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}, "output_digest": "<sha-256>"}`: each metric maps to a finite number
+or `null` (an integer too large for a float counts as non-finite), never to a nested per-period object or a boolean; a nested or non-numeric
+`computed` is `invalid` and the state validator refuses it. **Output integrity:** `output_digest` is the SHA-256 returned by
+`credit_aggregation.computed_output_digest(input_fingerprint, financials, ratios)`, which binds the figures to the exact input
+fingerprint they were calculated from. A `computed` object with no digest, or whose digest does not match, is `invalid` and is never
+read as current, so a hand-edited figure cannot pass a covenant; the B2b writer must fill `computed` through that helper. The recorded
+manifest, including each confirmed scope snapshot, must also equal the manifest the current inputs produce, or the period is `stale`. B3 and B4 read this contract only.
 
 **Per-period fingerprint.** One SHA-256 per period over canonical JSON tagged
 `open-cam-credit-aggregation-input/v1`, serialised as
 `json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")`,
 lowercase hex. The payload covers the contract tag and version, the period label and its end date, the
 sorted participant IDs, each participant's raw-store name and raw period object, source and perimeter
-confirmation, the borrower's period-end evidence, and the confirmed scope; computed outputs are
-excluded. Any change to a participant, source, period, scope or the contract version makes the stored
+confirmation, the borrower's period-end evidence, the confirmed scope, and each entity participant's
+intercompany lines for that period (sorted, so a reordering is not a change; an amount, direction or line-key
+change makes the period stale); computed outputs are excluded. An absent `financials_source` is fingerprinted as
+`framework-computed`, the meaning it has everywhere else. Any change to a participant, source, period, scope or the contract version makes the stored
 fingerprint stale.
 
 Recording merges per period under the deal lock in one atomic write after full validation; any refusal
@@ -295,7 +301,7 @@ script selects exactly one `entity_records[entity_id]` whose role is `guarantor`
 `multi_period_financials` map to the existing `evaluate_financial_model()`, and stores the returned
 `financials` and `ratios` inside that same record. It never combines entity records, reads the borrower's
 raw figures as a fallback, or changes the borrower's top-level `financials`, `ratios`,
-`multi_period_financials`, `analyst_supplied_financials` or `financials_source`. The state schema remains
+`multi_period_financials`, `analyst_supplied_financials` or `financials_source`. The state schema is unchanged:
 the spread adds no top-level state key of its own.
 
 A record is either `spread_status: "not-spread"` with no spread payload, or `spread_status: "spread"`

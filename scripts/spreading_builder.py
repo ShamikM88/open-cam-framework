@@ -1267,6 +1267,10 @@ def _write_credit_aggregation_sheet(wb: Any, rows: Sequence[Sequence[Any]]) -> N
     ws = wb.create_sheet("Credit aggregation")
     for row in rows:
         ws.append(list(row))
+    for sheet_row in ws.iter_rows():
+        for cell in sheet_row:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"     # analyst text such as "=HYPERLINK(...)" must never become a formula
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 72
 

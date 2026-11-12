@@ -325,6 +325,7 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
     assert set(read_keys) == {
         "financials", "ratios", "collateral", "covenants",
         "security_package", "guarantees", "downside_case", "financials_source", "credit_aggregation",
+        "analyst_supplied_financials",
     }
     assert calls["evaluate_deal_policy"] == [{
         "financials": loaded_state["financials"],
@@ -407,6 +408,7 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
     assert set(read_keys) == {
         "financials", "ratios", "collateral", "covenants",
         "security_package", "guarantees", "downside_case", "financials_source", "credit_aggregation",
+        "analyst_supplied_financials",
     }
     assert calls["evaluate_deal_policy"] == [empty_policy_input]
     assert calls["ground_truth_figures"] == [({}, {}, [], {})]

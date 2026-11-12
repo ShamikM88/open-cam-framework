@@ -131,7 +131,7 @@ MAX_REVIEW_ITERATIONS = 3
 STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                    "security_package", "guarantees", "review_trail",   # review_trail: append_review_trail() reads it
-                   "credit_aggregation")
+                   "credit_aggregation", "analyst_supplied_financials")
 
 
 def _completion_kwargs(model):

@@ -285,7 +285,8 @@ scope) and one SHA-256 input fingerprint over the canonical input payload. **B2a
 no elimination, subtotal, ratio or covenant result. The accounting-gated B2b step will later fill each
 period's optional `computed` object (`financials` and `ratios` in the same shape as the borrower's
 top-level `financials[period]` and `ratios[period]`); until it exists no period has `computed`, and
-every consumer treats a missing or stale `computed` as UNRESOLVABLE with a reason. The full key contract
+every covenant consumer treats a missing, stale or untrusted `computed` as UNRESOLVABLE with a reason (the
+B4 outputs label such a period `not calculated`, `stale` or `invalid` with the reason and show no figures). The full key contract
 is documented in [the data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a).
 
 The participants are the reserved token `@borrower` (the existing legacy borrower stores, never an

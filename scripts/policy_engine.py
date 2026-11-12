@@ -50,6 +50,7 @@ SLUG_RE = re.compile(r"[^A-Z0-9]+")
 # The figures a covenant can be tested on (issue #48, decision of 2026-10-22). A covenant names one with `basis`; an
 # absent or null `basis` means "borrower", the legacy meaning of every covenant recorded before the field existed.
 COVENANT_BASES = ("borrower", "consolidated", "guarantor_group")
+SOURCE_CONFLICT = "conflicted"    # recorded_view when group_basis and credit_aggregation are both recorded
 DEFAULT_COVENANT_BASIS = "borrower"
 
 
@@ -67,7 +68,7 @@ class CovenantResult(TypedDict):
     reason: str | None
     basis: NotRequired[JsonValue]
     basis_entity_id: NotRequired[str | None]
-    view_source: NotRequired[str]
+    view_source: NotRequired[Literal["credit_aggregation"]]
     input_fingerprint: NotRequired[str | None]
 
 
@@ -248,6 +249,10 @@ def _evaluate_covenant(
     if basis not in COVENANT_BASES:
         result["reason"] = (f"unrecognized covenant basis {basis!r} "
                             "(expected 'borrower', 'consolidated' or 'guarantor_group')")
+        return result
+    if recorded_view == SOURCE_CONFLICT:
+        result["reason"] = ("both a case-A group_basis and a credit aggregation are recorded; a covenant is "
+                            "tested on neither, so it is UNRESOLVABLE until one source is removed")
         return result
     if basis != recorded_view:
         result["reason"] = (f"the covenant is on the {basis} basis but the recorded figures are the {recorded_view} "
@@ -845,6 +850,10 @@ def evaluate_deal_policy(
     # A recorded group_basis means the deal's recorded figures are borrower-supplied consolidated group accounts
     # (issue #48, case A); otherwise they are the borrower's own. A covenant is tested only on its own basis.
     recorded_view = "consolidated" if isinstance(state_dict.get("group_basis"), dict) else DEFAULT_COVENANT_BASIS
+    if recorded_view == "consolidated" and state_dict.get("credit_aggregation") not in (None, {}):
+        # Two consolidated sources (case A and case B) are recorded: no covenant is tested on either, in the
+        # current, forward or downside result alike (D22, fail closed).
+        recorded_view = SOURCE_CONFLICT
     if resolved_views is None:
         resolved_views = resolve_covenant_views(state_dict, covenants)
     if len(resolved_views) != len(covenants):

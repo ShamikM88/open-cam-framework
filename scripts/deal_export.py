@@ -11,7 +11,7 @@ import os
 import re
 import sys
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 
 from credit_aggregation import aggregation_sheet_rows
 from docx_builder import check_exportable, export_to_docx
@@ -185,7 +185,21 @@ def _collateral_data_from_state(state: dict[str, Any]) -> list[Any] | None:
     return collateral if isinstance(collateral, list) else None
 
 
-def workbook_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
+class WorkbookInputs(TypedDict):
+    """The fixed keyword arguments `export_to_xlsx()` receives (one key per parameter, so a typo is a type error)."""
+    financial_data: dict[str, Any] | None
+    collateral_data: Any
+    collateral_analysis: Any
+    downside_financial_data: dict[str, Any] | None
+    supplied_values: Any
+    supplied_downside_values: Any
+    blank_downside_periods: Any
+    derived_downside_fields: Any
+    group_basis: Any
+    credit_aggregation: list[list[Any]] | None
+
+
+def workbook_inputs_from_state(state: dict[str, Any]) -> WorkbookInputs:
     """The keyword arguments `export_to_xlsx()` receives for this state.
 
     The one place that turns a deal's state into workbook inputs: `export_deal()` writes the workbook from them and

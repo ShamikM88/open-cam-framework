@@ -352,12 +352,24 @@ def computed_figures_problem(computed: object) -> str | None:
     if (not isinstance(computed, dict) or not isinstance(computed.get("financials"), dict)
             or not isinstance(computed.get("ratios"), dict)):
         return 'must be an object with "financials" and "ratios" objects'
+    unexpected = sorted(set(computed) - {"financials", "ratios", "output_digest"})
+    if unexpected:
+        return "has unexpected key(s): " + ", ".join(repr(key) for key in unexpected)
+    digest = computed.get("output_digest")
+    if digest is not None and not (isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)):
+        return "output_digest must be a lowercase 64-character SHA-256 hex digest"
     for group in ("financials", "ratios"):
         for name, figure in computed[group].items():
             if figure is None:
                 continue
-            if (isinstance(figure, bool) or not isinstance(figure, (int, float))
-                    or figure != figure or figure in (float("inf"), float("-inf"))):
+            if isinstance(figure, bool) or not isinstance(figure, (int, float)):
+                return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
+                        "object, boolean or non-finite value")
+            try:
+                finite = float(figure) == float(figure) and abs(float(figure)) != float("inf")
+            except OverflowError:       # an integer too large for a float would later break a comparison
+                finite = False
+            if not finite:
                 return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
                         "object, boolean or non-finite value")
     return None

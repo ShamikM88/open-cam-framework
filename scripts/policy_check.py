@@ -22,7 +22,7 @@ from state_manager import read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
-                   "downside_case", "financials_source", "credit_aggregation")
+                   "downside_case", "financials_source", "credit_aggregation", "analyst_supplied_financials")
 
 
 class PolicyCheckOutput(TypedDict):

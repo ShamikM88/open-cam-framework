@@ -503,7 +503,8 @@ def _bad_value_for(key):
 # would let a dropped key take its test with it).
 ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                            "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
-                           "security_package", "guarantees", "review_trail", "credit_aggregation")
+                           "security_package", "guarantees", "review_trail", "credit_aggregation",
+                           "analyst_supplied_financials")
 
 
 def _orchestrator_state_keys():

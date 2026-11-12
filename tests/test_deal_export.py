@@ -1875,3 +1875,14 @@ def test_export_deal_prints_no_citation_warning_for_a_source_with_no_url(tmp_pat
     draft = "# Acme Corp CAM\n\nPer [management call].\n\n## Sources\n\n- Management call: supplied by the analyst\n"
     export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
     assert "Citation link warning" not in capsys.readouterr().err
+
+
+def test_workbook_inputs_forward_a_recorded_credit_aggregation_to_the_workbook():
+    from credit_aggregation import aggregation_sheet_rows
+    state = {"credit_aggregation": {"FY-Current": {
+        "manifest": {"participants": ["@borrower"], "period_end": "2025-12-31",
+                     "period_end_evidence": "Synthetic", "scope_confirmations": {}},
+        "input_fingerprint": "a" * 64}}}
+    rows = aggregation_sheet_rows(state)
+    assert rows and any(row[:1] == ["Status"] for row in rows)
+    assert workbook_inputs_from_state(state)["credit_aggregation"] == rows

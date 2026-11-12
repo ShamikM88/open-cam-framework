@@ -138,7 +138,8 @@ def _borrower_input(state: dict[str, Any], period: str) -> dict[str, Any]:
     return {
         "store": "financials",
         "raw_period": raw,
-        "financials_source": state.get("financials_source"),
+        # An absent flag is read as framework-computed everywhere else, so it must fingerprint the same way.
+        "financials_source": state.get("financials_source") or "framework-computed",
         "forecast_source": state.get("forecast_source"),
     }
 
@@ -189,8 +190,20 @@ def _entity_input(state: dict[str, Any], period: str, entity_id: str, common_per
         )
     _reject_boolean_numbers(raw, f"participant {entity_id!r} raw figures for {period!r}")
     _reject_non_finite_numbers(raw, f"participant {entity_id!r} raw figures for {period!r}")
+    lines = record.get("intercompany_lines")
+    if not isinstance(lines, list):
+        raise AggregationError(
+            f"participant {entity_id!r} has a missing or non-list intercompany_lines; a corrupted record "
+            "is never read as having no intercompany lines"
+        )
+    # Only this period's lines are inputs of this aggregation (sorted, so a reordering is not a change).
+    period_lines = sorted(
+        (line for line in lines if isinstance(line, dict) and line.get("period") == period),
+        key=lambda line: json.dumps(line, sort_keys=True, default=str),
+    )
     return {
         "store": "multi_period_financials",
+        "intercompany_lines": period_lines,
         "raw_period": raw,
         "source": record.get("source"),
         "perimeter": perimeter,
@@ -206,9 +219,7 @@ def _counterparty_problems(state: dict[str, Any], entity_id: str, line: dict[str
     view through the reserved token). A dangling, unselected, out-of-perimeter or unconfirmed
     reference is a named hard error: never assumed external, never matched by name.
     """
-    line_period = line.get("period")
-    if line_period not in participants_by_period:
-        return          # a line outside the requested periods cannot affect this aggregation
+    line_period = line.get("period")   # callers pass only this period's lines, so it is a requested period
     if line.get("confirmed") is not True:
         raise AggregationError(
             f"participant {entity_id!r} has an unconfirmed intercompany line for {line_period!r}; an "
@@ -222,7 +233,7 @@ def _counterparty_problems(state: dict[str, Any], entity_id: str, line: dict[str
             f"participant {entity_id!r} has an intercompany line for {line_period!r} with no "
             "counterparty_entity_id"
         )
-    selected = participants_by_period[line_period]
+    selected = participants_by_period[str(line_period)]
     if counterparty in selected:
         return
     registry = state.get("entity_records")
@@ -269,6 +280,24 @@ def _period_payload(state: dict[str, Any], period: str, period_request: dict[str
         "scope_confirmed": True,
         "inputs": inputs,
     }
+
+
+COMPUTED_OUTPUT_CONTRACT = "open-cam-credit-aggregation-output/v1"
+
+
+def computed_output_digest(input_fingerprint: str, financials: dict[str, Any], ratios: dict[str, Any]) -> str:
+    """The SHA-256 a ``computed`` object must carry as ``output_digest`` (issue #472, CG587-11).
+
+    It binds the computed figures to the exact input fingerprint they were calculated from, so an edited figure,
+    or figures calculated for other inputs, is never read as current. The B2b writer must call this helper;
+    nothing else may fill ``computed``.
+    """
+    return _canonical_digest({
+        "contract": COMPUTED_OUTPUT_CONTRACT,
+        "input_fingerprint": input_fingerprint,
+        "financials": financials,
+        "ratios": ratios,
+    })
 
 
 def _canonical_digest(payload: dict[str, Any]) -> str:
@@ -381,14 +410,8 @@ def resolve_request(state: dict[str, Any], request: object) -> dict[str, dict[st
         for participant in sorted(participants_by_period[period]):
             if participant == RESERVED_BORROWER:
                 continue
-            registry = state.get("entity_records")
-            record = registry.get(participant) if isinstance(registry, dict) else None
-            lines = record.get("intercompany_lines") if isinstance(record, dict) else None
-            if not isinstance(lines, list):
-                continue
-            for line in lines:
-                if isinstance(line, dict):
-                    _counterparty_problems(state, participant, line, participants_by_period)
+            for line in payload["inputs"][participant]["intercompany_lines"]:
+                _counterparty_problems(state, participant, line, participants_by_period)
         records[period] = {
             "manifest": {
                 "participants": sorted(period_request["participants"]),
@@ -403,6 +426,19 @@ def resolve_request(state: dict[str, Any], request: object) -> dict[str, dict[st
             "input_fingerprint": _canonical_digest(payload),
         }
     return records
+
+
+def _computed_digest_problem(computed: object, fingerprint: str) -> str | None:
+    """Why a ``computed`` object's output digest is missing or wrong, or None (shape is checked separately)."""
+    if not isinstance(computed, dict) or computed_figures_problem(computed) is not None:
+        return None     # reported as a malformed object by the caller
+    digest = computed.get("output_digest")
+    if not isinstance(digest, str):
+        return "it has no output_digest"
+    expected = computed_output_digest(fingerprint, computed["financials"], computed["ratios"])
+    if digest != expected:
+        return "its output digest does not match the figures and the input fingerprint (edited or foreign output)"
+    return None
 
 
 def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, Any]:
@@ -455,6 +491,15 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
             ),
             "input_fingerprint": fingerprint,
         }
+    if records[period]["manifest"] != manifest:
+        return {
+            "status": "stale",
+            "reason": (
+                f"the recorded manifest for {period!r} differs from the one the current inputs produce "
+                "(for example an edited scope confirmation)"
+            ),
+            "input_fingerprint": fingerprint,
+        }
     computed = entry.get("computed")
     if computed is None:
         return {
@@ -463,6 +508,13 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
                 f"credit aggregation period {period!r} is recorded but not calculated; the accounting "
                 "step (B2b) has not computed it"
             ),
+            "input_fingerprint": fingerprint,
+        }
+    digest_problem = _computed_digest_problem(computed, fingerprint)
+    if digest_problem is not None:
+        return {
+            "status": "invalid",
+            "reason": f"the recorded computed object for {period!r} cannot be trusted: {digest_problem}",
             "input_fingerprint": fingerprint,
         }
     if computed_figures_problem(computed) is not None:

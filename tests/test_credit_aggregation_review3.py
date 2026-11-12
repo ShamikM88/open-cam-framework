@@ -152,3 +152,18 @@ def test_an_edited_scope_confirmation_snapshot_is_stale(tmp_path):
     state = _with_computed(tmp_path)
     state["credit_aggregation"][PERIOD]["manifest"]["scope_confirmations"][OPCO_ID] = {}
     assert aggregation_period_status(state, PERIOD)["status"] == "stale"
+
+
+def test_a_line_to_a_selected_participant_resolves():
+    state = _hand_state(entity_records={
+        OPCO_ID: _entity_record(intercompany_lines=[_line("holdco-sel")]),
+        "holdco-sel": _entity_record("holdco-sel")})
+    request = _request({PERIOD: _period_request(participants=["@borrower", OPCO_ID, "holdco-sel"])})
+    resolve_request(state, request)       # the counterparty is itself a selected participant
+
+
+def test_computed_with_an_unexpected_key_or_a_bad_digest_format_is_refused_by_the_validator():
+    from state_manager import computed_figures_problem
+    assert "unexpected key" in computed_figures_problem({"financials": {}, "ratios": {}, "extra": 1})
+    assert "output_digest" in computed_figures_problem({"financials": {}, "ratios": {}, "output_digest": "xyz"})
+    assert computed_figures_problem({"financials": {}, "ratios": {}, "output_digest": "a" * 64}) is None

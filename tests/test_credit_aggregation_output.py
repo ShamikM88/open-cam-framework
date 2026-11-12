@@ -80,3 +80,59 @@ def test_the_borrower_ratios_are_never_summed_with_entity_figures(status):
     text = _render(_state())
     assert "5.0" in text or "5" in text  # the borrower's own figure stays in its own table
     assert "6.8" not in text and "600" not in text
+
+
+# --- workbook rows and sheet ------------------------------------------------------------------------------
+
+import openpyxl  # noqa: E402
+
+import credit_aggregation as ca  # noqa: E402
+from deal_export import workbook_inputs_from_state  # noqa: E402
+from spreading_builder import export_to_xlsx  # noqa: E402
+
+
+@pytest.fixture
+def sheet_status(monkeypatch):
+    def set_status(value, reason=None):
+        monkeypatch.setattr(ca, "aggregation_period_status", lambda st, period: {
+            "status": value, "reason": reason, "input_fingerprint": "ab" * 32})
+    return set_status
+
+
+def _flat(rows):
+    return [str(cell) for row in rows for cell in row]
+
+
+def test_no_workbook_rows_for_a_deal_without_an_aggregation():
+    assert ca.aggregation_sheet_rows({"financials": {}}) is None
+    assert workbook_inputs_from_state({"financials": {}})["credit_aggregation"] is None
+
+
+def test_workbook_rows_carry_scope_period_end_status_fingerprint_limits_and_figures(sheet_status):
+    sheet_status("current")
+    cells = _flat(ca.aggregation_sheet_rows(_state()))
+    joined = " | ".join(cells)
+    assert "never a statutory consolidation" in joined
+    assert "goodwill" in joined and "non-controlling interests" in joined
+    assert "@borrower, sub_a" in joined and "2025-12-31" in joined and "current" in joined
+    assert "ab" * 8 in joined and "gross_leverage" in joined and "1.8" in joined
+
+
+@pytest.mark.parametrize("value", ["not_calculated", "stale", "invalid", "absent"])
+def test_workbook_rows_for_a_period_that_is_not_current_show_no_figures(sheet_status, value):
+    sheet_status(value, f"why {value}")
+    joined = " | ".join(_flat(ca.aggregation_sheet_rows(_state())))
+    assert f"why {value}" in joined and "gross_leverage" not in joined and "500" not in joined
+
+
+def test_the_workbook_gets_a_credit_aggregation_sheet_last_and_only_when_rows_are_given(tmp_path, sheet_status):
+    sheet_status("current")
+    plain = tmp_path / "a.xlsx"
+    export_to_xlsx("Co", plain)
+    assert "Credit aggregation" not in openpyxl.load_workbook(plain).sheetnames
+    path = tmp_path / "b.xlsx"
+    export_to_xlsx("Co", path, credit_aggregation=ca.aggregation_sheet_rows(_state()))
+    workbook = openpyxl.load_workbook(path)
+    assert workbook.sheetnames[-1] == "Credit aggregation"
+    values = [cell for row in workbook["Credit aggregation"].iter_rows(values_only=True) for cell in row]
+    assert any("statutory consolidation" in str(v) for v in values)

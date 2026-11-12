@@ -151,7 +151,7 @@ Each requested period resolves to one entry:
       "scope_confirmations": {"synthetic-opco": {"included": true, "...": "..."}}
     },
     "input_fingerprint": "<64-character lowercase SHA-256 hex>",
-    "computed": {"financials": {"FY-Current": {"...": "..."}}, "ratios": {"FY-Current": {"...": "..."}}}
+    "computed": {"financials": {"ebitda": 500.0, "...": "..."}, "ratios": {"gross_leverage": 1.8, "...": "..."}}
   }
 }
 ```

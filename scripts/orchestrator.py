@@ -130,7 +130,8 @@ MAX_REVIEW_ITERATIONS = 3
 # wrongly-typed one is a StateShapeError naming the key, shown by the CLI as one `error:` line).
 STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
-                   "security_package", "guarantees", "review_trail")   # review_trail: append_review_trail() reads it
+                   "security_package", "guarantees", "review_trail",   # review_trail: append_review_trail() reads it
+                   "credit_aggregation")
 
 
 def _completion_kwargs(model):
@@ -626,7 +627,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     existing_state = read_state(company, proposal, date_str=date_str, keys=STATE_KEYS_READ) or {}
     # The policy engine reads a recorded group_basis as "these figures are the consolidated group's"; a malformed or
     # inconsistent record must stop the run here, as it does in policy_check and the exporter, not be believed.
-    validate_state(existing_state, keys=("group_basis",), path=state_path(company, proposal, date_str=date_str))
+    validate_state(existing_state, keys=("group_basis", "credit_aggregation"),
+                   path=state_path(company, proposal, date_str=date_str))
     steps_completed = list(existing_state.get("steps_completed") or [])
 
     if multi_period_financials and existing_state.get("financials_source") == "analyst-supplied":

@@ -38,7 +38,8 @@ def _consolidated_view(state: Mapping[str, Any]) -> dict[str, Any] | None:
     uncalculated period is reported per period and never replaced by the borrower's or any other view.
     """
     recorded = state.get("credit_aggregation")
-    if not isinstance(recorded, Mapping) or not recorded:
+    malformed = recorded is not None and not isinstance(recorded, Mapping)
+    if not malformed and not recorded:
         return None
     view: dict[str, Any] = {
         "basis": "consolidated",
@@ -46,11 +47,19 @@ def _consolidated_view(state: Mapping[str, Any]) -> dict[str, Any] | None:
         "financials": {},
         "ratios": {},
         "eligible_raw_periods": [],
-        "recorded_periods": sorted(str(period) for period in recorded),
+        "recorded_periods": [] if malformed else sorted(str(period) for period in recorded),
         "period_reasons": {},
         "input_fingerprints": {},
         "unresolvable_reason": None,
     }
+    if malformed:
+        # A corrupt case-B record is never read as "none recorded": that would let a valid case-A group_basis
+        # (or the borrower view) answer a covenant the corrupt record may contradict (CG587-5).
+        view["unresolvable_reason"] = (
+            "the recorded credit_aggregation is malformed (it must be an object keyed by period), so a "
+            "consolidated covenant is not tested against any view"
+        )
+        return view
     if isinstance(state.get("group_basis"), Mapping):
         view["unresolvable_reason"] = (
             "both a case-A group_basis and a credit aggregation are recorded; a consolidated covenant "

@@ -342,6 +342,27 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
 _CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
 
 
+def computed_figures_problem(computed: object) -> str | None:
+    """Why a period's ``computed`` object is not the contract shape, or None (issue #472, CG587-2).
+
+    The contract is flat: ``{"financials": {metric: number|null}, "ratios": {metric: number|null}}`` for that
+    one period, the same shape as ``financials[period]`` and ``ratios[period]`` (without ``raw``). A nested
+    per-period map, a boolean or a non-finite number is not current data.
+    """
+    if (not isinstance(computed, dict) or not isinstance(computed.get("financials"), dict)
+            or not isinstance(computed.get("ratios"), dict)):
+        return 'must be an object with "financials" and "ratios" objects'
+    for group in ("financials", "ratios"):
+        for name, figure in computed[group].items():
+            if figure is None:
+                continue
+            if (isinstance(figure, bool) or not isinstance(figure, (int, float))
+                    or figure != figure or figure in (float("inf"), float("-inf"))):
+                return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
+                        "object, boolean or non-finite value")
+    return None
+
+
 def _credit_aggregation_problems(value: object) -> list[str]:
     """Return validation problems for the optional credit-aggregation record.
 
@@ -386,14 +407,10 @@ def _credit_aggregation_problems(value: object) -> list[str]:
         if manifest is not None:
             problems.extend(_credit_aggregation_manifest_problems(manifest, path))
         computed = entry.get("computed")
-        if computed is not None and (
-            not isinstance(computed, dict)
-            or not isinstance(computed.get("financials"), dict)
-            or not isinstance(computed.get("ratios"), dict)
-        ):
-            problems.append(
-                f'{path}.computed must be an object with "financials" and "ratios" objects'
-            )
+        if computed is not None:
+            computed_problem = computed_figures_problem(computed)
+            if computed_problem is not None:
+                problems.append(f"{path}.computed {computed_problem}")
     return problems
 
 

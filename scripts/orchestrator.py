@@ -837,6 +837,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         "downside_case": downside_case,
         "group_basis": existing_state.get("group_basis"),
         "entity_records": existing_state.get("entity_records"),
+        "credit_aggregation": existing_state.get("credit_aggregation"),
+        "analyst_supplied_financials": existing_state.get("analyst_supplied_financials"),
+        "financials_source": existing_state.get("financials_source"),
+        "forecast_source": existing_state.get("forecast_source"),
     }
     policy_covenants = policy_input["covenants"]
     resolved_views = resolve_covenant_views(policy_input, policy_covenants)

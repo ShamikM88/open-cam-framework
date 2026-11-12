@@ -32,7 +32,7 @@ from template_resolver import cam_template_path, local_cam_template_path
 # `financials_source` decides which raw store is read, so an unknown value is an error rather than silently
 # "framework-computed".
 STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "downside_case": "downside_lenient",
-                   "financials_source": "source"}
+                   "financials_source": "source", "credit_aggregation": "credit_aggregation"}
 
 
 def _raw_financials(financials: dict[str, Any] | None) -> dict[str, Any]:
@@ -259,7 +259,7 @@ def export_deal(
         company, proposal, date_str=state_date_str, base_dir=base_dir, keys=STATE_KEYS_READ,
     ) or {}
     validate_state(
-        state, keys=("group_basis",),
+        state, keys=("group_basis", "credit_aggregation"),
         path=state_path(company, proposal, date_str=state_date_str, base_dir=base_dir),
     )
     workbook_inputs = workbook_inputs_from_state(state)

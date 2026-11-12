@@ -324,7 +324,7 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
     assert (read_company, read_proposal) == ("Synthetic Co", "Synthetic Facility")
     assert set(read_keys) == {
         "financials", "ratios", "collateral", "covenants",
-        "security_package", "guarantees", "downside_case", "financials_source",
+        "security_package", "guarantees", "downside_case", "financials_source", "credit_aggregation",
     }
     assert calls["evaluate_deal_policy"] == [{
         "financials": loaded_state["financials"],
@@ -336,6 +336,10 @@ def test_compute_forwards_the_loaded_state_utf8_draft_and_policy_flags_exactly(
         "downside_case": loaded_state["downside_case"],
         "group_basis": None,
         "entity_records": loaded_state.get("entity_records"),
+        "credit_aggregation": loaded_state.get("credit_aggregation"),
+        "analyst_supplied_financials": loaded_state.get("analyst_supplied_financials"),
+        "financials_source": loaded_state.get("financials_source"),
+        "forecast_source": loaded_state.get("forecast_source"),
     }]
     assert calls["ground_truth_figures"] == [(
         loaded_state["financials"], loaded_state["ratios"],
@@ -386,6 +390,10 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
         "downside_case": {},
         "group_basis": None,
         "entity_records": None,
+        "credit_aggregation": None,
+        "analyst_supplied_financials": None,
+        "financials_source": None,
+        "forecast_source": None,
     }
     assert result == {
         "policy_state": policy_state,
@@ -398,7 +406,7 @@ def test_compute_normalizes_missing_or_null_state_to_the_empty_policy_shape(
     assert (read_company, read_proposal) == ("Synthetic Co", "Synthetic Facility")
     assert set(read_keys) == {
         "financials", "ratios", "collateral", "covenants",
-        "security_package", "guarantees", "downside_case", "financials_source",
+        "security_package", "guarantees", "downside_case", "financials_source", "credit_aggregation",
     }
     assert calls["evaluate_deal_policy"] == [empty_policy_input]
     assert calls["ground_truth_figures"] == [({}, {}, [], {})]

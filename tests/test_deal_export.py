@@ -1228,7 +1228,7 @@ def test_dx_export_deal_validates_state_before_creating_any_folder(tmp_path, mon
 
     def reject_state(state, *, keys, path):
         assert state == {"financials": {}}
-        assert keys == ("group_basis",)
+        assert keys == ("group_basis", "credit_aggregation")
         raise ValueError("Synthetic Co state validation failed")
 
     monkeypatch.setattr(deal_export, "validate_state", reject_state)
@@ -1327,7 +1327,7 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
         )
     ]
     assert validations == [
-        ((state,), {"keys": ("group_basis",), "path": expected_state_path})
+        ((state,), {"keys": ("group_basis", "credit_aggregation"), "path": expected_state_path})
     ]
     assert events == [
         "read_state", "validate_state", "forecast_columns", "financial_data",

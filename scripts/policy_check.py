@@ -22,7 +22,7 @@ from state_manager import read_state, state_path, validate_state
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("financials", "ratios", "collateral", "covenants", "security_package", "guarantees",
-                   "downside_case", "financials_source")
+                   "downside_case", "financials_source", "credit_aggregation")
 
 
 class PolicyCheckOutput(TypedDict):
@@ -65,7 +65,7 @@ def compute(
     that data exists yet for this deal.
     """
     state = read_state(company, proposal, keys=STATE_KEYS_READ) or {}
-    validate_state(state, keys=("group_basis",), path=state_path(company, proposal))
+    validate_state(state, keys=("group_basis", "credit_aggregation"), path=state_path(company, proposal))
     if deal_type is None:
         return compute_from_state(state, draft_path=draft_path)
     return compute_from_state(state, draft_path=draft_path, deal_type=deal_type)
@@ -103,6 +103,12 @@ def compute_from_state(
         "downside_case": downside_case,
         "group_basis": state.get("group_basis"),   # tells the engine which figures the covenants are tested on
         "entity_records": state.get("entity_records"),
+        # The case-B freshness check recomputes each period's fingerprint from the live inputs, so the resolver
+        # needs the recorded aggregation and every key that check reads (issue #472, CG587-1).
+        "credit_aggregation": state.get("credit_aggregation"),
+        "analyst_supplied_financials": state.get("analyst_supplied_financials"),
+        "financials_source": state.get("financials_source"),
+        "forecast_source": state.get("forecast_source"),
     }
     resolved_views = resolve_covenant_views(policy_input, covenants)
     policy_state = evaluate_deal_policy(policy_input, resolved_views=resolved_views)

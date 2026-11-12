@@ -4688,3 +4688,12 @@ def test_entity_records_refuse_the_reserved_borrower_key():
     record = {"@borrower": {"perimeter": {"included": True}}}
     with pytest.raises(state_manager.StateShapeError, match="reserved for the borrower view"):
         state_manager.validate_state({"entity_records": record}, keys=("entity_records",))
+
+
+def test_credit_aggregation_computed_accepts_null_figures_and_refuses_non_flat_ones():
+    value = _valid_credit_aggregation_for_tests()
+    value["FY-Current"]["computed"] = {"financials": {"ebitda": None, "total_debt": 9}, "ratios": {"dscr": 1.2}}
+    assert _credit_aggregation_problems_for(value) == ""
+    for bad in (True, float("inf"), "1", {"FY-Current": 1}, [1]):
+        value["FY-Current"]["computed"] = {"financials": {}, "ratios": {"dscr": bad}}
+        assert "flat finite number" in _credit_aggregation_problems_for(value)

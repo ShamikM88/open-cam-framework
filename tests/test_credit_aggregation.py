@@ -219,8 +219,8 @@ def test_re_recording_a_period_replaces_its_own_computed(tmp_path):
     _seed_two_entity_deal(tmp_path)
     _record(tmp_path)
     state = _read_full(tmp_path)
-    state["credit_aggregation"]["FY-Current"]["computed"] = {"financials": {"FY-Current": {"ebitda": 99}},
-                                                            "ratios": {"FY-Current": {"dscr": 1.1}}}
+    state["credit_aggregation"]["FY-Current"]["computed"] = {"financials": {"ebitda": 99},
+                                                            "ratios": {"dscr": 1.1}}
     _state_file(tmp_path).write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     _record(tmp_path)      # same inputs again: the stale computed is dropped
@@ -334,8 +334,8 @@ def test_a_recorded_period_with_computed_is_current(tmp_path):
     _seed_two_entity_deal(tmp_path)
     _record(tmp_path)
     state = _read_full(tmp_path)
-    state["credit_aggregation"]["FY-Current"]["computed"] = {"financials": {"FY-Current": {"ebitda": 99}},
-                                                            "ratios": {"FY-Current": {"dscr": 1.1}}}
+    state["credit_aggregation"]["FY-Current"]["computed"] = {"financials": {"ebitda": 99},
+                                                            "ratios": {"dscr": 1.1}}
     status = aggregation_period_status(state, "FY-Current")
     assert status["status"] == "current"
     assert status["reason"] is None

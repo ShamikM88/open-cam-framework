@@ -176,7 +176,10 @@ numbers, and unknown keys.
 same shape as the borrower's top-level `financials[period]` and `ratios[period]`. Until B2b exists no
 period has `computed`; every consumer treats a missing or stale `computed` as UNRESOLVABLE with a reason
 (`credit_aggregation.aggregation_period_status()` reports `current`, `not_calculated`, `stale`,
-`invalid` or `absent`). B3 and B4 read this contract only.
+`invalid` or `absent`). The shape is flat and per period, for example
+`{"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}}`: each metric maps to a finite number
+or `null`, never to a nested per-period object, a boolean or a non-finite value; a nested or non-numeric
+`computed` is `invalid` and the state validator refuses it. B3 and B4 read this contract only.
 
 **Per-period fingerprint.** One SHA-256 per period over canonical JSON tagged
 `open-cam-credit-aggregation-input/v1`, serialised as

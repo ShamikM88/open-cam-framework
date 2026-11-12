@@ -165,7 +165,7 @@ def collect(company: str, proposal: str, date_str: str | None = None, base_dir: 
         date_str = found["date"]
     path = state_path(company, proposal, date_str=date_str, base_dir=base_dir)
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir, keys=STATE_KEYS_READ) or {}
-    validate_state(state, keys=("group_basis",), path=path)
+    validate_state(state, keys=("group_basis", "credit_aggregation"), path=path)
     manifest = read_manifest(company, proposal, date_str=date_str, base_dir=base_dir)
     data: CommitteeSummaryData = {
         "company": company, "proposal": proposal, "date": date_str, "state": state,

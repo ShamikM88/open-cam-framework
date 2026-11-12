@@ -21,6 +21,7 @@ from typing import Any
 
 from numeric_validation import validate_finite_numbers
 from state_manager import (
+    computed_figures_problem,
     StateError,
     _FileLock,
     _merge_and_write,
@@ -464,9 +465,7 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
             ),
             "input_fingerprint": fingerprint,
         }
-    if (not isinstance(computed, dict)
-            or not isinstance(computed.get("financials"), dict)
-            or not isinstance(computed.get("ratios"), dict)):
+    if computed_figures_problem(computed) is not None:
         return {
             "status": "invalid",
             "reason": f"the recorded computed object for {period!r} is malformed",

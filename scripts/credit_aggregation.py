@@ -435,7 +435,10 @@ def _computed_digest_problem(computed: object, fingerprint: str) -> str | None:
     digest = computed.get("output_digest")
     if not isinstance(digest, str):
         return "it has no output_digest"
-    expected = computed_output_digest(fingerprint, computed["financials"], computed["ratios"])
+    try:
+        expected = computed_output_digest(fingerprint, computed["financials"], computed["ratios"])
+    except AggregationError as exc:      # e.g. a lone surrogate in a metric name: fail closed, never crash a reader
+        return f"its figures cannot be serialised as canonical JSON ({exc})"
     if digest != expected:
         return "its output digest does not match the figures and the input fingerprint (edited or foreign output)"
     return None

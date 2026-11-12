@@ -3,6 +3,7 @@
 Synthetic data only. Written before the fixes; see the commit history.
 """
 import copy
+from pathlib import Path
 
 import openpyxl
 import pytest
@@ -59,6 +60,7 @@ def test_forward_and_downside_fail_closed_when_group_basis_and_aggregation_are_b
     }
     result = policy_engine.evaluate_deal_policy(state)
     assert result["covenant_results"][0]["status"] == "UNRESOLVABLE"
+    assert len(result["forward_covenant_results"]) == 1     # the FY+1 ratio must produce a forward result
     assert all(item["status"] == "UNRESOLVABLE" for item in result["forward_covenant_results"])
     assert all(item.get("downside_status") != "FAIL" for item in result["downside_covenant_breaches"])
     assert "both" in result["covenant_results"][0]["reason"]
@@ -177,7 +179,7 @@ def test_a_computed_object_whose_figures_cannot_be_serialised_is_invalid_not_a_c
 
 
 def test_the_formula_register_documents_the_credit_aggregation_covenant_routing():
-    text = open("docs/formula-register.md", encoding="utf-8").read()
+    text = Path("docs/formula-register.md").read_text(encoding="utf-8")
     start = text.index("### F-038")
     entry = text[start:text.index("### F-039")]
     assert "credit_aggregation" in entry and "both" in entry and "output_digest" in entry

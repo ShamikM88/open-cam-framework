@@ -167,3 +167,17 @@ def test_computed_with_an_unexpected_key_or_a_bad_digest_format_is_refused_by_th
     assert "unexpected key" in computed_figures_problem({"financials": {}, "ratios": {}, "extra": 1})
     assert "output_digest" in computed_figures_problem({"financials": {}, "ratios": {}, "output_digest": "xyz"})
     assert computed_figures_problem({"financials": {}, "ratios": {}, "output_digest": "a" * 64}) is None
+
+
+def test_a_computed_object_whose_figures_cannot_be_serialised_is_invalid_not_a_crash(tmp_path):
+    state = _with_computed(tmp_path)
+    state["credit_aggregation"][PERIOD]["computed"]["financials"] = {"\ud800": 1.0}
+    status = aggregation_period_status(state, PERIOD)
+    assert status["status"] == "invalid" and "canonical" in status["reason"]
+
+
+def test_the_formula_register_documents_the_credit_aggregation_covenant_routing():
+    text = open("docs/formula-register.md", encoding="utf-8").read()
+    start = text.index("### F-038")
+    entry = text[start:text.index("### F-039")]
+    assert "credit_aggregation" in entry and "both" in entry and "output_digest" in entry

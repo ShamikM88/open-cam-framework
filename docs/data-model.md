@@ -182,7 +182,10 @@ or `null` (an integer too large for a float counts as non-finite), never to a ne
 `computed` is `invalid` and the state validator refuses it. **Output integrity:** `output_digest` is the SHA-256 returned by
 `credit_aggregation.computed_output_digest(input_fingerprint, financials, ratios)`, which binds the figures to the exact input
 fingerprint they were calculated from. A `computed` object with no digest, or whose digest does not match, is `invalid` and is never
-read as current, so a hand-edited figure cannot pass a covenant; the B2b writer must fill `computed` through that helper. The recorded
+read as current, so an accidental or uncoordinated edit is caught. **The digest is a consistency checksum, not proof of
+origin:** the helper is public and unkeyed, so someone who edits `state.json` and recomputes the digest can still
+make a forged period `current`. Proving that only approved B2b figures are consumed needs the deterministic recompute
+on read that the B2b design must provide (maintainer decision, issue #472). The B2b writer must fill `computed` through that helper. The recorded
 manifest, including each confirmed scope snapshot, must also equal the manifest the current inputs produce, or the period is `stale`. B3 and B4 read this contract only.
 
 **Per-period fingerprint.** One SHA-256 per period over canonical JSON tagged

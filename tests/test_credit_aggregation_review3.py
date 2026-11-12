@@ -99,6 +99,17 @@ def test_the_digest_is_bound_to_the_input_fingerprint(tmp_path):
     assert figures["output_digest"] != other
 
 
+# CG587-15: the known limit of the checksum, pinned as strict xfail until the B2b recompute exists
+@pytest.mark.xfail(strict=True, reason="needs the B2b recompute on read; decision on issue #472 (CG587-15)")
+def test_a_coordinated_edit_with_a_recomputed_digest_is_not_current(tmp_path):
+    state = _with_computed(tmp_path)
+    entry = state["credit_aggregation"][PERIOD]
+    entry["computed"]["ratios"]["gross_leverage"] = 0.1
+    entry["computed"]["output_digest"] = ca.computed_output_digest(
+        entry["input_fingerprint"], entry["computed"]["financials"], entry["computed"]["ratios"])
+    assert aggregation_period_status(state, PERIOD)["status"] != "current"
+
+
 # CG587-12 / Cubic: intercompany lines in the fingerprint
 def test_changing_an_intercompany_line_makes_the_fingerprint_stale():
     state = _hand_state(entity_records={OPCO_ID: _entity_record(intercompany_lines=[_line("@borrower")])})

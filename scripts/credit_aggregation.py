@@ -288,8 +288,11 @@ COMPUTED_OUTPUT_CONTRACT = "open-cam-credit-aggregation-output/v1"
 def computed_output_digest(input_fingerprint: str, financials: dict[str, Any], ratios: dict[str, Any]) -> str:
     """The SHA-256 a ``computed`` object must carry as ``output_digest`` (issue #472, CG587-11).
 
-    It binds the computed figures to the exact input fingerprint they were calculated from, so an edited figure,
-    or figures calculated for other inputs, is never read as current. The B2b writer must call this helper;
+    It is a consistency checksum: it binds the computed figures to the exact input fingerprint they were
+    calculated from, so an accidental or uncoordinated edit of a figure, or figures calculated for other inputs,
+    is not read as current. It does NOT authenticate who produced the figures: the helper is public and unkeyed,
+    so anyone who edits ``state.json`` can recompute it (CG587-15). Proving provenance needs the B2b design's
+    deterministic recompute on read (decision recorded on issue #472). The B2b writer must call this helper;
     nothing else may fill ``computed``.
     """
     return _canonical_digest({

@@ -503,7 +503,8 @@ def _bad_value_for(key):
 # would let a dropped key take its test with it).
 ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                            "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
-                           "security_package", "guarantees", "review_trail")
+                           "security_package", "guarantees", "review_trail", "credit_aggregation",
+                           "analyst_supplied_financials")
 
 
 def _orchestrator_state_keys():
@@ -1468,7 +1469,7 @@ def test_new_review_without_earlier_review_starts_minimal_unlinked_then_continue
         "company": "Acme Corp",
         "proposal": "Fleet Loan",
         "date": today,
-        "schema_version": "1.2.0",
+        "schema_version": "1.3.0",
     }
     final_state = read_state("Acme Corp", "Fleet Loan", date_str=today)
     assert "prior_review_date" not in final_state
@@ -3307,3 +3308,20 @@ def test_run_pipeline_shares_one_resolved_guarantor_view_with_policy_and_ground_
     assert policy_views and truth_views
     assert policy_views[0] is truth_views[0]
     assert policy_views[0][0]["basis_entity_id"] == entity_id
+
+
+def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_call_or_write(project_root):
+    """CG587-5: a valid case-A group_basis plus a corrupt case-B key must not become a passing consolidated covenant."""
+    from state_manager import StateShapeError
+    write_state("Acme Corp", "Fleet Loan", date_str="2026-01-10", deal_type="corporate_credit",
+                group_basis=_recomputed_group_basis(), credit_aggregation=[],
+                ratios={"FY-Current": {"dscr": 1.4}},
+                covenants=[{"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "consolidated"}])
+    client = MockClient([])
+    before = (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes()
+
+    with pytest.raises(StateShapeError, match="credit_aggregation"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit", client=client)
+
+    assert client.call_count == 0
+    assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before

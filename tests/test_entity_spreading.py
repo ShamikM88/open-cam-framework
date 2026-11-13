@@ -187,7 +187,7 @@ def test_entity_spread_persists_only_selected_guarantor_and_preserves_borrower_f
     assert record["future_metadata"] == {"preserve": True}
     assert after["entity_records"]["synthetic-guarantor-b"] == second
     assert {key: after[key] for key in borrower_fields} == before_borrower
-    assert after["schema_version"] == "1.2.0"
+    assert after["schema_version"] == "1.3.0"
     assert set(after) == set(before)
     assert output["analyst_review_status"] == REVIEW_LABEL
     assert output["financials"] == expected["financials"]

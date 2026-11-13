@@ -9,6 +9,7 @@ read. Registration and write-time validation remain strict.
 from collections.abc import Mapping
 from typing import Any
 
+from credit_aggregation import aggregation_period_status
 from spreading_check import entity_spread_view
 
 
@@ -26,6 +27,57 @@ def _ordinary_view(state: Mapping[str, Any]) -> dict[str, Any]:
         "period_reasons": {},
         "unresolvable_reason": None,
     }
+
+
+def _consolidated_view(state: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Case B (issue #472): the credit-aggregation view for a ``consolidated`` covenant, or None.
+
+    None means "no aggregation is recorded", so the ordinary (borrower or case-A) view applies unchanged. A
+    consolidated covenant selects exactly one eligible source: case-A ``group_basis`` or a fresh, calculated
+    credit-aggregation period. Both recorded is a fail-closed collision (D22). A missing, stale, invalid or
+    uncalculated period is reported per period and never replaced by the borrower's or any other view.
+    """
+    recorded = state.get("credit_aggregation")
+    if recorded is None or (isinstance(recorded, Mapping) and not recorded):
+        return None
+    view: dict[str, Any] = {
+        "basis": "consolidated",
+        "view_source": "credit_aggregation",
+        "financials": {},
+        "ratios": {},
+        "eligible_raw_periods": [],
+        "recorded_periods": sorted(str(period) for period in recorded) if isinstance(recorded, Mapping) else [],
+        "period_reasons": {},
+        "input_fingerprints": {},
+        "unresolvable_reason": None,
+    }
+    if not isinstance(recorded, Mapping):
+        # A corrupt case-B record is never read as "none recorded": that would let a valid case-A group_basis
+        # (or the borrower view) answer a covenant the corrupt record may contradict (CG587-5).
+        view["unresolvable_reason"] = (
+            "the recorded credit_aggregation is malformed (it must be an object keyed by period), so a "
+            "consolidated covenant is not tested against any view"
+        )
+        return view
+    if isinstance(state.get("group_basis"), Mapping):
+        view["unresolvable_reason"] = (
+            "both a case-A group_basis and a credit aggregation are recorded; a consolidated covenant "
+            "needs exactly one source, so it is not tested against either"
+        )
+        return view
+    for period in view["recorded_periods"]:
+        status = aggregation_period_status(dict(state), period)
+        if isinstance(status.get("input_fingerprint"), str):
+            view["input_fingerprints"][period] = status["input_fingerprint"]
+        entry = recorded[period]
+        computed = entry.get("computed") if isinstance(entry, Mapping) else None
+        if status.get("status") != "current" or not isinstance(computed, Mapping):
+            view["period_reasons"][period] = status.get("reason") or f"credit aggregation {period} is not current"
+            continue
+        view["financials"][period] = dict(computed["financials"])
+        view["ratios"][period] = dict(computed["ratios"])
+        view["eligible_raw_periods"].append(period)
+    return view
 
 
 def _recorded_period_labels(record: Mapping[str, Any]) -> list[str]:
@@ -48,6 +100,9 @@ def resolve_covenant_view(
     entity_spread_view may supply values; stale and analyst-supplied-only
     periods are retained as explicit per-period reasons.
     """
+    if covenant.get("basis") == "consolidated":
+        routed = _consolidated_view(state)
+        return routed if routed is not None else _ordinary_view(state)
     if covenant.get("basis") != "guarantor_group":
         return _ordinary_view(state)
 
@@ -160,8 +215,14 @@ def resolve_covenant_views(
 ) -> list[dict[str, Any]]:
     """Resolve covenants in order and reuse one view object per selected entity."""
     cache: dict[str | None, dict[str, Any]] = {}
+    consolidated: dict[str, Any] | None = None     # its own slot: "consolidated" is also a legal entity ID
     views: list[dict[str, Any]] = []
     for covenant in covenants:
+        if isinstance(covenant, Mapping) and covenant.get("basis") == "consolidated":
+            if consolidated is None:
+                consolidated = resolve_covenant_view(state, covenant)
+            views.append(consolidated)
+            continue
         if not isinstance(covenant, Mapping) or covenant.get("basis") != "guarantor_group":
             views.append(_ordinary_view(state))
             continue

@@ -28,11 +28,13 @@ from spreading_builder import (
 )
 from numeric_validation import (
     NonFiniteNumberError,
+    refuse_unknown_raw_line_items,
     validate_finite_numbers,
     validate_period_keys,
     validate_period_objects,
     validate_raw_line_items,
     validate_stress_assumptions,
+    warn_unknown_raw_line_items,
 )
 from state_manager import entity_period_input_fingerprint, read_state, record_entity_spread, write_state
 
@@ -57,7 +59,15 @@ def plan_fields(
     Does not modify `existing_state`."""
     validate_period_objects(multi_period_financials, path="financial inputs")
     validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
+    # Issue #596: refuse an unknown raw line-item name in the incoming payload before the merge,
+    # naming the period and the key and suggesting the nearest valid name, so one misspelt key
+    # can never silently read the real field as zero. Metadata keys are refused too (maintainer
+    # decision, option A).
+    refuse_unknown_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     existing_multi_period = existing_state.get("multi_period_financials") or {}
+    # An existing deal that recorded an unknown name before this rule existed is not locked out:
+    # warn once per key and still compute (issue #596).
+    warn_unknown_raw_line_items(existing_multi_period, FIELD_LABELS, path="multi_period_financials on file")
     if existing_state.get("forecast_source") == "analyst-supplied":
         # The forecast on file was supplied by the analyst (issue #124, scripts/supplied_forecast.py) and is not built
         # from raw lines, so this call must neither overwrite a forward year with a recomputation nor stamp the whole
@@ -415,6 +425,11 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(f"error: {path} must contain a JSON object, found {type(data).__name__}")
 
     try:
+        # Validate the period keys first so an entity-keyed file (issue #472's group basis) keeps
+        # its own clearer error naming the unexpected key, then refuse unknown field names (issue #596).
+        validate_period_objects(multi_period_financials, path="financial inputs")
+        validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
+        refuse_unknown_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
         validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
         validate_finite_numbers(multi_period_financials, path="financial inputs")
         validate_finite_numbers(stress_assumptions, path="stress assumptions")

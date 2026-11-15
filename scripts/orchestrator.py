@@ -32,6 +32,7 @@ from numeric_validation import (
     FinancialInputError,
     MalformedCollateralInputError,
     StressAssumptionsError,
+    refuse_unknown_raw_line_items,
     validate_collateral_inputs,
     validate_finite_numbers,
     validate_period_keys,
@@ -562,6 +563,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
     validate_period_objects(multi_period_financials, path="financial inputs")
     validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
+    # Issue #596: refuse an unknown raw line-item name before any model call, naming the period
+    # and the key and suggesting the nearest valid name; no metadata keys are allowed (maintainer
+    # decision, option A).
+    refuse_unknown_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_financials, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")

@@ -1357,7 +1357,7 @@ def test_run_pipeline_merges_partial_historical_correction_field_by_field(projec
 
     recorded = {
         "revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
-        "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 600,
+        "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 600,
     }
     compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": recorded})
 
@@ -3328,9 +3328,12 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 
 
 def test_unknown_raw_line_item_names_are_refused_before_any_model_call(project_root):
-    """Issue #596, rule R-SPREAD-008: an unknown raw line-item name in the
-    incoming payload is refused in run_pipeline()'s input validation, before
-    any model call, and nothing is written to state.json."""
+    """Rule: R-SPREAD-008
+
+    Issue #596: an unknown raw line-item name in the incoming payload is refused in
+    run_pipeline()'s input validation, before any model call, and nothing is written
+    to state.json.
+    """
     from numeric_validation import FinancialInputError
 
     client = MockClient([])

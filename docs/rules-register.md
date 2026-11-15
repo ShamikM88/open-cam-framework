@@ -49,7 +49,7 @@ Not covered entries from that audit each link their own gap issue, which asks fo
 batch links [issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) for its outstanding test-citation
 verification; existing behavioural tests do not make a new rule Covered until they cite its ID.
 
-**Inventory at this revision:** 42 IDs ever issued; 32 active Covered; 7 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 43 IDs ever issued; 33 active Covered; 7 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -121,6 +121,7 @@ independently proven by the gate.
 - `R-EXPORT-008`
 - `R-STATE-005`
 - `R-STATE-006`
+- `R-SPREAD-008`
 
 ## Policy engine and checks (POL)
 
@@ -414,6 +415,16 @@ independently proven by the gate.
 - **Implemented in:** `scripts/spreading_check.py::plan_fields`
 - **Status:** Not covered
 - **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) (test citation and verification).
+
+### R-SPREAD-008 — an unknown raw line-item name is refused, never read as zero
+
+- **Claim:** An incoming raw line item whose name is not one of the framework's field names is refused
+  before anything is written, with one error naming the period, the key and the nearest valid name; an
+  unknown name already on file is warned about and still computed.
+- **Source:** [Raw line-item names](financial-model.md#raw-line-item-names).
+- **Implemented in:** `scripts/numeric_validation.py::refuse_unknown_raw_line_items`
+- **Status:** Covered
+- **Tracking:** —
 
 ## Export and rendered output (EXPORT)
 

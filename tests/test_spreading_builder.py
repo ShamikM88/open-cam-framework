@@ -1980,7 +1980,7 @@ def test_sb_formula_or_supplied_blanks_unsupported_derived_downside_rows():
     from spreading_builder import _formula_or_supplied, _row_layout
 
     row_of, _ordered = _row_layout(SECTIONS)
-    result = _formula_or_supplied(
+    result, is_supplied = _formula_or_supplied(
         "Gross Profit",
         "={Revenue}-{Cost of Goods Sold}",
         row_of,
@@ -1991,6 +1991,7 @@ def test_sb_formula_or_supplied_blanks_unsupported_derived_downside_rows():
         {"FY+1": {"Revenue"}},
     )
     assert result is None
+    assert is_supplied is False
 
 
 def test_sb_sum_or_none_returns_exact_sum_only_when_every_figure_is_present():
@@ -2464,7 +2465,7 @@ def test_a_supplied_value_beginning_with_equals_is_text_not_a_formula(tmp_path):
     out_path = tmp_path / "supplied_text.xlsx"
     export_to_xlsx("Test Co", str(out_path),
                    financial_data={"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)},
-                   supplied_values={"FY+1": {"EBITDA": "=1+1"}})
+                   supplied_values={"FY+1": {"EBITDA (before exceptionals, incl. other income)": "=1+1"}})
     ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
     label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
     row = label_to_row["EBITDA (before exceptionals, incl. other income)"]

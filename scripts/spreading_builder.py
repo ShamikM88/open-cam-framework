@@ -991,11 +991,15 @@ def _write_financial_spreading(
         ws.cell(row=ws.max_row, column=1).font = Font(bold=True, italic=True)
         for label, formula_template in rows:
             row_values: list[Any] = [label]
+            supplied_columns: list[int] = []   # column indexes whose value came from a supplied store (issue #600)
             for col in PERIOD_COLS:
                 if formula_template:
-                    row_values.append(_formula_or_supplied(
+                    value, is_supplied = _formula_or_supplied(
                         label, formula_template, row_of, col, supplied_values, supplied_downside_values,
-                        blank_downside_periods, derived_rows))
+                        blank_downside_periods, derived_rows)
+                    row_values.append(value)
+                    if is_supplied:
+                        supplied_columns.append(len(row_values))
                 else:
                     value = None
                     field = label_to_field.get(label)
@@ -1009,6 +1013,10 @@ def _write_financial_spreading(
                             value = period_raw[field]
                     row_values.append(value)
             ws.append(row_values)
+            # A supplied value is analyst text, never a builder formula: mark its string cells as
+            # text so a value beginning with "=" is stored and shown as typed (issue #600).
+            for column in supplied_columns:
+                _mark_text_cell(ws.cell(row=ws.max_row, column=column))
 
     ws.column_dimensions["A"].width = 34
     for col in PERIOD_COLS:
@@ -1117,6 +1125,19 @@ def _write_charts(
         ws.add_chart(downside, f"A{anchor_row + 2 * CHART_SPACING_ROWS}")
 
 
+def _mark_text_cell(cell: Any) -> None:
+    """Mark one cell that holds a string from the deal record as text (data type ``"s"``), never as a formula.
+
+    openpyxl stores a string beginning with ``=`` as a formula (data type ``"f"``), which Excel
+    evaluates when the file is opened; analyst text such as ``"=HYPERLINK(...)"`` or ``"=1+1"``
+    must be stored and shown as typed instead (issue #600). Call this on every string cell a
+    writer appends from the deal record, and never on a cell the writer built from its own
+    formula template (also a string beginning with ``=``, but a real formula).
+    """
+    if isinstance(cell.value, str):
+        cell.data_type = "s"     # analyst/model text such as "=HYPERLINK(...)" must never become a formula
+
+
 def _formula_or_supplied(
     label: str,
     formula_template: str,
@@ -1126,24 +1147,26 @@ def _formula_or_supplied(
     supplied_downside_values: Mapping[str, Mapping[str, Any]] | None,
     blank_downside_periods: Collection[str] | None,
     derived_downside_rows: Mapping[str, Collection[str]] | None = None,
-) -> Any:
-    """A computed row's cell: the Excel formula, except in a column whose figures were supplied by the analyst (the
-    value they gave for this row, or blank if they gave none -- never a formula, which would recompute it from raw
-    cells and show a figure nobody supplied), whose downside is unavailable (blank), or whose downside the framework
-    derived from analyst-supplied lines (blank for a row that reads a line nobody supplied)."""
+) -> tuple[Any, bool]:
+    """A computed row's cell and whether it is analyst-supplied: the Excel formula, except in a column whose
+    figures were supplied by the analyst (the value they gave for this row, or blank if they gave none -- never a
+    formula, which would recompute it from raw cells and show a figure nobody supplied), whose downside is
+    unavailable (blank), or whose downside the framework derived from analyst-supplied lines (blank for a row that
+    reads a line nobody supplied). The second element is True only when the value came from a supplied store, so
+    the caller can mark a supplied string as text rather than a formula (issue #600)."""
     if col in DOWNSIDE_COL_TO_PERIOD_KEY:
         period = DOWNSIDE_COL_TO_PERIOD_KEY[col]
         supplied_downside = supplied_downside_values or {}
         if period in supplied_downside:
-            return supplied_downside[period].get(label)
+            return supplied_downside[period].get(label), True
         if period in (blank_downside_periods or ()):
-            return None
+            return None, False
         derived_downside = derived_downside_rows or {}
         if period in derived_downside and label not in derived_downside[period]:
-            return None
+            return None, False
     elif COL_TO_PERIOD_KEY[col] in (supplied_base := supplied_values or {}):
-        return supplied_base[COL_TO_PERIOD_KEY[col]].get(label)
-    return _resolve_formula(formula_template, row_of, col)
+        return supplied_base[COL_TO_PERIOD_KEY[col]].get(label), True
+    return _resolve_formula(formula_template, row_of, col), False
 
 
 def _collateral_results_by_asset_id(collateral_analysis: Mapping[str, Any] | None) -> dict[str, Mapping[str, Any]]:
@@ -1203,6 +1226,11 @@ def _write_collateral_sheet(
             asset.get("perfection_status"),
             *_collateral_result_cells(results),
         ])
+        # Columns A and I hold free analyst text (asset_class, perfection_status) and J-Q hold
+        # persisted strings ("N/A"); none is a builder formula (H is), so mark them as text so
+        # a value beginning with "=" is stored and shown as typed, never evaluated (issue #600).
+        for column in (1, 9, *range(10, 10 + len(COLLATERAL_RESULT_KEYS))):
+            _mark_text_cell(ws.cell(row=row, column=column))
 
     total_row = last_row + 1
     ws.append([
@@ -1258,6 +1286,10 @@ def _write_group_basis_sheet(wb: Any, group_basis: Mapping[str, Any]) -> None:
     )
     for label, value in rows:
         ws.append([label, value])
+        # Column B holds free analyst text (reporting entity, entities covered, source document
+        # name); no group-basis cell is a builder formula, so mark it as text so a value
+        # beginning with "=" is stored and shown as typed, never evaluated (issue #600).
+        _mark_text_cell(ws.cell(row=ws.max_row, column=2))
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 72
 
@@ -1269,8 +1301,7 @@ def _write_credit_aggregation_sheet(wb: Any, rows: Sequence[Sequence[Any]]) -> N
         ws.append(list(row))
     for sheet_row in ws.iter_rows():
         for cell in sheet_row:
-            if isinstance(cell.value, str):
-                cell.data_type = "s"     # analyst text such as "=HYPERLINK(...)" must never become a formula
+            _mark_text_cell(cell)     # analyst text such as "=HYPERLINK(...)" must never become a formula (issue #600)
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 72
 

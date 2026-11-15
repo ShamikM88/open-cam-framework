@@ -1110,3 +1110,39 @@ def test_check_draft_compliance_drops_non_text_identifier_entries(field, bad_ent
     assert parsed[field] == []
     reasons = check_draft_compliance(draft, policy_state, {})
     assert any(expected_reason in reason for reason in reasons)
+
+@pytest.mark.parametrize(
+    ("field", "bad_entry"),
+    [
+        ("cp_ids_included", ["nested"]),
+        ("cp_ids_included", {"id": "bad"}),
+        ("cp_ids_included", 17),
+        ("cs_ids_included", ["nested"]),
+        ("cs_ids_included", {"id": "bad"}),
+        ("cs_ids_included", 17),
+        ("downside_breaches_acknowledged", ["nested"]),
+        ("downside_breaches_acknowledged", {"id": "bad"}),
+        ("downside_breaches_acknowledged", 17),
+    ],
+)
+def test_parse_underwriter_output_keeps_valid_ids_alongside_non_text_entries(field, bad_entry):
+    """One malformed list member must not discard valid string acknowledgements."""
+    import json
+
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": ALL_CATEGORIES_COVERED,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": ["DOWNSIDE-FY-2-DSCR"],
+        "sources": ["Test Source"],
+    }
+    valid_ids = payload[field].copy()
+    payload[field].append(bad_entry)
+    draft = "# Draft" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3
+
+    parsed = parse_underwriter_output(draft)
+
+    assert parsed[field] == valid_ids
+    assert check_draft_compliance(draft, _policy_state(), {}) == []
+

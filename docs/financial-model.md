@@ -493,7 +493,7 @@ From the recorded structure alone (no model), `policy_state` holds:
 - **Conditions subsequent (CSs)**, ongoing obligations after drawdown, each with a `cs_id`: `MI-REPORTING` always,
   `CS-COVENANT-COMPLIANCE` when there are covenants, `CS-SEC-REPERFECT-<asset>` for each charge, and
   `CS-GUARANTEE-<provider>` for each guarantee.
-- **Security gaps**: an uncharged asset, an unperfected charge, or a subordinate ranking.
+- **Security gaps**: an uncharged asset, an unperfected charge, a subordinate ranking, a collateral entry without an `asset_id`, or a security charge without a `secures_asset_id`. Each unidentified entry adds its own mapping gap and `SEC-MAPPING` condition precedent. The stable CP ID uses the entry's 1-based position and recorded asset class; when a charge has no asset class, it says “not recorded”. The engine does not guess which asset an unidentified charge secures.
 - **Covenant results, downside breaches and forward covenant results** as above.
 
 A draft must carry every required CP and CS, every downside breach, and a source for its narrative, state only
@@ -510,7 +510,7 @@ sound; that is the Risk Reviewer's and a person's job.
 
 **`scripts/policy_engine.py`** — no `anthropic` dependency. `evaluate_deal_policy(state_dict)`
 is the deterministic governance core: covenant PASS/FAIL/UNRESOLVABLE evaluation against
-`covenants`, security perfection/ranking gap detection against `security_package`, Condition
+`covenants`, security perfection/ranking and unidentified-entry mapping gap detection against `collateral` and `security_package`, Condition
 Precedent (`cp_id`) and Condition Subsequent (`cs_id`) generation from the deal's own structure
 (KYC/AML and facility-execution CPs always required; security-mapping/perfection/priority CPs
 and guarantee CPs only when the underlying gap/guarantee actually exists), and downside covenant

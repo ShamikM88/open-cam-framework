@@ -100,6 +100,7 @@ independently proven by the gate.
 - `R-POL-019`
 - `R-POL-020`
 - `R-POL-021`
+- `R-POL-022`
 - `R-STATE-001`
 - `R-STATE-002`
 - `R-STATE-003`
@@ -305,6 +306,14 @@ independently proven by the gate.
 - **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
 - **Status:** Not covered
 - **Tracking:** [Issue #473](https://github.com/ShamikM88/open-cam-framework/issues/473)
+
+### R-POL-022 — Unidentified collateral assets and security charges are mapping gaps
+
+- **Claim:** Each collateral entry without a non-empty `asset_id` and each security charge without a non-empty `secures_asset_id` produces one security gap and one `SEC-MAPPING` condition precedent. The condition ID is stable for the same list position and recorded asset class; an absent class is stated as not recorded, and an unidentified charge is never guessed to belong to an asset.
+- **Source:** [What the policy engine decides](financial-model.md#what-the-policy-engine-decides).
+- **Implemented in:** `scripts/policy_engine.py::_evaluate_security`
+- **Status:** Covered
+- **Tracking:** —
 
 ## State persistence and validation (STATE)
 

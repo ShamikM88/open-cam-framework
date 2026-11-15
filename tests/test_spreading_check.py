@@ -15,7 +15,7 @@ import pytest
 import spreading_check
 from spreading_check import compute, main, plan_fields
 from numeric_validation import validate_period_keys, validate_period_objects
-from spreading_builder import PERIOD_KEYS
+from spreading_builder import PERIOD_KEYS, evaluate_financial_model
 from state_manager import read_state, write_state
 
 
@@ -994,3 +994,64 @@ def test_sc_main_refuses_an_entity_keyed_financials_file_with_one_error_naming_t
     output = capsys.readouterr()
     assert output.out == "" and output.err == ""
     assert not (tmp_path / "deals").exists()
+
+
+# ---------------------------------------------------------------------------
+# FCF after working capital from the whole recorded store (issue #597)
+# ---------------------------------------------------------------------------
+
+_FY1 = {"revenue": 1000, "cost_of_sales": 600, "admin_expenses": 200,
+        "trade_debtors": 100, "stock": 50, "trade_creditors": 40,
+        "interest_paid": 20, "scheduled_principal": 30}
+_FY_CURRENT = {"revenue": 1100, "cost_of_sales": 650, "admin_expenses": 210,
+               "trade_debtors": 150, "stock": 60, "trade_creditors": 45,
+               "interest_paid": 20, "scheduled_principal": 30}
+_FY_PLUS_1 = {**_FY_CURRENT, "revenue": 1200, "trade_debtors": 200}
+
+
+def test_a_forward_only_call_computes_fcf_from_the_prior_period_on_file(tmp_path, monkeypatch):
+    """Issue #597, failing input A. Call 1 records FY-1 and FY-Current; call 2 supplies only
+    FY+1. Today the touched-periods-only evaluation sees no prior for FY+1, so its
+    fcf_after_working_capital and cash_flow_dscr are recorded as None even though FY-Current
+    is on file. One evaluation of the stored raw figures gives 270 and 5.8."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    state = compute("Acme Corp", "Fleet Loan",
+                    multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                    update_financials_source=False)
+    fy1 = state["financials"]["FY+1"]
+    assert fy1["fcf_after_working_capital"] == 270
+    assert state["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(5.8)
+
+
+def test_a_correction_to_one_period_recomputes_the_next(tmp_path, monkeypatch):
+    """Issue #597, failing input B. Call 3 supplies only FY-1's trade_debtors; FY-Current's
+    recorded figures go stale today. One evaluation of the stored raw figures gives 365 and 7.7."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    state = compute("Acme Corp", "Fleet Loan",
+                    multi_period_financials={"FY-1": {"trade_debtors": 300}},
+                    update_financials_source=False)
+    current = state["financials"]["FY-Current"]
+    assert current["fcf_after_working_capital"] == 365
+    assert state["ratios"]["FY-Current"]["cash_flow_dscr"] == pytest.approx(7.7)
+
+
+def test_every_period_on_file_equals_one_evaluation_of_the_stored_raw_figures(tmp_path, monkeypatch):
+    """Issue #597: for every period on file, the stored value equals one evaluation of the
+    stored raw figures -- the workbook parity the exported file already has."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+            update_financials_source=False)
+    state = read_state("Acme Corp", "Fleet Loan")
+    one_pass = evaluate_financial_model(state["multi_period_financials"])
+    for period in state["multi_period_financials"]:
+        assert state["financials"][period]["fcf_after_working_capital"] == \
+            one_pass["financials"][period]["fcf_after_working_capital"]
+        assert state["ratios"][period]["cash_flow_dscr"] == \
+            one_pass["ratios"][period]["cash_flow_dscr"]

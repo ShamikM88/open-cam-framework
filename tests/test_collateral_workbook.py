@@ -272,3 +272,55 @@ def test_a_list_of_pairs_for_stored_inputs_makes_the_result_cells_na_not_an_erro
     rows = collateral_projection(_analysis())
     ws = _write_sheet(tmp_path, analysis, rows=rows)
     assert _cells(ws, 2) == ["N/A"] * 8
+
+
+# ---------------------------------------------------------------------------
+# Text cells, never formulas (issue #600): analyst text starting with "=" is
+# written as text on the Collateral & Exposure sheet; the Total row formulas
+# are unchanged.
+# ---------------------------------------------------------------------------
+
+def test_analyst_text_beginning_with_equals_is_text_not_a_formula_on_collateral(tmp_path):
+    """Issue #600: asset_class and perfection_status go into the row unchanged today; a value
+    that begins with "=" must be stored as text (data type "s"), never as a formula (data type "f")."""
+    out_path = tmp_path / "workbook.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        collateral_data=[{
+            "asset_class": '=HYPERLINK("http://example.invalid","x")',
+            "perfection_status": "=1+1",
+            "exposure": 1,
+            "collateral_value": 1,
+        }],
+    )
+    ws = openpyxl.load_workbook(out_path)["Collateral & Exposure"]
+    a2 = ws.cell(row=2, column=1)
+    i2 = ws.cell(row=2, column=9)
+    assert a2.value == '=HYPERLINK("http://example.invalid","x")'
+    assert a2.data_type == "s"
+    assert i2.value == "=1+1"
+    assert i2.data_type == "s"
+
+
+def test_the_collateral_total_row_formulas_are_unchanged(tmp_path):
+    out_path = tmp_path / "workbook.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        collateral_data=[{
+            "asset_class": "=1+1",
+            "perfection_status": "=2+2",
+            "exposure": 1,
+            "collateral_value": 1,
+        }],
+    )
+    ws = openpyxl.load_workbook(out_path)["Collateral & Exposure"]
+    total_row = 3
+    assert ws.cell(row=total_row, column=1).value == "Total"
+    assert ws.cell(row=total_row, column=1).data_type == "s"
+    for letter in "BCDEFG":
+        cell = ws[f"{letter}{total_row}"]
+        assert cell.value.startswith("=SUM(")
+        assert cell.data_type == "f"
+    h = ws.cell(row=total_row, column=8)
+    assert h.value == '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'
+    assert h.data_type == "f"

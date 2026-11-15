@@ -311,8 +311,10 @@ def test_analyst_supplied_historical_export_uses_recorded_values_and_labels_the_
 # ---------------------------------------------------------------------------
 
 def _cli_draft(tmp_path):
+    # Ends with a populated Sources section, as the shipped templates now do (issue #583), so the
+    # CLI tests below exercise the warning-free path; the missing-section warning has its own tests.
     draft = tmp_path / "draft.md"
-    draft.write_text("# Draft", encoding="utf-8")
+    draft.write_text("# Draft\n\n## Sources\n\n- **Test Source:** supplied by the analyst", encoding="utf-8")
     return str(draft)
 
 

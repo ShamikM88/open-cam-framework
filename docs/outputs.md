@@ -65,6 +65,19 @@ Two behaviours to remember:
 The exact output of these rules for a synthetic draft is pinned in `tests/snapshots/cam_draft.docx.txt` (and for
 images in `cam_images.docx.txt`), so an unintended change shows up as a readable diff. See [Testing](testing.md).
 
+### The CAM's Sources section (issue #583)
+
+Both shipped templates end with a `## Sources` section, after Risks & Mitigants: a flat list of every document the
+CAM relies on, one entry per line as `- **Key:** [title](url)`, where Key is the short form used in the text. A
+source with no URL is listed by title and date without a link. The heading is exactly `## Sources`, never numbered,
+because the exporter's section finder matches only the titles `Sources` and `References`.
+
+At export, `deal_export.py` checks the draft with the same finder `research_export.py` uses (an ATX heading titled
+`Sources` or `References`, any level, not inside a fenced code block, whose section contains a list item or an
+`http://`/`https://` URL; the section ends at the next heading of the same or a higher level). A CAM draft with no
+populated section still exports, with one advisory `[deal_export] Sources section warning: ...` line on standard
+error: the exit status and the output files are unchanged. A populated section produces no warning.
+
 ## The spreading workbook (`.xlsx`)
 
 `scripts/spreading_builder.py` always writes two base sheets; a valid `group_basis` adds a third sheet described below.

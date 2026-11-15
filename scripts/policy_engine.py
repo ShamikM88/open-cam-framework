@@ -50,6 +50,7 @@ SLUG_RE = re.compile(r"[^A-Z0-9]+")
 # The figures a covenant can be tested on (issue #48, decision of 2026-10-22). A covenant names one with `basis`; an
 # absent or null `basis` means "borrower", the legacy meaning of every covenant recorded before the field existed.
 COVENANT_BASES = ("borrower", "consolidated", "guarantor_group")
+SOURCE_CONFLICT = "conflicted"    # recorded_view when group_basis and credit_aggregation are both recorded
 DEFAULT_COVENANT_BASIS = "borrower"
 
 
@@ -67,6 +68,8 @@ class CovenantResult(TypedDict):
     reason: str | None
     basis: NotRequired[JsonValue]
     basis_entity_id: NotRequired[str | None]
+    view_source: NotRequired[Literal["credit_aggregation"]]
+    input_fingerprint: NotRequired[str | None]
 
 
 class ForwardCovenantResult(CovenantResult):
@@ -246,6 +249,10 @@ def _evaluate_covenant(
     if basis not in COVENANT_BASES:
         result["reason"] = (f"unrecognized covenant basis {basis!r} "
                             "(expected 'borrower', 'consolidated' or 'guarantor_group')")
+        return result
+    if recorded_view == SOURCE_CONFLICT:
+        result["reason"] = ("both a case-A group_basis and a credit aggregation are recorded; a covenant is "
+                            "tested on neither, so it is UNRESOLVABLE until one source is removed")
         return result
     if basis != recorded_view:
         result["reason"] = (f"the covenant is on the {basis} basis but the recorded figures are the {recorded_view} "
@@ -740,6 +747,8 @@ def _evaluate_resolved_covenant(
     covenant: dict[str, Any], view: dict[str, Any], period: str,
 ) -> CovenantResult:
     """Evaluate one guarantor covenant against its exact resolved period."""
+    view_basis = view.get("basis") or "guarantor_group"
+    is_aggregation = view.get("view_source") == "credit_aggregation"
     reason = view.get("unresolvable_reason")
     period_reasons = view.get("period_reasons")
     if not reason and isinstance(period_reasons, dict):
@@ -749,23 +758,38 @@ def _evaluate_resolved_covenant(
     period_ratios = ratios.get(period) if isinstance(ratios, dict) else None
     period_financials = financials.get(period) if isinstance(financials, dict) else None
     if reason:
-        result = _evaluate_covenant(covenant, {}, None, "guarantor_group")
+        result = _evaluate_covenant(covenant, {}, None, view_basis)
         result["reason"] = reason
     elif not isinstance(period_ratios, dict) or not period_ratios:
-        result = _evaluate_covenant(covenant, {}, None, "guarantor_group")
-        result["reason"] = f"no fresh guarantor figures are recorded for {period}"
+        result = _evaluate_covenant(covenant, {}, None, view_basis)
+        result["reason"] = (f"no fresh credit aggregation figures are recorded for {period}" if is_aggregation
+                            else f"no fresh guarantor figures are recorded for {period}")
     else:
         result = _evaluate_covenant(
             covenant,
             period_ratios,
             period_financials if isinstance(period_financials, dict) else None,
-            "guarantor_group",
+            view_basis,
         )
+    if is_aggregation:
+        fingerprints = view.get("input_fingerprints")
+        return {
+            "metric": result["metric"],
+            "type": result["type"],
+            "threshold": result["threshold"],
+            "basis": view_basis,
+            "actual": result["actual"],
+            "status": result["status"],
+            "headroom_pct": result["headroom_pct"],
+            "reason": result["reason"],
+            "view_source": "credit_aggregation",
+            "input_fingerprint": fingerprints.get(period) if isinstance(fingerprints, dict) else None,
+        }
     return {
         "metric": result["metric"],
         "type": result["type"],
         "threshold": result["threshold"],
-        "basis": "guarantor_group",
+        "basis": view_basis,
         "basis_entity_id": view.get("basis_entity_id"),
         "actual": result["actual"],
         "status": result["status"],
@@ -826,6 +850,10 @@ def evaluate_deal_policy(
     # A recorded group_basis means the deal's recorded figures are borrower-supplied consolidated group accounts
     # (issue #48, case A); otherwise they are the borrower's own. A covenant is tested only on its own basis.
     recorded_view = "consolidated" if isinstance(state_dict.get("group_basis"), dict) else DEFAULT_COVENANT_BASIS
+    if recorded_view == "consolidated" and state_dict.get("credit_aggregation") not in (None, {}):
+        # Two consolidated sources (case A and case B) are recorded: no covenant is tested on either, in the
+        # current, forward or downside result alike (D22, fail closed).
+        recorded_view = SOURCE_CONFLICT
     if resolved_views is None:
         resolved_views = resolve_covenant_views(state_dict, covenants)
     if len(resolved_views) != len(covenants):
@@ -834,7 +862,7 @@ def evaluate_deal_policy(
     has_guarantor_basis = any(covenant.get("basis") == "guarantor_group" for covenant in covenants)
     covenant_results: list[CovenantResult] = []
     for covenant, view in zip(covenants, resolved_views, strict=True):
-        if covenant.get("basis") == "guarantor_group":
+        if covenant.get("basis") == "guarantor_group" or view.get("view_source") == "credit_aggregation":
             covenant_results.append(_evaluate_resolved_covenant(covenant, view, "FY-Current"))
         else:
             covenant_results.append(

@@ -675,7 +675,7 @@ def test_408_collect_passes_names_date_base_dir_state_keys_and_path_to_readers(t
                                                    "keys": cs.STATE_KEYS_READ})
     ]
     assert calls["validate_state"] == [
-        ({"synthetic": "record"}, {"keys": ("group_basis",), "path": str(state_file)})
+        ({"synthetic": "record"}, {"keys": ("group_basis", "credit_aggregation"), "path": str(state_file)})
     ]
     assert calls["manifest"] == [
         ("Synthetic Co", "Synthetic Fleet Loan", {"date_str": DATE, "base_dir": base_dir})

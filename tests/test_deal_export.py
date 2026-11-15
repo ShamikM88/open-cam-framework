@@ -1228,7 +1228,7 @@ def test_dx_export_deal_validates_state_before_creating_any_folder(tmp_path, mon
 
     def reject_state(state, *, keys, path):
         assert state == {"financials": {}}
-        assert keys == ("group_basis",)
+        assert keys == ("group_basis", "credit_aggregation")
         raise ValueError("Synthetic Co state validation failed")
 
     monkeypatch.setattr(deal_export, "validate_state", reject_state)
@@ -1327,7 +1327,7 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
         )
     ]
     assert validations == [
-        ((state,), {"keys": ("group_basis",), "path": expected_state_path})
+        ((state,), {"keys": ("group_basis", "credit_aggregation"), "path": expected_state_path})
     ]
     assert events == [
         "read_state", "validate_state", "forecast_columns", "financial_data",
@@ -1353,6 +1353,7 @@ def test_dx_export_deal_passes_exact_state_data_to_writers_and_returns_the_exact
         "blank_downside_periods": blank_downside_periods,
         "derived_downside_fields": derived_downside_fields,
         "group_basis": group_basis,
+        "credit_aggregation": None,
     }
     assert Path(returned) == expected_folder
     assert expected_folder.is_dir()
@@ -1775,7 +1776,7 @@ def test_workbook_inputs_from_state_selects_one_raw_store_per_period_and_passes_
     assert set(inputs) == {
         "financial_data", "collateral_data", "collateral_analysis", "downside_financial_data",
         "supplied_values", "supplied_downside_values", "blank_downside_periods",
-        "derived_downside_fields", "group_basis"}
+        "derived_downside_fields", "group_basis", "credit_aggregation"}
     assert inputs["financial_data"] == {"FY-Current": {"revenue": 500}, "FY+1": {"revenue": 600}}
     assert inputs["collateral_data"] == [{"asset": "Synthetic asset"}]
     assert inputs["collateral_analysis"] is None
@@ -1788,7 +1789,7 @@ def test_workbook_inputs_from_state_for_an_empty_state_is_all_none():
         "financial_data": None, "collateral_data": None, "collateral_analysis": None,
         "downside_financial_data": None, "supplied_values": None,
         "supplied_downside_values": None, "blank_downside_periods": None, "derived_downside_fields": None,
-        "group_basis": None}
+        "group_basis": None, "credit_aggregation": None}
 
 
 def test_the_workbook_export_receives_exactly_the_shared_inputs(tmp_path, monkeypatch):
@@ -1874,3 +1875,14 @@ def test_export_deal_prints_no_citation_warning_for_a_source_with_no_url(tmp_pat
     draft = "# Acme Corp CAM\n\nPer [management call].\n\n## Sources\n\n- Management call: supplied by the analyst\n"
     export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
     assert "Citation link warning" not in capsys.readouterr().err
+
+
+def test_workbook_inputs_forward_a_recorded_credit_aggregation_to_the_workbook():
+    from credit_aggregation import aggregation_sheet_rows
+    state = {"credit_aggregation": {"FY-Current": {
+        "manifest": {"participants": ["@borrower"], "period_end": "2025-12-31",
+                     "period_end_evidence": "Synthetic", "scope_confirmations": {}},
+        "input_fingerprint": "a" * 64}}}
+    rows = aggregation_sheet_rows(state)
+    assert rows and any(row[:1] == ["Status"] for row in rows)
+    assert workbook_inputs_from_state(state)["credit_aggregation"] == rows

@@ -1660,7 +1660,7 @@ def test_408_verify_deal_preserves_call_arguments_report_shape_and_truncation_bo
                                                    "keys": export_readback.STATE_KEYS_READ})
     ]
     assert calls["validate_state"] == [
-        ({"synthetic": "state"}, {"keys": ("group_basis",), "path": str(state_file)})
+        ({"synthetic": "state"}, {"keys": ("group_basis", "credit_aggregation"), "path": str(state_file)})
     ]
     assert calls["approved"] == [({"synthetic": "state"}, str(folder), base_dir)]
     # Only the read of the approved draft is pinned; other open() calls on this path are not this test's business.

@@ -771,10 +771,17 @@ the entry says so and it is listed under [Known differences](#known-differences)
   a fresh framework-computed period from the selected entity's C3 spread. A failed identity, link, role or freshness
   check is UNRESOLVABLE; no borrower or other-guarantor fallback is permitted. Guarantor current results carry both
   `basis` and `basis_entity_id` (null when the ID is missing); borrower and case-A result shapes remain unchanged.
+  A `consolidated` covenant may instead read a case-B credit aggregation (issue #472): when the state records a
+  `credit_aggregation` and no `group_basis`, it is tested only on a period whose recorded inputs still reproduce
+  their fingerprint and whose `computed` object is well shaped and carries a matching `output_digest`; a stale,
+  invalid, uncalculated or malformed period is UNRESOLVABLE with that period's reason, never borrower figures. When
+  both a `group_basis` and a `credit_aggregation` are recorded, a covenant is UNRESOLVABLE in the current,
+  forward and downside results alike. An aggregation result carries `view_source` and the period's
+  `input_fingerprint` beside `basis`; borrower, case-A and guarantor result shapes are unchanged.
   A result names its `basis` when the covenant stated one or the recorded view is not the borrower's; an ordinary
   deal's results keep their earlier shape
-- **State keys:** `covenants[].basis`, `covenants[].basis_entity_id`, `group_basis`, `entity_records`,
-  `guarantees[].guarantee_id`
+- **State keys:** `covenants[].basis`, `covenants[].basis_entity_id`, `group_basis`, `credit_aggregation`,
+  `entity_records`, `guarantees[].guarantee_id`
 - **Workbook rows:** —
 - **Policy outputs:** `covenant_results`
 - **Implemented in:** `scripts/covenant_basis.py` — `resolve_covenant_view()` and `resolve_covenant_views()`;

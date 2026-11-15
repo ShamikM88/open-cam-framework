@@ -416,7 +416,7 @@ def verify_deal(company: str, proposal: str, date_str: str | None = None, base_d
             raise StateError(f"no existing state.json for company {company!r} and proposal {proposal!r}")
         date_str = found["date"]
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir, keys=STATE_KEYS_READ) or {}
-    validate_state(state, keys=("group_basis",),
+    validate_state(state, keys=("group_basis", "credit_aggregation"),
                    path=state_path(company, proposal, date_str=date_str, base_dir=base_dir))
     folder = os.path.dirname(state_path(company, proposal, date_str=date_str, base_dir=base_dir))
     workbook_path = os.path.join(folder, f"{company}_{proposal}_Spreading.xlsx")

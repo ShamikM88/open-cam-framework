@@ -1262,6 +1262,19 @@ def _write_group_basis_sheet(wb: Any, group_basis: Mapping[str, Any]) -> None:
     ws.column_dimensions["B"].width = 72
 
 
+def _write_credit_aggregation_sheet(wb: Any, rows: Sequence[Sequence[Any]]) -> None:
+    """Disclose a recorded credit aggregation (issue #472, B4): scope, period end, freshness, limits, figures."""
+    ws = wb.create_sheet("Credit aggregation")
+    for row in rows:
+        ws.append(list(row))
+    for sheet_row in ws.iter_rows():
+        for cell in sheet_row:
+            if isinstance(cell.value, str):
+                cell.data_type = "s"     # analyst text such as "=HYPERLINK(...)" must never become a formula
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 72
+
+
 def export_to_xlsx(
     company: str,
     output_path: str | os.PathLike[str],
@@ -1274,6 +1287,7 @@ def export_to_xlsx(
     blank_downside_periods: Collection[str] | None = None,
     derived_downside_fields: Mapping[str, Collection[str]] | None = None,
     group_basis: Mapping[str, Any] | None = None,
+    credit_aggregation: Sequence[Sequence[Any]] | None = None,
 ) -> None:
     """Build the financial spreading + collateral workbook.
 
@@ -1318,4 +1332,6 @@ def export_to_xlsx(
     _write_collateral_sheet(wb, collateral_data=collateral_data, collateral_analysis=collateral_analysis)
     if group_basis is not None:
         _write_group_basis_sheet(wb, group_basis)
+    if credit_aggregation:
+        _write_credit_aggregation_sheet(wb, credit_aggregation)
     wb.save(output_path)

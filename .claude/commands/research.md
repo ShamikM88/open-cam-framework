@@ -131,6 +131,8 @@ paragraph instead of rendering as separate lines.
 
 **Mandatory final Sources section.** Before saving or reviewing the brief, make its final section a flat `## Sources` section. List every document the brief relies on, with its URL wherever one exists. Include a citation key defining each short-form reference used in the body (for example, `WRG note 14`). Keep the list flat: `scripts/docx_builder.py` does not render nested bullets as intended. A heading without entries is not enough.
 
+**Citations.** Write each citation as a Markdown link whose text is the readable citation, for example `[FY25 accounts, p. 12](url)`, so the exported document shows a clickable link. A source with no URL needs no link; never invent one. In the final Sources section, write each entry as `- **Key:** [title](url)`. Do not leave a bare URL.
+
 1. Save it to `deals/<company>/<proposal>_brief.md` (create the folder if it doesn't exist yet).
 2. **Run `/review --company "<company>" --proposal "<proposal>" --research-brief --draft "deals/<company>/<proposal>_brief.md"`**
    against that saved brief (see issue #87 — this gives `/research` the same Checker audit `/assemble`

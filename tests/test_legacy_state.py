@@ -369,9 +369,11 @@ EXPECTED_KEYS_READ = {
                         "stress_assumptions": "object"},
     "policy_check": {"financials": "periods", "ratios": "periods", "collateral": "list", "covenants": "list",
                      "security_package": "list", "guarantees": "list", "downside_case": "downside",
-                     "financials_source": "source"},
+                     "financials_source": "source", "credit_aggregation": "credit_aggregation",
+                     "analyst_supplied_financials": "periods"},
     "deal_export": {"financials": "object", "analyst_supplied_financials": "object",
-                    "downside_case": "downside_lenient", "financials_source": "source"},
+                    "downside_case": "downside_lenient", "financials_source": "source",
+                    "credit_aggregation": "credit_aggregation"},
 }
 
 

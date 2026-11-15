@@ -11,8 +11,9 @@ import os
 import re
 import sys
 from datetime import datetime
-from typing import Any
+from typing import Any, TypedDict
 
+from credit_aggregation import aggregation_sheet_rows
 from docx_builder import check_exportable, export_to_docx
 from draft_lint import citation_link_warnings
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
@@ -31,7 +32,7 @@ from template_resolver import cam_template_path, local_cam_template_path
 # `financials_source` decides which raw store is read, so an unknown value is an error rather than silently
 # "framework-computed".
 STATE_KEYS_READ = {"financials": "object", "analyst_supplied_financials": "object", "downside_case": "downside_lenient",
-                   "financials_source": "source"}
+                   "financials_source": "source", "credit_aggregation": "credit_aggregation"}
 
 
 def _raw_financials(financials: dict[str, Any] | None) -> dict[str, Any]:
@@ -184,7 +185,21 @@ def _collateral_data_from_state(state: dict[str, Any]) -> list[Any] | None:
     return collateral if isinstance(collateral, list) else None
 
 
-def workbook_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
+class WorkbookInputs(TypedDict):
+    """The fixed keyword arguments `export_to_xlsx()` receives (one key per parameter, so a typo is a type error)."""
+    financial_data: dict[str, Any] | None
+    collateral_data: Any
+    collateral_analysis: Any
+    downside_financial_data: dict[str, Any] | None
+    supplied_values: Any
+    supplied_downside_values: Any
+    blank_downside_periods: Any
+    derived_downside_fields: Any
+    group_basis: Any
+    credit_aggregation: list[list[Any]] | None
+
+
+def workbook_inputs_from_state(state: dict[str, Any]) -> WorkbookInputs:
     """The keyword arguments `export_to_xlsx()` receives for this state.
 
     The one place that turns a deal's state into workbook inputs: `export_deal()` writes the workbook from them and
@@ -202,6 +217,7 @@ def workbook_inputs_from_state(state: dict[str, Any]) -> dict[str, Any]:
         "blank_downside_periods": blank_downside_periods or None,
         "derived_downside_fields": derived_downside_fields or None,
         "group_basis": state.get("group_basis"),
+        "credit_aggregation": aggregation_sheet_rows(state),
     }
 
 
@@ -257,7 +273,7 @@ def export_deal(
         company, proposal, date_str=state_date_str, base_dir=base_dir, keys=STATE_KEYS_READ,
     ) or {}
     validate_state(
-        state, keys=("group_basis",),
+        state, keys=("group_basis", "credit_aggregation"),
         path=state_path(company, proposal, date_str=state_date_str, base_dir=base_dir),
     )
     workbook_inputs = workbook_inputs_from_state(state)

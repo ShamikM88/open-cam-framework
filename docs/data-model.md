@@ -20,7 +20,7 @@ shortened):
   "company": "Synthetic Co",
   "proposal": "Synthetic Fleet Loan",
   "date": "2026-10-04",
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "deal_type": "asset_finance",
   "inputs": {"pd": "0.20%", "lgd": "LGD 3 (15%)"},
   "steps_completed": ["spread", "project"],
@@ -50,6 +50,7 @@ shortened):
 | `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode; `supplied_forecast.py` for forward raw breakdowns when provided | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
 | `group_basis` | `state_manager.py --record-group-basis`, after explicit analyst confirmation | Optional metadata describing borrower-supplied consolidated accounts: basis, reporting entity, covered entities, source/date/accounting basis, common period end, period labels, supplied/recomputed basis and confirmed perimeter. It contains no figures and never changes either raw store. |
 | `entity_records` | `state_manager.py --register-entity-record`, after explicit perimeter confirmation | Optional registry keyed by stable entity ID. Each record captures one subsidiary, parent or guarantor, its source, period ends, confirmed perimeter, exactly one raw store per entity-period, intercompany references and explicit guarantee IDs. Step 1 records inputs only; no spread or aggregation is computed. |
+| `credit_aggregation` | `credit_aggregation.py`, after explicit analyst scope confirmation | Optional case-B record keyed by period label. Each period holds the manifest (participants, the common period end and its evidence, per-entity confirmed scope) and one SHA-256 input fingerprint; the optional `computed` object is the accounting-gated B2b step's output. It is metadata and fingerprints only: no figures are stored by B2a, and borrower figures are never touched. |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
@@ -107,11 +108,11 @@ passes the explicit `--perimeter-confirmed` flag.
 This describes a credit aggregation of consolidated accounts supplied by the borrower, not a
 statutory consolidation prepared by the framework. Case A introduces no eliminations, new formulas
 or entity-level arithmetic, and does not infer control from ownership percentages. The optional,
-metadata-only field preserves compatibility for states without the key. The original optional `group_basis` metadata did not itself require a schema bump. Schema version `1.2.0` now records the addition of the separate `entity_records` contract. A state without `entity_records` remains unchanged when read; it is not migrated or populated from borrower data. The next normal write applies the current schema version. Unknown future fields within `group_basis` are ignored; a `null` value means not recorded, as for every other key; a malformed value that is present is refused by consumers that read it, with an error naming `group_basis`.
+metadata-only field preserves compatibility for states without the key. The original optional `group_basis` metadata did not itself require a schema bump. Schema version `1.2.0` recorded the addition of the separate `entity_records` contract; `1.3.0` records the addition of the separate `credit_aggregation` contract. A state without `entity_records` remains unchanged when read; it is not migrated or populated from borrower data. The next normal write applies the current schema version. Unknown future fields within `group_basis` are ignored; a `null` value means not recorded, as for every other key; a malformed value that is present is refused by consumers that read it, with an error naming `group_basis`.
 
 ### Shared entity records (cases B and C, step 1)
 
-`entity_records` is an optional top-level object keyed by stable entity ID. It is shared by case B's future credit aggregation and case C's future standalone guarantor spread; there is no separate guarantor-only record. A state without this key means no entities have been recorded. Reading a legacy state does not synthesize entities or migrate borrower figures. The next normal write uses schema version `1.2.0`.
+`entity_records` is an optional top-level object keyed by stable entity ID. It is shared by case B's credit aggregation and case C's standalone guarantor spread; there is no separate guarantor-only record. A state without this key means no entities have been recorded. Reading a legacy state does not synthesize entities or migrate borrower figures. The reserved token `@borrower` is never a valid registry key: it maps only to the existing legacy borrower stores.
 
 Each registry value is one entity record with:
 - `entity_id`, which must equal the key, and a non-empty `legal_name`;
@@ -128,6 +129,80 @@ Every nested raw map remains period-keyed. The validator rejects an entity ID wh
 Registration uses `python scripts/state_manager.py --register-entity-record --company ... --proposal ... --entity-record-file <json file> --perimeter-confirmed [--date YYYY-MM-DD]`. The JSON file contains one record object. The explicit flag records analyst confirmation; `--date` is the confirmation date (or today), distinct from `source.date`. The command requires an exact existing deal, refuses duplicate IDs, validates the whole registry while holding the deal lock, and writes once through the atomic state manager path. A refusal leaves `state.json` byte-for-byte unchanged.
 
 Step 1 is recording and validation only. It computes no subtotals, ratios, spread, eliminations, aggregate view or covenant result, and does not change borrower figures, workbook/CAM presentation, policy routing or legal guarantee conditions. Later work must define and review those behaviours separately.
+
+### Credit aggregation inputs (case B, step B2a)
+
+`credit_aggregation` is an optional top-level object keyed by framework period label, recorded with
+`python scripts/credit_aggregation.py --company ... --proposal ... --request-file <json file>`.
+It is the contract the accounting-gated B2b step (eliminations and calculation) will later fill; B2a
+itself computes nothing and never touches `financials`, `ratios`, `multi_period_financials`,
+`analyst_supplied_financials`, `entity_records` or `group_basis`. Schema version `1.3.0` records the
+key's addition.
+
+Each requested period resolves to one entry:
+
+```json
+"credit_aggregation": {
+  "FY-Current": {
+    "manifest": {
+      "participants": ["@borrower", "synthetic-opco"],
+      "period_end": "2025-12-31",
+      "period_end_evidence": "Synthetic audited accounts FY2025",
+      "scope_confirmations": {"synthetic-opco": {"included": true, "...": "..."}}
+    },
+    "input_fingerprint": "<64-character lowercase SHA-256 hex>",
+    "computed": {"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}, "output_digest": "<64-character lowercase SHA-256 hex>"}
+  }
+}
+```
+
+`participants` always includes the reserved token `@borrower`, which maps only to the existing legacy
+borrower stores (the framework-computed `financials[period]["raw"]` line the exporter would select) and
+never creates an entity record; `state_manager.py` refuses `@borrower` as an `entity_records` key. Every
+other participant is an explicit `entity_records` ID whose `perimeter.included` is true and whose
+perimeter is confirmed. Participants are never inferred. Every participant must carry the same period
+label and exactly the same ISO date per period: entity dates come from
+`entity_records[id].period_ends[period]`, and the borrower's date arrives in the request with an
+evidence reference. A missing date or period, or any mismatch, refuses the whole aggregation before any
+write; nothing is rolled, aligned or inferred. Every `counterparty_entity_id` of a selected participant
+resolves to a selected participant of that line's own period, or to the borrower view through
+`@borrower`; dangling, unselected, out-of-perimeter or unconfirmed references are named hard errors,
+never assumed external and never matched by name. An unconfirmed intercompany line is refused. The
+request also refuses: analyst-supplied-only figures (D4's as-given rule is not overridden), a deal that
+already carries a case-A `group_basis` (fail closed, no winner by insertion order), non-finite or boolean
+numbers, and unknown keys.
+
+**The B2b contract.** Each period's optional `computed` object carries `financials` and `ratios` in the
+same shape as the borrower's top-level `financials[period]` and `ratios[period]`. Until B2b exists no
+period has `computed`; every consumer treats a missing or stale `computed` as UNRESOLVABLE with a reason
+(`credit_aggregation.aggregation_period_status()` reports `current`, `not_calculated`, `stale`,
+`invalid` or `absent`). The shape is flat and per period, for example
+`{"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}, "output_digest": "<sha-256>"}`: each metric maps to a finite number
+or `null` (an integer too large for a float counts as non-finite), never to a nested per-period object or a boolean; a nested or non-numeric
+`computed` is `invalid` and the state validator refuses it. **Output integrity:** `output_digest` is the SHA-256 returned by
+`credit_aggregation.computed_output_digest(input_fingerprint, financials, ratios)`, which binds the figures to the exact input
+fingerprint they were calculated from. A `computed` object with no digest, or whose digest does not match, is `invalid` and is never
+read as current, so an accidental or uncoordinated edit is caught. **The digest is a consistency checksum, not proof of
+origin:** the helper is public and unkeyed, so someone who edits `state.json` and recomputes the digest can still
+make a forged period `current`. Proving that only approved B2b figures are consumed needs the deterministic recompute
+on read that the B2b design must provide (maintainer decision, issue #472). The B2b writer must fill `computed` through that helper. The recorded
+manifest, including each confirmed scope snapshot, must also equal the manifest the current inputs produce, or the period is `stale`. B3 and B4 read this contract only.
+
+**Per-period fingerprint.** One SHA-256 per period over canonical JSON tagged
+`open-cam-credit-aggregation-input/v1`, serialised as
+`json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")`,
+lowercase hex. The payload covers the contract tag and version, the period label and its end date, the
+sorted participant IDs, each participant's raw-store name and raw period object, source and perimeter
+confirmation, the borrower's period-end evidence, the confirmed scope, and each entity participant's
+intercompany lines for that period (sorted, so a reordering is not a change; an amount, direction or line-key
+change makes the period stale); computed outputs are excluded. An absent `financials_source` is fingerprinted as
+`framework-computed`, the meaning it has everywhere else. Any change to a participant, source, period, scope or the contract version makes the stored
+fingerprint stale.
+
+Recording merges per period under the deal lock in one atomic write after full validation; any refusal
+leaves `state.json` byte-for-byte unchanged. Recording a period replaces that period's entry and drops
+any earlier `computed` for it (the new inputs have invalidated it); periods not named in the request are
+preserved. Re-recording identical inputs reproduces the identical fingerprint.
 
 ### Reviewer view files
 
@@ -229,8 +304,8 @@ script selects exactly one `entity_records[entity_id]` whose role is `guarantor`
 `multi_period_financials` map to the existing `evaluate_financial_model()`, and stores the returned
 `financials` and `ratios` inside that same record. It never combines entity records, reads the borrower's
 raw figures as a fallback, or changes the borrower's top-level `financials`, `ratios`,
-`multi_period_financials`, `analyst_supplied_financials` or `financials_source`. The state schema remains
-`1.2.0`; the spread adds no top-level state key.
+`multi_period_financials`, `analyst_supplied_financials` or `financials_source`. The state schema is unchanged:
+the spread adds no top-level state key of its own.
 
 A record is either `spread_status: "not-spread"` with no spread payload, or `spread_status: "spread"`
 with all of the following nested fields: `figures_basis: "recomputed"`, `spread_timestamp` (timezone-aware

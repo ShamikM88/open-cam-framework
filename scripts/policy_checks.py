@@ -300,6 +300,19 @@ def ground_truth_figures(
     # keys. Only fresh framework-computed values from the shared resolver are
     # made available to the narrative-accuracy check.
     for view in resolved_views or []:
+        if view.get("view_source") == "credit_aggregation":
+            # Case B (issue #472): a non-borrower figure keeps its view identity in the key.
+            for store, values in (("ratios", view.get("ratios")), ("financials", view.get("financials"))):
+                if not isinstance(values, Mapping):
+                    continue
+                for period, period_values in values.items():
+                    if not isinstance(period_values, Mapping):
+                        continue
+                    suffix = "" if period == "FY-Current" else f"_{period}"
+                    for metric, value in period_values.items():
+                        if (store == "ratios" or metric != "raw") and _plain_number(value):
+                            truth[f"credit_aggregation::{metric}{suffix}"] = value
+            continue
         if view.get("basis") != "guarantor_group":
             continue
         entity_id = view.get("basis_entity_id")

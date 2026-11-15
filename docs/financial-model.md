@@ -167,6 +167,8 @@ still decided by comparison.
 
 **The financial basis is selected per covenant.** An absent or null `basis` means `borrower` and retains the existing deal-level behaviour. `consolidated` uses the borrower-supplied view recorded in `group_basis`. `guarantor_group` requires a non-blank `basis_entity_id` and resolves exactly one registered guarantor by that ID, with an explicit `guarantee_id` link to the deal's guarantees. Its figures come only from that entity's current C3 framework-computed spread. A missing/invalid entity ID, wrong role, missing or ambiguous link, unspread record, stale fingerprint/output or analyst-supplied-only period yields UNRESOLVABLE. When the entity is identified but fails the role, link or spread check, each period it records (labels only; no figure is exposed) is still reported UNRESOLVABLE with that reason, never silently omitted. A guarantor result carries both `basis: "guarantor_group"` and `basis_entity_id`; a missing ID is reported as `null`. The borrower and case-A result shapes are unchanged, and no borrower or other-guarantor figures are used as fallback.
 
+**A `consolidated` covenant can read a credit aggregation (issue #472, B3).** When the deal records a `credit_aggregation` and no case-A `group_basis`, the one shared resolver (`resolve_covenant_view()`) routes a `consolidated` covenant to the aggregation: only a period whose recorded inputs still reproduce their fingerprint and that carries a well-shaped `computed` object supplies figures. A period that is stale, invalid, absent or recorded but not calculated (B2b has not computed it) is UNRESOLVABLE with that period's reason, never replaced by the borrower's figures. If both a `group_basis` and a `credit_aggregation` are recorded, a `consolidated` covenant is UNRESOLVABLE (exactly one source is allowed; D22). A covenant with no `basis` or `basis: "borrower"` never reads aggregation values. The result then carries `view_source: "credit_aggregation"` and the period's `input_fingerprint` beside `basis: "consolidated"`; a deal with no `credit_aggregation` keeps its earlier result shape exactly. A non-positive denominator stays N/A and the covenant UNRESOLVABLE (D5). Aggregated figures reach the draft check's ground truth only under an explicit identity, as `credit_aggregation::<metric>` (with `_<period>` for a non-current period), and are never flattened into the borrower's bare metric name. Forward-year and downside testing of an aggregation is not part of B3: such a covenant stays UNRESOLVABLE there (the recorded view is not the covenant's basis) until the accounting-gated work provides forward figures.
+
 Covenants are tested in three places, with three different consequences:
 
 | Where | Which period | A FAIL or UNRESOLVABLE... |
@@ -274,6 +276,32 @@ policy engine records them. The formulas are register entries
 authoritative.
 
 
+## Credit aggregation inputs (case B, B2a)
+
+Case B aggregates the borrower and selected registered entities. B2a records and validates the inputs
+only: `credit_aggregation.py` persists, under the top-level `credit_aggregation` key, each
+requested period's manifest (participants, the common period end and its evidence, per-entity confirmed
+scope) and one SHA-256 input fingerprint over the canonical input payload. **B2a computes nothing**:
+no elimination, subtotal, ratio or covenant result. The accounting-gated B2b step will later fill each
+period's optional `computed` object (`financials` and `ratios` in the same shape as the borrower's
+top-level `financials[period]` and `ratios[period]`); until it exists no period has `computed`, and
+every covenant consumer treats a missing, stale or untrusted `computed` as UNRESOLVABLE with a reason (the
+B4 outputs label such a period `not calculated`, `stale` or `invalid` with the reason and show no figures). The full key contract
+is documented in [the data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a).
+
+The participants are the reserved token `@borrower` (the existing legacy borrower stores, never an
+entity record) plus explicit `entity_records` IDs whose perimeter is included and confirmed; nothing is
+inferred. Every participant must carry the same period label and exactly the same ISO date per period,
+with the borrower's date supplied in the request with an evidence reference; a missing date or any
+mismatch refuses the whole aggregation before any write. Intercompany counterparties resolve by exact ID
+to a selected participant of that line's own period, or to `@borrower`; a dangling, unselected,
+out-of-perimeter or unconfirmed reference is a named hard error, and an unconfirmed line is refused.
+Analyst-supplied-only figures are refused rather than silently reconciled (D4 is not overridden), a deal
+that already carries a case-A `group_basis` is refused fail-closed, and non-finite or boolean numbers
+are refused. This is a **credit aggregation**, never a statutory consolidation: it does not describe
+the aggregation as a consolidation, and it creates no elimination logic, adjusted raw line, new formula
+or register entry — those belong to the gated B2b step and the formula register's own change control.
+
 ## Standalone entity spread (case C, C3)
 
 `spreading_check.py --entity-id <entity ID>` is the script-level path for one registered guarantor. It selects one
@@ -281,7 +309,8 @@ authoritative.
 `multi_period_financials`. The existing borrower computation and its formulas are not changed or reused as a
 fallback. Returned `financials` and `ratios` are stored inside the selected entity record with
 `figures_basis: "recomputed"`; the borrower-level financial stores and `financials_source` are left unchanged.
-The state schema remains 1.2.0. Case C remains standalone; this is not a credit aggregation or consolidation.
+Case C remains standalone; this is not a credit aggregation or consolidation, and the spread adds no
+top-level state key of its own.
 
 The entity record stores one SHA-256 input fingerprint per computed period. Each canonical JSON payload includes
 the contract tag, entity ID, period label and end date, full source metadata, raw-figure source, selected raw store

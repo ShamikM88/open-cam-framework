@@ -111,7 +111,7 @@ DEALS_DIR = "deals"
 # at all; read_state() reports LEGACY_SCHEMA_VERSION for those rather than
 # leaving the key absent, so future migration logic always has a defined
 # starting point instead of needing its own "key missing" special case.
-SCHEMA_VERSION = "1.2.0"
+SCHEMA_VERSION = "1.3.0"
 LEGACY_SCHEMA_VERSION = "0.0.0"
 
 # A recorded version must look exactly like SCHEMA_VERSION: MAJOR.MINOR.PATCH, each a run of digits. Compared
@@ -136,8 +136,9 @@ class StateShapeError(StateError):
 
 
 # The structural contract of the keys the framework reads (issue #171). For the general, unrelated consumers,
-# an absent or null key is "not recorded" and is accepted. group_basis is deliberately consumer-scoped below:
-# only steps that actually consume that metadata opt into its stricter, required-field validation.
+# an absent or null key is "not recorded" and is accepted. group_basis and credit_aggregation are deliberately
+# consumer-scoped below: only steps that actually consume that metadata opt into its stricter, required-field
+# validation (credit_aggregation's own module, scripts/credit_aggregation.py, is its only writer).
 # Unknown keys are never inspected (a newer framework may add them, and they must survive a write).
 #   object:  a JSON object                          periods: an object keyed by period whose values are objects
 #   downside: an object whose optional "financials" and "ratios" are `periods`
@@ -148,7 +149,7 @@ STATE_SHAPES = {
     "inputs": "object", "stress_assumptions": "object", "downside_case": "downside",
     "collateral": "list", "collateral_analysis": "object", "covenants": "list", "security_package": "list", "guarantees": "list",
     "steps_completed": "list", "review_trail": "list",
-    "financials_source": "source", "entity_records": "entity_records",
+    "financials_source": "source", "entity_records": "entity_records", "credit_aggregation": "credit_aggregation",
 }
 # STATE_SHAPES kinds, plus "downside_lenient" (deal_export only): like "downside" but a non-object value is tolerated
 # and the inner financials/ratios need only be objects.
@@ -157,6 +158,7 @@ FINANCIALS_SOURCES = ("framework-computed", "analyst-supplied")
 FINITE_NUMERIC_STATE_KEYS = (
     "financials", "ratios", "multi_period_financials", "analyst_supplied_financials",
     "stress_assumptions", "downside_case", "covenants", "collateral", "collateral_analysis", "security_package",
+    "credit_aggregation",
 )
 
 
@@ -336,6 +338,149 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
     return None
 
 
+# The credit-aggregation record's period labels mirror _GROUP_BASIS_PERIOD_KEYS (issue #472, B2a).
+_CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
+
+
+def computed_figures_problem(computed: object) -> str | None:
+    """Why a period's ``computed`` object is not the contract shape, or None (issue #472, CG587-2).
+
+    The contract is flat: ``{"financials": {metric: number|null}, "ratios": {metric: number|null}}`` for that
+    one period, the same shape as ``financials[period]`` and ``ratios[period]`` (without ``raw``). A nested
+    per-period map, a boolean or a non-finite number is not current data.
+    """
+    if (not isinstance(computed, dict) or not isinstance(computed.get("financials"), dict)
+            or not isinstance(computed.get("ratios"), dict)):
+        return 'must be an object with "financials" and "ratios" objects'
+    unexpected = sorted(set(computed) - {"financials", "ratios", "output_digest"})
+    if unexpected:
+        return "has unexpected key(s): " + ", ".join(repr(key) for key in unexpected)
+    digest = computed.get("output_digest")
+    if digest is not None and not (isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)):
+        return "output_digest must be a lowercase 64-character SHA-256 hex digest"
+    for group in ("financials", "ratios"):
+        for name, figure in computed[group].items():
+            if figure is None:
+                continue
+            if isinstance(figure, bool) or not isinstance(figure, (int, float)):
+                return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
+                        "object, boolean or non-finite value")
+            try:
+                finite = float(figure) == float(figure) and abs(float(figure)) != float("inf")
+            except OverflowError:       # an integer too large for a float would later break a comparison
+                finite = False
+            if not finite:
+                return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
+                        "object, boolean or non-finite value")
+    return None
+
+
+def _credit_aggregation_problems(value: object) -> list[str]:
+    """Return validation problems for the optional credit-aggregation record.
+
+    Structural only: that participants resolve, dates agree and the fingerprint matches the live
+    inputs is checked by scripts/credit_aggregation.py, the only writer of this key. The optional
+    ``computed`` object is the accounting-gated B2b step's output and is only shape-checked here:
+    an object with ``financials`` and ``ratios`` objects.
+    """
+    if not isinstance(value, dict):
+        return [f'"credit_aggregation" must be an object keyed by period, found {_json_type(value)}']
+
+    problems: list[str] = []
+    for period, entry in value.items():
+        path = f"credit_aggregation[{period!r}]"
+        if period not in _CREDIT_AGGREGATION_PERIOD_KEYS:
+            problems.append(
+                f"{path} has unknown period label {period!r}; expected one of "
+                + ", ".join(_CREDIT_AGGREGATION_PERIOD_KEYS)
+            )
+            continue
+        if not isinstance(entry, dict):
+            problems.append(f"{path} must be an object")
+            continue
+        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"})
+        if unexpected:
+            problems.append(f"{path} has unexpected key(s): " + ", ".join(repr(key) for key in unexpected))
+
+        manifest = entry.get("manifest")
+        if "manifest" not in entry:
+            problems.append(f"{path}.manifest is required")
+        elif not isinstance(manifest, dict):
+            problems.append(f"{path}.manifest must be an object")
+            manifest = None
+        fingerprint = entry.get("input_fingerprint")
+        if "input_fingerprint" not in entry:
+            problems.append(f"{path}.input_fingerprint is required")
+        elif not (isinstance(fingerprint, str) and re.fullmatch(r"[0-9a-f]{64}", fingerprint)):
+            problems.append(
+                f"{path}.input_fingerprint must be a lowercase 64-character SHA-256 hex digest; "
+                f"found {fingerprint!r}"
+            )
+        if manifest is not None:
+            problems.extend(_credit_aggregation_manifest_problems(manifest, path))
+        computed = entry.get("computed")
+        if computed is not None:
+            computed_problem = computed_figures_problem(computed)
+            if computed_problem is not None:
+                problems.append(f"{path}.computed {computed_problem}")
+    return problems
+
+
+def _credit_aggregation_manifest_problems(manifest: dict[str, Any], path: str) -> list[str]:
+    """Structural problems for one period's recorded manifest."""
+    problems: list[str] = []
+    unexpected = sorted(set(manifest) - {"participants", "period_end", "period_end_evidence",
+                                         "scope_confirmations"})
+    if unexpected:
+        problems.append(f"{path}.manifest has unexpected key(s): " + ", ".join(repr(k) for k in unexpected))
+
+    participants = manifest.get("participants")
+    if not isinstance(participants, list) or not participants:
+        problems.append(
+            f'{path}.manifest.participants must be a non-empty list of distinct participant IDs '
+            f'including "@borrower"'
+        )
+        participants = []
+    seen: set[str] = set()
+    for index, participant in enumerate(participants):
+        if not isinstance(participant, str) or not participant.strip():
+            problems.append(f"{path}.manifest.participants[{index}] must be a non-empty string")
+            continue
+        if participant in seen:
+            problems.append(
+                f"{path}.manifest.participants contains duplicate participant {participant!r}"
+            )
+        seen.add(participant)
+    if seen and "@borrower" not in seen:
+        problems.append(
+            f'{path}.manifest.participants must include the reserved token "@borrower"'
+        )
+
+    period_end = manifest.get("period_end")
+    date_problem = _entity_record_date_problem(period_end, f"{path}.manifest.period_end")
+    if date_problem is not None:
+        problems.append(date_problem)
+
+    evidence = manifest.get("period_end_evidence")
+    if not isinstance(evidence, str) or not evidence.strip():
+        problems.append(f"{path}.manifest.period_end_evidence must be a non-empty string")
+    confirmations = manifest.get("scope_confirmations")
+    if not isinstance(confirmations, dict):
+        problems.append(f"{path}.manifest.scope_confirmations must be an object keyed by participant ID")
+    else:
+        for participant, snapshot in confirmations.items():
+            if participant not in seen:
+                problems.append(
+                    f"{path}.manifest.scope_confirmations names participant {participant!r} "
+                    "who is not among the recorded participants"
+                )
+            if not isinstance(snapshot, dict):
+                problems.append(
+                    f"{path}.manifest.scope_confirmations[{participant!r}] must be an object"
+                )
+    return problems
+
+
 
 
 _ENTITY_SPREAD_REVIEW_LABEL = "not yet reviewed by an analyst"
@@ -481,6 +626,11 @@ def _entity_records_problems(value: object, guarantees: object = None, registeri
     for entity_key, record in value.items():
         if not isinstance(entity_key, str) or not entity_key.strip():
             return ['"entity_records" keys must be non-empty stable entity IDs']
+        if entity_key == "@borrower":
+            # The reserved case-B token maps only to the legacy borrower stores; it can never be an entity
+            # record (issue #472), or the exact-ID counterparty join would be ambiguous.
+            return ['"entity_records" key "@borrower" is reserved for the borrower view and cannot be '
+                    'registered as an entity record']
         record_path = f"entity_records[{entity_key!r}]"
         if not isinstance(record, dict):
             return [f"{record_path} must be an object"]
@@ -921,6 +1071,8 @@ def validate_state(
             problems.extend(_group_basis_problems(value, state.get("financials_source")))
         elif kind == "entity_records":
             problems.extend(_entity_records_problems(value, state.get("guarantees")))
+        elif kind == "credit_aggregation":
+            problems.extend(_credit_aggregation_problems(value))
         elif kind == "periods":
             problems.extend(_problems_with_periods(key, value))
         elif kind == "object":

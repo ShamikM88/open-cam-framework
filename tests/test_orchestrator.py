@@ -3325,3 +3325,20 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 
     assert client.call_count == 0
     assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before
+
+
+def test_unknown_raw_line_item_names_are_refused_before_any_model_call(project_root):
+    """Issue #596, rule R-SPREAD-008: an unknown raw line-item name in the
+    incoming payload is refused in run_pipeline()'s input validation, before
+    any model call, and nothing is written to state.json."""
+    from numeric_validation import FinancialInputError
+
+    client = MockClient([])
+    with pytest.raises(FinancialInputError, match="cost_of_goods_sold"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     multi_period_financials={
+                         "FY-Current": {"revenue": 1000, "cost_of_goods_sold": 600,
+                                        "admin_expense": 200, "interest": 50}},
+                     client=client)
+    assert not client.calls   # no model call was made
+    assert read_state("Acme Corp", "Fleet Loan") is None

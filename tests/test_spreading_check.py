@@ -994,3 +994,74 @@ def test_sc_main_refuses_an_entity_keyed_financials_file_with_one_error_naming_t
     output = capsys.readouterr()
     assert output.out == "" and output.err == ""
     assert not (tmp_path / "deals").exists()
+
+
+# ---------------------------------------------------------------------------
+# Unknown raw line-item names are refused (issue #596, R-SPREAD-008)
+# ---------------------------------------------------------------------------
+
+UNKNOWN_NAMES_INPUT = {
+    "FY-Current": {"revenue": 1000, "cost_of_goods_sold": 600, "admin_expense": 200, "interest": 50},
+}
+
+
+def test_main_refuses_unknown_raw_line_item_names_with_one_error_line(tmp_path, monkeypatch, capsys):
+    """Rule: R-SPREAD-008. The failing input from issue #596: `cost_of_goods_sold`,
+    `admin_expense` and `interest` are not the framework's field names (`cost_of_sales`,
+    `admin_expenses`, `interest_paid`), so they must be refused with one `error:` line
+    naming the period and each unknown key, suggesting the nearest valid name, and
+    nothing must be written to state.json."""
+    monkeypatch.chdir(tmp_path)
+    financials_file = tmp_path / "financials.json"
+    financials_file.write_text(json.dumps(UNKNOWN_NAMES_INPUT), encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan",
+              "--financials", str(financials_file)])
+    assert excinfo.value.code != 0
+    captured = capsys.readouterr()
+    assert captured.out.count("error:") == 1
+    assert "cost_of_goods_sold" in captured.out
+    assert "FY-Current" in captured.out
+    assert "cost_of_sales" in captured.out   # the nearest valid name is suggested
+    assert "admin_expense" in captured.out and "admin_expenses" in captured.out
+    assert "interest" in captured.out and "interest_paid" in captured.out
+    # Nothing was written: no deal folder exists.
+    assert not list((tmp_path / "deals").iterdir()) if (tmp_path / "deals").exists() else True
+
+
+def test_compute_refuses_unknown_raw_line_item_names(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="cost_of_goods_sold"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials=UNKNOWN_NAMES_INPUT)
+    assert not (tmp_path / "deals").exists()
+
+
+def test_a_payload_of_valid_names_behaves_as_before(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={
+        "FY-Current": {"revenue": 1000, "cost_of_sales": 600,
+                       "admin_expenses": 200, "interest_paid": 50}})
+    assert state["financials"]["FY-Current"]["gross_profit"] == 400
+    assert state["financials"]["FY-Current"]["ebitda"] == 200
+
+
+def test_an_unknown_key_already_on_file_warns_and_still_computes(tmp_path, monkeypatch, capsys):
+    """An existing deal with an unknown key on file is not locked out: the call
+    still computes and prints one warning naming each unknown key."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": {"revenue": 1000, "cost_of_sales": 600}})
+    # Simulate a legacy deal that recorded an unknown key before this rule existed.
+    state_path = tmp_path / "deals" / "Acme Corp" / "Fleet Loan" / "state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["multi_period_financials"]["FY-Current"]["cost_of_goods_sold"] = 600
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan",
+                     multi_period_financials={"FY+1": {"revenue": 1100}})
+    captured = capsys.readouterr()
+    assert "cost_of_goods_sold" in captured.err
+    assert "FY-Current" in captured.err
+    # The computation still ran: FY+1 was added and FY-Current kept its figures.
+    assert set(result["financials"]) >= {"FY-Current", "FY+1"}
+    assert result["financials"]["FY-Current"]["gross_profit"] == 400

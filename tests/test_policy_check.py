@@ -10,6 +10,8 @@ to trust by inspection.
 """
 import json
 import os
+import subprocess
+import sys
 
 import pytest
 import policy_check
@@ -645,3 +647,46 @@ def test_compute_refuses_a_deal_type_that_conflicts_with_the_recorded_one(tmp_pa
     # The same type in a different case is not a conflict.
     result = compute("Acme Corp", "Fleet Loan", draft_path=str(draft_path), deal_type="CORPORATE_CREDIT")
     assert any("Supplied type guidance" in reason for reason in result["reasons"])
+
+
+def test_policy_check_cli_prints_json_for_non_text_id_entry(tmp_path, monkeypatch):
+    """A malformed acknowledgement returns a normal JSON rejection, not a traceback."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan")
+    payload = {
+        "cp_ids_included": [["KYC-AML"]],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": {
+            category: {"status": "covered"}
+            for category in ["Market", "Refinance", "Operational", "Concentration",
+                             "Key Man", "Financial", "Legal"]
+        },
+        "reported_figures": {},
+        "downside_breaches_acknowledged": [],
+        "sources": ["Test Source"],
+    }
+    draft_path = tmp_path / "malformed_draft.md"
+    draft_path.write_text(
+        "# Draft CAM\\n\\n\x60\x60\x60json\\n" + json.dumps(payload) + "\\n\x60\x60\x60",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            os.path.abspath(policy_check.__file__),
+            "--company", "Acme Corp",
+            "--proposal", "Fleet Loan",
+            "--draft", str(draft_path),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    output = json.loads(result.stdout)
+    assert output["compliant"] is False
+    assert any("Missing Required CP KYC-AML" in reason for reason in output["reasons"])
+    assert "Traceback" not in result.stderr

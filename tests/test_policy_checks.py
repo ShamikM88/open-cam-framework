@@ -1063,3 +1063,50 @@ def test_ground_truth_skips_malformed_downside_periods_and_non_mapping_guarantor
     )
 
     assert truth == {}
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_entry", "expected_reason"),
+    [
+        ("cp_ids_included", ["KYC-AML"], "Missing Required CP KYC-AML"),
+        ("cp_ids_included", {"id": "KYC-AML"}, "Missing Required CP KYC-AML"),
+        ("cp_ids_included", 17, "Missing Required CP KYC-AML"),
+        ("cs_ids_included", ["MI-REPORTING"], "Missing Required Condition Subsequent MI-REPORTING"),
+        ("cs_ids_included", {"id": "MI-REPORTING"}, "Missing Required Condition Subsequent MI-REPORTING"),
+        ("cs_ids_included", 17, "Missing Required Condition Subsequent MI-REPORTING"),
+        ("downside_breaches_acknowledged", ["DOWNSIDE-FY-2-DSCR"], "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR"),
+        ("downside_breaches_acknowledged", {"id": "DOWNSIDE-FY-2-DSCR"}, "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR"),
+        ("downside_breaches_acknowledged", 17, "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR"),
+    ],
+    ids=[
+        "cp-nested-list", "cp-object", "cp-number",
+        "cs-nested-list", "cs-object", "cs-number",
+        "downside-nested-list", "downside-object", "downside-number",
+    ],
+)
+def test_check_draft_compliance_drops_non_text_identifier_entries(field, bad_entry, expected_reason):
+    """Non-text values are not acknowledgements; a bad member must not crash the policy check."""
+    import json
+
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": ALL_CATEGORIES_COVERED,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": ["DOWNSIDE-FY-2-DSCR"],
+        "sources": ["Test Source"],
+    }
+    payload[field] = [bad_entry]
+    draft = "# Draft\\n\\n\x60\x60\x60json\\n" + json.dumps(payload) + "\\n\x60\x60\x60"
+
+    policy_state = _policy_state(downside_covenant_breaches=[{
+        "breach_id": "DOWNSIDE-FY-2-DSCR",
+        "metric": "dscr",
+        "year": "FY-2",
+        "downside_status": "FAIL",
+    }])
+    parsed = parse_underwriter_output(draft)
+
+    assert parsed[field] == []
+    reasons = check_draft_compliance(draft, policy_state, {})
+    assert any(expected_reason in reason for reason in reasons)

@@ -19,6 +19,7 @@ deliberately triggered code-enforced) REJECTED path don't need one.
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +43,7 @@ from orchestrator import (
     _default_client,
     _ground_truth_figures,
     _load_multi_period_financials,
+    _resolve_pd_lgd_inputs,
     _normalize_category,
     _resolve_maker_checker_config,
     _values_match,
@@ -3325,3 +3327,85 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 
     assert client.call_count == 0
     assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before
+
+# ---------------------------------------------------------------------------
+# #599: recorded PD/LGD inputs are authoritative unless an explicit flag
+# overrides that individual field.
+# ---------------------------------------------------------------------------
+
+def test_headless_pipeline_uses_recorded_pd_lgd_and_preserves_bureau_score(project_root):
+    write_state(
+        "Example Co", "Term Loan",
+        inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
+    )
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override=None, lgd_override=None,
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", pd_score, lgd_score, "corporate_credit", client=client)
+
+    state = read_state("Example Co", "Term Loan")
+    assert state["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41,
+    }
+    prompt_text = chr(10).join(
+        str(message.get("content", ""))
+        for call in client.calls
+        for message in call["messages"]
+    )
+    assert "PD: 4.50%" in prompt_text
+    assert "LGD: LGD 6 (45%)" in prompt_text
+
+
+def test_explicit_pd_override_changes_only_pd_and_keeps_recorded_lgd_and_bureau_score(project_root):
+    write_state(
+        "Example Co", "Term Loan",
+        inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
+    )
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override="1.25%", lgd_override=None,
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", pd_score, lgd_score, "corporate_credit", client=client)
+
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "1.25%", "lgd": "LGD 6 (45%)", "experian_score": 41,
+    }
+    prompt_text = chr(10).join(
+        str(message.get("content", ""))
+        for call in client.calls
+        for message in call["messages"]
+    )
+    assert "PD: 1.25%" in prompt_text
+    assert "LGD: LGD 6 (45%)" in prompt_text
+
+
+def test_missing_pd_lgd_refuses_before_model_calls_or_state_writes(project_root):
+    with pytest.raises(ValueError, match="no recorded or supplied PD/LGD inputs"):
+        _resolve_pd_lgd_inputs(
+            "Example Co", "Term Loan", pd_override=None, lgd_override=None,
+        )
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "orchestrator.py"
+    result = subprocess.run(
+        [
+            sys.executable, str(script),
+            "--company", "Example Co",
+            "--proposal", "Term Loan",
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.splitlines() == [
+        "error: no recorded or supplied PD/LGD inputs (missing: PD, LGD); nothing was written."
+    ]
+    deals_dir = Path.cwd() / "deals"
+    assert not deals_dir.exists() or not list(deals_dir.rglob("state.json"))
+

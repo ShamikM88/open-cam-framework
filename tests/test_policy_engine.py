@@ -2292,13 +2292,70 @@ def test_guarantor_downside_adds_only_unresolvable_rows_for_passing_forward_peri
         ("FY+1", 2.0), ("FY+2", 0.5),
     ]
 
-def test_policy_engine_ignores_a_security_charge_with_no_asset_id():
-    result = evaluate_deal_policy({
-        "security_package": [{"secures_asset_id": ""}],
-    })
+def test_unidentified_collateral_asset_generates_security_gap_and_cp():
+    """Rule: R-POL-022. A collateral entry without an ID is a security mapping gap."""
+    state = {
+        "collateral": [{
+            "asset_class": "Trucks",
+            "exposure": 500,
+            "collateral_value": 100,
+        }],
+        "security_package": [],
+    }
 
-    assert result["security_gaps"] == []
-    assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT
+    result = evaluate_deal_policy(state)
+
+    assert result["security_gaps"] == [
+        "Unidentified Collateral Asset: position 1 (asset class: Trucks) has no asset_id; "
+        "security mapping cannot be verified."
+    ]
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["SEC-MAPPING-UNIDENTIFIED-ASSET-1-TRUCKS"] == (
+        "Resolution of security mapping discrepancy for collateral asset at position 1 "
+        "(asset class: Trucks)."
+    )
+
+
+def test_security_charge_without_asset_id_is_reported_alongside_uncharged_asset():
+    """Rule: R-POL-022. An unidentified charge is a separate mapping gap; do not guess its asset."""
+    state = {
+        "collateral": [{"asset_id": "A1"}],
+        "security_package": [{"perfection_status": "Pending", "ranking": "Second"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert result["security_gaps"] == [
+        "Uncharged Asset: A1 has no corresponding security charge registered.",
+        "Unidentified Security Charge: position 1 (asset class: not recorded) has no "
+        "secures_asset_id; it cannot be mapped to a collateral asset.",
+    ]
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["SEC-MAPPING-A1"] == "Resolution of collateral security mapping discrepancy for asset A1."
+    assert cps["SEC-MAPPING-UNIDENTIFIED-CHARGE-1-NOT-RECORDED"] == (
+        "Resolution of security mapping discrepancy for security charge at position 1 "
+        "(asset class: not recorded)."
+    )
+
+
+def test_unidentified_security_mapping_cp_ids_are_stable_across_calls():
+    """Rule: R-POL-022. Position and asset class provide repeatable CP identifiers."""
+    state = {
+        "collateral": [
+            {"asset_class": "HGV"},
+            {"asset_id": "AST-001"},
+        ],
+        "security_package": [{"secures_asset_id": "", "asset_class": "Plant"}],
+    }
+
+    first = evaluate_deal_policy(state)
+    second = evaluate_deal_policy(state)
+
+    first_ids = [cp["cp_id"] for cp in first["required_conditions_precedent"]]
+    second_ids = [cp["cp_id"] for cp in second["required_conditions_precedent"]]
+    assert first_ids == second_ids
+    assert "SEC-MAPPING-UNIDENTIFIED-ASSET-1-HGV" in first_ids
+    assert "SEC-MAPPING-UNIDENTIFIED-CHARGE-1-PLANT" in first_ids
 
 
 @pytest.mark.parametrize("failure", ["not-spread", "wrong-role", "missing-link", "no-link"])

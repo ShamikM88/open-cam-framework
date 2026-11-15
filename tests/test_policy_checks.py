@@ -1097,7 +1097,7 @@ def test_check_draft_compliance_drops_non_text_identifier_entries(field, bad_ent
         "sources": ["Test Source"],
     }
     payload[field] = [bad_entry]
-    draft = "# Draft\\n\\n\x60\x60\x60json\\n" + json.dumps(payload) + "\\n\x60\x60\x60"
+    draft = "# Draft" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3
 
     policy_state = _policy_state(downside_covenant_breaches=[{
         "breach_id": "DOWNSIDE-FY-2-DSCR",

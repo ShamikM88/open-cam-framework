@@ -667,7 +667,7 @@ def test_policy_check_cli_prints_json_for_non_text_id_entry(tmp_path, monkeypatc
     }
     draft_path = tmp_path / "malformed_draft.md"
     draft_path.write_text(
-        "# Draft CAM\\n\\n\x60\x60\x60json\\n" + json.dumps(payload) + "\\n\x60\x60\x60",
+        "# Draft CAM" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3,
         encoding="utf-8",
     )
 

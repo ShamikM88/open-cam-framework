@@ -147,7 +147,7 @@ Nothing in this framework approves credit. These remain human decisions:
 | Decision | Why it cannot be automated here |
 | :--- | :--- |
 | The credit decision, and whether an `APPROVED` memo is approved | `APPROVED` means the Risk Reviewer found no blocking issue and the code found nothing missing; it is not authority to lend |
-| Risk inputs: PD, LGD, bureau score; the orchestrator's `--pd`/`--lgd` example defaults | They are judgements; the defaults are examples that flow into the memo if the flags are omitted |
+| Risk inputs: PD, LGD and bureau score; the orchestrator uses recorded values or explicit `--pd`/`--lgd` overrides | They are human judgements; no example default is invented, and the headless run refuses before model calls or writes if PD or LGD is unavailable |
 | Which sources are the documents of record, and whether a claim really follows from them | The code checks that sources were declared and saved, not that they say what the memo says |
 | Confirming a spreading convention, a policy interpretation or a deal learning for reuse | Persisted conventions are local memory that applies to later deals; the framework asks and never infers consent ([D8](decisions.md#d8-persisted-conventions-are-deterministic-local-memory-confirmed-by-a-person)) |
 | The content of the credit policy and style guide, and any exception to it | Calibration summarises documents; a person owns what it says |

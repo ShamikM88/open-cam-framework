@@ -45,9 +45,11 @@ OpenCAM does not load a `.env` file or fetch application configuration from the 
   type is new and the first draft's structure is saved as a local template.
 - **Dated folder:** the most recent `<Proposal>_<YYYY-MM-DD>` folder for that company and proposal; a new deal, or
   `orchestrator.py --new-review`, gets today's date.
-- **Orchestrator defaults you should override:** `--pd` defaults to `0.20%`, `--lgd` to `LGD 3 (15%)` and `--type` to
-  `corporate_credit`. The PD and LGD defaults are example values; if you omit the flags they flow into the CAM as if
-  you had supplied them. Always pass your own.
+- **Orchestrator risk inputs:** `--pd` and `--lgd` have no example defaults. An explicit flag overrides only
+  its own field; an omitted flag uses the corresponding value in the selected deal's recorded `inputs` object.
+  Both values must be available from an explicit flag or saved state, otherwise the command refuses before a model
+  call or write. The values remain human-owned judgements and are not format-validated. `--type` still defaults to
+  `corporate_credit`.
 
 ## Overview
 

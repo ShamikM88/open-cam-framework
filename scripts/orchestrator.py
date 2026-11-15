@@ -131,7 +131,7 @@ MAX_REVIEW_ITERATIONS = 3
 STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                    "security_package", "guarantees", "review_trail",   # review_trail: append_review_trail() reads it
-                   "credit_aggregation", "analyst_supplied_financials")
+                   "credit_aggregation", "analyst_supplied_financials", "inputs")
 
 
 def _completion_kwargs(model):
@@ -557,6 +557,41 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     return "\n".join(parts)
 
 
+def _resolve_pd_lgd_inputs(
+    company: str,
+    proposal: str,
+    pd_override: Any | None = None,
+    lgd_override: Any | None = None,
+    new_review: bool = False,
+) -> tuple[Any, Any]:
+    """Resolve explicit risk-input overrides or the selected deal's recorded values.
+
+    An omitted flag falls back only to its matching key in the selected deal's
+    inputs object. No synthetic defaults are invented. Missing inputs stop the
+    headless command before it can create a review folder, write state or call
+    a model. Values pass through unchanged; format validation remains outside
+    this function because PD and LGD are human-owned judgements.
+    """
+    date_str = resolve_date_str(company, proposal, new_review=new_review)
+    existing_state = read_state(company, proposal, date_str=date_str, keys=("inputs",)) or {}
+    recorded_inputs = existing_state.get("inputs")
+    if not isinstance(recorded_inputs, Mapping):
+        recorded_inputs = {}
+
+    pd_score = pd_override if pd_override is not None else recorded_inputs.get("pd")
+    lgd_score = lgd_override if lgd_override is not None else recorded_inputs.get("lgd")
+    missing = [
+        label for label, value in (("PD", pd_score), ("LGD", lgd_score))
+        if value is None
+    ]
+    if missing:
+        raise ValueError(
+            "no recorded or supplied PD/LGD inputs "
+            f"(missing: {', '.join(missing)}); nothing was written."
+        )
+    return pd_score, lgd_score
+
+
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
@@ -858,8 +893,11 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
+    inputs_to_persist = existing_state.get("inputs")
+    inputs_to_persist = dict(inputs_to_persist) if isinstance(inputs_to_persist, Mapping) else {}
+    inputs_to_persist.update({"pd": pd_score, "lgd": lgd_score})
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
-                inputs={"pd": pd_score, "lgd": lgd_score},
+                inputs=inputs_to_persist,
                 financials=financials, ratios=ratios, collateral=collateral, **collateral_analysis_write,
                 financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
@@ -964,8 +1002,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
-    parser.add_argument("--pd", default="0.20%")
-    parser.add_argument("--lgd", default="LGD 3 (15%)")
+    parser.add_argument("--pd", default=None, help="Override recorded PD; otherwise use saved inputs.pd for this deal")
+    parser.add_argument("--lgd", default=None, help="Override recorded LGD; otherwise use saved inputs.lgd for this deal")
     parser.add_argument("--type", default="corporate_credit")
     parser.add_argument("--financials",
                          help="Path to a JSON file of multi-period raw financials, dict-keyed by "
@@ -1009,7 +1047,14 @@ if __name__ == "__main__":
         sys.exit(f"error: {exc}")
 
     try:
-        run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,
+        pd_score, lgd_score = _resolve_pd_lgd_inputs(
+            args.company, args.proposal, args.pd, args.lgd, new_review=args.new_review,
+        )
+    except (OSError, StateError, ValueError) as exc:
+        sys.exit(f"error: {exc}")
+
+    try:
+        run_pipeline(args.company, args.proposal, pd_score, lgd_score, args.type,
                      multi_period_financials=multi_period_financials,
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,

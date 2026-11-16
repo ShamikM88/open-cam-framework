@@ -14,8 +14,13 @@ import pytest
 
 import spreading_check
 from spreading_check import compute, main, plan_fields
-from numeric_validation import validate_period_keys, validate_period_objects
-from spreading_builder import PERIOD_KEYS
+from numeric_validation import (
+    refuse_unknown_raw_line_items,
+    validate_period_keys,
+    validate_period_objects,
+    warn_unknown_raw_line_items,
+)
+from spreading_builder import FIELD_LABELS, PERIOD_KEYS
 from state_manager import read_state, write_state
 
 
@@ -1074,3 +1079,37 @@ def test_an_unknown_key_already_on_file_warns_and_still_computes(tmp_path, monke
     # The computation still ran: FY+1 was added and FY-Current kept its figures.
     assert set(result["financials"]) >= {"FY-Current", "FY+1"}
     assert result["financials"]["FY-Current"]["gross_profit"] == 400
+
+
+def test_refuse_unknown_raw_line_items_skips_non_dict_period_values():
+    """Rule: R-SPREAD-008
+
+    A period whose value is not a dict (e.g. a string left by a hand-edited
+    inputs file) is not a raw line-item name problem: the guard skips it and
+    the shape error raised downstream names the real problem. The call itself
+    must not raise here, so the value is returned unchanged.
+    """
+    value = {"FY-Current": "not-a-dict"}
+    result = refuse_unknown_raw_line_items(value, list(FIELD_LABELS))
+    assert result is value
+
+
+def test_warn_unknown_raw_line_items_returns_non_dict_values_unchanged():
+    """Rule: R-SPREAD-008
+
+    Warn-mode is only meaningful for dicts of periods; a non-dict value is
+    returned unchanged without printing anything.
+    """
+    for value in (None, "n/a", [1, 2]):
+        assert warn_unknown_raw_line_items(value, list(FIELD_LABELS)) is value
+
+
+def test_warn_unknown_raw_line_items_skips_non_dict_period_values():
+    """Rule: R-SPREAD-008
+
+    A legacy period whose stored value is not a dict is skipped without a
+    warning, matching the refuse-side guard.
+    """
+    assert warn_unknown_raw_line_items({"FY-Current": "not-a-dict"}, list(FIELD_LABELS)) == {
+        "FY-Current": "not-a-dict"
+    }

@@ -150,5 +150,11 @@ EBITDA is before exceptional items and includes other income; DSCR is EBITDA-bas
 | :--- | :--- |
 | [Risk] | [Mitigant — must be a concrete, enforceable policy condition, not a vague reassurance] |
 
+## Sources
+
+- **[Key]:** [title](url)
+
+[List every document this CAM relies on, one entry per line, with its URL wherever one exists. Key is the short form used in the text, for example FY25 accounts. A source with no URL is listed by title and date without a link; never invent one.]
+
 ---
 <!-- Guidance: Every fact, figure and rating in this document must be traceable to a verified, credible source (audited financial statements, a recognized credit bureau or rating agency, company filings, or other primary documentation supplied by the user). Where no external score or system integration is available, the PD grade is a user-supplied input and must be labelled as such. -->

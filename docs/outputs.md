@@ -73,7 +73,8 @@ source with no URL is listed by title and date without a link. The heading is ex
 because the exporter's section finder matches only the titles `Sources` and `References`.
 
 At export, `deal_export.py` checks the draft with the same finder `research_export.py` uses (an ATX heading titled
-`Sources` or `References`, any level, not inside a fenced code block, whose section contains a list item or an
+`Sources` or `References`, any level, not inside a fenced code block or an HTML comment (the Word export strips
+comments, so commented-out text never counts), whose section contains a list item or an
 `http://`/`https://` URL; the section ends at the next heading of the same or a higher level). A CAM draft with no
 populated section still exports, with one advisory `[deal_export] Sources section warning: ...` line on standard
 error: the exit status and the output files are unchanged. A populated section produces no warning.

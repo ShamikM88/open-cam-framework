@@ -346,6 +346,26 @@ def test_deal_export_prints_no_citation_warning_for_a_linked_draft(cli):
     assert result.stderr == ""
 
 
+def test_deal_export_warns_about_a_missing_sources_section_without_changing_the_export(cli):
+    # Issue #583: advisory only. The warning goes to stderr, the exit status stays 0 and the
+    # output files are exactly the ones a warning-free export writes.
+    draft = cli.workdir / "draft.md"
+    draft.write_text("# Credit Assessment Memorandum\n\n- **Borrower:** [Company Name]\n\nBody text.\n",
+                     encoding="utf-8")
+    draft_before = draft.read_text(encoding="utf-8")
+    result = cli("deal_export", "--company", "Acme", "--proposal", "Loan", "--type", "corporate_credit",
+                 "--draft", draft)
+    assert result.returncode == 0, result.stderr
+    assert "Done! Files generated in" in result.stdout
+    assert "[deal_export] Sources section warning:" in result.stderr
+    assert "the CAM draft has no populated Sources or References section" in result.stderr
+    folder = next(cli.workdir.glob("deals/Acme/Loan_*"))
+    assert sorted(path.name for path in folder.iterdir()) == ["Acme_Loan_CAM.docx", "Acme_Loan_Spreading.xlsx"]
+    assert (folder / "Acme_Loan_CAM.docx").stat().st_size > 0
+    assert (folder / "Acme_Loan_Spreading.xlsx").stat().st_size > 0
+    assert draft.read_text(encoding="utf-8") == draft_before
+
+
 def test_deal_export_rejects_a_malformed_date_and_a_missing_draft(cli):
     draft = cli.workdir / "draft.md"
     draft.write_text("# T\n", encoding="utf-8")

@@ -225,8 +225,8 @@ worked examples are in [Workflows](workflows.md).
   `/project` is optional.
 - **Steps:** resolve the template (local override, else shipped default, else a new type); hard-check
   `state_manager.py --check-steps ... --required spread` and stop if it is not `ok`; get `policy_state` from
-  `policy_check.py`; draft, ending with the structured JSON block; save and `/review`; revise and overwrite until
-  `APPROVED`; export with `deal_export.py`; report the output folder, then move the approved Markdown to the same dated folder as
+  `policy_check.py`; draft, ending with the template's final Sources section and the structured JSON block; save and `/review`; revise and overwrite until
+  `APPROVED`; export with `deal_export.py` (a draft with no populated Sources section still exports, with an advisory warning on standard error, issue #583); report the output folder, then move the approved Markdown to the same dated folder as
   `draft_approved.md` and record its repository-relative path in `state.json` as `approved_draft_path`; optionally offer
   end-of-deal learnings.
 - **Produces:** `<Company>_<Proposal>_CAM.docx` and `<Company>_<Proposal>_Spreading.xlsx` in the deal's dated folder; a

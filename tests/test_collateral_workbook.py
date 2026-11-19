@@ -337,7 +337,7 @@ def test_a_text_value_in_a_collateral_figure_column_is_text_not_a_formula(tmp_pa
         }],
     )
     ws = openpyxl.load_workbook(out_path)["Collateral & Exposure"]
-    for column, expected in zip(range(2, 8), ("=1+1", "=2+2", "=3+3", "=4+4", "=5+5", "=6+6")):
+    for column, expected in zip(range(2, 8), ("=1+1", "=2+2", "=3+3", "=4+4", "=5+5", "=6+6"), strict=True):
         cell = ws.cell(row=2, column=column)
         assert cell.value == expected and cell.data_type == "s", column
     assert ws.cell(row=2, column=8).data_type == "f"   # the builder's own ratio formula stays a formula

@@ -10,6 +10,7 @@ import pytest
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 NON_FINITE_TOKENS = ("NaN", "Infinity", "-Infinity")
+RISK_INPUT_FLAGS = ("--pd", "0.20%", "--lgd", "LGD 3 (15%)")
 
 
 def _run_orchestrator(tmp_path, *args):
@@ -36,7 +37,7 @@ def test_headless_cli_rejects_non_finite_financials_before_model_or_state(tmp_pa
     financials = tmp_path / "financials.json"
     financials.write_text('{"FY-Current":{"revenue":' + token + ',"cost_of_sales":600}}', encoding="utf-8")
 
-    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", *RISK_INPUT_FLAGS,
                                "--financials", financials)
 
     _assert_controlled_error(result, "financial inputs", "FY-Current", "revenue")
@@ -50,7 +51,7 @@ def test_headless_cli_rejects_non_finite_stress_before_model_or_state(tmp_path, 
     stress = tmp_path / "stress.json"
     stress.write_text('{"revenue_haircut_pct":' + token + '}', encoding="utf-8")
 
-    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", *RISK_INPUT_FLAGS,
                                "--financials", financials, "--stress-assumptions", stress)
 
     _assert_controlled_error(result, "stress assumptions", "revenue_haircut_pct")
@@ -68,7 +69,7 @@ def test_headless_cli_rejects_non_finite_collateral_before_model_or_state(tmp_pa
     collateral = tmp_path / "collateral.json"
     collateral.write_text('[{"asset_class":"HGV","exposure":' + token + ',"collateral_value":80}]', encoding="utf-8")
 
-    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", *RISK_INPUT_FLAGS,
                                "--collateral", collateral)
 
     _assert_controlled_error(result, "collateral", "exposure")
@@ -85,7 +86,7 @@ def test_headless_cli_rejects_negative_collateral_before_model_or_state(tmp_path
     collateral = tmp_path / "collateral.json"
     collateral.write_text(json.dumps([asset]), encoding="utf-8")
 
-    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", *RISK_INPUT_FLAGS,
                                "--collateral", collateral)
 
     _assert_controlled_error(result, "collateral", field, "-1")
@@ -98,7 +99,7 @@ def test_headless_cli_rejects_a_non_numeric_collateral_figure_before_model_or_st
     collateral = tmp_path / "collateral.json"
     collateral.write_text(json.dumps([asset]), encoding="utf-8")
 
-    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", *RISK_INPUT_FLAGS,
                                "--collateral", collateral)
 
     _assert_controlled_error(result, "collateral", "cap_value", "-500")
@@ -111,7 +112,7 @@ def test_headless_cli_rejects_an_object_payload_without_assets_before_model_or_s
     collateral = tmp_path / "collateral.json"
     collateral.write_text(json.dumps({"asset_class": "HGV", "exposure": -100}), encoding="utf-8")
 
-    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility",
+    result = _run_orchestrator(tmp_path, "--company", "Synthetic Co", "--proposal", "Synthetic Facility", *RISK_INPUT_FLAGS,
                                "--collateral", collateral)
 
     _assert_controlled_error(result, "collateral", "assets is required")

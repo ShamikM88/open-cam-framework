@@ -884,7 +884,8 @@ def test_orchestrator_without_credentials_is_one_clear_error_before_anything_hap
     (work / "config").mkdir()
     shutil.copy(REPO_ROOT / "config" / "settings.json", work / "config" / "settings.json")
     result = subprocess.run(
-        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "Acme", "--proposal", "Loan"],
+        [sys.executable, str(SCRIPTS_DIR / "orchestrator.py"), "--company", "Acme", "--proposal", "Loan",
+         "--pd", "0.20%", "--lgd", "LGD 3 (15%)"],
         cwd=work, env=env, capture_output=True, text=True, encoding="utf-8", timeout=120, stdin=subprocess.DEVNULL)
     assert result.returncode == 1
     assert "Traceback" not in result.stderr and "TypeError" not in result.stderr
@@ -905,7 +906,8 @@ def test_orchestrator_new_review_refusal_is_one_error_before_model_or_write(cli)
     }), encoding="utf-8")
     before = future_state.read_bytes()
 
-    result = cli("orchestrator", "--company", "Acme", "--proposal", "Loan", "--new-review")
+    result = cli("orchestrator", "--company", "Acme", "--proposal", "Loan", "--new-review",
+                 "--pd", "0.20%", "--lgd", "LGD 3 (15%)")
 
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
@@ -1095,7 +1097,7 @@ def test_the_orchestrator_reports_a_malformed_state_cleanly_before_any_model_cal
     shutil.copytree(REPO_ROOT / "templates" / "cam", work / "templates" / "cam")
     (work / "config").mkdir()
     shutil.copy(REPO_ROOT / "config" / "settings.json", work / "config" / "settings.json")
-    _write_state(work, {"steps_completed": "triage"})
+    _write_state(work, {"steps_completed": "triage", "inputs": {"pd": "0.20%", "lgd": "LGD 3 (15%)"}})
     # The credential check comes first (issue #187), so give the child a placeholder key and an address nothing listens
     # on: the run must stop on the state before it makes any request, and if it ever did, the request could go nowhere.
     env = child_env()
@@ -1418,6 +1420,7 @@ def test_orchestrator_refuses_forward_only_run_on_analyst_supplied_deal_before_c
     company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
     write_state(
         company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"},
         financials_source="analyst-supplied",
         financials_source_note="Synthetic analyst convention.",
         analyst_supplied_financials={"FY-Current": {"revenue": 5000, "cost_of_sales": 3000}},
@@ -1526,6 +1529,7 @@ def test_orchestrator_rejects_non_numeric_raw_line_items_before_model_or_write(c
     company, proposal, date_str = "Synthetic Co", "Synthetic Facility", "2026-01-05"
     write_state(
         company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"},
         financials_source="framework-computed",
         financials={"FY-Current": {"raw": {"revenue": 1000}}},
         multi_period_financials={"FY-Current": {"revenue": 1000}},
@@ -1628,6 +1632,7 @@ def _seed_stress_deal(cli):
     }
     write_state(
         company, proposal, date_str=date_str, base_dir=str(cli.workdir),
+        inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"},
         financials_source="framework-computed",
         financials={"FY+1": {"raw": raw}},
         multi_period_financials={"FY+1": raw},

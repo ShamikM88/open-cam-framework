@@ -2293,7 +2293,10 @@ def test_guarantor_downside_adds_only_unresolvable_rows_for_passing_forward_peri
     ]
 
 def test_unidentified_collateral_asset_generates_security_gap_and_cp():
-    """Rule: R-POL-022. A collateral entry without an ID is a security mapping gap."""
+    """A collateral entry without an ID is a security mapping gap.
+
+    Rule: R-POL-022
+    """
     state = {
         "collateral": [{
             "asset_class": "Trucks",
@@ -2317,7 +2320,10 @@ def test_unidentified_collateral_asset_generates_security_gap_and_cp():
 
 
 def test_security_charge_without_asset_id_is_reported_alongside_uncharged_asset():
-    """Rule: R-POL-022. An unidentified charge is a separate mapping gap; do not guess its asset."""
+    """An unidentified charge is a separate mapping gap; do not guess its asset.
+
+    Rule: R-POL-022
+    """
     state = {
         "collateral": [{"asset_id": "A1"}],
         "security_package": [{"perfection_status": "Pending", "ranking": "Second"}],
@@ -2339,7 +2345,10 @@ def test_security_charge_without_asset_id_is_reported_alongside_uncharged_asset(
 
 
 def test_unidentified_security_mapping_cp_ids_are_stable_across_calls():
-    """Rule: R-POL-022. Position and asset class provide repeatable CP identifiers."""
+    """Position and asset class provide repeatable CP identifiers.
+
+    Rule: R-POL-022
+    """
     state = {
         "collateral": [
             {"asset_class": "HGV"},

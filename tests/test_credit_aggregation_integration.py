@@ -1,10 +1,8 @@
 """Integration of the credit aggregation through the real freshness check (issue #472, CG587-1 to CG587-4).
 
-Nothing here stubs `aggregation_period_status`: a deal is recorded through the real B2a path, a flat `computed`
-object is added by hand (B2b does not exist yet), and the policy check, summary, workbook rows and the public
-read paths are exercised on it.
+Nothing here stubs `aggregation_period_status`: a deal is calculated through B2b, and the policy check, summary,
+workbook rows and public read paths are exercised on it.
 """
-import copy
 import json
 
 import pytest
@@ -16,11 +14,10 @@ import export_readback
 import policy_check
 from state_manager import StateError
 
-from test_credit_aggregation import (  # noqa: E402 (sibling test module providing the B2a fixtures)
-    COMPANY, DATE, PROPOSAL, _read_full, _record, _seed_two_entity_deal, _state_file,
-)
+from test_credit_aggregation import COMPANY, DATE, PROPOSAL, _read_full, _state_file
+from test_credit_aggregation_calc import run
 
-COMPUTED = {"financials": {"ebitda": 500.0, "total_debt": 900.0}, "ratios": {"gross_leverage": 1.8}}
+LEVERAGE = 390 / 800
 COVENANT = {"metric": "gross_leverage", "type": "maximum", "threshold": 3.0, "basis": "consolidated"}
 
 
@@ -31,12 +28,8 @@ def _write(tmp_path, state):
 @pytest.fixture
 def deal(tmp_path):
     """A recorded, fresh, calculated aggregation with a consolidated covenant, as state.json holds it."""
-    _seed_two_entity_deal(tmp_path)
-    _record(tmp_path)
+    run(tmp_path)
     state = _read_full(tmp_path)
-    entry = state["credit_aggregation"]["FY-Current"]
-    entry["computed"] = {**copy.deepcopy(COMPUTED), "output_digest": credit_aggregation.computed_output_digest(
-        entry["input_fingerprint"], COMPUTED["financials"], COMPUTED["ratios"])}
     state["covenants"] = [dict(COVENANT)]
     state["ratios"] = {"FY-Current": {"gross_leverage": 5.0}}
     _write(tmp_path, state)
@@ -45,7 +38,7 @@ def deal(tmp_path):
 
 def test_the_policy_check_entry_point_routes_a_consolidated_covenant_to_a_fresh_aggregation(deal):
     result = policy_check.compute_from_state(_read_full(deal))["policy_state"]["covenant_results"][0]
-    assert result["status"] == "PASS" and result["actual"] == 1.8
+    assert result["status"] == "PASS" and result["actual"] == LEVERAGE
     assert result["view_source"] == "credit_aggregation" and result["input_fingerprint"]
 
 
@@ -60,7 +53,7 @@ def test_a_changed_input_makes_the_policy_check_covenant_unresolvable_not_borrow
 def test_the_summary_and_workbook_rows_show_figures_only_while_the_period_is_current(deal):
     state = _read_full(deal)
     rows = credit_aggregation.aggregation_sheet_rows(state)
-    assert any(row[:1] == ["gross_leverage"] and row[1:] == [1.8] for row in rows)
+    assert any(row[:1] == ["gross_leverage"] and row[1:] == [LEVERAGE] for row in rows)
     state["financials"]["FY-Current"]["raw"]["cash"] += 1
     stale_rows = credit_aggregation.aggregation_sheet_rows(state)
     assert not any(row[:1] == ["gross_leverage"] for row in stale_rows)
@@ -102,5 +95,5 @@ def test_a_malformed_credit_aggregation_is_refused_by_the_summary_export_and_rea
 def test_the_committee_summary_collection_path_renders_the_real_status(deal):
     _, data = committee_summary.collect(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(deal))
     text = committee_summary.render_markdown(data)
-    assert "## Credit aggregation (not a consolidation)" in text and "1.8" in text
+    assert "## Credit aggregation (not a consolidation)" in text and str(LEVERAGE) in text
     assert data["policy"]["covenant_results"][0]["view_source"] == "credit_aggregation"

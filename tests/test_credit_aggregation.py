@@ -330,7 +330,7 @@ def test_a_recorded_period_without_computed_is_not_calculated(tmp_path):
     assert status["input_fingerprint"] == _recorded_period(tmp_path)["input_fingerprint"]
 
 
-def test_a_recorded_period_with_computed_is_current(tmp_path):
+def test_a_legacy_computed_stub_with_no_b2b_input_is_not_current(tmp_path):
     _seed_two_entity_deal(tmp_path)
     _record(tmp_path)
     state = _read_full(tmp_path)
@@ -339,8 +339,8 @@ def test_a_recorded_period_with_computed_is_current(tmp_path):
                          "output_digest": credit_aggregation.computed_output_digest(
                              entry["input_fingerprint"], {"ebitda": 99}, {"dscr": 1.1})}
     status = aggregation_period_status(state, "FY-Current")
-    assert status["status"] == "current"
-    assert status["reason"] is None
+    assert status["status"] == "invalid"
+    assert "no confirmed calculation input" in status["reason"]
 
 
 def test_a_period_whose_inputs_changed_is_stale(tmp_path):

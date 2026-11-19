@@ -340,6 +340,13 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
 
 # The credit-aggregation record's period labels mirror _GROUP_BASIS_PERIOD_KEYS (issue #472, B2a).
 _CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
+_AGGREGATION_COMPUTED_EXTRAS = {
+    "adjusted_raw": dict, "eliminations_applied": list, "refused_journals": list, "participant_table": list,
+    "withheld": dict, "limitations": list, "label": str, "metric_label": (str, type(None)),
+    "debt_before": (int, float), "debt_eliminated": (int, float), "debt_eliminated_pct": (int, float, type(None)),
+    "debt_lines": dict, "debt_memo": dict, "cash": dict, "group_net_debt": (int, float, type(None)),
+    "attestations": dict, "left_out": dict, "skipped_chain_entities": dict, "participant_guarantees": list,
+}
 
 
 def computed_figures_problem(computed: object) -> str | None:
@@ -352,7 +359,8 @@ def computed_figures_problem(computed: object) -> str | None:
     if (not isinstance(computed, dict) or not isinstance(computed.get("financials"), dict)
             or not isinstance(computed.get("ratios"), dict)):
         return 'must be an object with "financials" and "ratios" objects'
-    unexpected = sorted(set(computed) - {"financials", "ratios", "output_digest"})
+    extras = set(computed) - {"financials", "ratios", "output_digest"}
+    unexpected = sorted(extras - _AGGREGATION_COMPUTED_EXTRAS.keys())
     if unexpected:
         return "has unexpected key(s): " + ", ".join(repr(key) for key in unexpected)
     digest = computed.get("output_digest")
@@ -372,6 +380,10 @@ def computed_figures_problem(computed: object) -> str | None:
             if not finite:
                 return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
                         "object, boolean or non-finite value")
+    if extras:
+        for key, shape in _AGGREGATION_COMPUTED_EXTRAS.items():
+            if key not in computed or not isinstance(computed[key], shape):
+                return f"{key} is missing or has the wrong shape for a calculated aggregation"
     return None
 
 
@@ -398,7 +410,8 @@ def _credit_aggregation_problems(value: object) -> list[str]:
         if not isinstance(entry, dict):
             problems.append(f"{path} must be an object")
             continue
-        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"})
+        calculation_keys = {"input", "input_digest", "journals"}
+        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"} - calculation_keys)
         if unexpected:
             problems.append(f"{path} has unexpected key(s): " + ", ".join(repr(key) for key in unexpected))
 
@@ -423,6 +436,13 @@ def _credit_aggregation_problems(value: object) -> list[str]:
             computed_problem = computed_figures_problem(computed)
             if computed_problem is not None:
                 problems.append(f"{path}.computed {computed_problem}")
+        if calculation_keys & entry.keys():
+            digest = entry.get("input_digest")
+            if (not isinstance(entry.get("input"), dict) or not isinstance(entry.get("journals"), list)
+                    or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                problems.append(f"{path} requires a confirmed input object, journals list and SHA-256 input_digest")
+            if not isinstance(computed, dict) or not _AGGREGATION_COMPUTED_EXTRAS.keys() <= computed.keys():
+                problems.append(f"{path} requires a calculated computed object when calculation inputs are stored")
     return problems
 
 

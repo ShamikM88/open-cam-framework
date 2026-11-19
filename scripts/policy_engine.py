@@ -331,6 +331,12 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
     return candidate
 
 
+def _usable_security_id(value: Any) -> bool:
+    """True only for a non-blank text ID. A blank, whitespace-only, numeric, boolean or structured value is not an
+    identifier: it cannot join an asset to a charge, so the entry is reported as unidentified (issue #604)."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _evaluate_security(
     collateral: Iterable[dict[str, Any]], security_package: Iterable[dict[str, Any]],
 ) -> tuple[list[str], list[ConditionPrecedent]]:
@@ -350,13 +356,13 @@ def _evaluate_security(
     collateral_entries = list(collateral)
     security_entries = list(security_package)
     collateral_by_id = {
-        asset.get("asset_id"): asset for asset in collateral_entries if asset.get("asset_id")
+        asset.get("asset_id"): asset for asset in collateral_entries if _usable_security_id(asset.get("asset_id"))
     }
     charges_by_asset_id: dict[Any, list[dict[str, Any]]] = {}
     unidentified_charges: list[tuple[int, dict[str, Any]]] = []
     for position, charge in enumerate(security_entries, start=1):
         asset_id = charge.get("secures_asset_id")
-        if asset_id:
+        if _usable_security_id(asset_id):
             charges_by_asset_id.setdefault(asset_id, []).append(charge)
         else:
             unidentified_charges.append((position, charge))
@@ -444,7 +450,7 @@ def _evaluate_security(
         return "not recorded"
 
     for position, asset in enumerate(collateral_entries, start=1):
-        if asset.get("asset_id"):
+        if _usable_security_id(asset.get("asset_id")):
             continue
         asset_class = asset_class_label(asset)
         gaps.append(
@@ -592,6 +598,9 @@ def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> l
         if charge.get("perfection_status") != "Perfected":
             continue
         asset_id = charge.get("secures_asset_id")
+        if not _usable_security_id(asset_id):
+            # An unidentified charge is already reported as a mapping gap (issue #604); there is no asset to name here.
+            continue
         cs_list.append({
             "cs_id": unique_cs_id(_slugify(asset_id)),
             "text": (

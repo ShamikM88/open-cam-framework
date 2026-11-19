@@ -2391,3 +2391,48 @@ def test_forward_periods_of_an_ineligible_guarantor_are_reported_unresolvable_no
     assert [(row["year"], row["status"], row["actual"], row["basis_entity_id"])
             for row in result["forward_covenant_results"]] == [("FY+1", "UNRESOLVABLE", None, "synthetic-guarantor")]
     assert result["forward_covenant_results"][0]["reason"]
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", 1, True, ["A1"], {"id": "A1"}])
+def test_a_blank_or_non_text_asset_id_is_unidentified_and_never_joins_a_charge(bad_id):
+    """A blank, whitespace-only, numeric, boolean or structured value is not an identifier.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": bad_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": bad_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert result["security_gaps"] == [
+        "Unidentified Collateral Asset: position 1 (asset class: Trucks) has no asset_id; "
+        "security mapping cannot be verified.",
+        "Unidentified Security Charge: position 1 (asset class: not recorded) has no "
+        "secures_asset_id; it cannot be mapped to a collateral asset.",
+    ]
+
+
+def test_a_perfected_charge_with_no_usable_asset_id_gets_no_reconfirmation_for_an_invented_asset():
+    """The mapping CP names the unidentified charge; no CS-SEC-REPERFECT entry cites 'asset None'.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "A1"}],
+        "security_package": [
+            {"secures_asset_id": "A1", "perfection_status": "Perfected", "ranking": "First"},
+            {"perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": "  ", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    cs_ids = [cs["cs_id"] for cs in result["required_conditions_subsequent"]]
+    assert [cs_id for cs_id in cs_ids if cs_id.startswith("CS-SEC-REPERFECT")] == ["CS-SEC-REPERFECT-A1"]
+    assert not any("asset None" in cs["text"] for cs in result["required_conditions_subsequent"])
+    assert "SEC-MAPPING-UNIDENTIFIED-CHARGE-2-NOT-RECORDED" in [
+        cp["cp_id"] for cp in result["required_conditions_precedent"]
+    ]

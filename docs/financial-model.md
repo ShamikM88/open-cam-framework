@@ -493,7 +493,7 @@ From the recorded structure alone (no model), `policy_state` holds:
 - **Conditions subsequent (CSs)**, ongoing obligations after drawdown, each with a `cs_id`: `MI-REPORTING` always,
   `CS-COVENANT-COMPLIANCE` when there are covenants, `CS-SEC-REPERFECT-<asset>` for each charge, and
   `CS-GUARANTEE-<provider>` for each guarantee.
-- **Security gaps**: an uncharged asset, an unperfected charge, a subordinate ranking, a collateral entry without an `asset_id`, or a security charge without a `secures_asset_id`. Each unidentified entry adds its own mapping gap and `SEC-MAPPING` condition precedent. The stable CP ID uses the entry's 1-based position and recorded asset class; when a charge has no asset class, it says “not recorded”. The engine does not guess which asset an unidentified charge secures.
+- **Security gaps**: an uncharged asset, an unperfected charge, a subordinate ranking, a collateral entry without a usable `asset_id`, or a security charge without a usable `secures_asset_id` (a usable ID is a non-blank text string; a missing, blank, whitespace-only, numeric or structured value does not count). Each unidentified entry adds its own mapping gap and `SEC-MAPPING` condition precedent. The CP ID uses the entry's 1-based position and recorded asset class, so it is stable only while the source list is unchanged; when a charge has no asset class, it says “not recorded”. The engine does not guess which asset an unidentified charge secures.
 - **Covenant results, downside breaches and forward covenant results** as above.
 
 A draft must carry every required CP and CS, every downside breach, and a source for its narrative, state only

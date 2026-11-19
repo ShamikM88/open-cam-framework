@@ -49,7 +49,7 @@ Not covered entries from that audit each link their own gap issue, which asks fo
 batch links [issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) for its outstanding test-citation
 verification; existing behavioural tests do not make a new rule Covered until they cite its ID.
 
-**Inventory at this revision:** 42 IDs ever issued; 32 active Covered; 7 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 43 IDs ever issued; 33 active Covered; 7 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -309,7 +309,7 @@ independently proven by the gate.
 
 ### R-POL-022 — Unidentified collateral assets and security charges are mapping gaps
 
-- **Claim:** Each collateral entry without a non-empty `asset_id` and each security charge without a non-empty `secures_asset_id` produces one security gap and one `SEC-MAPPING` condition precedent. The condition ID is stable for the same list position and recorded asset class; an absent class is stated as not recorded, and an unidentified charge is never guessed to belong to an asset.
+- **Claim:** Each collateral entry without a usable `asset_id` and each security charge without a usable `secures_asset_id` (missing, blank, whitespace-only or not text) produces one security gap and one `SEC-MAPPING` condition precedent. The condition ID is stable for the same list position and recorded asset class, and only for an unchanged source list (inserting, removing or reordering an earlier entry shifts the positions); an absent class is stated as not recorded, and an unidentified charge is never guessed to belong to an asset.
 - **Source:** [What the policy engine decides](financial-model.md#what-the-policy-engine-decides).
 - **Implemented in:** `scripts/policy_engine.py::_evaluate_security`
 - **Status:** Covered

@@ -167,7 +167,20 @@ still decided by comparison.
 
 **The financial basis is selected per covenant.** An absent or null `basis` means `borrower` and retains the existing deal-level behaviour. `consolidated` uses the borrower-supplied view recorded in `group_basis`. `guarantor_group` requires a non-blank `basis_entity_id` and resolves exactly one registered guarantor by that ID, with an explicit `guarantee_id` link to the deal's guarantees. Its figures come only from that entity's current C3 framework-computed spread. A missing/invalid entity ID, wrong role, missing or ambiguous link, unspread record, stale fingerprint/output or analyst-supplied-only period yields UNRESOLVABLE. When the entity is identified but fails the role, link or spread check, each period it records (labels only; no figure is exposed) is still reported UNRESOLVABLE with that reason, never silently omitted. A guarantor result carries both `basis: "guarantor_group"` and `basis_entity_id`; a missing ID is reported as `null`. The borrower and case-A result shapes are unchanged, and no borrower or other-guarantor figures are used as fallback.
 
-**A `consolidated` covenant can read a credit aggregation (issue #472, B3).** When the deal records a `credit_aggregation` and no case-A `group_basis`, the one shared resolver (`resolve_covenant_view()`) routes a `consolidated` covenant to the aggregation: only a period whose recorded inputs still reproduce their fingerprint and that carries a well-shaped `computed` object supplies figures. A period that is stale, invalid, absent or recorded but not calculated (B2b has not computed it) is UNRESOLVABLE with that period's reason, never replaced by the borrower's figures. If both a `group_basis` and a `credit_aggregation` are recorded, a `consolidated` covenant is UNRESOLVABLE (exactly one source is allowed; D22). A covenant with no `basis` or `basis: "borrower"` never reads aggregation values. The result then carries `view_source: "credit_aggregation"` and the period's `input_fingerprint` beside `basis: "consolidated"`; a deal with no `credit_aggregation` keeps its earlier result shape exactly. A non-positive denominator stays N/A and the covenant UNRESOLVABLE (D5). Aggregated figures reach the draft check's ground truth only under an explicit identity, as `credit_aggregation::<metric>` (with `_<period>` for a non-current period), and are never flattened into the borrower's bare metric name. Forward-year and downside testing of an aggregation is not part of B3: such a covenant stays UNRESOLVABLE there (the recorded view is not the covenant's basis) until the accounting-gated work provides forward figures.
+**A `consolidated` covenant can read a credit aggregation (issue #472).** With no case-A `group_basis`, the
+shared resolver supplies only a current, deterministically recomputed case-B period. A withheld, stale, invalid,
+absent or uncalculated figure makes the covenant UNRESOLVABLE with its reason, never replaced by borrower
+values. If both sources are recorded, neither is selected (D22). Borrower covenants never read the aggregation.
+Aggregation results carry `basis`, `view_source: "credit_aggregation"`, `input_fingerprint`, `view_label` and
+`view_limitations`, plus `view_metric_label` for a named excluding-other-income ratio when available. Other
+result shapes are unchanged. A non-positive denominator remains N/A (D5). Draft ground truth uses
+`credit_aggregation::<metric>` (and `_<period>` for a non-current period), never the borrower's bare metric name.
+No aggregation forecasts or downside values exist in B2b. Forward covenant rows on recorded deal forecast periods
+show UNRESOLVABLE, with no borrower fallback; the cushion report cannot stress aggregation figures.
+
+At `/review`, `policy_checks.py` makes a current covenant FAIL or UNRESOLVABLE a code-enforced `REJECTED`,
+including when a group metric is withheld. A PASS enforces nothing and is never an approval. Aggregation results
+are indicative only, not covenant compliance under the facility's own definition.
 
 Covenants are tested in three places, with three different consequences:
 
@@ -276,18 +289,13 @@ policy engine records them. The formulas are register entries
 authoritative.
 
 
-## Credit aggregation inputs (case B, B2a)
+## Credit aggregation (case B, B2a and B2b)
 
 Case B aggregates the borrower and selected registered entities. B2a records and validates the inputs
 only: `credit_aggregation.py` persists, under the top-level `credit_aggregation` key, each
 requested period's manifest (participants, the common period end and its evidence, per-entity confirmed
-scope) and one SHA-256 input fingerprint over the canonical input payload. **B2a computes nothing**:
-no elimination, subtotal, ratio or covenant result. The accounting-gated B2b step will later fill each
-period's optional `computed` object (`financials` and `ratios` in the same shape as the borrower's
-top-level `financials[period]` and `ratios[period]`); until it exists no period has `computed`, and
-every covenant consumer treats a missing, stale or untrusted `computed` as UNRESOLVABLE with a reason (the
-B4 outputs label such a period `not calculated`, `stale` or `invalid` with the reason and show no figures). The full key contract
-is documented in [the data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a).
+scope) and a SHA-256 fingerprint over the canonical input. B2a computes nothing. B2b adds loan principal
+elimination and historical figures from the [confirmed journal file](data-model.md#b2b-journal-input-and-stored-result).
 
 The participants are the reserved token `@borrower` (the existing legacy borrower stores, never an
 entity record) plus explicit `entity_records` IDs whose perimeter is included and confirmed; nothing is
@@ -298,9 +306,36 @@ to a selected participant of that line's own period, or to `@borrower`; a dangli
 out-of-perimeter or unconfirmed reference is a named hard error, and an unconfirmed line is refused.
 Analyst-supplied-only figures are refused rather than silently reconciled (D4 is not overridden), a deal
 that already carries a case-A `group_basis` is refused fail-closed, and non-finite or boolean numbers
-are refused. This is a **credit aggregation**, never a statutory consolidation: it does not describe
-the aggregation as a consolidation, and it creates no elimination logic, adjusted raw line, new formula
-or register entry — those belong to the gated B2b step and the formula register's own change control.
+are refused. The B2b perimeter is an explicitly declared control graph, not inferred from ownership or
+roles. Standalone accounts must share start, end, period length, currency, scale and framework. A participant
+outside the graph at period end is refused; one added during the period contributes balances only. A missing
+link needs a skipped entity's confirmed control details and external debt. The period must be 12 months and
+whole-period membership and uniform accounting policies must be attested to show EBITDA metrics.
+
+- **Loan principal:** each confirmed journal decreases the lender's `other_fixed_assets` or
+  `other_current_assets` and the debtor's `current_debt` or `long_term_debt` by the same exact positive carrying
+  amount. Both sides must identify the same loan. Confirmed maturity mismatches are printed, not reclassified.
+  Capitalised interest is part of the principal only if both sides carry it at the same amount. No other
+  elimination is made. The existing total-debt definition, including `overdraft` and `loan_notes`, is unchanged.
+- **Refusals:** duplicated loan IDs, cumulative cap violations, malformed inputs or inadmissible control
+  refuse the whole invocation, which writes nothing. A matching failure, such as different carrying amounts
+  or an ineligible maturity or line pairing, is recorded with its reason and leaves the loan in debt.
+- **EBITDA:** consistent mapping and policies, no retained intragroup stock or asset profit and a reconciled
+  same-period schedule are required where relevant. Unreconciled offsets withhold EBITDA and the ratios built
+  on it. If only attested `other_income` is unoffset and disclosed other income less that amount is nonnegative
+  for every participant, only the [excluding-other-income variant](formula-register.md#f-068--aggregation-ebitda-excluding-other-income)
+  is shown. All other income is removed, including external income.
+- **Closed metric list:** the unchanged evaluator runs on adjusted raw lines rather than combining ratios.
+  Outputs are `total_debt`, eligible EBITDA and gross leverage, eligible net debt to EBITDA, and EBIT and
+  EBITDA interest cover only with no intragroup interest attested. The variant uses distinct metric names.
+  Equity, TNW, gearing, DSCR (both forms), FCF, FCF conversion, current ratio, working-capital days and
+  other subtotals are withheld as N/A with reasons. Operating profit is used internally for cover, not exposed.
+- **Cash and limitations:** cash must be qualifying and free from group or related-party balances. Group net
+  debt deducts only unrestricted cash; qualifying, restricted and unrestricted amounts are disclosed separately.
+  A cash-pool overdraft stays in debt. The supported-debt memo counts attested covered external principal once
+  and is `unknown` if coverage is unresolved. It changes no metric. See the
+  [output limitations](outputs.md#credit-aggregation-sheet-and-summary-section-case-b-issue-472-b4)
+  for why the result is not an accounting consolidation or analytical sign-off.
 
 ## Standalone entity spread (case C, C3)
 

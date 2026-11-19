@@ -205,6 +205,7 @@ def _perimeter(request: dict[str, Any], raw: dict[str, Any]) -> tuple[dict[str, 
 
 def _declarations(request, inputs, raw, legal_names):
     sides, caps, alike = {}, {}, defaultdict(list)
+    pairs = {}
     for entity, values in inputs.items():
         lines = request["declarations"] if entity == BORROWER else values["intercompany_lines"]
         for index, item in enumerate(array(lines, f"{entity} declarations")):
@@ -219,6 +220,9 @@ def _declarations(request, inputs, raw, legal_names):
             other = text(d["counterparty_entity_id"], f"{path}.counterparty_entity_id")
             if other == entity or other not in raw:
                 raise ValueError(f"{path}: counterparty must be a different participant")
+            pair = frozenset((entity, other))
+            if pairs.setdefault(loan, pair) != pair:
+                raise ValueError(f"{path}: duplicate loan_id {loan!r} across different party pairs")
             line = text(d["line_key"], f"{path}.line_key")
             check_choice(d["direction"], ("receivable", "payable"), f"{path}.direction")
             confirmed(d["confirmed"], f"{path}.confirmed")
@@ -234,8 +238,6 @@ def _declarations(request, inputs, raw, legal_names):
             alike[entity, other, line, d["direction"], amount].append(d["separate_loan_confirmed"])
     if any(len(flags) > 1 and not all(flags) for flags in alike.values()):
         raise ValueError("equal declarations require confirmation as separate loans on both sides")
-    if any(len([loan for owner, loan in sides if loan == candidate]) > 2 for candidate in {loan for _, loan in sides}):
-        raise ValueError("duplicate loan_id across more than two participant sides")
     return sides, caps
 
 
@@ -321,6 +323,9 @@ def _ebitda_gate(answers, raw):
     if any(mode in (None, "not_offset") or answers[key]["no_intragroup_stock_or_asset_profit"] is not True
            for key, mode in modes.items()):
         return False, "Intragroup EBITDA offsets or absence of intragroup profit in assets were not attested."
+    if any(mode == "offset_other_income_only" and "unoffset_other_income_amount" not in answers[key]
+           for key, mode in modes.items()):
+        return False, "The unoffset other income amount was not stated."
     if any((a.get("schedule") or unoffset[key]) if mode == "none" else not a.get("schedule")
            for key, mode in modes.items() for a in (answers[key],)):
         return False, "The intragroup EBITDA schedule does not reconcile with the attested mode."
@@ -347,7 +352,7 @@ def _left_out_memo(request, participants, debt):
     left_out = request["left_out"]
     if not isinstance(left_out, dict) or set(left_out) & participants:
         raise ValueError("left_out must be an object keyed by non-participant IDs")
-    covered, problem = Fraction(), None
+    covered, problem = {}, None
     for entity, item in sorted(left_out.items()):
         text(entity, "left_out entity ID")
         item = obj(item, f"left_out[{entity}]", {"reason", "external_debt", "support"})
@@ -372,12 +377,12 @@ def _left_out_memo(request, participants, debt):
                 amount = number(amount, "covered principal", minimum=0)
                 if identifier is None:
                     problem = f"overlap cannot be established for {entity} without an attested debt_id"
-                elif debts.setdefault(identifier, amount) != amount:
+                elif (covered.setdefault(identifier, amount) != amount
+                      or debts.setdefault(identifier, amount) != amount):
                     problem = f"conflicting covered principal for {entity} debt {identifier}"
         entity_total = sum(debts.values())
         if isinstance(external, Fraction) and entity_total > external:
             problem = f"covered principal conflicts with external debt for {entity}"
-        covered += entity_total
     for row in array(request["participant_guarantees"], "participant_guarantees"):
         r = obj(row, "participant guarantee", {"provider", "beneficiary", "amount", "evidence"})
         provider, beneficiary = (text(r[k], f"guarantee {k}") for k in ("provider", "beneficiary"))
@@ -386,7 +391,7 @@ def _left_out_memo(request, participants, debt):
         text(r["evidence"], "guarantee evidence")
         if r["amount"] not in (None, "unknown"):
             number(r["amount"], "guarantee amount", minimum=0)
-    return {"value": "unknown" if problem else json_number(debt + covered), "reason": problem}
+    return {"value": "unknown" if problem else json_number(debt + sum(covered.values())), "reason": problem}
 
 
 def calculate_period(period, request, inputs, legal_names):

@@ -50,7 +50,7 @@ shortened):
 | `analyst_supplied_financials`, `financials_source_note` | `/spread`, analyst-supplied mode; `supplied_forecast.py` for forward raw breakdowns when provided | The analyst's raw breakdown (if given); the convention note the CAM caveat quotes (for figures read from an image, with a sentence saying so) |
 | `group_basis` | `state_manager.py --record-group-basis`, after explicit analyst confirmation | Optional metadata describing borrower-supplied consolidated accounts: basis, reporting entity, covered entities, source/date/accounting basis, common period end, period labels, supplied/recomputed basis and confirmed perimeter. It contains no figures and never changes either raw store. |
 | `entity_records` | `state_manager.py --register-entity-record`, after explicit perimeter confirmation | Optional registry keyed by stable entity ID. Each record captures one subsidiary, parent or guarantor, its source, period ends, confirmed perimeter, exactly one raw store per entity-period, intercompany references and explicit guarantee IDs. Step 1 records inputs only; no spread or aggregation is computed. |
-| `credit_aggregation` | `credit_aggregation.py`, after explicit analyst scope confirmation | Optional case-B record keyed by period label. Each period holds the manifest (participants, the common period end and its evidence, per-entity confirmed scope) and one SHA-256 input fingerprint; the optional `computed` object is the accounting-gated B2b step's output. It is metadata and fingerprints only: no figures are stored by B2a, and borrower figures are never touched. |
+| `credit_aggregation` | `credit_aggregation.py`, after explicit analyst scope confirmation | Optional case-B record keyed by period. B2a records the scope manifest and fingerprint only. B2b also records the confirmed calculation input and a recomputable principal-only historical result. Neither mode changes borrower figures. |
 | `financials_transcriptions` | `transcription_check.py --commit` (`/spread`, figures read from an image) | A list with one record per confirmed transcription: the kind of image, the mode, the saved source file and its SHA-256 fingerprint (never the image), the unit, the declared sign conventions, the periods, the confirmed digest and date, and the cross-foot outcome (matched, acknowledged with the analyst's reason, not assessed). Absent for figures read from text. One deal holds only one basis: a transcription in the other `/spread` mode is refused |
 | `stress_assumptions`, `downside_case` | `spreading_check.py` (run by `/project`) | The three stress shocks; the stressed forward-year figures and ratios |
 | `forecast_source` | `supplied_forecast.py` (`/project`, analyst-supplied mode) | `"analyst-supplied"` when the forward years were supplied by the analyst and are recorded as given; absent means framework-computed (every deal that predates the mode). Such a deal also has `financials_source: "analyst-supplied"`, and its `downside_case` carries `basis`, `unavailable` and `description` besides `financials` and `ratios` (one `description` for all of its analyst-supplied years) |
@@ -134,8 +134,7 @@ Step 1 is recording and validation only. It computes no subtotals, ratios, sprea
 
 `credit_aggregation` is an optional top-level object keyed by framework period label, recorded with
 `python scripts/credit_aggregation.py --company ... --proposal ... --request-file <json file>`.
-It is the contract the accounting-gated B2b step (eliminations and calculation) will later fill; B2a
-itself computes nothing and never touches `financials`, `ratios`, `multi_period_financials`,
+This B2a mode computes nothing and neither mode touches `financials`, `ratios`, `multi_period_financials`,
 `analyst_supplied_financials`, `entity_records` or `group_basis`. Schema version `1.3.0` records the
 key's addition.
 
@@ -150,8 +149,7 @@ Each requested period resolves to one entry:
       "period_end_evidence": "Synthetic audited accounts FY2025",
       "scope_confirmations": {"synthetic-opco": {"included": true, "...": "..."}}
     },
-    "input_fingerprint": "<64-character lowercase SHA-256 hex>",
-    "computed": {"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}, "output_digest": "<64-character lowercase SHA-256 hex>"}
+    "input_fingerprint": "<64-character lowercase SHA-256 hex>"
   }
 }
 ```
@@ -172,21 +170,32 @@ request also refuses: analyst-supplied-only figures (D4's as-given rule is not o
 already carries a case-A `group_basis` (fail closed, no winner by insertion order), non-finite or boolean
 numbers, and unknown keys.
 
-**The B2b contract.** Each period's optional `computed` object carries `financials` and `ratios` in the
-same shape as the borrower's top-level `financials[period]` and `ratios[period]`. Until B2b exists no
-period has `computed`; every consumer treats a missing or stale `computed` as UNRESOLVABLE with a reason
-(`credit_aggregation.aggregation_period_status()` reports `current`, `not_calculated`, `stale`,
-`invalid` or `absent`). The shape is flat and per period, for example
-`{"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}, "output_digest": "<sha-256>"}`: each metric maps to a finite number
-or `null` (an integer too large for a float counts as non-finite), never to a nested per-period object or a boolean; a nested or non-numeric
-`computed` is `invalid` and the state validator refuses it. **Output integrity:** `output_digest` is the SHA-256 returned by
-`credit_aggregation.computed_output_digest(input_fingerprint, financials, ratios)`, which binds the figures to the exact input
-fingerprint they were calculated from. A `computed` object with no digest, or whose digest does not match, is `invalid` and is never
-read as current, so an accidental or uncoordinated edit is caught. **The digest is a consistency checksum, not proof of
-origin:** the helper is public and unkeyed, so someone who edits `state.json` and recomputes the digest can still
-make a forged period `current`. Proving that only approved B2b figures are consumed needs the deterministic recompute
-on read that the B2b design must provide (maintainer decision, issue #472). The B2b writer must fill `computed` through that helper. The recorded
-manifest, including each confirmed scope snapshot, must also equal the manifest the current inputs produce, or the period is `stale`. B3 and B4 read this contract only.
+#### B2b journal input and stored result
+
+The UTF-8 file has one `periods` object. Each historical period repeats the B2a scope fields (`participants`,
+`borrower_period_end`, `borrower_period_end_evidence`, `scope_confirmed`) and carries the following:
+
+| Key | Confirmed input |
+| :--- | :--- |
+| `attestations` | Map by participant ID. `accounts_type` is `audited` or `management`; `standalone` and `controlled` must be true. `controller` is the controlling ID or `null` at the selected root. Include `ownership_pct` (0 to 100), `control_from`, `control_to` (date or `null`), `status` (`obligor`, `guarantor`, `neither`), `period_start`, `period_end`, `period_months`, `framework`, `currency`, numeric `scale`, `debt_mapping_uniform`, `exceptions` (list), `no_intragroup_stock_or_asset_profit`, `cash_pool_in_overdraft`, `restricted_cash_amount`, `income_from_left_out` and `charges_to_left_out` (amounts keyed by EBITDA line). `evidence` maps each supplied answer to a non-blank reference. |
+| EBITDA and cash answers | In each attestation: `ebitda_intragroup` (`none`, `offset`, `offset_other_income_only`, `not_offset` or `null`), `schedule` (list of `{counterparty, line, amount}`), `unoffset_other_income_amount`, `cash_no_group_balance` and `no_intragroup_interest`. Missing or unknown gate answers withhold the affected metrics. |
+| `declarations` | List for `@borrower` only. Other participants use their existing `entity_records[id].intercompany_lines` for this period. Both forms carry `loan_id`, `legal_entity`, `counterparty_entity_id`, `line_key`, `direction` (`receivable` or `payable`), numeric `amount`, `evidence` (`document` and `page_or_note`), `confirmed`, `of_which_owed_to_group` and `separate_loan_confirmed`. Entity lines additionally carry `period`. The cap repeats unchanged on every declaration for a participant/line. A loan ID identifies one party pair and one declaration per side. |
+| `journals` | List of records with `journal_id`, `type: "loan_principal"`, `loan_id`, `lender`, `debtor`, `lender_line`, `debtor_line`, positive `amount`, `maturity_mismatch_confirmed` and `confirmed: true`. |
+| `left_out`, `skipped_chain_entities`, `participant_guarantees` | Left-out entities are keyed by ID with `reason`, `external_debt` and `support` entries (`participant`, `type` of `guarantee` or `security`, `debt_id`, `covered_principal`, `evidence`). A `debt_id` identifies one external debt across the period, even for joint debtors. Skipped nodes are keyed by ID with `controller`, `control_from`, `control_to`, `external_debt` and `evidence`. Participant guarantees are a list of `{provider, beneficiary, amount, evidence}`. Unknown debt/support amounts use `null` or `"unknown"` where permitted; a skipped node requires a known external-debt figure. |
+
+The calculator copies each period's file entry into `input` and mirrors its `journals`. Its `input_digest` binds
+the canonical input; the calculation fingerprint binds that digest, the B2a fingerprint and participants' legal
+identities. `computed` holds flat `financials` and `ratios` (finite numbers or `null`), `adjusted_raw`, applied
+and refused journals, `participant_table`, `withheld` reasons, label and limitations, debt and cash details,
+the supported-debt memo and the evidence disclosures. The amount format is JSON numbers representable without
+decimal rounding in state. Schema remains `1.3.0`.
+
+**Recompute on read:** `aggregation_period_status()` validates the live scope and fingerprints, checks the
+cheap `output_digest` (computed figures bound to the calculation fingerprint), then compares the entire
+stored output with `recompute_period()`. A digest-only stub or an edited result with a newly calculated
+digest is not `current`. Unkeyed digests and deterministic recomputation check consistency, not who supplied
+the inputs or whether the evidence is true. Readers withhold figures for `not_calculated`, `stale`, `invalid`
+or `absent` periods and do not substitute another basis.
 
 **Per-period fingerprint.** One SHA-256 per period over canonical JSON tagged
 `open-cam-credit-aggregation-input/v1`, serialised as

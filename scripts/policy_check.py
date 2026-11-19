@@ -94,6 +94,7 @@ def compute_from_state(
     credit_policy_present = os.path.exists("config/credit_policy.md")
 
     policy_input = {
+        "company": state.get("company"),  # case-B fingerprint binds the borrower's legal identity
         "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,

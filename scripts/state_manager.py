@@ -66,7 +66,7 @@ class EntityPerimeter(TypedDict):
 
 
 class EntityIntercompanyLine(TypedDict):
-    """An identified raw line and counterparty, recorded but not eliminated in step 1."""
+    """An identified raw line; B2b checks the optional declaration fields on use."""
 
     period: str
     line_key: str
@@ -74,6 +74,11 @@ class EntityIntercompanyLine(TypedDict):
     direction: str
     amount: int | float
     confirmed: bool
+    loan_id: NotRequired[str]
+    legal_entity: NotRequired[str]
+    evidence: NotRequired[dict[str, str]]
+    of_which_owed_to_group: NotRequired[int | float]
+    separate_loan_confirmed: NotRequired[bool]
 
 
 class EntityRecord(TypedDict):
@@ -340,7 +345,7 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
 
 # The credit-aggregation record's period labels mirror _GROUP_BASIS_PERIOD_KEYS (issue #472, B2a).
 _CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
-_AGGREGATION_COMPUTED_EXTRAS = {
+_AGGREGATION_COMPUTED_EXTRAS: dict[str, type | tuple[type, ...]] = {
     "adjusted_raw": dict, "eliminations_applied": list, "refused_journals": list, "participant_table": list,
     "withheld": dict, "limitations": list, "label": str, "metric_label": (str, type(None)),
     "debt_before": (int, float), "debt_eliminated": (int, float), "debt_eliminated_pct": (int, float, type(None)),
@@ -382,7 +387,7 @@ def computed_figures_problem(computed: object) -> str | None:
                         "object, boolean or non-finite value")
     if extras:
         for key, shape in _AGGREGATION_COMPUTED_EXTRAS.items():
-            if key not in computed or not isinstance(computed[key], shape):
+            if key not in computed or isinstance(computed[key], bool) or not isinstance(computed[key], shape):
                 return f"{key} is missing or has the wrong shape for a calculated aggregation"
     return None
 

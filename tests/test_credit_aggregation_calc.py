@@ -104,14 +104,25 @@ def second_journal(p, *, amount=20, separate=False, cap=30):
     (change_att("control_from", "2026-01-01"), "control"),
     (change_att("control_to", "2025-10-01"), "control"),
     (change_att("period_start", "2025-02-01"), "period_start"),
+    (change_att("period_start", "2025-02-30"), "ISO date"),
     (change_att("period_end", "2025-11-30"), "period_end"),
     (change_att("period_months", 10), "period_months"),
+    (change_att("period_months", True), "positive integer"),
+    (change_att("ownership_pct", 101), "cannot exceed 100"),
     (change_att("framework", "IFRS"), "framework"),
     (change_att("currency", "USD"), "currency"),
     (change_att("scale", 1), "scale"),
     (change_att("controller", "synthetic-missing"), "chain"),
     (change_att("controller", O), "chain"),
+    (change_att("controller", None), "one selected root"),
     (change_att("evidence", {}), "evidence"),
+    (change_att("restricted_cash_amount", 21), "exceeds recorded cash"),
+    (change_att("income_from_left_out", {"other_income": True}), "finite number"),
+    (change_att("schedule", [{"counterparty": O, "line": "revenue", "amount": 1}]), "invalid participant"),
+    (lambda p: p.update(skipped_chain_entities=[]), "skipped_chain"),
+    (lambda p: p.update(left_out={B: {}}), "left_out"),
+    (lambda p: p.update(journals={}), "must be a list"),
+    (lambda p: p["declarations"].append("bad declaration"), "must be an object"),
     (lambda p: p["declarations"].clear(), "borrower"),
     (lambda p: p["declarations"][0].pop("loan_id"), "loan_id"),
     (lambda p: p["declarations"][0].pop("evidence"), "evidence"),
@@ -120,6 +131,10 @@ def second_journal(p, *, amount=20, separate=False, cap=30):
     (lambda p: p["journals"].append(dict(p["journals"][0], loan_id="L2")), "journal_id"),
     (change_journal(confirmed=False), "confirmed"),
     (change_side(confirmed=False), "confirmed"),
+    (change_side(legal_entity="Synthetic Wrong Borrower"), "does not match"),
+    (change_side(legal_entity=" "), "non-blank"),
+    (change_side(counterparty_entity_id=B), "different participant"),
+    (change_side(amount=0), "must be positive"),
     (change_side(of_which_owed_to_group=31), "cap"),
     (change_side(of_which_owed_to_group=19), "cap"),
     (change_journal(type="loan_interest"), "loan_principal"),
@@ -170,7 +185,7 @@ def test_rounding_a_journal_amount_cannot_create_an_exact_match(tmp_path):
     assert _state_file(tmp_path).read_bytes() == before
 
 
-@pytest.mark.parametrize("number_text", ["1e9999999999999999999999999", "1" * 5000])
+@pytest.mark.parametrize("number_text", ["1e9999999999999999999999999", "1" * 5000], ids=["exponent", "integer"])
 def test_unrepresentable_json_number_is_a_named_refusal(tmp_path, number_text):
     path = tmp_path / "precision.json"
     path.write_text(json.dumps(seed(tmp_path)).replace('"amount": 20', f'"amount": {number_text}', 1),
@@ -284,6 +299,33 @@ def test_cash_and_interest_are_independent_from_gross_leverage(tmp_path):
     assert c["ratios"]["ebit_interest_cover"] is None
 
 
+def test_nonpositive_denominators_are_not_numbers(tmp_path):
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    raw = state["financials"][P]["raw"]
+    raw.update(revenue=100, interest_paid=-20)
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert c["financials"]["ebitda"] == 0
+    for metric in ("gross_leverage", "net_debt_to_ebitda", "ebit_interest_cover", "ebitda_interest_cover"):
+        assert c["ratios"][metric] is None and "zero or negative" in c["withheld"][metric]
+
+
+@pytest.mark.parametrize("income_line", ["revenue", "other_income"])
+def test_schedule_must_reconcile_each_counterparty_and_amount(tmp_path, income_line):
+    def change(p):
+        p["attestations"][B].update(
+            ebitda_intragroup="offset" if income_line == "revenue" else "offset_other_income_only",
+            unoffset_other_income_amount=0,
+            schedule=[{"counterparty": O, "line": income_line, "amount": 10}],
+        )
+        p["attestations"][O].update(ebitda_intragroup="offset",
+                                    schedule=[{"counterparty": B, "line": "cost_of_sales", "amount": 11}])
+    c = run(tmp_path, change)
+    assert c["financials"]["ebitda"] is None and "reconcile" in c["withheld"]["ebitda"]
+
+
 @pytest.mark.parametrize(("mode", "raw_income", "stock", "expected"), [
     ("offset", 40, True, 840),
     ("offset_other_income_only", 40, True, 800),
@@ -370,3 +412,18 @@ def test_skipped_chain_needs_attested_debt_and_is_output_separately(tmp_path):
     c = run(tmp_path, change)
     assert c["skipped_chain_entities"]["synthetic-skipped"]["external_debt"] == 50
     assert c["financials"]["total_debt"] == 390
+
+
+def test_participant_guarantees_are_disclosure_and_not_debt(tmp_path):
+    row = {"provider": B, "beneficiary": O, "amount": 25, "evidence": REF}
+    computed = run(tmp_path, lambda p: p["participant_guarantees"].append(row))
+    assert computed["participant_guarantees"] == [row]
+    assert computed["debt_memo"]["value"] == computed["financials"]["total_debt"] == 390
+
+    row["beneficiary"] = B
+    before = _state_file(tmp_path).read_bytes()
+    file = {"periods": {P: copy.deepcopy(_read_full(tmp_path)["credit_aggregation"][P]["input"])}}
+    file["periods"][P]["participant_guarantees"] = [row]
+    with pytest.raises(ca.AggregationError, match="two different participants"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before

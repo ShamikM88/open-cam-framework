@@ -140,7 +140,21 @@ no extra sheet, and the existing Financial Spreading and Collateral & Exposure s
 
 ### Credit aggregation sheet and summary section (case B, issue #472 B4)
 
-When the deal's state records a `credit_aggregation`, the spreading workbook adds one last sheet, `Credit aggregation`, and the committee summary adds a `Credit aggregation (not a consolidation)` section. Both state that this is a credit aggregation, never a statutory consolidation, and that equity, goodwill, non-controlling interests and other material adjustments are not covered. For each recorded period they show the participants, the confirmed scope, the common period end and its evidence, the status (`current`, `not calculated`, `stale` or `invalid`, from the same freshness check the covenant routing uses; `invalid` means a `computed` object whose output digest is missing or does not match its figures), the first 16 characters of the input fingerprint and, for a `current` period only, the computed subtotals and ratios. A period that is not current shows its reason and no figures. A structurally malformed `credit_aggregation` record is refused before anything is rendered or written, never shown as a status. Borrower and entity figures are never summed in either output, and no elimination before-and-after rows exist yet (the accounting-gated B2b step owns them). A deal with no `credit_aggregation` gets no extra sheet or section, and `export_readback.py` regenerates the sheet from the same rows.
+When the deal records a `credit_aggregation`, the spreading workbook adds the last sheet `Credit aggregation`
+and the committee summary adds a `Credit aggregation (not a consolidation)` section. Both print the exact label
+`credit aggregation, not accounting-reviewed` and the signed-off limitations in order: debt may be understated,
+aggregate cash and EBITDA may not be available to the borrower, and analyst attestations are unverified. They
+then disclose the rest of the limitations, including no IFRS 10 or FRS 102 consolidation, debt may also be
+overstated, post-period events are not covered and trends can mislead. A covenant result is indicative only.
+
+For each period they show confirmed scope, period end and evidence, freshness status and the first 16 characters
+of the fingerprint. Only `current` periods show figures: per-line and total debt before and after, amount and
+percentage eliminated, each applied journal and maturity mismatch, each recorded matching refusal and its
+reason, participant balances and ownership, qualifying/restricted/unrestricted cash, group net debt, the
+supported-debt memo, guarantees, left-out and skipped entities, attestations and withheld metrics with reasons.
+An integrity refusal is never persisted and is not reconstructed later. A non-current period shows its reason
+without figures, and a structurally malformed state record is refused. With no recorded aggregation the sheet
+and section are absent. `export_readback.py` uses the same worksheet rows as the exporter.
 
 ### Checking an export later
 

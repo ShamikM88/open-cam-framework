@@ -3,9 +3,10 @@ import argparse
 import hashlib
 import json
 import sys
+from decimal import Decimal, DecimalException
 from typing import Any
 
-from credit_aggregation_calc import LABEL, LIMITATIONS
+from credit_aggregation_calc import LABEL, LIMITATIONS, MEMO_LABEL
 from numeric_validation import validate_finite_numbers
 from state_manager import (
     computed_figures_problem,
@@ -431,6 +432,11 @@ def _calculation_source(
         manifest = record["manifest"]
         scope["participants"] = manifest["participants"]
         payload = _period_payload(state, period, scope)
+        for key in manifest["scope_confirmations"]:
+            lines = state["entity_records"][key]["intercompany_lines"]
+            if any(not isinstance(line, dict) or not isinstance(line.get("period"), str)
+                   or line["period"] not in PERIOD_KEYS for line in lines):
+                raise AggregationError(f"participant {key!r} has an intercompany line with an invalid period")
         names = {key: state.get("company") if key == RESERVED_BORROWER
                  else state["entity_records"][key].get("legal_name") for key in manifest["participants"]}
     except (ValueError, OverflowError, TypeError, RecursionError) as exc:
@@ -575,7 +581,7 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
             "reason": f"the recorded computed object for {period!r} cannot be trusted: {digest_problem}",
             "input_fingerprint": fingerprint,
         }
-    if computed_figures_problem(computed) is not None:
+    if not isinstance(computed, dict) or computed_figures_problem(computed) is not None:
         return {
             "status": "invalid",
             "reason": f"the recorded computed object for {period!r} is malformed",
@@ -594,6 +600,48 @@ AGGREGATION_SHEET_DISCLOSURE = (
     "Credit aggregation of the borrower and the entities the analyst confirmed, never a statutory consolidation. "
     "It does not cover equity, goodwill, non-controlling interests or other material adjustments."
 )
+AGGREGATION_PARTICIPANT_HEADERS = (
+    "Participant", "Legal entity", "Status", "Ownership (%)", "Post-elimination debt", "Cash", "EBITDA",
+)
+
+
+def aggregation_participant_rows(computed: dict[str, Any]) -> list[list[Any]]:
+    """One row per participant, with separate numeric cells for balances and flows."""
+    fields = ("participant", "legal_entity", "status", "ownership_pct", "total_debt", "cash", "ebitda")
+    return [[item[field] for field in fields] for item in computed.get("participant_table", [])]
+
+
+def aggregation_result_rows(computed: dict[str, Any]) -> list[list[Any]]:
+    """Present the same verified figure/disclosure rows in the summary and workbook."""
+    rows = [[name, value] for group in ("financials", "ratios")
+            for name, value in sorted(computed[group].items()) if name != "raw"]
+    if "debt_lines" not in computed:  # manifest-only B2a fixtures do not contain B2b detail
+        return rows
+    rows = [
+        [MEMO_LABEL, computed["debt_memo"]["value"]], ["Supported debt memo reason", computed["debt_memo"]["reason"]],
+        ["Total debt before eliminations", computed["debt_before"]],
+        ["Total debt after eliminations", computed["financials"]["total_debt"]],
+        ["Amount eliminated", computed["debt_eliminated"]], ["Percentage eliminated", computed["debt_eliminated_pct"]],
+        ["Total qualifying cash", computed["cash"]["total"]], ["Restricted cash", computed["cash"]["restricted"]],
+        ["Unrestricted cash", computed["cash"]["unrestricted"]], ["Group net debt", computed["group_net_debt"]],
+    ] + rows
+    if computed["metric_label"]:
+        rows.insert(0, ["EBITDA basis", computed["metric_label"]])
+    for line, values in computed["debt_lines"].items():
+        for moment, value in values.items():
+            rows.append([f"Debt line {line} ({moment})", value])
+    for key, caption in (("eliminations_applied", "Elimination"), ("refused_journals", "Refused journal"),
+                         ("participant_guarantees", "Participant guarantee")):
+        rows.extend([caption, json.dumps(item, sort_keys=True, ensure_ascii=False)] for item in computed[key])
+    for key, title in (("attestations", "Attestation"), ("left_out", "Left-out entity"),
+                       ("skipped_chain_entities", "Skipped chain entity")):
+        for entity, record in sorted(computed[key].items()):
+            for field, value in sorted(record.items()):
+                values = value if isinstance(value, list) and value else [value]
+                rows.extend([f"{title} {entity}: {field}", json.dumps(item, sort_keys=True, ensure_ascii=False)]
+                            for item in values)
+    rows.extend([f"Withheld: {metric}", reason] for metric, reason in sorted(computed["withheld"].items()))
+    return rows
 
 
 def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
@@ -606,7 +654,7 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
     recorded = state.get("credit_aggregation") if isinstance(state, dict) else None
     if not isinstance(recorded, dict) or not recorded:
         return None
-    rows: list[list[Any]] = [[AGGREGATION_SHEET_DISCLOSURE]]
+    rows: list[list[Any]] = [[LABEL], *[[item] for item in LIMITATIONS], [AGGREGATION_SHEET_DISCLOSURE]]
     for period in PERIOD_KEYS:
         entry = recorded.get(period)
         if not isinstance(entry, dict):
@@ -630,10 +678,9 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
             rows.append(["Reason", status["reason"]])
         computed = entry.get("computed")
         if status.get("status") == "current" and isinstance(computed, dict):
-            for group in ("financials", "ratios"):
-                for name, value in sorted(computed[group].items()):
-                    if name != "raw":
-                        rows.append([name, value])
+            rows.extend(aggregation_result_rows(computed))
+            if participants := aggregation_participant_rows(computed):
+                rows.extend([[], list(AGGREGATION_PARTICIPANT_HEADERS), *participants])
     return rows
 
 
@@ -669,6 +716,13 @@ def _unique_json_object(items: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _unrounded_json_float(value: str) -> float:
+    result = float(value)
+    if Decimal(value) != Decimal(str(result)):
+        raise AggregationError("calculation input number exceeds the precision of the state JSON format")
+    return result
+
+
 def _resolve_calculation(state: dict[str, Any], request: object) -> dict[str, dict[str, Any]]:
     from credit_aggregation_calc import obj
 
@@ -696,8 +750,9 @@ def _record_aggregation(
     try:
         with open(request_file, encoding="utf-8") as handle:
             try:
-                request: Any = json.load(handle, object_pairs_hook=_unique_json_object if calculate else None)
-            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+                request: Any = json.load(handle, object_pairs_hook=_unique_json_object if calculate else None,
+                                         parse_float=_unrounded_json_float if calculate else None)
+            except (ValueError, DecimalException, RecursionError) as exc:
                 raise AggregationError(
                     f"Cannot read aggregation request file {request_file!r} as UTF-8 JSON: {exc}"
                 ) from exc

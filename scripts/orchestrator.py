@@ -830,6 +830,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # collateral/downside_case above, so it's recomputed every run rather
     # than cached.
     policy_input = {
+        "company": existing_state.get("company"),
         "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,

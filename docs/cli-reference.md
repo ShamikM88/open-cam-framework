@@ -329,6 +329,8 @@ output file, and it makes no network call and needs no `ANTHROPIC_API_KEY`.
   cost-of-sales shock), two single-shock reverse-stress searches — the base scenario (all shocks at zero) and the
   downside scenario (the other shocks held at their recorded settings, the searched shock starting from its
   recorded setting, reporting both the cumulative crossing and the additional cushion beyond that setting).
+  A credit aggregation row discloses the verified historical result, label and limitations, but has no
+  break-even or shocks. The borrower's inputs are not a substitute for the aggregation.
 - **Searches return brackets, not points:** each search brackets the first non-PASS point (FAIL or UNRESOLVABLE
   alike) by geometric expansion then bisection, and reports the pass/non-pass bracket with its tolerance and the
   status beyond it. A covenant whose ratio a shock cannot move is reported "not moved"; a non-monotone driver, a
@@ -668,8 +670,7 @@ same ISO date per period, and every intercompany counterparty on a selected part
 selected participant of that period or to `@borrower` (lines of other periods are not inputs of this period). The command validates the whole request
 against the live state under the per-deal lock before one atomic write, and persists each period's manifest
 and SHA-256 input fingerprint under the top-level `credit_aggregation` key (schema version `1.3.0`). It
-computes nothing — eliminations and calculation are the separately gated B2b step, whose optional
-`computed` object this contract reserves — and it never touches borrower figures, either raw store,
+computes nothing. Neither this mode nor B2b touches borrower figures, either raw store,
 `entity_records` or `group_basis`. Refusals include: a missing or false `scope_confirmed`, a missing
 `@borrower` token, duplicate, unknown or out-of-perimeter participants, missing or mismatched period
 ends, dangling, unselected, out-of-perimeter or unconfirmed counterparties, unconfirmed lines,
@@ -678,6 +679,14 @@ numbers, and unknown keys. A successful command prints one JSON object (pretty-p
 `state_path`; any refusal prints one `error:` line, exits `1`, and leaves `state.json` byte-for-byte
 unchanged (no deal is ever created). See the
 [data model](data-model.md#credit-aggregation-inputs-case-b-step-b2a) for the full contract.
+
+`python scripts/credit_aggregation.py --calculate --company ... --proposal ... --journals-file <json file>`
+calculates B2b on the exact existing deal using a saved, analyst-confirmed file in the
+[B2b journal format](data-model.md#b2b-journal-input-and-stored-result). Use `--calculate` and `--journals-file`
+together, instead of `--request-file`. Only historical periods and principal on the permitted loan lines are
+supported. The JSON success response includes `calculated`, the label and limitations, and `results` by period.
+An integrity refusal exits `1` with a reason and writes nothing, even in a multi-period file. A valid input with
+a matching refusal can succeed: the unmatched journal and reason are recorded and the principal stays in debt.
 
 ## Source manifest
 

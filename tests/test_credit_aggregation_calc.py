@@ -106,12 +106,15 @@ def second_journal(p, *, amount=20, separate=False, cap=30):
     (change_att("period_start", "2025-02-01"), "period_start"),
     (change_att("period_start", "2025-02-30"), "ISO date"),
     (change_att("period_end", "2025-11-30"), "period_end"),
+    (change_att("period_start", "2026-01-01"), "period_start"),
     (change_att("period_months", 10), "period_months"),
     (change_att("period_months", True), "positive integer"),
     (change_att("ownership_pct", 101), "cannot exceed 100"),
     (change_att("framework", "IFRS"), "framework"),
     (change_att("currency", "USD"), "currency"),
     (change_att("scale", 1), "scale"),
+    (change_att("accounts_type", "mixed"), "accounts_type has an invalid value"),
+    (change_att("exceptions", [" "]), "exceptions must be non-blank"),
     (change_att("controller", "synthetic-missing"), "chain"),
     (change_att("controller", O), "chain"),
     (change_att("controller", None), "one selected root"),
@@ -120,7 +123,10 @@ def second_journal(p, *, amount=20, separate=False, cap=30):
     (change_att("income_from_left_out", {"other_income": True}), "finite number"),
     (change_att("schedule", [{"counterparty": O, "line": "revenue", "amount": 1}]), "invalid participant"),
     (lambda p: p.update(skipped_chain_entities=[]), "skipped_chain"),
+    (lambda p: p["skipped_chain_entities"].update({O: {}}), "distinct non-participant"),
     (lambda p: p.update(left_out={B: {}}), "left_out"),
+    (lambda p: p["left_out"].update({O + "-left-out": {"reason": [], "external_debt": 0, "support": []}}),
+     "left-out reason must be non-blank"),
     (lambda p: p.update(journals={}), "must be a list"),
     (lambda p: p["declarations"].append("bad declaration"), "must be an object"),
     (lambda p: p["declarations"].clear(), "borrower"),
@@ -134,6 +140,7 @@ def second_journal(p, *, amount=20, separate=False, cap=30):
     (change_side(legal_entity="Synthetic Wrong Borrower"), "does not match"),
     (change_side(legal_entity=" "), "non-blank"),
     (change_side(counterparty_entity_id=B), "different participant"),
+    (change_side(direction="asset"), "direction has an invalid value"),
     (change_side(amount=0), "must be positive"),
     (change_side(of_which_owed_to_group=31), "cap"),
     (change_side(of_which_owed_to_group=19), "cap"),
@@ -425,5 +432,31 @@ def test_participant_guarantees_are_disclosure_and_not_debt(tmp_path):
     file = {"periods": {P: copy.deepcopy(_read_full(tmp_path)["credit_aggregation"][P]["input"])}}
     file["periods"][P]["participant_guarantees"] = [row]
     with pytest.raises(ca.AggregationError, match="two different participants"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+def test_supported_principal_in_conflict_with_attested_external_debt_is_unknown(tmp_path):
+    def change(p):
+        p["left_out"]["synthetic-left-out"] = {
+            "reason": "Not selected", "external_debt": 10,
+            "support": [{"participant": B, "type": "guarantee", "debt_id": "D1",
+                         "covered_principal": 30, "evidence": REF}],
+        }
+    computed = run(tmp_path, change)
+    assert computed["debt_memo"]["value"] == "unknown"
+    assert "conflicts with external debt" in computed["debt_memo"]["reason"]
+    assert computed["financials"]["total_debt"] == 390
+
+
+def test_support_by_an_unselected_entity_refuses_without_writing(tmp_path):
+    file = seed(tmp_path)
+    file["periods"][P]["left_out"]["synthetic-left-out"] = {
+        "reason": "Not selected", "external_debt": "unknown",
+        "support": [{"participant": "synthetic-nonparticipant", "type": "guarantee", "debt_id": "D1",
+                     "covered_principal": 30, "evidence": REF}],
+    }
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="support must be provided by a participant"):
         calculate(tmp_path, file)
     assert _state_file(tmp_path).read_bytes() == before

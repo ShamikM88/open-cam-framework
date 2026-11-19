@@ -553,6 +553,27 @@ def test_credit_aggregation_refuses_and_leaves_the_state_untouched(cli):
     assert not (cli.workdir / "deals").exists()
 
 
+def test_credit_aggregation_calculate_cli_writes_one_confirmed_input_or_preserves_state(cli):
+    from test_credit_aggregation import COMPANY, PROPOSAL, _state_file
+    from test_credit_aggregation_calc import P, seed
+
+    file = seed(cli.workdir)
+    journal_file = cli.workdir / "journals.json"
+    journal_file.write_text(json.dumps(file), encoding="utf-8")
+    args = ("--calculate", "--company", COMPANY, "--proposal", PROPOSAL, "--journals-file", journal_file)
+    result = cli("credit_aggregation", *args)
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["calculated"] and report["label"] == "credit aggregation, not accounting-reviewed"
+    assert report["limitations"] and report["periods"] == [P]
+    path = _state_file(cli.workdir)
+    before = path.read_bytes()
+    file["periods"][P]["journals"][0]["confirmed"] = False
+    journal_file.write_text(json.dumps(file), encoding="utf-8")
+    _assert_a_clean_state_error(cli("credit_aggregation", *args), "confirmed")
+    assert path.read_bytes() == before
+
+
 def test_credit_aggregation_reports_a_missing_request_file_cleanly(cli):
     import state_manager
     state_manager.write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(cli.workdir))

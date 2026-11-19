@@ -557,22 +557,41 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     return "\n".join(parts)
 
 
+class RiskInputsError(ValueError):
+    """PD or LGD is unavailable, or an explicit PD/LGD flag was blank (issue #599)."""
+
+
+def _risk_input_unavailable(value: Any) -> bool:
+    """True for None and for a blank or whitespace-only string; any other value is a judgement to keep."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 def _resolve_pd_lgd_inputs(
     company: str,
     proposal: str,
     pd_override: Any | None = None,
     lgd_override: Any | None = None,
     new_review: bool = False,
+    date_str: str | None = None,
 ) -> tuple[Any, Any]:
     """Resolve explicit risk-input overrides or the selected deal's recorded values.
 
     An omitted flag falls back only to its matching key in the selected deal's
     inputs object. No synthetic defaults are invented. Missing inputs stop the
     headless command before it can create a review folder, write state or call
-    a model. Values pass through unchanged; format validation remains outside
-    this function because PD and LGD are human-owned judgements.
+    a model. A blank or whitespace-only recorded value counts as missing, and a
+    blank explicit flag (for example an unset CI variable) is refused rather than
+    silently replaced by a recorded value. Other values pass through unchanged;
+    format validation remains outside this function because PD and LGD are
+    human-owned judgements. `date_str` lets the caller reuse the dated state it
+    already selected, so the values and the state they are saved into always
+    come from the same record.
     """
-    date_str = resolve_date_str(company, proposal, new_review=new_review)
+    for flag, override in (("--pd", pd_override), ("--lgd", lgd_override)):
+        if override is not None and _risk_input_unavailable(override):
+            raise RiskInputsError(f"{flag} is blank; supply a value or omit the flag; nothing was written.")
+    if date_str is None:
+        date_str = resolve_date_str(company, proposal, new_review=new_review)
     existing_state = read_state(company, proposal, date_str=date_str, keys=("inputs",)) or {}
     recorded_inputs = existing_state.get("inputs")
     if not isinstance(recorded_inputs, Mapping):
@@ -582,10 +601,10 @@ def _resolve_pd_lgd_inputs(
     lgd_score = lgd_override if lgd_override is not None else recorded_inputs.get("lgd")
     missing = [
         label for label, value in (("PD", pd_score), ("LGD", lgd_score))
-        if value is None
+        if _risk_input_unavailable(value)
     ]
     if missing:
-        raise ValueError(
+        raise RiskInputsError(
             "no recorded or supplied PD/LGD inputs "
             f"(missing: {', '.join(missing)}); nothing was written."
         )
@@ -636,6 +655,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
             file=sys.stderr,
         )
     date_str = resolve_date_str(company, proposal, new_review=new_review)
+    # Resolve PD and LGD once, from the same dated state this run will save into, before any write or model call.
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        company, proposal, pd_score, lgd_score, new_review=new_review, date_str=date_str,
+    )
     new_state_file = state_path(company, proposal, date_str=date_str)
     company_dir = os.path.dirname(os.path.dirname(new_state_file))
     if new_review and os.path.isdir(company_dir) and not os.path.isfile(new_state_file):
@@ -1047,18 +1070,11 @@ if __name__ == "__main__":
         sys.exit(f"error: {exc}")
 
     try:
-        pd_score, lgd_score = _resolve_pd_lgd_inputs(
-            args.company, args.proposal, args.pd, args.lgd, new_review=args.new_review,
-        )
-    except (OSError, StateError, ValueError) as exc:
-        sys.exit(f"error: {exc}")
-
-    try:
-        run_pipeline(args.company, args.proposal, pd_score, lgd_score, args.type,
+        run_pipeline(args.company, args.proposal, args.pd, args.lgd, args.type,
                      multi_period_financials=multi_period_financials,
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
+    except (StateError, RiskInputsError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
             FinancialInputError, StressAssumptionsError, TemplateContentError) as exc:
         sys.exit(f"error: {exc}")

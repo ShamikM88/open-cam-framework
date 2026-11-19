@@ -127,8 +127,11 @@ See [State manager](#state-manager).
   omitted, the orchestrator uses the corresponding value in the selected deal's recorded `inputs.pd` or `inputs.lgd`.
   Both values must be available from a flag or the selected state. If either is missing, the command prints one
   `error:` line and exits before any model call or state write. The values are passed through unchanged; their
-  format remains a human judgement and is not validated here. Existing `inputs` fields such as `experian_score`
-  are preserved when a flag updates PD or LGD.
+  format remains a human judgement and is not validated here. A blank or whitespace-only recorded value counts as
+  missing, and a blank flag (for example an unset CI variable) is refused rather than replaced by a recorded value.
+  PD and LGD are resolved once, from the same dated state the run saves into, so a review started in between cannot
+  mix two records. With `--new-review` the new review starts empty and nothing is copied from the earlier one, so pass
+  both `--pd` and `--lgd`. Existing `inputs` fields such as `experian_score` are preserved when a flag updates PD or LGD.
 - `--type` selects the template and defaults to `corporate_credit`.
 - A model reply that ends at its output-token limit (`stop_reason` `max_tokens`: 4000 for the Maker draft and revision, 2000
   for the Checker audit) stops the run with one `error:` line and exit status 1. The partial text is not parsed, saved,

@@ -3415,3 +3415,114 @@ def test_missing_pd_lgd_refuses_before_model_calls_or_state_writes(project_root)
     ]
     deals_dir = Path.cwd() / "deals"
     assert not deals_dir.exists() or not list(deals_dir.rglob("state.json"))
+
+
+def test_explicit_lgd_override_changes_only_lgd_and_keeps_recorded_pd_and_bureau_score(project_root):
+    write_state(
+        "Example Co", "Term Loan",
+        inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
+    )
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override=None, lgd_override="LGD 2 (10%)",
+    )
+
+    assert (pd_score, lgd_score) == ("4.50%", "LGD 2 (10%)")
+    run_pipeline("Example Co", "Term Loan", pd_score, lgd_score, "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 2 (10%)", "experian_score": 41,
+    }
+
+
+@pytest.mark.parametrize("recorded", ["", "   ", None])
+def test_a_blank_or_missing_recorded_value_counts_as_unavailable(project_root, recorded):
+    write_state("Example Co", "Term Loan", inputs={"pd": recorded, "lgd": "LGD 6 (45%)"})
+
+    with pytest.raises(ValueError, match=r"missing: PD\)"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan")
+
+
+@pytest.mark.parametrize("flag_value", ["", "  "])
+def test_a_blank_explicit_flag_is_refused_not_replaced_by_the_recorded_value(project_root, flag_value):
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+
+    with pytest.raises(ValueError, match="--pd is blank"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan", pd_override=flag_value)
+    with pytest.raises(ValueError, match="--lgd is blank"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan", lgd_override=flag_value)
+
+
+def test_a_value_that_is_not_text_is_kept_as_a_judgement(project_root):
+    write_state("Example Co", "Term Loan", inputs={"pd": 0, "lgd": 0.45})
+
+    assert _resolve_pd_lgd_inputs("Example Co", "Term Loan") == (0, 0.45)
+
+
+def test_a_new_review_does_not_borrow_the_earlier_reviews_inputs(project_root):
+    write_state("Example Co", "Term Loan", date_str="2026-01-10",
+                inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    before = (project_root / "deals").rglob("state.json")
+    before = {path: path.read_bytes() for path in before}
+
+    with pytest.raises(ValueError, match=r"missing: PD, LGD"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan", new_review=True)
+
+    assert _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override="1.00%", lgd_override="LGD 1 (5%)", new_review=True,
+    ) == ("1.00%", "LGD 1 (5%)")
+    assert {path: path.read_bytes() for path in (project_root / "deals").rglob("state.json")} == before
+
+
+def test_run_pipeline_called_without_scores_uses_the_recorded_ones_and_never_saves_null(project_root):
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
+
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41,
+    }
+    prompt_text = chr(10).join(str(m.get("content", "")) for c in client.calls for m in c["messages"])
+    assert "PD: 4.50%" in prompt_text and "PD: None" not in prompt_text
+
+
+def test_run_pipeline_refuses_missing_scores_before_any_write_or_model_call(project_root):
+    client = MockClient([])
+
+    with pytest.raises(ValueError, match="no recorded or supplied PD/LGD inputs"):
+        run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
+
+    assert client.call_count == 0
+    assert not (project_root / "deals").exists() or not list((project_root / "deals").rglob("state.json"))
+
+
+def test_omitted_scores_come_from_the_same_dated_state_the_run_saves_into(project_root):
+    write_state("Example Co", "Term Loan", date_str="2026-01-10", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    write_state("Example Co", "Term Loan", date_str="2026-02-01",
+                inputs={"pd": "8.50%", "lgd": "LGD 7 (60%)", "experian_score": 33})
+
+    run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+
+    assert read_state("Example Co", "Term Loan", date_str="2026-02-01")["inputs"] == {
+        "pd": "8.50%", "lgd": "LGD 7 (60%)", "experian_score": 33,
+    }
+    assert read_state("Example Co", "Term Loan", date_str="2026-01-10")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)",
+    }
+
+
+def test_the_cli_refuses_a_blank_pd_flag_with_one_error_line_and_no_write(project_root):
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    state_file = next((project_root / "deals").rglob("state.json"))
+    before = state_file.read_bytes()
+    script = Path(__file__).resolve().parents[1] / "scripts" / "orchestrator.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--company", "Example Co", "--proposal", "Term Loan", "--pd", ""],
+        cwd=Path.cwd(), capture_output=True, text=True, check=False, timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.splitlines() == ["error: --pd is blank; supply a value or omit the flag; nothing was written."]
+    assert state_file.read_bytes() == before

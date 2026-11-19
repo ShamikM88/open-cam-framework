@@ -1,5 +1,7 @@
 """Each aggregation surface discloses limitations, including covenant non-results."""
 
+import json
+
 import committee_summary
 import credit_aggregation as ca
 import policy_engine
@@ -8,8 +10,6 @@ from deal_export import workbook_inputs_from_state
 from spreading_builder import export_to_xlsx
 from test_credit_aggregation import COMPANY, DATE, PROPOSAL, _read_full, _state_file
 from test_credit_aggregation_calc import B, O, P, calculate, change_journal, run, seed
-
-import json
 
 LABEL = "credit aggregation, not accounting-reviewed"
 
@@ -75,5 +75,8 @@ def test_actual_xlsx_and_covenant_keep_variant_separate(tmp_path):
     export_to_xlsx(COMPANY, path, **workbook_inputs_from_state(state))
     book = openpyxl.load_workbook(path)
     assert book.sheetnames[-1] == "Credit aggregation"
-    rows = dict(book["Credit aggregation"].values)
+    sheet_rows = list(book["Credit aggregation"].values)
+    rows = {row[0]: row[1] for row in sheet_rows}
     assert LABEL in rows and rows[metric] == 390 / 800 and rows["gross_leverage"] is None
+    assert ("Participant", "Legal entity", "Status", "Ownership (%)", "Post-elimination debt", "Cash", "EBITDA") in sheet_rows
+    assert (B, COMPANY, "obligor", 100, 210, 50, 500) in sheet_rows

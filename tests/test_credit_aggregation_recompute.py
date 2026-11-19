@@ -7,7 +7,7 @@ import pytest
 import credit_aggregation as ca
 from state_manager import StateError, validate_state
 from test_credit_aggregation import _read_full
-from test_credit_aggregation_calc import B, O, P, calculate, run, seed
+from test_credit_aggregation_calc import B, H, O, P, calculate, run, seed
 
 
 def test_recompute_equals_stored_and_does_not_mutate_state(tmp_path):
@@ -80,3 +80,12 @@ def test_state_validator_recognises_the_calculated_shape(tmp_path, change, messa
     change(state["credit_aggregation"][P])
     with pytest.raises(StateError, match=message):
         validate_state(state, keys=("credit_aggregation",))
+
+
+def test_an_invalid_period_on_a_live_intercompany_line_never_looks_current(tmp_path):
+    run(tmp_path)
+    state = _read_full(tmp_path)
+    state["entity_records"][H]["intercompany_lines"].append({"period": "typo"})
+    status = ca.aggregation_period_status(state, P)
+    assert status["status"] == "stale"
+    assert "intercompany" in status["reason"]

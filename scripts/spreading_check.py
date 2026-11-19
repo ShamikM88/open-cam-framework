@@ -129,7 +129,22 @@ def plan_fields(
         # periods this call happened to touch. No formula changes: a forward year whose previous
         # period is analyst-supplied is absent from this store, so its prior stays None (N/A with
         # a reason), never a figure blended from the other store.
-        prior_owc = _prior_operating_working_capital(merged_multi_period)
+        # Only the periods being evaluated and the period before each are read, so an unrelated older value that
+        # cannot be converted never breaks a forward-only call; a relevant one is a clean input error.
+        needed_periods = set(periods_to_evaluate)
+        for period in periods_to_evaluate:
+            period_index = PERIOD_KEYS.index(period)
+            if period_index > 0:
+                needed_periods.add(PERIOD_KEYS[period_index - 1])
+        prior_data = {
+            period: merged_multi_period[period] for period in needed_periods if period in merged_multi_period
+        }
+        try:
+            prior_owc = _prior_operating_working_capital(prior_data)
+        except OverflowError as exc:
+            raise ValueError(
+                "financial inputs: operating working capital is outside the supported numeric range"
+            ) from exc
         model_data = evaluate_financial_model(periods_to_evaluate, prior_operating_working_capital=prior_owc)
 
         merged_financials = dict(existing_state.get("financials") or {})

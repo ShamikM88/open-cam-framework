@@ -1055,3 +1055,35 @@ def test_every_period_on_file_equals_one_evaluation_of_the_stored_raw_figures(tm
             one_pass["financials"][period]["fcf_after_working_capital"]
         assert state["ratios"][period]["cash_flow_dscr"] == \
             one_pass["ratios"][period]["cash_flow_dscr"]
+
+
+def _store_a_huge_int(tmp_path, period):
+    """Simulate a hand-edited record: an integer too large to convert to a float, in one period's debtors."""
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["multi_period_financials"][period]["trade_debtors"] = 10 ** 400
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+
+def test_an_unrelated_older_value_that_overflows_does_not_break_a_forward_only_call(tmp_path, monkeypatch):
+    """Issue #597 (CU625-1): only the evaluated periods and the period before each are read for the prior."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    _store_a_huge_int(tmp_path, "FY-1")
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                    update_financials_source=False)
+
+    assert state["financials"]["FY+1"]["fcf_after_working_capital"] == 270
+
+
+def test_a_relevant_value_that_overflows_is_a_clean_input_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    _store_a_huge_int(tmp_path, "FY-Current")
+
+    with pytest.raises(ValueError, match="operating working capital is outside the supported numeric range"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                update_financials_source=False)

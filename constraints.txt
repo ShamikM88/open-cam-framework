@@ -45,8 +45,8 @@ mdit-py-plugins==0.6.1
 mdurl==0.1.2
 msgpack==1.2.4
 mutmut==3.8.0
-mypy==2.4.0
-mypy-extensions==1.1.0
+mypy==2.4.1
+mypy-extensions==1.2.0
 openpyxl==3.1.5
 opentelemetry-api==1.45.2
 packageurl-python==0.17.6
@@ -59,8 +59,8 @@ pip-requirements-parser==32.0.1
 platformdirs==4.13.3
 pluggy==1.7.0
 py-serializable==2.1.0
-pydantic==2.14.2
-pydantic-core==2.50.2
+pydantic==2.14.3
+pydantic-core==2.50.4
 pygments==2.21.0
 pyparsing==3.3.3
 pypdf==6.21.4

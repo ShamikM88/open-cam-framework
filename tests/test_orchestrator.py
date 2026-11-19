@@ -453,13 +453,18 @@ STANDARD_CS_IDS = ["MI-REPORTING"]
 ALL_CATEGORIES_COVERED = {category: {"status": "covered"} for category in REQUIRED_RISK_TAXONOMY}
 
 
-def _compliant_draft(body="# Draft CAM", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD_CS_IDS,
+def _compliant_draft(body="# Draft CAM\n\n## Sources\n\n- **Test Source:** supplied by the analyst", cp_ids=STANDARD_CP_IDS, cs_ids=STANDARD_CS_IDS,
                       risk_categories=None, reported_figures=None, sources=None,
                       financials_source_disclosed=None, credit_policy_considered=None):
     """A draft whose trailing structured JSON block satisfies every
     deterministic policy check by default (see agents/underwriter_agent.md's
     Structured Output guideline) -- for tests where the draft is expected to
     actually be approved and exported.
+
+    The default body ends with a populated Sources section because the shipped
+    templates end with one and the exporter warns (advisory, issue #583) when a
+    CAM draft has no populated section; several tests below count stderr warning
+    lines exactly, so a sources-less default body would trip them.
 
     reported_figures defaults to empty: per the Structured Output guideline,
     omitting a metric entirely (rather than reporting an unverifiable guess)

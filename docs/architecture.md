@@ -205,7 +205,7 @@ open-cam-framework/
 │   ├── calibrate.py             Headless style + template calibration entry point (needs ANTHROPIC_API_KEY)
 │   ├── orchestrator.py          Headless deal pipeline entry point (needs ANTHROPIC_API_KEY)
 │   ├── deal_export.py           Folder creation + template auto-save + .docx/.xlsx export (no anthropic dependency; shared by orchestrator.py and /assemble)
-│   ├── research_export.py       Standalone research-brief -> .docx export (no anthropic dependency; used by /research only -- kept separate from deal_export.py so a research-only deal never triggers CAM-specific side effects)
+│   ├── research_export.py       Standalone research-brief -> .docx export (no anthropic dependency; used by /research only -- kept separate from deal_export.py so a research-only deal never triggers CAM-specific side effects, though deal_export.py reuses its shared Sources-section finder for the CAM's advisory missing-Sources warning)
 │   ├── state_manager.py         Reads/writes deals/<Company>/<Proposal>_<Date>/state.json (no anthropic dependency; see "Context Window & State Management Protocol")
 │   ├── review_compare.py        Read-only comparison of two exact dated states; optional historical-period restatement check (no anthropic dependency)
 │   ├── export_readback.py       Read-back check of a deal's exported .docx/.xlsx against what its record regenerates -- a change detector for edits after export and for stale exports, not proof the exporter is right; read-only for the deal (no anthropic dependency)

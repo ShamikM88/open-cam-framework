@@ -224,6 +224,14 @@ reported as an advisory `[deal_export] Citation link warning: ...` line on stand
 (a bare URL in a Sources entry, or an in-text `[Key]` whose source has a URL); the export
 then carries on with the same exit status and files, and a source with no URL never warns.
 
+A CAM draft with no populated `Sources` or `References` section (issue #583) is reported the same
+advisory way: one `[deal_export] Sources section warning: ...` line on standard error, and the export
+continues with the same exit status and files. The check reuses the section finder `research_export.py`
+applies to research briefs -- an ATX heading titled `Sources` or `References` (case-insensitive, any
+level, not inside a fenced code block or an HTML comment, and not a numbered title such as `## 15. Sources`) whose section
+contains a list item or an `http://`/`https://` URL, ending at the next heading of the same or a higher
+level. A populated section produces no warning.
+
 ## Committee summary
 
 `scripts/committee_summary.py --company ... --proposal ... [--date-str YYYY-MM-DD]` writes a one-to-two-page meeting aid

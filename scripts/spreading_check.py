@@ -323,6 +323,9 @@ def compute_entity(
     validate_period_keys(raw, PERIOD_KEYS, path=f"entity_records[{entity_id!r}].multi_period_financials")
     validate_raw_line_items(raw, FIELD_LABELS, path=f"entity_records[{entity_id!r}].multi_period_financials")
     validate_finite_numbers(raw, path=f"entity_records[{entity_id!r}].multi_period_financials")
+    # Issue #596: a record on file may carry an unknown name recorded before the registration refusal existed;
+    # it is not locked out, but each unknown key is named so a misspelt line is not silently read as zero.
+    warn_unknown_raw_line_items(raw, FIELD_LABELS, path=f"entity_records[{entity_id!r}].multi_period_financials")
 
     evaluated = evaluate_financial_model(raw)
     fingerprints = {

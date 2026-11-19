@@ -75,8 +75,12 @@ class InvalidFinancialInputError(FinancialInputError):
 
 
 def _nearest_valid_names(unknown, field_names):
-    """The closest known field names to `unknown`, for the refusal message."""
-    return difflib.get_close_matches(unknown, field_names, n=3, cutoff=0.5)
+    """The closest known field names to `unknown`, for the refusal message (empty when none is close).
+
+    A key that is not text (possible only when a caller builds the mapping in code, never from JSON) is
+    compared by its text form, so the refusal stays a clean input error.
+    """
+    return difflib.get_close_matches(str(unknown), field_names, n=3, cutoff=0.5)
 
 
 def refuse_unknown_raw_line_items(value, field_names, path="financial inputs"):
@@ -94,7 +98,7 @@ def refuse_unknown_raw_line_items(value, field_names, path="financial inputs"):
     for period, raw in value.items():
         if not isinstance(raw, dict):
             continue
-        unknown = sorted(field for field in raw if field not in known_fields)
+        unknown = sorted((field for field in raw if field not in known_fields), key=str)
         if unknown:
             details = "; ".join(
                 f"{field!r} (nearest valid: {', '.join(_nearest_valid_names(field, field_names)) or 'none'})"
@@ -111,7 +115,8 @@ def warn_unknown_raw_line_items(value, field_names, path="financial inputs"):
     """Print one stderr warning per unknown raw line item already on file (issue #596).
 
     An existing deal that recorded an unknown name before this rule existed is not locked out:
-    it still computes, and each unknown key is named so the analyst can correct it.
+    it still computes, and each unknown key is named so the analyst can correct it. The warning is printed
+    when the stored periods are read, so it can appear before a later check refuses the same call.
     """
     if not isinstance(value, dict):
         return value
@@ -119,10 +124,10 @@ def warn_unknown_raw_line_items(value, field_names, path="financial inputs"):
     for period, raw in value.items():
         if not isinstance(raw, dict):
             continue
-        for field in sorted(field for field in raw if field not in known_fields):
+        for field in sorted((field for field in raw if field not in known_fields), key=str):
             print(
                 f"warning: {path}: period {period!r} has unknown raw line-item name {field!r} "
-                "already on file; it is ignored by the formulas and not written. "
+                "already on file; it is ignored by the formulas and is kept as recorded. "
                 "Known names are the keys of spreading_builder.FIELD_LABELS.",
                 file=sys.stderr,
             )

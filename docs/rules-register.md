@@ -420,7 +420,9 @@ independently proven by the gate.
 
 - **Claim:** An incoming raw line item whose name is not one of the framework's field names is refused
   before anything is written, with one error naming the period, the key and the nearest valid name; an
-  unknown name already on file is warned about and still computed.
+  unknown name already on file is warned about and still computed. A new guarantor entity record is refused
+  the same way at registration (`state_manager.record_entity_record`), and a stored one is warned about when it is
+  spread (`spreading_check.compute_entity`).
 - **Source:** [Raw line-item names](financial-model.md#raw-line-item-names).
 - **Implemented in:** `scripts/numeric_validation.py::refuse_unknown_raw_line_items`
 - **Status:** Covered

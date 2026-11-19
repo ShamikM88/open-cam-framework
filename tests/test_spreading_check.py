@@ -354,7 +354,13 @@ def test_main_with_a_missing_financials_file_fails_before_writing_anything(tmp_p
 
 
 def test_main_reads_its_input_files_as_utf8(tmp_path, monkeypatch, capsys):
-    """A company name with a non-ASCII character must not depend on the platform's default encoding."""
+    """A company name with a non-ASCII character must not depend on the platform's default encoding.
+
+    The --financials file itself is ASCII here on purpose: since issue #596 every key in it must be a known
+    field name and every value a number, so it cannot carry non-ASCII text. The UTF-8 reading of a file that can
+    (the stress-assumptions file with a text note) is covered by the `--stress-assumptions` case of
+    test_main_reads_financials_and_stress_files_as_utf8_with_cp1252_default_open; its `--financials` case checks
+    only that the ASCII financials file is still read under a cp1252 default."""
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "fin.json"
     path.write_text(json.dumps({"FY-Current": dict(RAW_YEAR)}, ensure_ascii=False), encoding="utf-8")
@@ -1113,3 +1119,19 @@ def test_warn_unknown_raw_line_items_skips_non_dict_period_values():
     assert warn_unknown_raw_line_items({"FY-Current": "not-a-dict"}, list(FIELD_LABELS)) == {
         "FY-Current": "not-a-dict"
     }
+
+
+def test_a_non_text_key_is_refused_cleanly_not_with_a_type_error():
+    """Rule: R-SPREAD-008
+
+    A mapping built in code with a non-string key gets the normal refusal, not a TypeError.
+    """
+    with pytest.raises(ValueError, match="unknown raw line-item name") as caught:
+        refuse_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
+    assert "7" in str(caught.value) and "nothing was written" in str(caught.value).lower()
+    assert not isinstance(caught.value, TypeError)
+
+
+def test_warn_unknown_raw_line_items_handles_a_non_text_key(capsys):
+    warn_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
+    assert "7" in capsys.readouterr().err

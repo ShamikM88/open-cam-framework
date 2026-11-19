@@ -395,7 +395,7 @@ a finite JSON number (not a string, boolean, null, list or object). Invalid inpu
 behavior; omitted fields are also unchanged. An unknown raw line-item name — for example
 `cost_of_goods_sold`, `admin_expense` or `interest` where the valid names are `cost_of_sales`,
 `admin_expenses` and `interest_paid` — is refused with one `error:` line naming the period and each
-unknown key and suggesting the nearest valid name, exit status 1, and no state write; no underscore-prefixed
+unknown key and, when a close match exists, suggesting the nearest valid name, exit status 1, and no state write; no underscore-prefixed
 or other metadata keys are allowed (issue #596). A deal with an unknown name already on file still computes
 and prints one stderr warning per unknown key naming the period and the key. The same rules apply to the orchestrator's `--financials` and `--spread` inputs. The slash
 commands `/spread` and `/project` run it; see [Workflows](workflows.md#spreading-the-financial-figures).

@@ -72,14 +72,16 @@ a ratio with a zero or negative denominator remains N/A and its covenant remains
 The valid raw line-item names are the keys of `scripts/spreading_builder.py`'s `FIELD_LABELS` (for example
 `revenue`, `cost_of_sales`, `admin_expenses`, `interest_paid` — not `cost_of_goods_sold`, `admin_expense` or
 `interest`). A payload carrying a name that is not one of them is refused before anything is written: one
-`error:` line names the period and each unknown key and suggests the nearest valid name, and nothing is written
+`error:` line names the period and each unknown key and, when a close match exists, suggests the nearest valid name, and nothing is written
 to `state.json` (issue #596, rule R-SPREAD-008). No underscore-prefixed or other metadata keys are allowed —
 every name in a payload must be a known field name. An omitted known field still reads as zero, as before; only
 the name is checked, never the value's presence.
 
 A deal that already has an unknown name on file in `multi_period_financials` — recorded before this rule existed —
-is not locked out: the call still computes and prints one stderr warning per unknown key naming the period and
-the key, so the analyst can correct it.
+is not locked out: the call still computes. A spreading run (`--financials` or `--spread`, and the guarantor
+`--entity-id` spread) prints one stderr warning per unknown key naming the period and the key, so the analyst can
+correct it; the headless orchestrator's run on recorded data prints no such warning. The same refusal applies to a
+new guarantor entity record at registration, and the stored name stays on file until it is corrected.
 
 ## Worked example
 

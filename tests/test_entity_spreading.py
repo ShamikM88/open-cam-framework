@@ -668,3 +668,25 @@ def test_compute_entity_reports_a_spread_that_is_saved_but_immediately_stale(tmp
     monkeypatch.setattr(spreading_check, "entity_spread_view", lambda record: {"stale_periods": ["FY-1"]})
     with pytest.raises(ValueError, match="saved but one or more periods are stale: FY-1"):
         spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+
+def test_compute_entity_warns_about_an_unknown_name_already_on_file_and_still_spreads(
+        tmp_path, monkeypatch, capsys):
+    """Rule: R-SPREAD-008
+
+    A record on file keeps working; the unknown key is named on stderr.
+    """
+    path, _ = _seed_deal(tmp_path, [_entity()])
+    # Simulate a record stored before the registration refusal existed (registration now refuses the name).
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"][
+        "cost_of_goods_sold"] = 500
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    output = spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+    captured = capsys.readouterr()
+    assert "cost_of_goods_sold" in captured.err and "FY-Current" in captured.err
+    assert "entity_records['synthetic-guarantor'].multi_period_financials" in captured.err
+    assert output["financials"]["FY-Current"]["raw"]["revenue"] == 1200

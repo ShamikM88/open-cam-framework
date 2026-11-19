@@ -30,6 +30,30 @@ def test_shipped_cam_guidance_uses_html_comments_and_blank_human_signature():
 CAM_BASIS_SENTENCE = "EBITDA is before exceptional items and includes other income; DSCR is EBITDA-based; FCF is before working capital."
 
 
+# Issue #583, comment 6854214667 (maintainer-approved wording, 2026-11-13): the final Sources section of both
+# shipped templates, unedited. The heading is exactly "## Sources" -- not numbered -- because the shared
+# Sources-section finder (research_export.py, used by deal_export.py) matches only the titles Sources and References.
+CAM_SOURCES_SECTION = (
+    "## Sources\n"
+    "\n"
+    "- **[Key]:** [title](url)\n"
+    "\n"
+    "[List every document this CAM relies on, one entry per line, with its URL wherever one exists. Key is the short "
+    "form used in the text, for example FY25 accounts. A source with no URL is listed by title and date without a "
+    "link; never invent one.]\n"
+)
+
+
+def test_shipped_cam_templates_end_with_the_approved_sources_section():
+    root = Path(__file__).resolve().parents[1]
+    for name in ("asset_finance_cam.md", "corporate_credit_cam.md"):
+        text = (root / "templates" / "cam" / name).read_text(encoding="utf-8")
+        assert text.count(CAM_SOURCES_SECTION) == 1, name
+        # The section sits after Risks & Mitigants and before the closing guidance comment.
+        assert text.index("Risks & Mitigants") < text.index(CAM_SOURCES_SECTION), name
+        assert text.index(CAM_SOURCES_SECTION) < text.index("<!-- Guidance: Every fact, figure"), name
+
+
 def test_financial_analysis_templates_disclose_the_metric_bases():
     root = Path(__file__).resolve().parents[1]
     templates = {

@@ -16,6 +16,7 @@ from typing import Any, TypedDict
 from credit_aggregation import aggregation_sheet_rows
 from docx_builder import check_exportable, export_to_docx
 from draft_lint import citation_link_warnings
+from research_export import _has_populated_sources_section
 from spreading_builder import FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, SUPPLIED_RATIOS, SUPPLIED_ROW_LABELS, export_to_xlsx
 from state_manager import (
     StateError, existing_state_date_str, read_state, resolve_export_date_str, sanitize_path_component,
@@ -279,6 +280,15 @@ def export_deal(
     workbook_inputs = workbook_inputs_from_state(state)
     # Refuse an unexportable draft before any folder is created or any template is auto-saved from it.
     check_exportable(draft_markdown)
+    # Advisory only (issue #583): the shipped templates end with a Sources section, so report a
+    # draft without a populated one, then carry on with the export. The finder is the same one
+    # research_export.py uses (kept free of the anthropic dependency), never a second copy.
+    if not _has_populated_sources_section(draft_markdown):
+        print(
+            "[deal_export] Sources section warning: the CAM draft has no populated Sources or References "
+            "section; the export continues unchanged (issue #583).",
+            file=sys.stderr,
+        )
     # Advisory only (issue #580): report citations that will not be clickable
     # links in the exported document, then carry on with the export.
     for warning in citation_link_warnings(draft_markdown):

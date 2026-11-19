@@ -8,7 +8,7 @@ import re
 import sys
 from datetime import date
 
-from docx_builder import check_exportable, export_to_docx
+from docx_builder import _strip_html_comments, check_exportable, export_to_docx
 from draft_lint import citation_link_warnings, lint_draft
 from state_manager import read_state, resolve_date_str, sanitize_path_component, write_state
 
@@ -61,8 +61,14 @@ def _has_populated_sources_section(markdown):
     """Whether a Sources/References ATX section contains a list item or HTTP(S) URL.
 
     Fenced code blocks neither introduce headings nor count as source-list entries.
-    A section ends at the next heading of the same or a higher level.
+    HTML comments are ignored the way the Word export ignores them (it strips them before it renders), so a
+    commented-out heading or list never counts (CG593-1). A section ends at the next heading of the same or a
+    higher level.
     """
+    try:
+        markdown = _strip_html_comments(markdown)
+    except ValueError:
+        pass    # an unterminated comment: the Word export refuses it on its own, so the finder stays quiet
     lines, visible, headings = _markdown_structure(markdown)
     for heading_index, level, title in headings:
         if title.casefold() not in {"sources", "references"}:

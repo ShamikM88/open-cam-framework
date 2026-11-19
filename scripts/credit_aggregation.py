@@ -4,7 +4,7 @@ import hashlib
 import json
 import sys
 from decimal import Decimal, DecimalException
-from typing import Any
+from typing import Any, TypedDict, cast
 
 from credit_aggregation_calc import LABEL, LIMITATIONS, MEMO_LABEL
 from numeric_validation import validate_finite_numbers
@@ -17,6 +17,27 @@ from state_manager import (
     read_state,
     sanitize_path_component,
 )
+
+
+class RecordReport(TypedDict):
+    """What recording one request prints and returns (the `--request-file` CLI path)."""
+
+    recorded: bool
+    periods: list[str]
+    state_path: str
+
+
+class CalculationReport(RecordReport):
+    """What `--calculate` prints and returns: the recorded report plus each period's stored figures.
+
+    `results[period]` is the period's persisted `computed` object without `adjusted_raw`; its inner shape is
+    owned by `credit_aggregation_calc` and validated by `state_manager`, so it stays a mapping here.
+    """
+
+    calculated: bool
+    label: str
+    limitations: list[str]
+    results: dict[str, dict[str, Any]]
 
 
 class AggregationError(StateError):
@@ -687,7 +708,7 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
 def record_credit_aggregation(
     company: str, proposal: str, request_file: str,
     base_dir: str | None = None,
-) -> dict[str, Any]:
+) -> RecordReport:
     """Validate one aggregation request and persist it under ``credit_aggregation``.
 
     The read/check/write uses the same per-deal lock and shared atomic
@@ -697,14 +718,14 @@ def record_credit_aggregation(
     drops any earlier ``computed`` for it, which the new inputs have invalidated)
     while periods not named in the request are preserved.
     """
-    return _record_aggregation(company, proposal, request_file, base_dir, calculate=False)
+    return cast(RecordReport, _record_aggregation(company, proposal, request_file, base_dir, calculate=False))
 
 
 def calculate_credit_aggregation(
     company: str, proposal: str, journals_file: str, base_dir: str | None = None,
-) -> dict[str, Any]:
+) -> CalculationReport:
     """Calculate every confirmed period before a single locked write."""
-    return _record_aggregation(company, proposal, journals_file, base_dir, calculate=True)
+    return cast(CalculationReport, _record_aggregation(company, proposal, journals_file, base_dir, calculate=True))
 
 
 def _unique_json_object(items: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -737,7 +758,7 @@ def _resolve_calculation(state: dict[str, Any], request: object) -> dict[str, di
 
 def _record_aggregation(
     company: str, proposal: str, request_file: str, base_dir: str | None, *, calculate: bool,
-) -> dict[str, Any]:
+) -> RecordReport | CalculationReport:
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
     found = find_deal(company, proposal, base_dir=base_dir)
@@ -786,13 +807,14 @@ def _record_aggregation(
         _merge_and_write(path, company, proposal, record_date, base_dir,
                          {"credit_aggregation": merged})
 
-    report: dict[str, Any] = {"recorded": True, "periods": sorted(records), "state_path": path}
     if calculate:
-        report.update(calculated=True, label=LABEL, limitations=list(LIMITATIONS), results={
-            period: {key: value for key, value in entry["computed"].items() if key != "adjusted_raw"}
-            for period, entry in records.items()
-        })
-    return report
+        return CalculationReport(
+            recorded=True, periods=sorted(records), state_path=path,
+            calculated=True, label=LABEL, limitations=list(LIMITATIONS), results={
+                period: {key: value for key, value in entry["computed"].items() if key != "adjusted_raw"}
+                for period, entry in records.items()
+            })
+    return RecordReport(recorded=True, periods=sorted(records), state_path=path)
 
 
 if __name__ == "__main__":
@@ -812,6 +834,7 @@ if __name__ == "__main__":
     if args.calculate != (args.journals_file is not None):
         parser.error("--calculate and --journals-file must be used together")
 
+    report: RecordReport
     try:
         if args.calculate:
             report = calculate_credit_aggregation(args.company, args.proposal, args.journals_file)

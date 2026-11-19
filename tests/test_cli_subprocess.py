@@ -567,6 +567,10 @@ def test_credit_aggregation_calculate_cli_writes_one_confirmed_input_or_preserve
     assert report["calculated"] and report["label"] == "credit aggregation, not accounting-reviewed"
     assert report["limitations"] and report["periods"] == [P]
     path = _state_file(cli.workdir)
+    stored = json.loads(path.read_text(encoding="utf-8"))["credit_aggregation"][P]
+    # The result was persisted, not calculated and discarded: the stored figures are the ones the CLI printed.
+    for key in ("financials", "ratios", "group_net_debt", "refused_journals"):
+        assert stored["computed"][key] == report["results"][P][key]
     before = path.read_bytes()
     file["periods"][P]["journals"][0]["confirmed"] = False
     journal_file.write_text(json.dumps(file), encoding="utf-8")

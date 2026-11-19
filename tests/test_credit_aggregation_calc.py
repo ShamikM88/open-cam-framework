@@ -182,10 +182,16 @@ def test_a_loan_id_cannot_identify_two_different_party_pairs(tmp_path):
     assert path.read_bytes() == before
 
 
+def _file_text_with_journal_amount(file, amount_text):
+    """The request as JSON text whose first journal amount is written exactly as `amount_text` (not re-rounded)."""
+    file["periods"][P]["journals"][0]["amount"] = "__JOURNAL_AMOUNT__"
+    return json.dumps(file).replace('"__JOURNAL_AMOUNT__"', amount_text)
+
+
 def test_rounding_a_journal_amount_cannot_create_an_exact_match(tmp_path):
     file = seed(tmp_path)
     path = tmp_path / "precision.json"
-    path.write_text(json.dumps(file).replace('"amount": 20', '"amount": 20.000000000000001', 1), encoding="utf-8")
+    path.write_text(_file_text_with_journal_amount(file, "20.000000000000001"), encoding="utf-8")
     before = _state_file(tmp_path).read_bytes()
     with pytest.raises(ca.AggregationError, match="precision"):
         ca.calculate_credit_aggregation(COMPANY, PROPOSAL, str(path), base_dir=str(tmp_path))
@@ -195,8 +201,7 @@ def test_rounding_a_journal_amount_cannot_create_an_exact_match(tmp_path):
 @pytest.mark.parametrize("number_text", ["1e9999999999999999999999999", "1" * 5000], ids=["exponent", "integer"])
 def test_unrepresentable_json_number_is_a_named_refusal(tmp_path, number_text):
     path = tmp_path / "precision.json"
-    path.write_text(json.dumps(seed(tmp_path)).replace('"amount": 20', f'"amount": {number_text}', 1),
-                    encoding="utf-8")
+    path.write_text(_file_text_with_journal_amount(seed(tmp_path), number_text), encoding="utf-8")
     before = _state_file(tmp_path).read_bytes()
     with pytest.raises(ca.AggregationError, match="precision|UTF-8 JSON"):
         ca.calculate_credit_aggregation(COMPANY, PROPOSAL, str(path), base_dir=str(tmp_path))
@@ -273,6 +278,39 @@ def test_ebitda_gate_keeps_only_debt_and_explains_withheld_metrics(tmp_path, cha
     assert all(v is None for v in c["ratios"].values())
     assert c["withheld"]["ebitda"] and c["withheld"]["gross_leverage"]
     assert all(row["ebitda"] is None for row in c["participant_table"])
+    # Maintainer decision on #472: group net debt is a printed memo whenever the cash gate passes, even with EBITDA
+    # withheld (total debt 390 less unrestricted cash 100).
+    assert c["group_net_debt"] == 290
+
+
+def test_group_net_debt_deducts_restricted_cash_and_survives_a_failed_ebitda_gate(tmp_path):
+    def change(p):
+        change_att("ebitda_intragroup", "not_offset")(p)
+        change_att("restricted_cash_amount", 10, entity=H)(p)
+
+    c = run(tmp_path, change)
+    assert c["cash"] == {"total": 100, "restricted": 10, "unrestricted": 90}
+    assert c["group_net_debt"] == 300
+    assert c["ratios"]["net_debt_to_ebitda"] is None and c["withheld"]["net_debt_to_ebitda"]
+
+
+def test_group_net_debt_is_withheld_when_the_cash_gate_fails(tmp_path):
+    c = run(tmp_path, change_att("cash_no_group_balance", False))
+    assert c["group_net_debt"] is None and c["cash"]["unrestricted"] is None
+
+
+def test_a_matching_refused_journal_still_counts_against_the_line_cap(tmp_path):
+    # Maintainer decision on #472 (CU628-2): every presented journal counts against the declared cap, so listing
+    # more principal than the participant declared is an integrity refusal even if a journal is refused on matching.
+    file = seed(tmp_path)
+    file["periods"][P]["journals"].append(journal(journal_id="J2", loan_id="L-undeclared", amount=20))
+    path = _state_file(tmp_path)
+    before = path.read_bytes()
+
+    with pytest.raises(ca.AggregationError, match="cap"):
+        calculate(tmp_path, file)
+
+    assert path.read_bytes() == before
 
 
 def test_clean_case_recomputes_from_adjusted_raw_not_summed_ratios(tmp_path):

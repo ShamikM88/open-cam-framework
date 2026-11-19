@@ -1346,7 +1346,7 @@ nothing; nothing here is stored in state.
 - **Edge rules:** historical 12-month standalone scope only. The schedule must reconcile, with any unoffset
   intragroup amount \(U\) solely in `other_income`, and each participant's `other_income - U` must be nonnegative.
   No retained intragroup stock/asset profit; all other EBITDA, interest and cash gates still apply. Never show
-  ordinary EBITDA or its ratios alongside the variant; a non-positive ratio denominator is N/A.
+  a number for ordinary EBITDA or its ratios alongside the variant: those keys are recorded as null with the withheld reason; a non-positive ratio denominator is N/A.
 - **State keys:** `credit_aggregation[period].computed.financials.ebitda_excluding_other_income` and
   `credit_aggregation[period].computed.ratios` keys suffixed `_excluding_other_income`
 - **Workbook rows:** separately named metrics in the Credit aggregation sheet, with the full EBITDA basis disclosure

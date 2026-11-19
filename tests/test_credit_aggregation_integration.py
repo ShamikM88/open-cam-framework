@@ -61,6 +61,17 @@ def test_cushion_discloses_the_current_aggregation_without_stressing_borrower_in
     assert period["break_even_ebitda"]["break_even_ebitda"] is None
 
 
+def test_cushion_reports_fy_current_for_an_aggregation_covenant_even_when_the_borrower_has_no_ratios(deal):
+    # CU628-8 (maintainer decision): the period list does not depend on the borrower's recorded ratios.
+    state = _read_full(deal)
+    state["multi_period_financials"] = {"FY-Current": state["financials"]["FY-Current"]["raw"]}
+    state["ratios"] = {}
+    periods = covenant_cushion.compute_from_state(state)["covenants"][0]["periods"]
+    assert [entry["period"] for entry in periods] == ["FY-Current"]
+    assert periods[0]["result"]["actual"] == LEVERAGE
+    assert periods[0]["result"]["view_source"] == "credit_aggregation"
+
+
 def test_review_policy_gate_rejects_an_aggregation_metric_that_is_withheld(deal):
     state = _read_full(deal)
     state["covenants"][0]["metric"] = "dscr"

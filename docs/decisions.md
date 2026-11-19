@@ -434,7 +434,6 @@ so in its Related line) when a later decision supersedes it.
   decided; they are decided when the presentation step starts, with the exact text recorded on the issue. A new
   deterministic "strength" measure needs its own agreement and a Proposed register entry, and a credit or accounting
   reviewer verifies which statement lines and bases the evaluator may use for guarantors before the spreading step.
-- **Related.** #473 (comment of 2026-10-26), #472, D19, D22.
 - **Related.** #473 (comment of 2026-10-26), #472, D19, D22. B2b [case-B covenant routing](financial-model.md#covenants)
   remains separate from the standalone guarantor view.
 

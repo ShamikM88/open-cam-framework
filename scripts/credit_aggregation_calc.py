@@ -474,7 +474,7 @@ def calculate_period(period, request, inputs, legal_names):
         "debt_memo": _left_out_memo(request, set(raw), number(debt, "total debt")),
         "cash": {"total": cash if cash_ok else None, "restricted": restricted, "unrestricted": unrestricted},
         "group_net_debt": json_number(number(debt, "total debt") - number(unrestricted, "unrestricted cash"))
-        if cash_ok and ebitda_reason is None else None,
+        if cash_ok else None,
         "attestations": answers, "left_out": request["left_out"], "skipped_chain_entities": request["skipped_chain_entities"],
         "participant_guarantees": request["participant_guarantees"],
     }

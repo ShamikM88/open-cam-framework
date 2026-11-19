@@ -318,8 +318,12 @@ whole-period membership and uniform accounting policies must be attested to show
   Capitalised interest is part of the principal only if both sides carry it at the same amount. No other
   elimination is made. The existing total-debt definition, including `overdraft` and `loan_notes`, is unchanged.
 - **Refusals:** duplicated loan IDs, cumulative cap violations, malformed inputs or inadmissible control
-  refuse the whole invocation, which writes nothing. A matching failure, such as different carrying amounts
+  refuse the whole invocation, which writes nothing. Every presented journal counts against the declared cap on its
+  line, including one that is later refused on matching, so listing more principal than the participant declared
+  is an integrity refusal (maintainer decision on #472). A matching failure, such as different carrying amounts
   or an ineligible maturity or line pairing, is recorded with its reason and leaves the loan in debt.
+  Group net debt (total debt less unrestricted qualifying cash) is a printed memo figure whenever the cash gate
+  passes, even when EBITDA is withheld; `net_debt_to_ebitda` stays gated by the EBITDA and cash gates.
 - **EBITDA:** consistent mapping and policies, no retained intragroup stock or asset profit and a reconciled
   same-period schedule are required where relevant. Unreconciled offsets withhold EBITDA and the ratios built
   on it. If only attested `other_income` is unoffset and disclosed other income less that amount is nonnegative

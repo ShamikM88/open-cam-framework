@@ -34,14 +34,19 @@ def test_withheld_covenant_has_its_reason_label_and_limitations_even_if_stale(tm
     run(tmp_path)
     state = _read_full(tmp_path)
     state["covenants"] = [{"metric": "dscr", "type": "minimum", "threshold": 1.0, "basis": "consolidated"}]
-    for stale in (False, True):
-        result = policy_engine.evaluate_deal_policy(state)["covenant_results"][0]
-        assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
-        assert result["view_label"] == LABEL
-        assert "debt may be understated" in result["view_limitations"][0].lower()
-        if not stale:
-            assert "scheduled principal" in result["reason"]
-        state["financials"][P]["raw"]["cash"] += 1
+    result = policy_engine.evaluate_deal_policy(state)["covenant_results"][0]
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
+    assert result["view_label"] == LABEL
+    assert "debt may be understated" in result["view_limitations"][0].lower()
+    assert "scheduled principal" in result["reason"]
+
+    state["financials"][P]["raw"]["cash"] += 1   # a fingerprinted input changes, so the period is now stale
+    stale_result = policy_engine.evaluate_deal_policy(state)["covenant_results"][0]
+    assert stale_result["status"] == "UNRESOLVABLE" and stale_result["actual"] is None
+    assert stale_result["view_label"] == LABEL
+    assert "debt may be understated" in stale_result["view_limitations"][0].lower()
+    assert "scheduled principal" not in stale_result["reason"]
+    assert "does not match the current inputs" in stale_result["reason"]
 
 
 def test_aggregation_forward_disclosure_stays_unresolvable_and_has_no_borrower_fallback(tmp_path):

@@ -329,7 +329,7 @@ output file, and it makes no network call and needs no `ANTHROPIC_API_KEY`.
   cost-of-sales shock), two single-shock reverse-stress searches — the base scenario (all shocks at zero) and the
   downside scenario (the other shocks held at their recorded settings, the searched shock starting from its
   recorded setting, reporting both the cumulative crossing and the additional cushion beyond that setting).
-  A credit aggregation row discloses the verified historical result, label and limitations, but has no
+  A credit aggregation row discloses the current, integrity-checked historical result (not an authenticated or accounting-reviewed one), label and limitations, but has no
   break-even or shocks. The borrower's inputs are not a substitute for the aggregation.
 - **Searches return brackets, not points:** each search brackets the first non-PASS point (FAIL or UNRESOLVABLE
   alike) by geometric expansion then bisection, and reports the pass/non-pass bracket with its tolerance and the

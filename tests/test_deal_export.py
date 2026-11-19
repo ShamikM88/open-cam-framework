@@ -311,8 +311,10 @@ def test_analyst_supplied_historical_export_uses_recorded_values_and_labels_the_
 # ---------------------------------------------------------------------------
 
 def _cli_draft(tmp_path):
+    # Ends with a populated Sources section, as the shipped templates now do (issue #583), so the
+    # CLI tests below exercise the warning-free path; the missing-section warning has its own tests.
     draft = tmp_path / "draft.md"
-    draft.write_text("# Draft", encoding="utf-8")
+    draft.write_text("# Draft\n\n## Sources\n\n- **Test Source:** supplied by the analyst", encoding="utf-8")
     return str(draft)
 
 
@@ -1875,6 +1877,77 @@ def test_export_deal_prints_no_citation_warning_for_a_source_with_no_url(tmp_pat
     draft = "# Acme Corp CAM\n\nPer [management call].\n\n## Sources\n\n- Management call: supplied by the analyst\n"
     export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
     assert "Citation link warning" not in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Missing Sources section (issue #583): advisory warning, the export continues
+# ---------------------------------------------------------------------------
+
+SOURCES_WARNING_PREFIX = "[deal_export] Sources section warning:"
+
+
+def _sources_warning_lines(captured):
+    return [line for line in captured.err.splitlines() if line.startswith(SOURCES_WARNING_PREFIX)]
+
+
+def test_export_deal_warns_when_the_cam_has_no_sources_section_and_still_exports(tmp_path, capsys):
+    draft = "# Acme Corp CAM\n\nTurnover is per the FY25 accounts filed at Companies House.\n"
+    output_dir = export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
+    captured = capsys.readouterr()
+    assert os.path.isfile(os.path.join(output_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+    assert os.path.isfile(os.path.join(output_dir, "Acme Corp_Fleet Loan_Spreading.xlsx"))
+    assert captured.out  # the export still reports its output folder
+    assert _sources_warning_lines(captured) == [
+        "[deal_export] Sources section warning: the CAM draft has no populated Sources or References "
+        "section; the export continues unchanged (issue #583)."
+    ]
+
+
+def test_export_deal_warns_when_the_sources_section_is_empty(tmp_path, capsys):
+    # The heading is there but the section holds no list item or URL, so it is not populated.
+    draft = "# Acme Corp CAM\n\nBody text.\n\n## Sources\n\nNothing follows the heading.\n"
+    export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
+    captured = capsys.readouterr()
+    assert _sources_warning_lines(captured) == [
+        "[deal_export] Sources section warning: the CAM draft has no populated Sources or References "
+        "section; the export continues unchanged (issue #583)."
+    ]
+
+
+def test_export_deal_warns_when_the_only_sources_heading_is_numbered(tmp_path, capsys):
+    # The shared finder matches a heading titled exactly Sources or References; a numbered
+    # heading such as "## 15. Sources" is a different title and must not count.
+    draft = "# Acme Corp CAM\n\nBody text.\n\n## 15. Sources\n\n- **FY25 accounts:** [FY25 accounts](https://example.invalid/filing)\n"
+    export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
+    captured = capsys.readouterr()
+    assert _sources_warning_lines(captured) == [
+        "[deal_export] Sources section warning: the CAM draft has no populated Sources or References "
+        "section; the export continues unchanged (issue #583)."
+    ]
+
+
+def test_export_deal_does_not_count_a_sources_section_inside_a_fenced_block(tmp_path, capsys):
+    draft = (
+        "# Acme Corp CAM\n\nBody text.\n\n```\n## Sources\n\n- **FY25 accounts:** [FY25 accounts](https://example.invalid/filing)\n```\n"
+    )
+    export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
+    captured = capsys.readouterr()
+    assert _sources_warning_lines(captured) == [
+        "[deal_export] Sources section warning: the CAM draft has no populated Sources or References "
+        "section; the export continues unchanged (issue #583)."
+    ]
+
+
+def test_export_deal_prints_no_sources_warning_for_a_populated_sources_section(tmp_path, capsys):
+    draft = (
+        "# Acme Corp CAM\n\nTurnover per [FY25 accounts, p. 12](https://example.invalid/filing).\n\n"
+        "## Sources\n\n- **FY25 accounts:** [FY25 accounts](https://example.invalid/filing)\n"
+    )
+    output_dir = export_deal("Acme Corp", "Fleet Loan", "asset_finance", draft, date_str="2026-01-15", base_dir=str(tmp_path))
+    captured = capsys.readouterr()
+    assert os.path.isfile(os.path.join(output_dir, "Acme Corp_Fleet Loan_CAM.docx"))
+    assert _sources_warning_lines(captured) == []
+    assert "Citation link warning" not in captured.err
 
 
 def test_workbook_inputs_forward_a_recorded_credit_aggregation_to_the_workbook():

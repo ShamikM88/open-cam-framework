@@ -726,11 +726,13 @@ AUTHORISED_RESEARCH_CITATIONS = (
     "link; never invent one. In the final Sources section, write each entry as `- **Key:** [title](url)`. Do not "
     "leave a bare URL."
 )
-# /assemble carries only the first two sentences until the CAM has a Sources section (issue #583).
+# /assemble now carries the full three sentences: the CAM's Sources section landed with issue #583, so the
+# Sources-layout sentence approved on #582 (the same text /research carries) is no longer deferred.
 AUTHORISED_ASSEMBLE_CITATIONS = (
     "Write each citation as a Markdown link whose text is the readable citation, for example "
     "`[FY25 accounts, p. 12](url)`, so the exported document shows a clickable link. A source with no URL needs no "
-    "link; never invent one."
+    "link; never invent one. In the final Sources section, write each entry as `- **Key:** [title](url)`. Do not "
+    "leave a bare URL."
 )
 
 

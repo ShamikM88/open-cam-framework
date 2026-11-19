@@ -170,6 +170,17 @@ def test_rounding_a_journal_amount_cannot_create_an_exact_match(tmp_path):
     assert _state_file(tmp_path).read_bytes() == before
 
 
+@pytest.mark.parametrize("number_text", ["1e9999999999999999999999999", "1" * 5000])
+def test_unrepresentable_json_number_is_a_named_refusal(tmp_path, number_text):
+    path = tmp_path / "precision.json"
+    path.write_text(json.dumps(seed(tmp_path)).replace('"amount": 20', f'"amount": {number_text}', 1),
+                    encoding="utf-8")
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="precision|UTF-8 JSON"):
+        ca.calculate_credit_aggregation(COMPANY, PROPOSAL, str(path), base_dir=str(tmp_path))
+    assert _state_file(tmp_path).read_bytes() == before
+
+
 @pytest.mark.parametrize(("separate", "amount", "cap", "error"), [
     (False, 20, 30, "separate"), (True, 20, 30, "cap"), (True, 5, 29, "cap"),
     (True, 5, 30, None),
@@ -304,6 +315,18 @@ def test_ebitda_schedule_and_other_income_variant(tmp_path, mode, raw_income, st
             assert "all other income" in c["metric_label"]
 
 
+def test_variant_requires_an_explicit_unoffset_amount_even_if_offsets_reconcile(tmp_path):
+    def change(p):
+        p["attestations"][B].update(ebitda_intragroup="offset_other_income_only",
+                                    schedule=[{"counterparty": O, "line": "revenue", "amount": 10}])
+        p["attestations"][B].pop("unoffset_other_income_amount")
+        p["attestations"][O].update(ebitda_intragroup="offset",
+                                    schedule=[{"counterparty": B, "line": "cost_of_sales", "amount": 10}])
+    computed = run(tmp_path, change)
+    assert all(value is None for value in computed["ratios"].values())
+    assert "unoffset" in computed["withheld"]["ebitda"]
+
+
 @pytest.mark.parametrize(("coverage", "amount", "reason"), [
     ([("D1", 60), ("D1", 60)], 450, None),
     ([("D1", 60), ("D2", 40)], 490, None),
@@ -323,6 +346,18 @@ def test_debt_memo_counts_attested_external_principal_once(tmp_path, coverage, a
     assert c["debt_memo"]["value"] == amount
     assert (c["debt_memo"]["reason"] is None) if reason is None else reason in c["debt_memo"]["reason"]
     assert c["financials"]["total_debt"] == 390 and c["ratios"]["gross_leverage"] == 390 / 800
+
+
+@pytest.mark.parametrize(("second_amount", "expected"), [(60, 450), (50, "unknown")])
+def test_one_attested_debt_id_is_not_counted_twice_across_left_out_entities(tmp_path, second_amount, expected):
+    def change(p):
+        for entity, participant, amount in (("joint-debtor-a", B, 60), ("joint-debtor-b", H, second_amount)):
+            p["left_out"][entity] = {
+                "reason": "Outside synthetic scope", "external_debt": 100,
+                "support": [{"participant": participant, "type": "guarantee", "debt_id": "same-joint-debt",
+                             "covered_principal": amount, "evidence": REF}],
+            }
+    assert run(tmp_path, change)["debt_memo"]["value"] == expected
 
 
 def test_skipped_chain_needs_attested_debt_and_is_output_separately(tmp_path):

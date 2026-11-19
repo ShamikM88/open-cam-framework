@@ -5,7 +5,7 @@ import copy
 import pytest
 
 import credit_aggregation as ca
-from state_manager import validate_state
+from state_manager import StateError, validate_state
 from test_credit_aggregation import _read_full
 from test_credit_aggregation_calc import B, O, P, calculate, run, seed
 
@@ -66,3 +66,17 @@ def test_edited_output_is_never_current_even_with_a_recomputed_digest(tmp_path, 
         assert status["status"] == "stale"
     else:
         assert "deterministic recomputation" in status["reason"]
+
+
+@pytest.mark.parametrize(("change", "message"), [
+    (lambda e: e.pop("input"), "confirmed input"),
+    (lambda e: e.pop("computed"), "calculated computed"),
+    (lambda e: e["computed"].pop("cash"), "cash is missing"),
+    (lambda e: e["computed"].update(debt_before=True), "debt_before"),
+])
+def test_state_validator_recognises_the_calculated_shape(tmp_path, change, message):
+    run(tmp_path)
+    state = _read_full(tmp_path)
+    change(state["credit_aggregation"][P])
+    with pytest.raises(StateError, match=message):
+        validate_state(state, keys=("credit_aggregation",))

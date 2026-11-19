@@ -2,11 +2,10 @@
 the /assemble and /review slash commands' Bash steps run the same
 deterministic checks orchestrator.py's headless pipeline does.
 
-Tests call compute() directly rather than invoking the script as a
-subprocess -- the __main__ block is a thin argparse+print wrapper around
-compute(), so exercising compute() covers the actual logic; a subprocess
-test would only additionally verify argparse wiring, which is simple enough
-to trust by inspection.
+Most tests call compute() directly, because the __main__ block is a thin
+argparse+print wrapper around it. A few run the real CLI as a subprocess
+(for example the non-text acknowledgement ID case), because they check the
+printed JSON and that no traceback appears, which a direct call cannot show.
 """
 import json
 import os

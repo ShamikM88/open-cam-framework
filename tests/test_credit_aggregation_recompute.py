@@ -60,4 +60,9 @@ def test_edited_output_is_never_current_even_with_a_recomputed_digest(tmp_path, 
     change(e)
     c = e["computed"]
     c["output_digest"] = ca.computed_output_digest(e["input_fingerprint"], c["financials"], c["ratios"])
-    assert ca.aggregation_period_status(state, P)["status"] != "current"
+    status = ca.aggregation_period_status(state, P)
+    assert status["status"] != "current"
+    if not (e["journals"] == e["input"]["journals"] and e["input"]["attestations"][B]["ownership_pct"] == 100):
+        assert status["status"] == "stale"
+    else:
+        assert "deterministic recomputation" in status["reason"]

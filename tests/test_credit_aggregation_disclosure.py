@@ -37,3 +37,13 @@ def test_withheld_covenant_has_its_reason_label_and_limitations_even_if_stale(tm
         if not stale:
             assert "scheduled principal" in result["reason"]
         state["financials"][P]["raw"]["cash"] += 1
+
+
+def test_aggregation_forward_disclosure_stays_unresolvable_and_has_no_borrower_fallback(tmp_path):
+    run(tmp_path)
+    state = _read_full(tmp_path)
+    state["ratios"]["FY+1"] = {"gross_leverage": 0.1}
+    state["covenants"] = [{"metric": "gross_leverage", "type": "maximum", "threshold": 1.0, "basis": "consolidated"}]
+    result = policy_engine.evaluate_deal_policy(state)["forward_covenant_results"][0]
+    assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
+    assert result["view_label"] == LABEL and result["view_limitations"]

@@ -324,3 +324,20 @@ def test_the_collateral_total_row_formulas_are_unchanged(tmp_path):
     h = ws.cell(row=total_row, column=8)
     assert h.value == '=IFERROR(IF(B3>0,G3/B3,"N/A"),"N/A")'
     assert h.data_type == "f"
+
+
+def test_a_text_value_in_a_collateral_figure_column_is_text_not_a_formula(tmp_path):
+    """Issue #600 (maintainer decision): every deal-record string cell is text, including columns B-G."""
+    out_path = tmp_path / "workbook.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        collateral_data=[{
+            "asset_class": "Trucks", "exposure": "=1+1", "number_of_units": "=2+2", "cap_value": "=3+3",
+            "non_recovery": "=4+4", "costs": "=5+5", "collateral_value": "=6+6",
+        }],
+    )
+    ws = openpyxl.load_workbook(out_path)["Collateral & Exposure"]
+    for column, expected in zip(range(2, 8), ("=1+1", "=2+2", "=3+3", "=4+4", "=5+5", "=6+6")):
+        cell = ws.cell(row=2, column=column)
+        assert cell.value == expected and cell.data_type == "s", column
+    assert ws.cell(row=2, column=8).data_type == "f"   # the builder's own ratio formula stays a formula

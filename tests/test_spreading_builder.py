@@ -2472,3 +2472,14 @@ def test_a_supplied_value_beginning_with_equals_is_text_not_a_formula(tmp_path):
     cell = ws[f"E{row}"]  # column E is FY+1
     assert cell.value == "=1+1"
     assert cell.data_type == "s"
+
+
+def test_a_raw_line_item_string_beginning_with_equals_is_text_not_a_formula(tmp_path):
+    """Issue #600 (maintainer decision): a string in a raw-figure cell, from a hand-edited record, is text."""
+    out_path = tmp_path / "raw_text.xlsx"
+    export_to_xlsx("Test Co", str(out_path), financial_data={"FY-Current": {"revenue": '=HYPERLINK("http://x.invalid")'}})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    cell = ws.cell(row=label_to_row["Revenue"], column=4)   # the FY-Current column
+    assert cell.value == '=HYPERLINK("http://x.invalid")'
+    assert cell.data_type == "s"

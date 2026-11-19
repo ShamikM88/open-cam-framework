@@ -991,7 +991,7 @@ def _write_financial_spreading(
         ws.cell(row=ws.max_row, column=1).font = Font(bold=True, italic=True)
         for label, formula_template in rows:
             row_values: list[Any] = [label]
-            supplied_columns: list[int] = []   # column indexes whose value came from a supplied store (issue #600)
+            text_columns: list[int] = []   # column indexes whose value came from the deal record (issue #600)
             for col in PERIOD_COLS:
                 if formula_template:
                     value, is_supplied = _formula_or_supplied(
@@ -999,7 +999,7 @@ def _write_financial_spreading(
                         blank_downside_periods, derived_rows)
                     row_values.append(value)
                     if is_supplied:
-                        supplied_columns.append(len(row_values))
+                        text_columns.append(len(row_values))
                 else:
                     value = None
                     field = label_to_field.get(label)
@@ -1012,10 +1012,12 @@ def _write_financial_spreading(
                         if field in period_raw:
                             value = period_raw[field]
                     row_values.append(value)
+                    text_columns.append(len(row_values))
             ws.append(row_values)
-            # A supplied value is analyst text, never a builder formula: mark its string cells as
-            # text so a value beginning with "=" is stored and shown as typed (issue #600).
-            for column in supplied_columns:
+            # A value read from the deal record (a raw line item or a supplied figure) is analyst text, never a
+            # builder formula: mark its string cells as text so a value beginning with "=" is stored and shown as
+            # typed (issue #600). Builder formulas are the only string cells left unmarked.
+            for column in text_columns:
                 _mark_text_cell(ws.cell(row=ws.max_row, column=column))
 
     ws.column_dimensions["A"].width = 34
@@ -1226,10 +1228,10 @@ def _write_collateral_sheet(
             asset.get("perfection_status"),
             *_collateral_result_cells(results),
         ])
-        # Columns A and I hold free analyst text (asset_class, perfection_status) and J-Q hold
-        # persisted strings ("N/A"); none is a builder formula (H is), so mark them as text so
-        # a value beginning with "=" is stored and shown as typed, never evaluated (issue #600).
-        for column in (1, 9, *range(10, 10 + len(COLLATERAL_RESULT_KEYS))):
+        # Every column except H holds a value from the deal record (analyst text in A and I, the figures in B-G,
+        # persisted strings such as "N/A" in J-Q); H is the builder's own formula. Mark all of them as text so a
+        # value beginning with "=" is stored and shown as typed, never evaluated (issue #600).
+        for column in (1, 2, 3, 4, 5, 6, 7, 9, *range(10, 10 + len(COLLATERAL_RESULT_KEYS))):
             _mark_text_cell(ws.cell(row=row, column=column))
 
     total_row = last_row + 1

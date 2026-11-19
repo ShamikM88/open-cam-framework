@@ -94,7 +94,6 @@ def compute_from_state(
     credit_policy_present = os.path.exists("config/credit_policy.md")
 
     policy_input = {
-        "company": state.get("company"),  # case-B fingerprint binds the borrower's legal identity
         "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,
@@ -111,7 +110,9 @@ def compute_from_state(
         "financials_source": state.get("financials_source"),
         "forecast_source": state.get("forecast_source"),
     }
-    resolved_views = resolve_covenant_views(policy_input, covenants)
+    # Case-B freshness binds borrower identity, but the policy engine takes the
+    # already resolved views and does not need an additional input field.
+    resolved_views = resolve_covenant_views({**policy_input, "company": state.get("company")}, covenants)
     policy_state = evaluate_deal_policy(policy_input, resolved_views=resolved_views)
 
     draft_text = None

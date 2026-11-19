@@ -830,7 +830,6 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # collateral/downside_case above, so it's recomputed every run rather
     # than cached.
     policy_input = {
-        "company": existing_state.get("company"),
         "financials": financials,     # only to explain WHY a covenant's ratio is N/A (non-positive denominator)
         "ratios": ratios,
         "collateral": collateral,
@@ -846,7 +845,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         "forecast_source": existing_state.get("forecast_source"),
     }
     policy_covenants = policy_input["covenants"]
-    resolved_views = resolve_covenant_views(policy_input, policy_covenants)
+    resolved_views = resolve_covenant_views({**policy_input, "company": existing_state.get("company")}, policy_covenants)
     policy_state = evaluate_deal_policy(policy_input, resolved_views=resolved_views)
     # Same inputs the loop below already holds fixed across iterations
     # (financials/ratios/collateral/downside_case don't change draft-to-draft

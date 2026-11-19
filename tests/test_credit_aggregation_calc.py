@@ -150,6 +150,26 @@ def test_forward_period_refuses_the_entire_file(tmp_path):
     assert _state_file(tmp_path).read_bytes() == before
 
 
+def test_a_loan_id_cannot_identify_two_different_party_pairs(tmp_path):
+    file = seed(tmp_path)
+    file["periods"][P]["declarations"][0]["counterparty_entity_id"] = O
+    path = _state_file(tmp_path)
+    before = path.read_bytes()
+    with pytest.raises(ca.AggregationError, match="loan_id.*different party pairs"):
+        calculate(tmp_path, file)
+    assert path.read_bytes() == before
+
+
+def test_rounding_a_journal_amount_cannot_create_an_exact_match(tmp_path):
+    file = seed(tmp_path)
+    path = tmp_path / "precision.json"
+    path.write_text(json.dumps(file).replace('"amount": 20', '"amount": 20.000000000000001', 1), encoding="utf-8")
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="precision"):
+        ca.calculate_credit_aggregation(COMPANY, PROPOSAL, str(path), base_dir=str(tmp_path))
+    assert _state_file(tmp_path).read_bytes() == before
+
+
 @pytest.mark.parametrize(("separate", "amount", "cap", "error"), [
     (False, 20, 30, "separate"), (True, 20, 30, "cap"), (True, 5, 29, "cap"),
     (True, 5, 30, None),

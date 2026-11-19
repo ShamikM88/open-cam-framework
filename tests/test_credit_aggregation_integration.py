@@ -9,6 +9,7 @@ import pytest
 
 import committee_summary
 import credit_aggregation
+import covenant_cushion
 import deal_export
 import export_readback
 import policy_check
@@ -48,6 +49,24 @@ def test_a_changed_input_makes_the_policy_check_covenant_unresolvable_not_borrow
     result = policy_check.compute_from_state(state)["policy_state"]["covenant_results"][0]
     assert result["status"] == "UNRESOLVABLE" and result["actual"] is None
     assert "fingerprint" in result["reason"] or "no longer" in result["reason"]
+
+
+def test_cushion_discloses_the_current_aggregation_without_stressing_borrower_inputs(deal):
+    state = _read_full(deal)
+    state["multi_period_financials"] = {"FY-Current": state["financials"]["FY-Current"]["raw"]}
+    period = covenant_cushion.compute_from_state(state)["covenants"][0]["periods"][0]
+    assert period["result"]["actual"] == LEVERAGE
+    assert period["result"]["view_label"] == "credit aggregation, not accounting-reviewed"
+    assert period["result"]["view_limitations"] and period["shocks"] is None
+    assert period["break_even_ebitda"]["break_even_ebitda"] is None
+
+
+def test_review_policy_gate_rejects_an_aggregation_metric_that_is_withheld(deal):
+    state = _read_full(deal)
+    state["covenants"][0]["metric"] = "dscr"
+    result = policy_check.compute_from_state(state)
+    assert not result["compliant"]
+    assert any("Covenant UNRESOLVABLE: dscr" in line and "scheduled principal" in line for line in result["reasons"])
 
 
 def test_the_summary_and_workbook_rows_show_figures_only_while_the_period_is_current(deal):

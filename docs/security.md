@@ -71,6 +71,8 @@ Model-written Markdown is also untrusted input to the export: an image line can 
 
 The same builder sanitizes XML-invalid control characters in Markdown before writing WordprocessingML, replaces each with U+FFFD, and emits one aggregate warning. This is resilience against malformed text, not a guarantee that the narrative itself is trustworthy. It also creates clickable Word hyperlinks only for `http`, `https` and `mailto` targets. File paths, UNC shares, script/protocol-handler URLs and relative targets stay plain text with a warning to avoid turning untrusted Markdown into an active local or application link.
 
+**The spreading workbook applies the same principle (issue #600).** Analyst and model text written into the `.xlsx` — an asset class, a perfection status, group-basis metadata, a supplied forward-year value — is stored as text (data type `"s"`), never as a formula, so a value that begins with `=` is shown as typed instead of being evaluated by Excel when the file is opened. Only the builder's own formula templates over the raw cells are formulas. Rejecting such text at input is deliberately not done: it is displayed, not executed.
+
 ## If something confidential was committed
 
 Treat a public repository as already read by someone.

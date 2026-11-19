@@ -511,7 +511,7 @@ def _bad_value_for(key):
 ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                            "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                            "security_package", "guarantees", "review_trail", "credit_aggregation",
-                           "analyst_supplied_financials")
+                           "analyst_supplied_financials", "inputs")
 
 
 def _orchestrator_state_keys():
@@ -1258,6 +1258,7 @@ def test_the_cli_reports_a_truncated_response_as_one_error_line_and_exit_1(proje
 
     import anthropic
 
+    write_state("Acme Corp", "Fleet Loan", inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"})
     client = MockClient([_truncated()])
     client.default_headers = {"x-api-key": "synthetic"}
     monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: client)
@@ -2866,6 +2867,7 @@ def test_the_cli_reports_an_unreadable_template_as_one_error_line_and_makes_no_m
 
     import anthropic
 
+    write_state("Acme Corp", "Fleet Loan", inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"})
     (project_root / "templates" / "cam" / "corporate_credit_cam.md").write_text(
         "<!-- Guidance: never closed\n", encoding="utf-8",
     )
@@ -3413,4 +3415,3 @@ def test_missing_pd_lgd_refuses_before_model_calls_or_state_writes(project_root)
     ]
     deals_dir = Path.cwd() / "deals"
     assert not deals_dir.exists() or not list(deals_dir.rglob("state.json"))
-

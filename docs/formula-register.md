@@ -597,6 +597,14 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Basis:** standard definition (issue #520 design note, comment 6536111534)
 - **Status:** Implemented, not yet reviewed by an analyst
 
+  > **Note on which periods are evaluated (issue #597).** The formula itself is unchanged. A
+  > `spreading_check.py` call evaluates the periods it touches plus the period that follows each
+  > of them, when that successor is on file and framework-computed, with the prior-working-capital
+  > map built from the merged store — so a forward-only call reads the prior period already on
+  > file and a correction to one period recomputes the next, matching the workbook's prior-column
+  > references. A forward year whose previous period is analyst-supplied stays N/A with a reason,
+  > never a figure blended from the other store; older periods are not recomputed on every call.
+
 ### F-065 — DSCR (Cash Flow)
 
 - **Name:** DSCR (Cash Flow) — cash flow available for debt service over debt service; CAM/state key

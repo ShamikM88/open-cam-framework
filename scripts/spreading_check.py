@@ -24,9 +24,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 from spreading_builder import (
-    FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
+    FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, _prior_operating_working_capital,
+    evaluate_downside_case, evaluate_financial_model,
 )
 from numeric_validation import (
+    InvalidFinancialInputError,
     NonFiniteNumberError,
     validate_finite_numbers,
     validate_period_keys,
@@ -107,7 +109,57 @@ def plan_fields(
         # see the docstring above -- so a partial correction's subtotals/
         # ratios are derived from the period's complete recorded figures,
         # not just whichever fields this particular call happened to supply.
-        model_data = evaluate_financial_model(touched_periods)
+        #
+        # Issue #597 (maintainer decision, option A): the periods this call touches plus the
+        # period that follows each of them, when that successor is on file and framework-computed
+        # (the merged store holds only framework-computed raw lines, so a successor absent from it
+        # is not recomputed and never blended with the analyst-supplied store). A forward-only
+        # call then sees the prior period already on file, and a correction to one period
+        # recomputes the next, so every period on file equals one evaluation of the stored raw
+        # figures -- the parity the exported workbook's prior-column references already have.
+        # Older periods are deliberately not recomputed on every call.
+        periods_to_evaluate = dict(touched_periods)
+        for period in touched_periods:
+            successor_index = PERIOD_KEYS.index(period) + 1
+            if successor_index < len(PERIOD_KEYS):
+                successor = PERIOD_KEYS[successor_index]
+                recorded_successor = merged_multi_period.get(successor)
+                # A null placeholder is "not recorded", not a period to evaluate (it would be read as a
+                # zero-input year); only an object of raw line items is a recorded period.
+                if isinstance(recorded_successor, dict) and successor not in periods_to_evaluate:
+                    periods_to_evaluate[successor] = recorded_successor
+        # The prior-working-capital map comes from the merged store, so fcf_after_working_capital
+        # and cash_flow_dscr read the prior period the whole deal has on file, not only the
+        # periods this call happened to touch. No formula changes: a forward year whose previous
+        # period is analyst-supplied is absent from this store, so its prior stays None (N/A with
+        # a reason), never a figure blended from the other store.
+        # Only the periods being evaluated and the period before each are read, so an unrelated older value that
+        # cannot be converted never breaks a forward-only call; a relevant one is a clean input error.
+        needed_periods = set(periods_to_evaluate)
+        for period in periods_to_evaluate:
+            period_index = PERIOD_KEYS.index(period)
+            if period_index > 0:
+                needed_periods.add(PERIOD_KEYS[period_index - 1])
+        prior_data = {
+            period: merged_multi_period[period]
+            for period in needed_periods
+            if isinstance(merged_multi_period.get(period), dict)
+        }
+        if existing_state.get("financials_source") == "analyst-supplied":
+            # The authoritative history is the analyst-supplied store (maintainer decision on #597): a leftover
+            # framework raw historical period is never read as the prior, so a forward year whose previous
+            # period is analyst-supplied keeps its prior unavailable (N/A with a reason), never a blended figure.
+            prior_data = {period: raw for period, raw in prior_data.items() if period in FORWARD_PERIOD_KEYS}
+        # The comparators go through the same raw-input contract as incoming figures before any arithmetic, so a
+        # boolean, a string or an oversized number is one clean FinancialInputError (caught by both CLIs).
+        try:
+            validate_raw_line_items(prior_data, FIELD_LABELS, path="recorded operating working capital")
+            prior_owc = _prior_operating_working_capital(prior_data)
+        except OverflowError as exc:
+            raise InvalidFinancialInputError(
+                "financial inputs: operating working capital is outside the supported numeric range"
+            ) from exc
+        model_data = evaluate_financial_model(periods_to_evaluate, prior_operating_working_capital=prior_owc)
 
         merged_financials = dict(existing_state.get("financials") or {})
         merged_financials.update(model_data["financials"])

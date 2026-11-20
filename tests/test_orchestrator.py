@@ -3330,3 +3330,28 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 
     assert client.call_count == 0
     assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before
+
+
+def test_the_headless_path_computes_fcf_after_working_capital_from_the_prior_period(project_root):
+    """Issue #597: the headless path gives the same figures as the slash-command path --
+    a forward-only --financials call records FY+1's fcf_after_working_capital and
+    cash_flow_dscr from the prior period already on file, not as None."""
+    from spreading_check import compute
+
+    compute("Acme Corp", "Fleet Loan", multi_period_financials={
+        "FY-1": {"revenue": 1000, "cost_of_sales": 600, "admin_expenses": 200,
+                 "trade_debtors": 100, "stock": 50, "trade_creditors": 40,
+                 "interest_paid": 20, "scheduled_principal": 30},
+        "FY-Current": {"revenue": 1100, "cost_of_sales": 650, "admin_expenses": 210,
+                       "trade_debtors": 150, "stock": 60, "trade_creditors": 45,
+                       "interest_paid": 20, "scheduled_principal": 30},
+    })
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY+1": {"revenue": 1200, "cost_of_sales": 650,
+                                                   "admin_expenses": 210, "trade_debtors": 200,
+                                                   "stock": 60, "trade_creditors": 45,
+                                                   "interest_paid": 20, "scheduled_principal": 30}},
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+    state = read_state("Acme Corp", "Fleet Loan")
+    assert state["financials"]["FY+1"]["fcf_after_working_capital"] == 270
+    assert state["ratios"]["FY+1"]["cash_flow_dscr"] == pytest.approx(5.8)

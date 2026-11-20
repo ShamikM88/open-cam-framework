@@ -14,8 +14,9 @@ import pytest
 
 import spreading_check
 from spreading_check import compute, main, plan_fields
+import numeric_validation   # the issue #596 helpers are reached as attributes so a base-overlay run still collects
 from numeric_validation import validate_period_keys, validate_period_objects
-from spreading_builder import PERIOD_KEYS
+from spreading_builder import FIELD_LABELS, PERIOD_KEYS
 from state_manager import read_state, write_state
 
 
@@ -349,12 +350,19 @@ def test_main_with_a_missing_financials_file_fails_before_writing_anything(tmp_p
 
 
 def test_main_reads_its_input_files_as_utf8(tmp_path, monkeypatch, capsys):
-    """A period label or a note with a non-ASCII character must not depend on the platform's default encoding."""
+    """A company name with a non-ASCII character must not depend on the platform's default encoding.
+
+    The --financials file itself is ASCII here on purpose: since issue #596 every key in it must be a known
+    field name and every value a number, so it cannot carry non-ASCII text. The UTF-8 reading of a file that can
+    (the stress-assumptions file with a text note) is covered by the `--stress-assumptions` case of
+    test_main_reads_financials_and_stress_files_as_utf8_with_cp1252_default_open; its `--financials` case checks
+    only that the ASCII financials file is still read under a cp1252 default."""
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "fin.json"
-    path.write_text(json.dumps({"FY-Current": dict(RAW_YEAR, note="£ \u2014 \u00e9")}, ensure_ascii=False), encoding="utf-8")
-    printed = _run_main(capsys, "--company", "Acme Corp", "--proposal", "Fleet Loan", "--financials", str(path))
-    assert printed["financials"]["FY-Current"]["raw"]["note"] == "£ \u2014 \u00e9"
+    path.write_text(json.dumps({"FY-Current": dict(RAW_YEAR)}, ensure_ascii=False), encoding="utf-8")
+    printed = _run_main(capsys, "--company", "£ \u2014 \u00e9 Ltd", "--proposal", "Fleet Loan",
+                       "--financials", str(path))
+    assert printed["financials"]["FY-Current"]["raw"]["revenue"] == RAW_YEAR["revenue"]
 
 
 @pytest.mark.parametrize("argv, missing", [
@@ -723,7 +731,7 @@ def test_main_reads_financials_and_stress_files_as_utf8_with_cp1252_default_open
     monkeypatch.chdir(tmp_path)
     financials = tmp_path / "financials.json"
     financials.write_text(
-        json.dumps({"FY+1": dict(RAW_YEAR, note="£")}, ensure_ascii=False),
+        json.dumps({"FY+1": dict(RAW_YEAR)}, ensure_ascii=False),
         encoding="utf-8",
     )
     stress = tmp_path / "stress.json"
@@ -732,12 +740,12 @@ def test_main_reads_financials_and_stress_files_as_utf8_with_cp1252_default_open
         encoding="utf-8",
     )
 
-    args = ["--company", "Synthetic Co", "--proposal", "Credit Facility",
+    args = ["--company", "£ Synthetic Co", "--proposal", "Credit Facility",
             "--financials", str(financials), "--stress-assumptions", str(stress)]
     printed = _run_main(capsys, *args)
-    state = read_state("Synthetic Co", "Credit Facility")
+    state = read_state("£ Synthetic Co", "Credit Facility")
     if flag == "--financials":
-        assert printed["financials"]["FY+1"]["raw"]["note"] == "£"
+        assert printed["financials"]["FY+1"]["raw"]["revenue"] == RAW_YEAR["revenue"]
     else:
         assert state["stress_assumptions"]["note"] == "£"
 
@@ -778,7 +786,9 @@ def test_main_reports_invalid_json_input_path_and_error_prefix(
         (
             "--financials",
             '{"FY+1":{"unknown_line_item":NaN}}',
-            "error: non-finite numeric value at financial inputs['FY+1']['unknown_line_item']: nan",
+            "error: financial inputs: period 'FY+1' has unknown raw line-item name(s): "
+            "'unknown_line_item' (nearest valid: none). "
+            "Known names are the keys of spreading_builder.FIELD_LABELS; nothing was written.",
         ),
         (
             "--stress-assumptions",
@@ -994,3 +1004,150 @@ def test_sc_main_refuses_an_entity_keyed_financials_file_with_one_error_naming_t
     output = capsys.readouterr()
     assert output.out == "" and output.err == ""
     assert not (tmp_path / "deals").exists()
+
+
+# ---------------------------------------------------------------------------
+# Unknown raw line-item names are refused (issue #596, R-SPREAD-008)
+# ---------------------------------------------------------------------------
+
+UNKNOWN_NAMES_INPUT = {
+    "FY-Current": {"revenue": 1000, "cost_of_goods_sold": 600, "admin_expense": 200, "interest": 50},
+}
+
+
+def test_main_refuses_unknown_raw_line_item_names_with_one_error_line(tmp_path, monkeypatch, capsys):
+    """Rule: R-SPREAD-008
+
+    The failing input from issue #596: `cost_of_goods_sold`, `admin_expense` and `interest`
+    are not the framework's field names (`cost_of_sales`, `admin_expenses`, `interest_paid`),
+    so they must be refused with one `error:` line naming the period and each unknown key,
+    suggesting the nearest valid name, and nothing must be written to state.json.
+    """
+    monkeypatch.chdir(tmp_path)
+    financials_file = tmp_path / "financials.json"
+    financials_file.write_text(json.dumps(UNKNOWN_NAMES_INPUT), encoding="utf-8")
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--company", "Acme Corp", "--proposal", "Fleet Loan",
+              "--financials", str(financials_file)])
+    assert excinfo.value.code != 0
+    # One error line, on stderr via sys.exit's message, naming the period and each unknown key
+    # with the nearest valid name.
+    message = str(excinfo.value.code)
+    assert message.count("error:") == 1
+    assert "cost_of_goods_sold" in message
+    assert "FY-Current" in message
+    assert "cost_of_sales" in message   # the nearest valid name is suggested
+    assert "admin_expense" in message and "admin_expenses" in message
+    assert "interest" in message and "interest_paid" in message
+    captured = capsys.readouterr()
+    assert captured.out == ""   # nothing printed to stdout
+    # Nothing was written: no deal folder exists.
+    assert not list((tmp_path / "deals").iterdir()) if (tmp_path / "deals").exists() else True
+
+
+def test_compute_refuses_unknown_raw_line_item_names(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="cost_of_goods_sold"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials=UNKNOWN_NAMES_INPUT)
+    assert not (tmp_path / "deals").exists()
+
+
+def test_a_payload_of_valid_names_behaves_as_before(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={
+        "FY-Current": {"revenue": 1000, "cost_of_sales": 600,
+                       "admin_expenses": 200, "interest_paid": 50}})
+    assert state["financials"]["FY-Current"]["gross_profit"] == 400
+    assert state["financials"]["FY-Current"]["ebitda"] == 200
+
+
+def test_an_unknown_key_already_on_file_warns_and_still_computes(tmp_path, monkeypatch, capsys):
+    """An existing deal with an unknown key on file is not locked out: the call
+    still computes and prints one warning naming each unknown key."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": {"revenue": 1000, "cost_of_sales": 600}})
+    # Simulate a legacy deal that recorded an unknown key before this rule existed.
+    state_path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["multi_period_financials"]["FY-Current"]["cost_of_goods_sold"] = 600
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    result = compute("Acme Corp", "Fleet Loan",
+                     multi_period_financials={"FY+1": {"revenue": 1100}})
+    captured = capsys.readouterr()
+    assert "cost_of_goods_sold" in captured.err
+    assert "FY-Current" in captured.err
+    # The computation still ran: FY+1 was added and FY-Current kept its figures.
+    assert set(result["financials"]) >= {"FY-Current", "FY+1"}
+    assert result["financials"]["FY-Current"]["gross_profit"] == 400
+
+
+def test_refuse_unknown_raw_line_items_skips_non_dict_period_values():
+    """Rule: R-SPREAD-008
+
+    A period whose value is not a dict (e.g. a string left by a hand-edited
+    inputs file) is not a raw line-item name problem: the guard skips it and
+    the shape error raised downstream names the real problem. The call itself
+    must not raise here, so the value is returned unchanged.
+    """
+    value = {"FY-Current": "not-a-dict"}
+    result = numeric_validation.refuse_unknown_raw_line_items(value, list(FIELD_LABELS))
+    assert result is value
+
+
+def test_warn_unknown_raw_line_items_returns_non_dict_values_unchanged():
+    """Rule: R-SPREAD-008
+
+    Warn-mode is only meaningful for dicts of periods; a non-dict value is
+    returned unchanged without printing anything.
+    """
+    for value in (None, "n/a", [1, 2]):
+        assert numeric_validation.warn_unknown_raw_line_items(value, list(FIELD_LABELS)) is value
+
+
+def test_warn_unknown_raw_line_items_skips_non_dict_period_values():
+    """Rule: R-SPREAD-008
+
+    A legacy period whose stored value is not a dict is skipped without a
+    warning, matching the refuse-side guard.
+    """
+    assert numeric_validation.warn_unknown_raw_line_items({"FY-Current": "not-a-dict"}, list(FIELD_LABELS)) == {
+        "FY-Current": "not-a-dict"
+    }
+
+
+def test_a_non_text_key_is_refused_cleanly_not_with_a_type_error():
+    """Rule: R-SPREAD-008
+
+    A mapping built in code with a non-string key gets the normal refusal, not a TypeError.
+    """
+    with pytest.raises(ValueError, match="unknown raw line-item name") as caught:
+        numeric_validation.refuse_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
+    assert "7" in str(caught.value) and "nothing was written" in str(caught.value).lower()
+    assert not isinstance(caught.value, TypeError)
+
+
+def test_warn_unknown_raw_line_items_handles_a_non_text_key(capsys):
+    numeric_validation.warn_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
+    assert "7" in capsys.readouterr().err
+
+
+def test_one_error_names_the_unknown_names_of_every_period():
+    """Issue #596 (PX624-102 / CG624-3): later periods are not dropped from the single diagnostic."""
+    payload = {"FY-Current": {"cost_of_goods_sold": 1}, "FY+1": {"admin_expense": 2}, "FY-1": {"revenue": 3}}
+    with pytest.raises(ValueError) as caught:
+        numeric_validation.refuse_unknown_raw_line_items(payload, list(FIELD_LABELS))
+    message = str(caught.value)
+    assert "period 'FY-Current'" in message and "cost_of_goods_sold" in message
+    assert "period 'FY+1'" in message and "admin_expense" in message
+    assert "period 'FY-1'" not in message and message.count("nothing was written") == 1
+
+
+def test_plan_fields_can_skip_the_stored_name_warning_for_a_preflight(capsys):
+    existing = {"multi_period_financials": {"FY-Current": {"revenue": 1000, "cost_of_goods_sold": 600}}}
+
+    plan_fields(existing, {"FY+1": {"revenue": 1100}}, warn_stored=False)
+    assert capsys.readouterr().err == ""
+    plan_fields(existing, {"FY+1": {"revenue": 1100}})
+    assert capsys.readouterr().err.count("cost_of_goods_sold") == 1

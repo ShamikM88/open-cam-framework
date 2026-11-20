@@ -4697,3 +4697,28 @@ def test_credit_aggregation_computed_accepts_null_figures_and_refuses_non_flat_o
     for bad in (True, float("inf"), "1", {"FY-Current": 1}, [1]):
         value["FY-Current"]["computed"] = {"financials": {}, "ratios": {"dscr": bad}}
         assert "flat finite number" in _credit_aggregation_problems_for(value)
+
+
+@pytest.mark.parametrize("role", ["subsidiary", "parent", "guarantor"])
+def test_record_entity_record_refuses_an_unknown_raw_line_item_name_and_preserves_bytes(tmp_path, role):
+    """Rule: R-SPREAD-008
+
+    A misspelt guarantor line must not be read as zero: registration refuses it, for every role, and writes nothing.
+    """
+    guarantees = [{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic GUARANTEE-SYN-001"}]
+    path = _seed_entity_registry_state(
+        tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()}, guarantees=guarantees)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", role)
+    if role == "guarantor":
+        record["guarantee_ids"] = ["GUARANTEE-SYN-001"]
+    record["multi_period_financials"] = {"FY-Current": {"revenue": 200, "cost_of_goods_sold": 90}}
+    record["period_ends"] = {"FY-Current": "2025-12-31"}
+
+    with pytest.raises(state_manager.StateError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    message = str(caught.value)
+    assert message.startswith("Refusing to register entity_record: entity_record 'synthetic-opco'.multi_period_financials:")
+    assert "'cost_of_goods_sold'" in message and "cost_of_sales" in message and "nothing was written" in message
+    assert path.read_bytes() == before

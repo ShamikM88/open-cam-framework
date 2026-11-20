@@ -38,8 +38,8 @@ from types import TracebackType
 from typing import Any, Literal, NotRequired, Self, TypedDict, overload
 
 from numeric_validation import (
-    NonFiniteNumberError, validate_finite_numbers, validate_period_keys, validate_period_objects,
-    validate_raw_line_items,
+    FinancialInputError, NonFiniteNumberError, refuse_unknown_raw_line_items, validate_finite_numbers,
+    validate_period_keys, validate_period_objects, validate_raw_line_items,
 )
 
 # A value that can appear in state.json or in a policy result. The one definition every annotated module imports
@@ -936,6 +936,17 @@ def record_entity_record(
         problems = _entity_records_problems(registry, state.get("guarantees"), registering=entity_id)
         if problems:
             raise StateError(f"Refusing to register entity_record: {problems[0]}. Nothing was changed.")
+        # Issue #596: a misspelt raw line-item name in a new entity record would be read as zero when the entity is
+        # spread, so refuse it here, naming the key and the nearest valid name. A record already on file is not
+        # re-checked on read (the spread step warns about it instead).
+        for store_name in ("multi_period_financials", "analyst_supplied_financials"):
+            try:
+                refuse_unknown_raw_line_items(
+                    record.get(store_name), _ENTITY_RECORD_LINE_KEYS,
+                    path=f"entity_record {entity_id!r}.{store_name}",
+                )
+            except FinancialInputError as exc:
+                raise StateError(f"Refusing to register entity_record: {exc}") from exc
         # The entity contract has already validated every recognized raw line and intercompany amount.
         # Deliberately do not inspect unknown record fields: additive metadata must survive registration.
         # The shared write path still enforces schema downgrade and the existing deal-level finite-number guards.

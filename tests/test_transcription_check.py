@@ -1626,3 +1626,18 @@ def test_a_dangling_link_is_not_reported_as_a_file_that_does_not_exist(tmp_path)
     dangling_link(link, tmp_path / "nowhere")
     assert tc._read_bytes(str(link)) is tc.UNKNOWN
     assert tc._read_bytes(str(tmp_path / "absent.json")) is None
+
+
+def test_a_successful_commit_warns_once_about_an_unknown_name_already_on_file(deal, capsys):
+    """Issue #596 (PX624-103 / CG624-4): the preflights stay quiet; the final plan warns once per key."""
+    data = staged_data(deal)
+    run_commit(data)
+    stored_path = next((deal / "deals" / "Synthetic Co").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(stored_path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY-Current"]["cost_of_goods_sold"] = 1
+    stored_path.write_text(json.dumps(stored), encoding="utf-8")
+    capsys.readouterr()
+
+    run_commit(data)
+
+    assert capsys.readouterr().err.count("cost_of_goods_sold") == 1

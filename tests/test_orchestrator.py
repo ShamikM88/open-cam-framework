@@ -1362,7 +1362,7 @@ def test_run_pipeline_merges_partial_historical_correction_field_by_field(projec
 
     recorded = {
         "revenue": 2500, "cost_of_sales": 1200, "admin_expenses": 250,
-        "interest_paid": 60, "scheduled_principal_repayment": 100, "long_term_debt": 600,
+        "interest_paid": 60, "scheduled_principal": 100, "long_term_debt": 600,
     }
     compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": recorded})
 
@@ -3330,3 +3330,43 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 
     assert client.call_count == 0
     assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before
+
+
+def test_unknown_raw_line_item_names_are_refused_before_any_model_call(project_root):
+    """Rule: R-SPREAD-008
+
+    Issue #596: an unknown raw line-item name in the incoming payload is refused in
+    run_pipeline()'s input validation, before any model call, and nothing is written
+    to state.json.
+    """
+    from numeric_validation import FinancialInputError
+
+    client = MockClient([])
+    with pytest.raises(FinancialInputError, match="cost_of_goods_sold"):
+        run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                     multi_period_financials={
+                         "FY-Current": {"revenue": 1000, "cost_of_goods_sold": 600,
+                                        "admin_expense": 200, "interest": 50}},
+                     client=client)
+    assert not client.calls   # no model call was made
+    assert read_state("Acme Corp", "Fleet Loan") is None
+
+
+def test_a_stress_only_run_names_an_unknown_stored_raw_name_and_still_computes(project_root, capsys):
+    """Issue #596 (PX624-101 / CG624-2): the stored lines are re-evaluated, so the unknown name is warned about."""
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 multi_period_financials={"FY+1": dict(FORWARD_PERIOD_BASE)},
+                 stress_assumptions=STRESS_ASSUMPTIONS, client=MockClient([_compliant_draft(), _approved_json()]))
+    path = next((project_root / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY+1"]["cost_of_goods_sold"] = 400
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    capsys.readouterr()
+
+    run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
+                 stress_assumptions=dict(STRESS_ASSUMPTIONS, revenue_haircut_pct=20),
+                 client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
+
+    err = capsys.readouterr().err
+    assert err.count("cost_of_goods_sold") == 1 and "FY+1" in err
+    assert read_state("Acme Corp", "Fleet Loan")["downside_case"]["ratios"]["FY+1"]["dscr"] is not None

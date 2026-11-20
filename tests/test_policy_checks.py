@@ -1063,3 +1063,107 @@ def test_ground_truth_skips_malformed_downside_periods_and_non_mapping_guarantor
     )
 
     assert truth == {}
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_entry", "expected_reason"),
+    [
+        ("cp_ids_included", ["KYC-AML"], "Missing Required CP KYC-AML"),
+        ("cp_ids_included", {"id": "KYC-AML"}, "Missing Required CP KYC-AML"),
+        ("cp_ids_included", 17, "Missing Required CP KYC-AML"),
+        ("cs_ids_included", ["MI-REPORTING"], "Missing Required Condition Subsequent MI-REPORTING"),
+        ("cs_ids_included", {"id": "MI-REPORTING"}, "Missing Required Condition Subsequent MI-REPORTING"),
+        ("cs_ids_included", 17, "Missing Required Condition Subsequent MI-REPORTING"),
+        ("downside_breaches_acknowledged", ["DOWNSIDE-FY-2-DSCR"], "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR"),
+        ("downside_breaches_acknowledged", {"id": "DOWNSIDE-FY-2-DSCR"}, "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR"),
+        ("downside_breaches_acknowledged", 17, "Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR"),
+    ],
+    ids=[
+        "cp-nested-list", "cp-object", "cp-number",
+        "cs-nested-list", "cs-object", "cs-number",
+        "downside-nested-list", "downside-object", "downside-number",
+    ],
+)
+def test_check_draft_compliance_drops_non_text_identifier_entries(field, bad_entry, expected_reason):
+    """Non-text values are not acknowledgements; a bad member must not crash the policy check."""
+    import json
+
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": ALL_CATEGORIES_COVERED,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": ["DOWNSIDE-FY-2-DSCR"],
+        "sources": ["Test Source"],
+    }
+    payload[field] = [bad_entry]
+    draft = "# Draft" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3
+
+    policy_state = _policy_state(downside_covenant_breaches=[{
+        "breach_id": "DOWNSIDE-FY-2-DSCR",
+        "metric": "dscr",
+        "year": "FY-2",
+        "downside_status": "FAIL",
+    }])
+    parsed = parse_underwriter_output(draft)
+
+    assert parsed[field] == []
+    reasons = check_draft_compliance(draft, policy_state, {})
+    assert any(expected_reason in reason for reason in reasons)
+
+@pytest.mark.parametrize(
+    ("field", "bad_entry"),
+    [
+        ("cp_ids_included", ["nested"]),
+        ("cp_ids_included", {"id": "bad"}),
+        ("cp_ids_included", 17),
+        ("cs_ids_included", ["nested"]),
+        ("cs_ids_included", {"id": "bad"}),
+        ("cs_ids_included", 17),
+        ("downside_breaches_acknowledged", ["nested"]),
+        ("downside_breaches_acknowledged", {"id": "bad"}),
+        ("downside_breaches_acknowledged", 17),
+    ],
+)
+def test_parse_underwriter_output_keeps_valid_ids_alongside_non_text_entries(field, bad_entry):
+    """One malformed list member must not discard valid string acknowledgements."""
+    import json
+
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": ALL_CATEGORIES_COVERED,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": ["DOWNSIDE-FY-2-DSCR"],
+        "sources": ["Test Source"],
+    }
+    valid_ids = payload[field].copy()
+    payload[field].append(bad_entry)
+    draft = "# Draft" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3
+
+    parsed = parse_underwriter_output(draft)
+
+    assert parsed[field] == valid_ids
+    assert check_draft_compliance(draft, _policy_state(), {}) == []
+
+
+def test_a_valid_downside_id_beside_a_non_text_entry_still_acknowledges_its_breach_but_not_another():
+    """The mixed list is read by the real downside consumer: the retained ID covers its breach, an omitted one is flagged."""
+    import json
+
+    other_breach = {**DOWNSIDE_BREACH, "year": "FY+1", "breach_id": "DOWNSIDE-FY-1-DSCR"}
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": ALL_CATEGORIES_COVERED,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": ["DOWNSIDE-FY-2-DSCR", {"nested": "object"}, ["DOWNSIDE-FY-1-DSCR"]],
+        "sources": ["Test Source"],
+    }
+    draft = "# Draft" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH, other_breach])
+
+    reasons = check_draft_compliance(draft, policy_state, {})
+
+    assert not any("Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR" in reason for reason in reasons)
+    assert any("Undisclosed Downside Breach DOWNSIDE-FY-1-DSCR" in reason for reason in reasons)

@@ -1146,3 +1146,24 @@ def test_parse_underwriter_output_keeps_valid_ids_alongside_non_text_entries(fie
     assert parsed[field] == valid_ids
     assert check_draft_compliance(draft, _policy_state(), {}) == []
 
+
+def test_a_valid_downside_id_beside_a_non_text_entry_still_acknowledges_its_breach_but_not_another():
+    """The mixed list is read by the real downside consumer: the retained ID covers its breach, an omitted one is flagged."""
+    import json
+
+    other_breach = {**DOWNSIDE_BREACH, "year": "FY+1", "breach_id": "DOWNSIDE-FY-1-DSCR"}
+    payload = {
+        "cp_ids_included": ["KYC-AML"],
+        "cs_ids_included": ["MI-REPORTING"],
+        "risk_categories_covered": ALL_CATEGORIES_COVERED,
+        "reported_figures": {},
+        "downside_breaches_acknowledged": ["DOWNSIDE-FY-2-DSCR", {"nested": "object"}, ["DOWNSIDE-FY-1-DSCR"]],
+        "sources": ["Test Source"],
+    }
+    draft = "# Draft" + chr(10) + chr(10) + chr(96) * 3 + "json" + chr(10) + json.dumps(payload) + chr(10) + chr(96) * 3
+    policy_state = _policy_state(downside_covenant_breaches=[DOWNSIDE_BREACH, other_breach])
+
+    reasons = check_draft_compliance(draft, policy_state, {})
+
+    assert not any("Undisclosed Downside Breach DOWNSIDE-FY-2-DSCR" in reason for reason in reasons)
+    assert any("Undisclosed Downside Breach DOWNSIDE-FY-1-DSCR" in reason for reason in reasons)

@@ -224,7 +224,10 @@ and the **Risk Reviewer's judgement**. Reasons from the code have fixed wording:
 | `Missing Credit Policy Consideration: ...` | A calibrated policy exists and the draft does not declare it considered it | Draft with the policy in mind and set `credit_policy_considered` |
 
 The block that carries these declarations is the draft's trailing fenced `json` block; if it is missing or malformed
-you get a full list of "Missing" reasons at once. The review loop keeps going until `APPROVED`; every iteration is
+you get a full list of "Missing" reasons at once. Inside the three acknowledgement lists (`cp_ids_included`,
+`cs_ids_included`, `downside_breaches_acknowledged`) a member that is not text (a number, an object or a nested list)
+is ignored on its own: the valid IDs beside it still count, and a required ID that was only present as a
+non-text member is reported as missing in the usual way. The review loop keeps going until `APPROVED`; every iteration is
 kept in `review_trail`.
 
 ### Forward results

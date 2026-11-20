@@ -331,6 +331,9 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
     return candidate
 
 
+_ASSET_CLASS_LABEL_MAX = 80
+
+
 def _usable_security_id(value: Any) -> bool:
     """True only for a non-blank text ID. A blank, whitespace-only, numeric, boolean or structured value is not an
     identifier: it cannot join an asset to a charge, so the entry is reported as unidentified (issue #604)."""
@@ -444,9 +447,20 @@ def _evaluate_security(
     # produced for an identified asset or charge retains its exact value and
     # order (the policy payload is a typed contract pinned byte for byte).
     def asset_class_label(entry: dict[str, Any]) -> str:
+        """A short, safe label for an unidentified entry's asset class (maintainer decision on #604).
+
+        The class is analyst-supplied free text that now appears in a gap, a condition-precedent text and a CP ID,
+        so control characters, line breaks and invalid scalar values (an isolated surrogate cannot be encoded)
+        are removed, whitespace is collapsed and the length is capped. An unusable class reads "not recorded".
+        """
         asset_class = entry.get("asset_class")
-        if isinstance(asset_class, str) and asset_class.strip():
-            return asset_class.strip()
+        if isinstance(asset_class, str):
+            cleaned = "".join(
+                ch if (ch.isprintable() and not 0xD800 <= ord(ch) <= 0xDFFF) else " " for ch in asset_class
+            )
+            cleaned = " ".join(cleaned.split())[:_ASSET_CLASS_LABEL_MAX]
+            if cleaned:
+                return cleaned
         return "not recorded"
 
     for position, asset in enumerate(collateral_entries, start=1):

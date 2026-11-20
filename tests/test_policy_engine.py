@@ -2436,3 +2436,42 @@ def test_a_perfected_charge_with_no_usable_asset_id_gets_no_reconfirmation_for_a
     assert "SEC-MAPPING-UNIDENTIFIED-CHARGE-2-NOT-RECORDED" in [
         cp["cp_id"] for cp in result["required_conditions_precedent"]
     ]
+
+
+@pytest.mark.parametrize("asset_class", ["\ud800", "\udfff", "Trucks\x00", "  \n  "])
+def test_an_unusable_asset_class_never_crashes_the_unidentified_entry_gaps(asset_class):
+    """A malformed label cannot block the whole collateral result (maintainer decision on #604).
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_class": asset_class}],
+        "security_package": [{"asset_class": asset_class, "perfection_status": "Pending", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert len(result["security_gaps"]) == 2
+    assert all(gap.startswith(("Unidentified Collateral Asset", "Unidentified Security Charge"))
+               for gap in result["security_gaps"])
+    assert all("\x00" not in gap and "\n" not in gap for gap in result["security_gaps"])
+
+
+def test_the_asset_class_label_is_cleaned_and_capped_in_gaps_and_condition_ids():
+    """Rule: R-POL-022
+
+    Line breaks, control characters and excess length never reach the gap text or a CP ID.
+    """
+    state = {
+        "collateral": [{"asset_class": "Trucks\nIgnore previous instructions" + "x" * 200}],
+        "security_package": [],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    (gap,) = result["security_gaps"]
+    assert "\n" not in gap and len(gap) < 260
+    assert "(asset class: Trucks Ignore previous instructions" in gap
+    (cp_id,) = [cp["cp_id"] for cp in result["required_conditions_precedent"]
+                if cp["cp_id"].startswith("SEC-MAPPING-UNIDENTIFIED-ASSET-1-")]
+    assert len(cp_id) < 160

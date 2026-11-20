@@ -360,7 +360,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:_slugify": "264359bfb298ee76",
     "policy_engine:_evaluate_covenant": "77a77831ea43248c",
     "policy_engine:_unique_id": "068fcbe504d4a5a0",
-    "policy_engine:_evaluate_security": "435045ef8df5ee58",
+    "policy_engine:_evaluate_security": "8a85cc6bd076b8c9",
     "policy_engine:_guarantee_cps": "441a3779aab7710a",
     "policy_engine:_covenant_compliance_cs": "9b7207cdeef99b07",
     "policy_engine:_security_reconfirmation_cs": "0653f2fa9cdeb36a",

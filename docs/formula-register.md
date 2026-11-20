@@ -908,7 +908,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Name:** Required Conditions Subsequent — the post-drawdown monitoring obligations
 - **Formula:** the standard `MI-REPORTING` plus one deal-level `CS-COVENANT-COMPLIANCE` when any covenants
   exist (one for the whole package, not one per covenant), plus one `CS-SEC-REPERFECT-<asset>` per
-  currently-Perfected charge, plus one `CS-GUARANTEE-<slug>` per guarantee (same keying as F-043)
+  currently-Perfected charge that names a usable asset ID (a Perfected charge with no usable ID gets only its
+  mapping CP, F-042: there is no asset to name), plus one `CS-GUARANTEE-<slug>` per guarantee (same keying as F-043)
 - **Unit and storage:** a list of `{"cs_id", "text"}`; `cs_id` is a namespace distinct from `cp_id`
 - **Edge rules:** a charge that is not Perfected today gets no CS here — its CP (F-042) already covers it;
   a qualitative obligation carries no invented numeric deadline (the grounding rule bars inventing figures)

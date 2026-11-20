@@ -491,7 +491,8 @@ From the recorded structure alone (no model), `policy_state` holds:
   `FACILITY-EXECUTION` are always required. A charge that is not exactly `"Perfected"` adds `SEC-PERFECT-<asset>`; one
   that does not rank exactly `"First"` adds `SEC-PRIORITY-<asset>`; each guarantee adds `GUARANTEE-<provider>`.
 - **Conditions subsequent (CSs)**, ongoing obligations after drawdown, each with a `cs_id`: `MI-REPORTING` always,
-  `CS-COVENANT-COMPLIANCE` when there are covenants, `CS-SEC-REPERFECT-<asset>` for each charge, and
+  `CS-COVENANT-COMPLIANCE` when there are covenants, `CS-SEC-REPERFECT-<asset>` for each Perfected charge that
+  names a usable asset ID (an unidentified charge has only its mapping condition precedent), and
   `CS-GUARANTEE-<provider>` for each guarantee.
 - **Security gaps**: an uncharged asset, an unperfected charge, a subordinate ranking, a collateral entry without a usable `asset_id`, or a security charge without a usable `secures_asset_id` (a usable ID is a non-blank text string; a missing, blank, whitespace-only, numeric or structured value does not count). Each unidentified entry adds its own mapping gap and `SEC-MAPPING` condition precedent. The CP ID uses the entry's 1-based position and recorded asset class, so it is stable only while the source list is unchanged; when a charge has no asset class, it says “not recorded”. The engine does not guess which asset an unidentified charge secures.
 - **Covenant results, downside breaches and forward covenant results** as above.

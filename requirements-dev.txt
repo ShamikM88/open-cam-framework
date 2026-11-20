@@ -1,5 +1,5 @@
 -r requirements.txt
-pytest>=9.1.1
+pytest>=9.2.0
 pytest-xdist>=3.8.0         # bounded parallel test execution, issue #212
 tomli>=2.5.0; python_version < "3.11"   # scripts/check_coverage.py reads pyproject.toml
 pytest-cov>=7.1.0         # coverage measurement (line + branch), issue #142

@@ -1,0 +1,28 @@
+[
+  {
+    "metric": "gross_leverage",
+    "type": "maximum",
+    "threshold": 0.5,
+    "basis": "consolidated",
+    "actual": 0.4875,
+    "status": "PASS",
+    "headroom_pct": 0.025000000000000022,
+    "reason": null,
+    "view_source": "credit_aggregation",
+    "input_fingerprint": "edf81308562ca5f3be74ba0dc617739ed4f495da4e745a53a73c9815a49afc1a",
+    "view_label": "credit aggregation, not accounting-reviewed",
+    "view_limitations": [
+      "Debt may be understated: a matching but wrong declaration can remove bank debt; participants may support, guarantee or secure debt of left-out entities. See the supported-debt memo and guarantees between participants.",
+      "Aggregate cash and EBITDA may not be available to the borrower: structural subordination, partial ownership, restrictions and trapped cash can limit access.",
+      "The analyst's attestations are the analyst's own and are not verified; evidence references are not authenticated.",
+      "Not a consolidation under IFRS 10 or FRS 102. No accountant reviewed these rules or the output; this says nothing about whether participant accounts are audited.",
+      "Read the participants and ownership, left-out and skipped chain entities, eliminations, debt before and after (including amount and percentage removed), refused journals, maturity mismatches, attestations and withholdings.",
+      "Debt may also be overstated: unjournalled, excluded or refused loans, intragroup lease liabilities and cash pool positions in overdraft stay in debt. An incorrect attestation may overstate EBITDA. Total debt counts loan_notes, which may include preference shares.",
+      "An aggregation covenant result is indicative, not a compliance test under the facility's own definition.",
+      "Events after the reporting date, including repayments, forgiveness, new loans, undrawn facilities, keepwells and comfort letters, are not reflected.",
+      "Not eliminated: investments against equity, goodwill and minorities, intercompany trade balances, sales and costs, dividends, management charges, unrealised profit, scheduled principal, interest (including accrued), FX and tax.",
+      "Trends can mislead when a loan is refused in one period and journalled in another, or when participants change.",
+      "A carrying amount net of expected credit losses, or for a below-market loan, can differ and prevent a match."
+    ]
+  }
+]

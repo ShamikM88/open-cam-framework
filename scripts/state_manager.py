@@ -34,6 +34,7 @@ import tempfile
 import time
 from collections.abc import Iterable
 from datetime import date, datetime
+from decimal import Decimal, DecimalException
 from types import TracebackType
 from typing import Any, Literal, NotRequired, Self, TypedDict, overload
 
@@ -66,7 +67,7 @@ class EntityPerimeter(TypedDict):
 
 
 class EntityIntercompanyLine(TypedDict):
-    """An identified raw line and counterparty, recorded but not eliminated in step 1."""
+    """An identified raw line; B2b checks the optional declaration fields on use."""
 
     period: str
     line_key: str
@@ -74,6 +75,11 @@ class EntityIntercompanyLine(TypedDict):
     direction: str
     amount: int | float
     confirmed: bool
+    loan_id: NotRequired[str]
+    legal_entity: NotRequired[str]
+    evidence: NotRequired[dict[str, str]]
+    of_which_owed_to_group: NotRequired[int | float]
+    separate_loan_confirmed: NotRequired[bool]
 
 
 class EntityRecord(TypedDict):
@@ -340,6 +346,13 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
 
 # The credit-aggregation record's period labels mirror _GROUP_BASIS_PERIOD_KEYS (issue #472, B2a).
 _CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
+_AGGREGATION_COMPUTED_EXTRAS: dict[str, type | tuple[type, ...]] = {
+    "adjusted_raw": dict, "eliminations_applied": list, "refused_journals": list, "participant_table": list,
+    "withheld": dict, "limitations": list, "label": str, "metric_label": (str, type(None)),
+    "debt_before": (int, float), "debt_eliminated": (int, float), "debt_eliminated_pct": (int, float, type(None)),
+    "debt_lines": dict, "debt_memo": dict, "cash": dict, "group_net_debt": (int, float, type(None)),
+    "attestations": dict, "left_out": dict, "skipped_chain_entities": dict, "participant_guarantees": list,
+}
 
 
 def computed_figures_problem(computed: object) -> str | None:
@@ -352,7 +365,8 @@ def computed_figures_problem(computed: object) -> str | None:
     if (not isinstance(computed, dict) or not isinstance(computed.get("financials"), dict)
             or not isinstance(computed.get("ratios"), dict)):
         return 'must be an object with "financials" and "ratios" objects'
-    unexpected = sorted(set(computed) - {"financials", "ratios", "output_digest"})
+    extras = set(computed) - {"financials", "ratios", "output_digest"}
+    unexpected = sorted(extras - _AGGREGATION_COMPUTED_EXTRAS.keys())
     if unexpected:
         return "has unexpected key(s): " + ", ".join(repr(key) for key in unexpected)
     digest = computed.get("output_digest")
@@ -372,6 +386,10 @@ def computed_figures_problem(computed: object) -> str | None:
             if not finite:
                 return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
                         "object, boolean or non-finite value")
+    if extras:
+        for key, shape in _AGGREGATION_COMPUTED_EXTRAS.items():
+            if key not in computed or isinstance(computed[key], bool) or not isinstance(computed[key], shape):
+                return f"{key} is missing or has the wrong shape for a calculated aggregation"
     return None
 
 
@@ -398,7 +416,8 @@ def _credit_aggregation_problems(value: object) -> list[str]:
         if not isinstance(entry, dict):
             problems.append(f"{path} must be an object")
             continue
-        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"})
+        calculation_keys = {"input", "input_digest", "journals"}
+        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"} - calculation_keys)
         if unexpected:
             problems.append(f"{path} has unexpected key(s): " + ", ".join(repr(key) for key in unexpected))
 
@@ -423,6 +442,13 @@ def _credit_aggregation_problems(value: object) -> list[str]:
             computed_problem = computed_figures_problem(computed)
             if computed_problem is not None:
                 problems.append(f"{path}.computed {computed_problem}")
+        if calculation_keys & entry.keys():
+            digest = entry.get("input_digest")
+            if (not isinstance(entry.get("input"), dict) or not isinstance(entry.get("journals"), list)
+                    or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                problems.append(f"{path} requires a confirmed input object, journals list and SHA-256 input_digest")
+            if not isinstance(computed, dict) or not _AGGREGATION_COMPUTED_EXTRAS.keys() <= computed.keys():
+                problems.append(f"{path} requires a calculated computed object when calculation inputs are stored")
     return problems
 
 
@@ -853,6 +879,18 @@ def record_group_basis(
 
 
 
+def _exact_json_float(text: str) -> float:
+    """Parse one JSON number, refusing one that binary floating point cannot hold exactly.
+
+    `20.000000000000001` would silently become `20.0`; a carrying amount rounded that way can then match another
+    amount it does not equal (issue #472). A number that round-trips exactly parses as before.
+    """
+    value = float(text)
+    if Decimal(text) != Decimal(str(value)):
+        raise ValueError(f"number {text} exceeds the precision of the state JSON format and would be rounded")
+    return value
+
+
 def record_entity_record(
     company: str, proposal: str, entity_record_file: str, perimeter_confirmed: bool = False,
     date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
@@ -889,9 +927,9 @@ def record_entity_record(
     try:
         with open(entity_record_file, encoding="utf-8") as handle:
             try:
-                supplied: Any = json.load(handle)
+                supplied: Any = json.load(handle, parse_float=_exact_json_float)
                 record: EntityRecord = supplied
-            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+            except (ValueError, DecimalException, RecursionError) as exc:
                 raise StateError(
                     f"Cannot read entity-record file {entity_record_file!r} as UTF-8 JSON: {exc}"
                 ) from exc

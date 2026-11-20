@@ -23,7 +23,10 @@ from policy_check import STATE_KEYS_READ, compute_from_state
 from policy_engine import PolicyState
 from source_manifest import missing_saved_sources, read_manifest, sources_declared
 from spreading_builder import PERIOD_KEYS
-from credit_aggregation import aggregation_period_status
+from credit_aggregation import (
+    AGGREGATION_PARTICIPANT_HEADERS, LABEL, LIMITATIONS, aggregation_participant_rows,
+    aggregation_period_status, aggregation_result_rows,
+)
 from state_manager import (
     JsonValue, StateError, find_deal, read_state, required_steps_completed, sanitize_path_component, state_path,
     validate_iso_date_str, validate_state,
@@ -109,10 +112,13 @@ def _covenant_row(result: Mapping[str, Any], columns: Sequence[str]) -> list[Jso
 
 
 def _covenant_table(columns: Sequence[str], results: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Add basis only for tables whose policy-result rows disclose it."""
+    """Add basis and aggregation labels only for results that disclose them."""
     columns = list(columns)
     if any("basis" in result for result in results):
         columns.insert(columns.index("metric") + 1, "basis")
+    for label in ("view_label", "view_metric_label"):
+        if any(label in result for result in results):
+            columns.append(label)
     return _table(columns, [_covenant_row(result, columns) for result in results])
 
 
@@ -208,7 +214,8 @@ def render_markdown(data: CommitteeSummaryData) -> str:
 
     aggregation = state.get("credit_aggregation")
     if isinstance(aggregation, dict) and aggregation:
-        lines += ["## Credit aggregation (not a consolidation)", "", AGGREGATION_DISCLOSURE, ""]
+        lines += ["## Credit aggregation (not a consolidation)", "", LABEL, "",
+                  *[f"- {item}" for item in LIMITATIONS], "", AGGREGATION_DISCLOSURE, ""]
         for period in _ordered_periods(aggregation):
             entry = aggregation.get(period)
             manifest = entry.get("manifest") if isinstance(entry, dict) else None
@@ -230,9 +237,11 @@ def render_markdown(data: CommitteeSummaryData) -> str:
             computed = entry.get("computed") if isinstance(entry, dict) else None
             if status.get("status") == "current" and isinstance(computed, dict):
                 lines += ["", "Computed credit-aggregation subtotals and ratios:", ""]
-                rows = [[name, value] for group in ("financials", "ratios")
-                        for name, value in sorted(computed[group].items()) if name != "raw"]
+                rows = aggregation_result_rows(computed)
                 lines += _table(["Figure", "Value"], rows)
+                if participants := aggregation_participant_rows(computed):
+                    lines += ["", "Participants (post-elimination):", ""]
+                    lines += _table(AGGREGATION_PARTICIPANT_HEADERS, participants)
             lines.append("")
 
     inputs = inputs if isinstance(inputs := state.get("inputs"), dict) else {}

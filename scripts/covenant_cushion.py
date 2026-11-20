@@ -54,7 +54,7 @@ import os
 import sys
 from collections.abc import Callable, Mapping
 
-from policy_engine import DEFAULT_COVENANT_BASIS, evaluate_single_covenant
+from policy_engine import DEFAULT_COVENANT_BASIS, evaluate_resolved_covenant, evaluate_single_covenant
 from covenant_basis import resolve_covenant_views
 from numeric_validation import validate_raw_line_items, validate_stress_assumptions
 from spreading_builder import FIELD_LABELS, apply_stress_shocks, evaluate_financial_model
@@ -67,7 +67,7 @@ from state_manager import (StateError, find_deal, read_state, sanitize_path_comp
 STATE_KEYS_READ = (
     "financials", "ratios", "financials_source", "forecast_source",
     "analyst_supplied_financials", "multi_period_financials", "stress_assumptions",
-    "downside_case", "covenants", "group_basis",
+    "downside_case", "covenants", "group_basis", "credit_aggregation",
 )
 # forecast_source has no shape in state_manager.STATE_SHAPES, so it is read but not
 # shape-validated with the rest (it is disclosure-only here).
@@ -462,7 +462,18 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
 
         period_entries: list[dict[str, object]] = []
         for period in periods:
-            if guarantor_basis:
+            break_even: dict[str, object]
+            shocks: list[dict[str, object]] | None
+            if view.get("view_source") == "credit_aggregation":
+                result = evaluate_resolved_covenant(dict(covenant), view, period)
+                unavailable_reason = (
+                    "credit aggregation break-even and shock searches are unavailable in B2b; "
+                    "the borrower's raw inputs and stress assumptions are not a substitute"
+                )
+                break_even = {"metric": covenant.get("metric"), "break_even_ebitda": None, "pass_side": None,
+                              "note": None, "reason": unavailable_reason}
+                shocks = None
+            elif guarantor_basis:
                 period_ratios = view.get("ratios")
                 period_financials = view.get("financials")
                 selected_ratios = period_ratios.get(period) if isinstance(period_ratios, Mapping) else None
@@ -489,14 +500,14 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
                     "guarantor-specific break-even and shock searches are unavailable in C4; "
                     "the borrower's raw inputs and stress assumptions are not a substitute"
                 )
-                break_even: dict[str, object] = {
+                break_even = {
                     "metric": covenant.get("metric"),
                     "break_even_ebitda": None,
                     "pass_side": None,
                     "note": None,
                     "reason": unavailable_reason,
                 }
-                shocks: list[dict[str, object]] | None = None
+                shocks = None
             else:
                 raw, unavailable_reason = _period_raw(period, state)
                 result = evaluate_single_covenant(

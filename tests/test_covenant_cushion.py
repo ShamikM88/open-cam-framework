@@ -701,7 +701,7 @@ def test_state_keys_read_matches_the_documented_list():
     assert STATE_KEYS_READ == (
         "financials", "ratios", "financials_source", "forecast_source",
         "analyst_supplied_financials", "multi_period_financials", "stress_assumptions",
-        "downside_case", "covenants", "group_basis",
+        "downside_case", "covenants", "group_basis", "credit_aggregation",
     )
 
 

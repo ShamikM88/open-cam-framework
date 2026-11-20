@@ -2,7 +2,6 @@
 
 Synthetic data only. Written before the fixes; see the commit history.
 """
-import copy
 from pathlib import Path
 
 import openpyxl
@@ -15,24 +14,22 @@ from credit_aggregation import AggregationError, aggregation_period_status, reso
 from spreading_builder import export_to_xlsx
 
 from test_credit_aggregation import (
-    BORROWER_RAW, OPCO_ID, _entity_record, _hand_state, _line, _period_request, _read_full, _record, _request,
-    _seed_two_entity_deal,
+    BORROWER_RAW, OPCO_ID, _entity_record, _hand_state, _line, _period_request, _read_full, _request,
 )
+from test_credit_aggregation_calc import run
 
 PERIOD = "FY-Current"
-COMPUTED = {"financials": {"ebitda": 500.0}, "ratios": {"gross_leverage": 1.8}}
 COVENANT = {"metric": "gross_leverage", "type": "maximum", "threshold": 3.0, "basis": "consolidated"}
 FORMULA = '=HYPERLINK("http://x","y")'
 
 
 def _with_computed(tmp_path, computed=None):
-    _seed_two_entity_deal(tmp_path)
-    _record(tmp_path)
+    run(tmp_path)
     state = _read_full(tmp_path)
     entry = state["credit_aggregation"][PERIOD]
-    figures = copy.deepcopy(computed or COMPUTED)
-    entry["computed"] = {**figures, "output_digest": ca.computed_output_digest(
-        entry["input_fingerprint"], figures["financials"], figures["ratios"])}
+    if computed is not None:
+        entry["computed"] = {**computed, "output_digest": ca.computed_output_digest(
+            entry["input_fingerprint"], computed["financials"], computed["ratios"])}
     return state
 
 
@@ -97,17 +94,6 @@ def test_the_digest_is_bound_to_the_input_fingerprint(tmp_path):
     figures = state["credit_aggregation"][PERIOD]["computed"]
     other = ca.computed_output_digest("b" * 64, figures["financials"], figures["ratios"])
     assert figures["output_digest"] != other
-
-
-# CG587-15: the known limit of the checksum, pinned as strict xfail until the B2b recompute exists
-@pytest.mark.xfail(strict=True, reason="needs the B2b recompute on read; decision on issue #472 (CG587-15)")
-def test_a_coordinated_edit_with_a_recomputed_digest_is_not_current(tmp_path):
-    state = _with_computed(tmp_path)
-    entry = state["credit_aggregation"][PERIOD]
-    entry["computed"]["ratios"]["gross_leverage"] = 0.1
-    entry["computed"]["output_digest"] = ca.computed_output_digest(
-        entry["input_fingerprint"], entry["computed"]["financials"], entry["computed"]["ratios"])
-    assert aggregation_period_status(state, PERIOD)["status"] != "current"
 
 
 # CG587-12 / Cubic: intercompany lines in the fingerprint

@@ -1273,6 +1273,9 @@ def _write_credit_aggregation_sheet(wb: Any, rows: Sequence[Sequence[Any]]) -> N
                 cell.data_type = "s"     # analyst text such as "=HYPERLINK(...)" must never become a formula
     ws.column_dimensions["A"].width = 34
     ws.column_dimensions["B"].width = 72
+    if ws.max_column > 2:
+        for col, width in zip("CDEFG", (16, 17, 24, 16, 16), strict=True):
+            ws.column_dimensions[col].width = width
 
 
 def export_to_xlsx(

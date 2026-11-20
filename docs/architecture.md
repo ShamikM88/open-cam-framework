@@ -95,6 +95,13 @@ flowchart LR
 
 ## Where the code ends and the model begins
 
+Case-B historical credit aggregation is a local calculation, not a model task. `credit_aggregation.py` validates
+the confirmed perimeter and journal file against the live state inside the deal lock. `credit_aggregation_calc.py`
+calculates adjusted raw lines and uses the unchanged financial evaluator; state receives one atomic update.
+Readers independently check the input fingerprint, output digest and deterministic recomputation before serving
+a figure. The policy resolver chooses the view, and the summary and workbook share the checked disclosure rows.
+See the [B2b state contract](data-model.md#b2b-journal-input-and-stored-result) for the trust boundary.
+
 | Layer | Decides | Examples |
 | :--- | :--- | :--- |
 | Deterministic code | What can be computed or checked exactly | Subtotals and ratios (`spreading_builder.py`, run through `spreading_check.py`); covenant PASS / FAIL / UNRESOLVABLE, required conditions precedent and subsequent, security gaps (`policy_engine.py`); whether a draft declares every required item and states figures that match the computed ones (`policy_checks.py`); state validation and schema versioning (`state_manager.py`); read-only dated-review movement and opt-in historical restatement comparison (`review_compare.py`); document export |

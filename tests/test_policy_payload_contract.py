@@ -181,6 +181,23 @@ def test_the_policy_check_cli_output_is_byte_for_byte_the_recorded_one(tmp_path,
     assert result.stdout.replace(b"\r\n", b"\n") == golden(name, "cli")
 
 
+def test_aggregation_covenant_contract_is_pinned_for_engine_and_cli(tmp_path):
+    from test_credit_aggregation import COMPANY, PROPOSAL, _read_full, _state_file
+    from test_credit_aggregation_calc import run
+
+    run(tmp_path)
+    state = _read_full(tmp_path)
+    state["covenants"] = [{"metric": "gross_leverage", "type": "maximum", "threshold": 0.5, "basis": "consolidated"}]
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(SCRIPTS / "policy_check.py"), "--company", COMPANY, "--proposal", PROPOSAL],
+        cwd=tmp_path, env=child_env(), capture_output=True, timeout=120, stdin=subprocess.DEVNULL)
+    assert result.returncode == 0, result.stderr
+    expected = golden("aggregation_covenants", "engine")
+    for payload in (evaluate_deal_policy(state), json.loads(result.stdout)["policy_state"]):
+        assert (json.dumps(payload["covenant_results"], indent=2) + "\n").encode() == expected
+
+
 def test_the_rich_cases_reach_every_shape_the_payload_can_take():
     """A golden that never produced a status or a key would pin nothing: check the cases cover the branches."""
     rich = evaluate_deal_policy(all_cases()["rich"])

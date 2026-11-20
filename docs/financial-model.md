@@ -630,7 +630,11 @@ prior-working-capital map built from the merged store — so a forward-only call
 period already on file (its `fcf_after_working_capital` and `cash_flow_dscr` are recorded from the
 whole deal, not as N/A), and a correction to one period recomputes the next. No formula changes: a
 forward year whose previous period is analyst-supplied stays N/A with a reason, never a figure
-blended from the other store, and older periods are not recomputed on every call. See the note on
+blended from the other store (on a deal whose `financials_source` is analyst-supplied, a leftover framework
+historical period is never read as the prior), a `null` period is "not recorded" and is never evaluated as a
+successor, the recorded working-capital lines it reads go through the same raw-input contract as incoming
+figures (a boolean, a string or an oversized number is one `error:` line), and older periods are not
+recomputed on every call. See the note on
 F-064 in the [formula register](formula-register.md#f-064--fcf-after-working-capital).
 
 `update_financials_source` (CLI: `--no-update-financials-source` to disable) gates whether a

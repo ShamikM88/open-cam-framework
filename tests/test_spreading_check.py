@@ -1087,3 +1087,64 @@ def test_a_relevant_value_that_overflows_is_a_clean_input_error(tmp_path, monkey
     with pytest.raises(ValueError, match="operating working capital is outside the supported numeric range"):
         compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
                 update_financials_source=False)
+
+
+def test_a_null_successor_placeholder_is_not_evaluated_as_a_zero_input_year(tmp_path, monkeypatch):
+    """Issue #597 (PX625-101 / CG625-1): "FY+1": null means not recorded; correcting FY-Current creates no FY+1."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY+1"] = None
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": {"trade_debtors": 120}},
+                    update_financials_source=False)
+
+    assert "FY+1" not in state["financials"] and "FY+1" not in state["ratios"]
+    assert state["multi_period_financials"]["FY+1"] is None
+
+
+@pytest.mark.parametrize("bad", [True, "100"], ids=["boolean", "string"])
+def test_a_malformed_recorded_comparator_is_a_clean_input_error(tmp_path, monkeypatch, bad):
+    """Issue #597 (PX625-102 / CG625-2): the prior working capital goes through the raw-input contract."""
+    from numeric_validation import FinancialInputError
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY-Current"]["trade_debtors"] = bad
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    with pytest.raises(FinancialInputError, match="trade_debtors"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                update_financials_source=False)
+
+
+def test_a_relevant_overflow_is_a_financial_input_error_the_headless_envelope_catches(tmp_path, monkeypatch):
+    from numeric_validation import FinancialInputError
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    _store_a_huge_int(tmp_path, "FY-Current")
+
+    with pytest.raises(FinancialInputError, match="outside the supported numeric range"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                update_financials_source=False)
+
+
+def test_leftover_framework_history_is_not_the_prior_of_a_forward_year_on_an_analyst_supplied_deal(
+        tmp_path, monkeypatch):
+    """Issue #597 (PX625-103 / CG625-3, maintainer decision): the prior stays unavailable, so the ratios are N/A."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+                analyst_supplied_financials={"FY-Current": {"revenue": 1}},
+                multi_period_financials={"FY-Current": dict(_FY_CURRENT)})
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                    update_financials_source=False)
+
+    assert state["financials"]["FY+1"]["fcf_after_working_capital"] is None
+    assert state["ratios"]["FY+1"]["cash_flow_dscr"] is None

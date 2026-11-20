@@ -426,7 +426,9 @@ def test_debt_memo_counts_attested_external_principal_once(tmp_path, coverage, a
         p["left_out"]["synthetic-left-out"] = {
             "reason": "Outside synthetic scope", "external_debt": 100,
             "support": [{"participant": (B, H)[i], "type": ("guarantee", "security")[i],
-                         "debt_id": debt, "covered_principal": value, "evidence": REF}
+                         "debt_id": debt, "covered_principal": value, "evidence": REF,
+                         **({"overlap_confirmed": True} if debt is not None and debt in [d for d, _ in coverage[:i]]
+                            else {})}
                         for i, (debt, value) in enumerate(coverage)],
         }
     c = run(tmp_path, change)
@@ -442,7 +444,8 @@ def test_one_attested_debt_id_is_not_counted_twice_across_left_out_entities(tmp_
             p["left_out"][entity] = {
                 "reason": "Outside synthetic scope", "external_debt": 100,
                 "support": [{"participant": participant, "type": "guarantee", "debt_id": "same-joint-debt",
-                             "covered_principal": amount, "evidence": REF}],
+                             "covered_principal": amount, "evidence": REF,
+                             **({"overlap_confirmed": True} if entity == "joint-debtor-b" else {})}],
             }
     assert run(tmp_path, change)["debt_memo"]["value"] == expected
 
@@ -498,3 +501,99 @@ def test_support_by_an_unselected_entity_refuses_without_writing(tmp_path):
     with pytest.raises(ca.AggregationError, match="support must be provided by a participant"):
         calculate(tmp_path, file)
     assert _state_file(tmp_path).read_bytes() == before
+
+
+def test_equal_partial_support_on_one_debt_is_unknown_unless_the_overlap_is_attested(tmp_path):
+    # Maintainer decision on #472 (PX628-108 / CG628-8): equal amounts under one debt_id could be two disjoint slices.
+    def change(p):
+        p["left_out"]["synthetic-left-out"] = {
+            "reason": "Outside synthetic scope", "external_debt": 100,
+            "support": [{"participant": participant, "type": "guarantee", "debt_id": "D1",
+                         "covered_principal": 40, "evidence": REF} for participant in (B, H)],
+        }
+    memo = run(tmp_path, change)["debt_memo"]
+    assert memo["value"] == "unknown" and "overlap of covered principal on debt D1 is not attested" in memo["reason"]
+
+
+@pytest.mark.parametrize("start", ["2025-10-01", "2025-07-01"], ids=["three-months", "six-months"])
+def test_a_declared_length_that_contradicts_the_dates_is_an_integrity_refusal(tmp_path, start):
+    # Maintainer decision on #472 (PX628-102 / CG628-2): twelve months declared over a shorter span is refused.
+    file = seed(tmp_path)
+    for attestation in file["periods"][P]["attestations"].values():
+        attestation["period_start"] = start
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match=r"period_months \(12\) does not match the declared dates"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+@pytest.mark.parametrize(("start", "months"), [("2024-12-29", 12), ("2025-01-01", 12), ("2025-04-01", 9)])
+def test_a_52_or_53_week_year_and_whole_months_pass_the_length_check(tmp_path, start, months):
+    c = run(tmp_path, lambda p: [a.update(period_start=start, period_months=months) for a in p["attestations"].values()])
+    assert c["financials"]["total_debt"] == 390
+
+
+def test_a_schedule_larger_than_the_recorded_line_withholds_ebitda_with_a_named_reason(tmp_path):
+    # PX628-103 / CG628-4: a reciprocal schedule cannot offset an amount absent from the accounts.
+    def change(p):
+        p["attestations"][B].update(ebitda_intragroup="offset",
+                                    schedule=[{"counterparty": O, "line": "revenue", "amount": 10 ** 7}])
+        p["attestations"][O].update(ebitda_intragroup="offset",
+                                    schedule=[{"counterparty": B, "line": "cost_of_sales", "amount": 10 ** 7}])
+    c = run(tmp_path, change)
+    assert c["financials"]["ebitda"] is None and all(v is None for v in c["ratios"].values())
+    assert "exceeds the" in c["withheld"]["ebitda"] and "recorded in its accounts" in c["withheld"]["ebitda"]
+
+
+def test_negative_cash_for_one_participant_withholds_the_cash_outputs_even_when_the_total_is_positive(tmp_path):
+    # PX628-106 / CG628-7.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["multi_period_financials"][P]["cash"] = -10
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert c["cash"] == {"total": None, "restricted": 0, "unrestricted": None}
+    assert c["group_net_debt"] is None and c["ratios"]["net_debt_to_ebitda"] is None
+    assert "negative" in c["withheld"]["net_debt_to_ebitda"] and O in c["withheld"]["net_debt_to_ebitda"]
+
+
+def test_exact_zero_ebitda_stays_zero_and_its_ratios_are_not_available(tmp_path):
+    # PX628-104 / CG628-5 (maintainer decision on #472): 0.1 - 0.3 + 0.2 is exactly zero, not 2.8e-17.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    pnl = {"revenue": 0, "cost_of_sales": 0, "admin_expenses": 0, "other_income": 0, "depreciation": 0,
+           "amortisation": 0, "exceptional_costs": 0}
+    state["financials"][P]["raw"].update(pnl | {"revenue": 0.1})
+    state["entity_records"][O]["multi_period_financials"][P].update(pnl | {"cost_of_sales": 0.3})
+    state["entity_records"][H]["multi_period_financials"][P].update(pnl | {"other_income": 0.2})
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert c["financials"]["ebitda"] == 0
+    assert c["ratios"]["gross_leverage"] is None and "zero or negative" in c["withheld"]["gross_leverage"]
+    assert c["financials"]["total_debt"] == 390
+
+
+def test_the_calculation_scales_amounts_exactly_and_refuses_an_amount_too_precise_to_evaluate(tmp_path):
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["financials"][P]["raw"]["revenue"] = 1.0000000000000002e15   # needs more than 2**53 once scaled
+    state["financials"][P]["raw"]["cost_of_sales"] = 0.1
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="too large or too precise"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+def test_a_legacy_state_without_a_company_is_current_straight_after_the_write(tmp_path):
+    # PX628-105 / CG628-6: the identity fingerprinted is the one the write stamps.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state.pop("company", None)
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    after = _read_full(tmp_path)
+    assert after["company"] == COMPANY
+    assert ca.aggregation_period_status(after, P)["status"] == "current"

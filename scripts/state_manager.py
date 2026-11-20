@@ -34,6 +34,7 @@ import tempfile
 import time
 from collections.abc import Iterable
 from datetime import date, datetime
+from decimal import Decimal, DecimalException
 from types import TracebackType
 from typing import Any, Literal, NotRequired, Self, TypedDict, overload
 
@@ -878,6 +879,18 @@ def record_group_basis(
 
 
 
+def _exact_json_float(text: str) -> float:
+    """Parse one JSON number, refusing one that binary floating point cannot hold exactly.
+
+    `20.000000000000001` would silently become `20.0`; a carrying amount rounded that way can then match another
+    amount it does not equal (issue #472). A number that round-trips exactly parses as before.
+    """
+    value = float(text)
+    if Decimal(text) != Decimal(str(value)):
+        raise ValueError(f"number {text} exceeds the precision of the state JSON format and would be rounded")
+    return value
+
+
 def record_entity_record(
     company: str, proposal: str, entity_record_file: str, perimeter_confirmed: bool = False,
     date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
@@ -914,9 +927,9 @@ def record_entity_record(
     try:
         with open(entity_record_file, encoding="utf-8") as handle:
             try:
-                supplied: Any = json.load(handle)
+                supplied: Any = json.load(handle, parse_float=_exact_json_float)
                 record: EntityRecord = supplied
-            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+            except (ValueError, DecimalException, RecursionError) as exc:
                 raise StateError(
                     f"Cannot read entity-record file {entity_record_file!r} as UTF-8 JSON: {exc}"
                 ) from exc

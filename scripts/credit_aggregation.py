@@ -798,6 +798,10 @@ def _record_aggregation(
                 f"Refusing to record credit_aggregation: state.json at {path!r} no longer exists; "
                 "nothing was created."
             )
+        # The write below stamps the deal's own company name into state.json, and every later read fingerprints the
+        # borrower's legal name from it, so the calculation must use that same identity now, even for a legacy state
+        # that has no `company` yet (or a different one); otherwise the period would be stale straight after writing.
+        state["company"] = company
         records = _resolve_calculation(state, request) if calculate else resolve_request(state, request)
         existing = state.get("credit_aggregation")
         merged: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}

@@ -312,8 +312,8 @@ so in its Related line) when a later decision supersedes it.
 - **Choice.** Three cases, built in this order. **Case A:** the borrower supplies group accounts that are already
   consolidated; the framework records and discloses the basis (reporting entity, entities covered, source, a single
   period end, whether the figures were supplied or recomputed) and does no new arithmetic: no eliminations, no new
-  formula. **Case B:** the framework combines entity statements using analyst-supplied eliminations (a later, separately
-  reviewed, domain-risk step). **Case C:** a guarantor or parent is spread on its own, with no combination.
+  formula. **Case B:** the framework combines entity statements using analyst-confirmed eliminations (a separately
+  reviewed, domain-risk step; the first limited version, loan principal only, is the B2b implementation below). **Case C:** a guarantor or parent is spread on its own, with no combination.
   Vocabulary: a group figure the framework derives is a **credit aggregation**, never a statutory or IFRS
   consolidation, until investment and equity, goodwill, non-controlling interests and the other material adjustments
   are covered. The perimeter is confirmed by the analyst and never inferred from an ownership percentage. Period ends

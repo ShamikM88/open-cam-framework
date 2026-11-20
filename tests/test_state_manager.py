@@ -4697,3 +4697,37 @@ def test_credit_aggregation_computed_accepts_null_figures_and_refuses_non_flat_o
     for bad in (True, float("inf"), "1", {"FY-Current": 1}, [1]):
         value["FY-Current"]["computed"] = {"financials": {}, "ratios": {"dscr": bad}}
         assert "flat finite number" in _credit_aggregation_problems_for(value)
+
+
+@pytest.mark.parametrize("token", ["100.000000000000001", "1e999"], ids=["rounded-digits", "overflow"])
+def test_record_entity_record_refuses_a_number_binary_floating_point_would_round(tmp_path, token):
+    """A carrying amount such as 20.000000000000001 must not become 20.0 and then match another amount (#472)."""
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["multi_period_financials"] = {"FY-Current": {"revenue": "__TOKEN__"}}
+    record["period_ends"] = {"FY-Current": "2025-12-31"}
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(record).replace('"__TOKEN__"', token), encoding="utf-8")
+
+    with pytest.raises(state_manager.StateError, match="exceeds the precision of the state JSON format"):
+        state_manager.record_entity_record(
+            "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+            perimeter_confirmed=True, date_str="2026-10-27", base_dir=str(tmp_path))
+
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_still_accepts_a_number_that_round_trips_exactly(tmp_path):
+    _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["multi_period_financials"] = {"FY-Current": {"revenue": "__TOKEN__"}}
+    record["period_ends"] = {"FY-Current": "2025-12-31"}
+    record_file = tmp_path / "entity-record.json"
+    record_file.write_text(json.dumps(record).replace('"__TOKEN__"', "1234.5"), encoding="utf-8")
+
+    result = state_manager.record_entity_record(
+        "Synthetic Group Ltd", "Synthetic Group Facility", str(record_file),
+        perimeter_confirmed=True, date_str="2026-10-27", base_dir=str(tmp_path))
+
+    assert result["recorded"] is True

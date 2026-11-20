@@ -168,7 +168,7 @@ still decided by comparison.
 **The financial basis is selected per covenant.** An absent or null `basis` means `borrower` and retains the existing deal-level behaviour. `consolidated` uses the borrower-supplied view recorded in `group_basis`. `guarantor_group` requires a non-blank `basis_entity_id` and resolves exactly one registered guarantor by that ID, with an explicit `guarantee_id` link to the deal's guarantees. Its figures come only from that entity's current C3 framework-computed spread. A missing/invalid entity ID, wrong role, missing or ambiguous link, unspread record, stale fingerprint/output or analyst-supplied-only period yields UNRESOLVABLE. When the entity is identified but fails the role, link or spread check, each period it records (labels only; no figure is exposed) is still reported UNRESOLVABLE with that reason, never silently omitted. A guarantor result carries both `basis: "guarantor_group"` and `basis_entity_id`; a missing ID is reported as `null`. The borrower and case-A result shapes are unchanged, and no borrower or other-guarantor figures are used as fallback.
 
 **A `consolidated` covenant can read a credit aggregation (issue #472).** With no case-A `group_basis`, the
-shared resolver supplies only a current, deterministically recomputed case-B period. A withheld, stale, invalid,
+shared resolver supplies each recorded, deterministically recomputed historical case-B period that is current; the current-year covenant result uses FY-Current, and forward rows stay UNRESOLVABLE because B2b has no forecast values. A withheld, stale, invalid,
 absent or uncalculated figure makes the covenant UNRESOLVABLE with its reason, never replaced by borrower
 values. If both sources are recorded, neither is selected (D22). Borrower covenants never read the aggregation.
 Aggregation results carry `basis`, `view_source: "credit_aggregation"`, `input_fingerprint`, `view_label` and
@@ -178,7 +178,7 @@ result shapes are unchanged. A non-positive denominator remains N/A (D5). Draft 
 No aggregation forecasts or downside values exist in B2b. Forward covenant rows on recorded deal forecast periods
 show UNRESOLVABLE, with no borrower fallback; the cushion report cannot stress aggregation figures.
 
-At `/review`, `policy_checks.py` makes a current covenant FAIL or UNRESOLVABLE a code-enforced `REJECTED`,
+At `/review`, `policy_check.py` reports a current covenant FAIL or UNRESOLVABLE as a code-enforced reason (from `policy_checks.py`), which makes the verdict `REJECTED`,
 including when a group metric is withheld. A PASS enforces nothing and is never an approval. Aggregation results
 are indicative only, not covenant compliance under the facility's own definition.
 
@@ -312,11 +312,19 @@ outside the graph at period end is refused; one added during the period contribu
 link needs a skipped entity's confirmed control details and external debt. The period must be 12 months and
 whole-period membership and uniform accounting policies must be attested to show EBITDA metrics.
 
-- **Loan principal:** each confirmed journal decreases the lender's `other_fixed_assets` or
+- **Loan principal:** each confirmed journal that matches both declarations decreases the lender's `other_fixed_assets` or
   `other_current_assets` and the debtor's `current_debt` or `long_term_debt` by the same exact positive carrying
   amount. Both sides must identify the same loan. Confirmed maturity mismatches are printed, not reclassified.
   Capitalised interest is part of the principal only if both sides carry it at the same amount. No other
   elimination is made. The existing total-debt definition, including `overdraft` and `loan_notes`, is unchanged.
+- **Exact arithmetic and input checks:** amounts are scaled to whole numbers before the unchanged evaluator, so
+  exact cancellation (0.1 - 0.3 + 0.2) gives exactly zero EBITDA and its ratios are not available; no epsilon is
+  used, and an amount too large or too precise to scale exactly is refused. An entity record's numbers are parsed
+  without rounding at registration (a value such as `20.000000000000001` is refused). Each attestation's
+  `period_months` must agree with its dates (a span within 7 days of that many months of 30.4375 days, so 52- and
+  53-week years pass), otherwise the run is refused. A participant's negative cash withholds the cash outputs with
+  its name; an intragroup schedule larger than the participant's recorded line withholds EBITDA; and a second
+  support row for a debt already covered needs `overlap_confirmed: true`, otherwise the memo is `unknown`.
 - **Refusals:** duplicated loan IDs, cumulative cap violations, malformed inputs or inadmissible control
   refuse the whole invocation, which writes nothing. Every presented journal counts against the declared cap on its
   line, including one that is later refused on matching, so listing more principal than the participant declared

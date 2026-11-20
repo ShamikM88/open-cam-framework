@@ -44,6 +44,10 @@ def test_the_policy_check_entry_point_routes_a_consolidated_covenant_to_a_fresh_
 
 
 def test_a_changed_input_makes_the_policy_check_covenant_unresolvable_not_borrower_based(deal):
+    """Rule: R-POL-023
+
+    A covered source changes, so the stored period is stale: the covenant is UNRESOLVABLE, never borrower-based.
+    """
     state = _read_full(deal)
     state["financials"]["FY-Current"]["raw"]["cash"] += 1     # a covered source changes: the fingerprint is stale
     result = policy_check.compute_from_state(state)["policy_state"]["covenant_results"][0]

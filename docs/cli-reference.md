@@ -100,14 +100,14 @@ silently. `/calibrate` has no such cap (native PDF reading) and is unaffected.
 ## Orchestrator
 
 **`scripts/orchestrator.py`** (headless; needs `ANTHROPIC_API_KEY`) — the main pipeline. For a
-given `--company`, `--proposal`, `--pd`, `--lgd` and `--type`, it: loads the Maker/Checker
+given `--company`, `--proposal`, optional `--pd`/`--lgd` overrides and `--type`, it: loads the Maker/Checker
 prompts and style guide, resolves the CAM template for `--type` via
 `template_resolver.cam_template_path` and includes it in the drafting prompt if one exists,
 runs the Underwriter draft and then the Risk Reviewer audit, checkpointing to `state.json` via
 `state_manager.write_state` after each of those two agent calls (see the state management protocol in `CLAUDE.md`), then calls `deal_export.export_deal` (see below) to do the
 folder-creation/template-auto-save/export work:
 ```
-python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --type "asset_finance"
+python scripts/orchestrator.py --company "Acme Corp" --proposal "Fleet Loan" --pd "4.50%" --lgd "LGD 6 (45%)" --type "asset_finance"
 ```
 
 ## Orchestrator flags and defaults
@@ -123,9 +123,16 @@ No warning is printed when no normalized candidate exists. If the company folder
 a permission error), the advisory is skipped and the run continues exactly as it did before the lookup existed.
 See [State manager](#state-manager).
 
-- `--pd` (default `0.20%`) and `--lgd` (default `LGD 3 (15%)`) are **user-supplied risk inputs** and are used exactly as
-  given. The defaults are example values: if you omit the flags they flow into the CAM as if you had supplied them,
-  so always pass your own.
+- `--pd` and `--lgd` have no example defaults. Each explicit flag overrides only that field; when a flag is
+  omitted, the orchestrator uses the corresponding value in the selected deal's recorded `inputs.pd` or `inputs.lgd`.
+  Both values must be available from a flag or the selected state. If either is missing, the command prints one
+  `error:` line and exits before any model call or state write. The values are passed through unchanged; their
+  format remains a human judgement and is not validated here. A blank or whitespace-only recorded value counts as
+  missing, and a blank flag (for example an unset CI variable) is refused rather than replaced by a recorded value.
+  PD and LGD are resolved once, from the same dated state the run saves into, so a review started in between cannot
+  mix two records. With `--new-review` the new dated review starts empty and nothing is copied from the earlier one, so pass
+  both `--pd` and `--lgd` the first time; a rerun on the same day resumes that day's existing `state.json` and can
+  use the PD and LGD it already recorded, unless a flag overrides one. Existing `inputs` fields such as `experian_score` are preserved when a flag updates PD or LGD.
 - `--type` selects the template and defaults to `corporate_credit`.
 - A model reply that ends at its output-token limit (`stop_reason` `max_tokens`: 4000 for the Maker draft and revision, 2000
   for the Checker audit) stops the run with one `error:` line and exit status 1. The partial text is not parsed, saved,

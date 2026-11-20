@@ -414,8 +414,12 @@ The headless equivalent is one command, with the same outputs:
 
 ```bash
 python scripts/orchestrator.py --company "Synthetic Co" --proposal "Synthetic Fleet Loan" --type asset_finance \
+    --pd "0.20%" --lgd "LGD 3 (15%)" \
     --financials financials.json --collateral collateral.json --stress-assumptions stress.json
 ```
+
+PD and LGD are required: pass both flags, as here, or have them already recorded in the deal's `state.json`
+(`inputs.pd` and `inputs.lgd`); with neither, the command stops with one `error:` line and writes nothing.
 
 ## Review
 

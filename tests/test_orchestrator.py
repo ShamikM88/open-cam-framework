@@ -19,6 +19,7 @@ deliberately triggered code-enforced) REJECTED path don't need one.
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,6 +43,7 @@ from orchestrator import (
     _default_client,
     _ground_truth_figures,
     _load_multi_period_financials,
+    _resolve_pd_lgd_inputs,
     _normalize_category,
     _resolve_maker_checker_config,
     _values_match,
@@ -509,7 +511,7 @@ def _bad_value_for(key):
 ORCHESTRATOR_STATE_KEYS = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                            "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                            "security_package", "guarantees", "review_trail", "credit_aggregation",
-                           "analyst_supplied_financials")
+                           "analyst_supplied_financials", "inputs")
 
 
 def _orchestrator_state_keys():
@@ -1256,6 +1258,7 @@ def test_the_cli_reports_a_truncated_response_as_one_error_line_and_exit_1(proje
 
     import anthropic
 
+    write_state("Acme Corp", "Fleet Loan", inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"})
     client = MockClient([_truncated()])
     client.default_headers = {"x-api-key": "synthetic"}
     monkeypatch.setattr(anthropic, "Anthropic", lambda **kwargs: client)
@@ -2864,6 +2867,7 @@ def test_the_cli_reports_an_unreadable_template_as_one_error_line_and_makes_no_m
 
     import anthropic
 
+    write_state("Acme Corp", "Fleet Loan", inputs={"pd": "0.20%", "lgd": "LGD 3 (15%)"})
     (project_root / "templates" / "cam" / "corporate_credit_cam.md").write_text(
         "<!-- Guidance: never closed\n", encoding="utf-8",
     )
@@ -3330,3 +3334,254 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 
     assert client.call_count == 0
     assert (project_root / "deals" / "Acme Corp" / "Fleet Loan_2026-01-10" / "state.json").read_bytes() == before
+
+# ---------------------------------------------------------------------------
+# #599: recorded PD/LGD inputs are authoritative unless an explicit flag
+# overrides that individual field.
+# ---------------------------------------------------------------------------
+
+def test_headless_pipeline_uses_recorded_pd_lgd_and_preserves_bureau_score(project_root):
+    write_state(
+        "Example Co", "Term Loan",
+        inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
+    )
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override=None, lgd_override=None,
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", pd_score, lgd_score, "corporate_credit", client=client)
+
+    state = read_state("Example Co", "Term Loan")
+    assert state["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41,
+    }
+    prompt_text = chr(10).join(
+        str(message.get("content", ""))
+        for call in client.calls
+        for message in call["messages"]
+    )
+    assert "PD: 4.50%" in prompt_text
+    assert "LGD: LGD 6 (45%)" in prompt_text
+
+
+def test_explicit_pd_override_changes_only_pd_and_keeps_recorded_lgd_and_bureau_score(project_root):
+    write_state(
+        "Example Co", "Term Loan",
+        inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
+    )
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override="1.25%", lgd_override=None,
+    )
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", pd_score, lgd_score, "corporate_credit", client=client)
+
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "1.25%", "lgd": "LGD 6 (45%)", "experian_score": 41,
+    }
+    prompt_text = chr(10).join(
+        str(message.get("content", ""))
+        for call in client.calls
+        for message in call["messages"]
+    )
+    assert "PD: 1.25%" in prompt_text
+    assert "LGD: LGD 6 (45%)" in prompt_text
+
+
+def test_missing_pd_lgd_refuses_before_model_calls_or_state_writes(project_root):
+    with pytest.raises(ValueError, match="no recorded or supplied PD/LGD inputs"):
+        _resolve_pd_lgd_inputs(
+            "Example Co", "Term Loan", pd_override=None, lgd_override=None,
+        )
+
+    script = Path(__file__).resolve().parents[1] / "scripts" / "orchestrator.py"
+    result = subprocess.run(
+        [
+            sys.executable, str(script),
+            "--company", "Example Co",
+            "--proposal", "Term Loan",
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.splitlines() == [
+        "error: no recorded or supplied PD/LGD inputs (missing: PD, LGD); nothing was written."
+    ]
+    deals_dir = Path.cwd() / "deals"
+    assert not deals_dir.exists() or not list(deals_dir.rglob("state.json"))
+
+
+def test_explicit_lgd_override_changes_only_lgd_and_keeps_recorded_pd_and_bureau_score(project_root):
+    write_state(
+        "Example Co", "Term Loan",
+        inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
+    )
+    pd_score, lgd_score = _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override=None, lgd_override="LGD 2 (10%)",
+    )
+
+    assert (pd_score, lgd_score) == ("4.50%", "LGD 2 (10%)")
+    run_pipeline("Example Co", "Term Loan", pd_score, lgd_score, "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 2 (10%)", "experian_score": 41,
+    }
+
+
+@pytest.mark.parametrize("recorded", ["", "   ", None])
+def test_a_blank_or_missing_recorded_value_counts_as_unavailable(project_root, recorded):
+    write_state("Example Co", "Term Loan", inputs={"pd": recorded, "lgd": "LGD 6 (45%)"})
+
+    with pytest.raises(ValueError, match=r"missing: PD\)"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan")
+
+
+@pytest.mark.parametrize("flag_value", ["", "  "])
+def test_a_blank_explicit_flag_is_refused_not_replaced_by_the_recorded_value(project_root, flag_value):
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+
+    with pytest.raises(ValueError, match="--pd is blank"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan", pd_override=flag_value)
+    with pytest.raises(ValueError, match="--lgd is blank"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan", lgd_override=flag_value)
+
+
+def test_a_value_that_is_not_text_is_kept_as_a_judgement(project_root):
+    write_state("Example Co", "Term Loan", inputs={"pd": 0, "lgd": 0.45})
+
+    assert _resolve_pd_lgd_inputs("Example Co", "Term Loan") == (0, 0.45)
+
+
+def test_a_new_review_does_not_borrow_the_earlier_reviews_inputs(project_root):
+    write_state("Example Co", "Term Loan", date_str="2026-01-10",
+                inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    before = (project_root / "deals").rglob("state.json")
+    before = {path: path.read_bytes() for path in before}
+
+    with pytest.raises(ValueError, match=r"missing: PD, LGD"):
+        _resolve_pd_lgd_inputs("Example Co", "Term Loan", new_review=True)
+
+    assert _resolve_pd_lgd_inputs(
+        "Example Co", "Term Loan", pd_override="1.00%", lgd_override="LGD 1 (5%)", new_review=True,
+    ) == ("1.00%", "LGD 1 (5%)")
+    assert {path: path.read_bytes() for path in (project_root / "deals").rglob("state.json")} == before
+
+
+def test_run_pipeline_called_without_scores_uses_the_recorded_ones_and_never_saves_null(project_root):
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
+
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41,
+    }
+    prompt_text = chr(10).join(str(m.get("content", "")) for c in client.calls for m in c["messages"])
+    assert "PD: 4.50%" in prompt_text and "PD: None" not in prompt_text
+
+
+def test_run_pipeline_refuses_missing_scores_before_any_write_or_model_call(project_root):
+    client = MockClient([])
+
+    with pytest.raises(ValueError, match="no recorded or supplied PD/LGD inputs"):
+        run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
+
+    assert client.call_count == 0
+    assert not (project_root / "deals").exists() or not list((project_root / "deals").rglob("state.json"))
+
+
+def test_omitted_scores_come_from_the_same_dated_state_the_run_saves_into(project_root):
+    write_state("Example Co", "Term Loan", date_str="2026-01-10", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    write_state("Example Co", "Term Loan", date_str="2026-02-01",
+                inputs={"pd": "8.50%", "lgd": "LGD 7 (60%)", "experian_score": 33})
+
+    run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+
+    assert read_state("Example Co", "Term Loan", date_str="2026-02-01")["inputs"] == {
+        "pd": "8.50%", "lgd": "LGD 7 (60%)", "experian_score": 33,
+    }
+    assert read_state("Example Co", "Term Loan", date_str="2026-01-10")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)",
+    }
+
+
+def test_the_cli_refuses_a_blank_pd_flag_with_one_error_line_and_no_write(project_root):
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    state_file = next((project_root / "deals").rglob("state.json"))
+    before = state_file.read_bytes()
+    script = Path(__file__).resolve().parents[1] / "scripts" / "orchestrator.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--company", "Example Co", "--proposal", "Term Loan", "--pd", ""],
+        cwd=Path.cwd(), capture_output=True, text=True, check=False, timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert result.stderr.splitlines() == ["error: --pd is blank; supply a value or omit the flag; nothing was written."]
+    assert state_file.read_bytes() == before
+
+
+def test_a_concurrent_change_to_another_input_is_not_overwritten_by_the_pd_lgd_checkpoint(project_root, monkeypatch):
+    """Issue #599 (PX623-101 / CG623-2): only PD and LGD are merged, under the write lock."""
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
+    real_read_state = orchestrator.read_state
+    interleaved = []
+
+    def read_then_let_another_process_write(*args, **kwargs):
+        result = real_read_state(*args, **kwargs)
+        keys = kwargs.get("keys")
+        if keys and "multi_period_financials" in keys and not interleaved:   # the run's own snapshot read
+            interleaved.append(True)
+            write_state("Example Co", "Term Loan", merge_inputs={"experian_score": 99, "analyst_note": "kept"})
+        return result
+
+    monkeypatch.setattr(orchestrator, "read_state", read_then_let_another_process_write)
+
+    run_pipeline("Example Co", "Term Loan", "1.25%", None, "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+
+    assert interleaved
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "1.25%", "lgd": "LGD 6 (45%)", "experian_score": 99, "analyst_note": "kept",
+    }
+
+
+def test_a_newer_review_created_after_the_date_is_chosen_is_never_used_for_the_scores(project_root, monkeypatch):
+    """Issue #599 (PX623-103): the date is chosen once; a newer dated review appearing afterwards changes nothing."""
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", date_str="2026-01-10", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    real_resolve = orchestrator.resolve_date_str
+    calls = []
+
+    def choose_then_let_a_newer_review_appear(*args, **kwargs):
+        chosen = real_resolve(*args, **kwargs)
+        if not calls:
+            calls.append(chosen)
+            write_state("Example Co", "Term Loan", date_str="2026-02-01",
+                        inputs={"pd": "8.50%", "lgd": "LGD 7 (60%)"})
+        return chosen
+
+    monkeypatch.setattr(orchestrator, "resolve_date_str", choose_then_let_a_newer_review_appear)
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
+
+    assert calls == ["2026-01-10"]
+    prompt_text = chr(10).join(str(m.get("content", "")) for c in client.calls for m in c["messages"])
+    assert "PD: 4.50%" in prompt_text and "PD: 8.50%" not in prompt_text
+    assert read_state("Example Co", "Term Loan", date_str="2026-01-10")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)",
+    }
+    assert read_state("Example Co", "Term Loan", date_str="2026-02-01")["inputs"] == {
+        "pd": "8.50%", "lgd": "LGD 7 (60%)",
+    }

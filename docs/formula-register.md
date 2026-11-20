@@ -864,11 +864,16 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Formula:** collateral assets and security charges are joined on `asset_id` ↔ `secures_asset_id`; every
   charge on an asset is evaluated. Gaps: an asset with no charge ("Uncharged Asset"), a charge whose
   `perfection_status` is not "Perfected" ("Unperfected Security"), a charge whose `ranking` is not "First"
-  ("Subordinate Ranking"), and a charge referencing an asset absent from the collateral records ("Dangling
-  Reference")
+  ("Subordinate Ranking"), a charge referencing an asset absent from the collateral records ("Dangling
+  Reference"), a collateral entry with no usable `asset_id` ("Unidentified Collateral Asset") and a charge with no
+  usable `secures_asset_id` ("Unidentified Security Charge"). A usable ID is a non-blank text string: a missing,
+  blank, whitespace-only, numeric, boolean or structured value is not an identifier and never joins an asset to a
+  charge
 - **Unit and storage:** a list of human-readable gap strings plus one Conditions Precedent per gap (see F-043)
 - **Edge rules:** each failure gets its own gap entry and its own CP — a compliant charge never hides a
-  non-compliant one on the same asset
+  non-compliant one on the same asset; an unidentified entry is never guessed to belong to an asset, its CP ID uses
+  its 1-based list position (stable only for an unchanged list), and a Perfected charge with no usable asset ID
+  gets no reconfirmation entry because there is no asset to name
 - **State keys:** —
 - **Workbook rows:** —
 - **Policy outputs:** `security_gaps`
@@ -903,7 +908,8 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Name:** Required Conditions Subsequent — the post-drawdown monitoring obligations
 - **Formula:** the standard `MI-REPORTING` plus one deal-level `CS-COVENANT-COMPLIANCE` when any covenants
   exist (one for the whole package, not one per covenant), plus one `CS-SEC-REPERFECT-<asset>` per
-  currently-Perfected charge, plus one `CS-GUARANTEE-<slug>` per guarantee (same keying as F-043)
+  currently-Perfected charge that names a usable asset ID (a Perfected charge with no usable ID gets only its
+  mapping CP, F-042: there is no asset to name), plus one `CS-GUARANTEE-<slug>` per guarantee (same keying as F-043)
 - **Unit and storage:** a list of `{"cs_id", "text"}`; `cs_id` is a namespace distinct from `cp_id`
 - **Edge rules:** a charge that is not Perfected today gets no CS here — its CP (F-042) already covers it;
   a qualitative obligation carries no invented numeric deadline (the grounding rule bars inventing figures)

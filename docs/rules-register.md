@@ -49,7 +49,7 @@ Not covered entries from that audit each link their own gap issue, which asks fo
 batch links [issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) for its outstanding test-citation
 verification; existing behavioural tests do not make a new rule Covered until they cite its ID.
 
-**Inventory at this revision:** 42 IDs ever issued; 32 active Covered; 7 active Not covered; 3 Withdrawn.
+**Inventory at this revision:** 43 IDs ever issued; 33 active Covered; 7 active Not covered; 3 Withdrawn.
 
 ## The `Implemented in` field
 
@@ -100,6 +100,7 @@ independently proven by the gate.
 - `R-POL-019`
 - `R-POL-020`
 - `R-POL-021`
+- `R-POL-022`
 - `R-STATE-001`
 - `R-STATE-002`
 - `R-STATE-003`
@@ -305,6 +306,14 @@ independently proven by the gate.
 - **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
 - **Status:** Not covered
 - **Tracking:** [Issue #473](https://github.com/ShamikM88/open-cam-framework/issues/473)
+
+### R-POL-022 — Unidentified collateral assets and security charges are mapping gaps
+
+- **Claim:** Each collateral entry without a usable `asset_id` and each security charge without a usable `secures_asset_id` (missing, blank, whitespace-only or not text) produces one security gap and one `SEC-MAPPING` condition precedent. The condition ID is stable for the same list position and recorded asset class, and only for an unchanged source list: inserting, removing or reordering an earlier entry in either the collateral or the security list shifts the positions, and the mapping IDs of both lists share one namespace, so adding an identified asset whose ID slug matches a generated candidate can renumber an unidentified charge's ID. The label is cleaned (control characters and invalid characters removed, whitespace collapsed, capped at 80 characters) before it is used; an absent class is stated as not recorded, and an unidentified charge is never guessed to belong to an asset.
+- **Source:** [What the policy engine decides](financial-model.md#what-the-policy-engine-decides).
+- **Implemented in:** `scripts/policy_engine.py::_evaluate_security`
+- **Status:** Covered
+- **Tracking:** —
 
 ## State persistence and validation (STATE)
 

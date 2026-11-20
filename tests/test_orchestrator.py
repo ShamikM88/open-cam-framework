@@ -1284,8 +1284,9 @@ def test_run_pipeline_stores_financials_and_ratios_on_state(project_root):
 
 
 def test_run_pipeline_stores_collateral_data_on_state(project_root):
-    client = MockClient([_compliant_draft(), _approved_json()])
-    collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
+    _seed_charge()
+    client = MockClient([_charged_draft(), _approved_json()])
+    collateral_data = [{"asset_id": "AST-001", "asset_class": "HGV", "exposure": 100, "collateral_value": 80,
                          "perfection_status": "Registered"}]
 
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
@@ -1378,13 +1379,14 @@ def test_run_pipeline_merges_partial_historical_correction_field_by_field(projec
 
 
 def test_run_pipeline_preserves_existing_collateral_when_rerun_without_new_data(project_root):
-    collateral_data = [{"asset_class": "HGV", "exposure": 100, "collateral_value": 80,
+    _seed_charge()
+    collateral_data = [{"asset_id": "AST-001", "asset_class": "HGV", "exposure": 100, "collateral_value": 80,
                          "perfection_status": "Registered"}]
-    client1 = MockClient([_compliant_draft(), _approved_json()])
+    client1 = MockClient([_charged_draft(), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  collateral_data=collateral_data, client=client1)
 
-    client2 = MockClient([_compliant_draft("# Draft CAM v2"), _approved_json()])
+    client2 = MockClient([_charged_draft("# Draft CAM v2"), _approved_json()])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  client=client2)
 
@@ -3061,6 +3063,7 @@ def test_ground_truth_uses_a_stored_analysis_when_no_collateral_is_supplied(proj
 def test_a_legacy_list_run_gives_the_ground_truth_no_analysis(project_root, monkeypatch):
     import orchestrator
 
+    _seed_charge()
     seen = []
     real = orchestrator._ground_truth_figures
 
@@ -3070,7 +3073,8 @@ def test_a_legacy_list_run_gives_the_ground_truth_no_analysis(project_root, monk
 
     monkeypatch.setattr(orchestrator, "_ground_truth_figures", spy)
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-                 collateral_data=[{"asset_class": "HGV", "exposure": 100, "collateral_value": 80}],
+                 collateral_data=[{"asset_id": "AST-001", "asset_class": "HGV", "exposure": 100,
+                                   "collateral_value": 80}],
                  client=MockClient([_charged_draft(), _approved_json()]))
 
     args, kwargs = seen[0]
@@ -3095,9 +3099,12 @@ def test_an_explicit_empty_legacy_list_clears_the_collateral_and_its_analysis(pr
 
 
 def test_an_explicit_empty_legacy_list_on_a_deal_without_an_analysis_records_no_collateral(project_root):
+    _seed_charge()
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
-                 collateral_data=[{"asset_class": "HGV", "exposure": 100, "collateral_value": 80}],
-                 client=MockClient([_compliant_draft(), _approved_json()]))
+                 collateral_data=[{"asset_id": "AST-001", "asset_class": "HGV", "exposure": 100,
+                                   "collateral_value": 80}],
+                 client=MockClient([_charged_draft(), _approved_json()]))
+    write_state("Acme Corp", "Fleet Loan", security_package=[])
     run_pipeline("Acme Corp", "Fleet Loan", "0.20%", "LGD 3 (15%)", "corporate_credit",
                  collateral_data=[], client=MockClient([_compliant_draft("# Draft v2"), _approved_json()]))
 

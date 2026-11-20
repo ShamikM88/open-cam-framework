@@ -331,6 +331,15 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
     return candidate
 
 
+_ASSET_CLASS_LABEL_MAX = 80
+
+
+def _usable_security_id(value: Any) -> bool:
+    """True only for a non-blank text ID. A blank, whitespace-only, numeric, boolean or structured value is not an
+    identifier: it cannot join an asset to a charge, so the entry is reported as unidentified (issue #604)."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _evaluate_security(
     collateral: Iterable[dict[str, Any]], security_package: Iterable[dict[str, Any]],
 ) -> tuple[list[str], list[ConditionPrecedent]]:
@@ -347,14 +356,19 @@ def _evaluate_security(
     An asset (or a single charge on it) can independently fail perfection
     and ranking; each failure gets its own gap entry and its own CP.
     """
+    collateral_entries = list(collateral)
+    security_entries = list(security_package)
     collateral_by_id = {
-        asset.get("asset_id"): asset for asset in collateral if asset.get("asset_id")
+        asset.get("asset_id"): asset for asset in collateral_entries if _usable_security_id(asset.get("asset_id"))
     }
     charges_by_asset_id: dict[Any, list[dict[str, Any]]] = {}
-    for charge in security_package:
+    unidentified_charges: list[tuple[int, dict[str, Any]]] = []
+    for position, charge in enumerate(security_entries, start=1):
         asset_id = charge.get("secures_asset_id")
-        if asset_id:
+        if _usable_security_id(asset_id):
             charges_by_asset_id.setdefault(asset_id, []).append(charge)
+        else:
+            unidentified_charges.append((position, charge))
 
     gaps: list[str] = []
     cps: list[ConditionPrecedent] = []
@@ -427,6 +441,61 @@ def _evaluate_security(
                     f"{secures_asset_id}."
                 ),
             })
+
+    # These records were previously filtered out of the ID joins above. Keep
+    # them separate from the identified-item loops so every result already
+    # produced for an identified asset or charge retains its exact value and
+    # order (the policy payload is a typed contract pinned byte for byte).
+    def asset_class_label(entry: dict[str, Any]) -> str:
+        """A short, safe label for an unidentified entry's asset class (maintainer decision on #604).
+
+        The class is analyst-supplied free text that now appears in a gap, a condition-precedent text and a CP ID,
+        so control characters, line breaks and invalid scalar values (an isolated surrogate cannot be encoded)
+        are removed, whitespace is collapsed and the length is capped. An unusable class reads "not recorded".
+        """
+        asset_class = entry.get("asset_class")
+        if isinstance(asset_class, str):
+            cleaned = "".join(
+                ch if (ch.isprintable() and not 0xD800 <= ord(ch) <= 0xDFFF) else " " for ch in asset_class
+            )
+            cleaned = " ".join(cleaned.split())[:_ASSET_CLASS_LABEL_MAX]
+            if cleaned:
+                return cleaned
+        return "not recorded"
+
+    for position, asset in enumerate(collateral_entries, start=1):
+        if _usable_security_id(asset.get("asset_id")):
+            continue
+        asset_class = asset_class_label(asset)
+        gaps.append(
+            f"Unidentified Collateral Asset: position {position} (asset class: {asset_class}) "
+            "has no asset_id; security mapping cannot be verified."
+        )
+        cps.append({
+            "cp_id": unique_cp_id(
+                "SEC-MAPPING", f"UNIDENTIFIED-ASSET-{position}-{_slugify(asset_class)}",
+            ),
+            "text": (
+                "Resolution of security mapping discrepancy for collateral asset at "
+                f"position {position} (asset class: {asset_class})."
+            ),
+        })
+
+    for position, charge in unidentified_charges:
+        asset_class = asset_class_label(charge)
+        gaps.append(
+            f"Unidentified Security Charge: position {position} (asset class: {asset_class}) "
+            "has no secures_asset_id; it cannot be mapped to a collateral asset."
+        )
+        cps.append({
+            "cp_id": unique_cp_id(
+                "SEC-MAPPING", f"UNIDENTIFIED-CHARGE-{position}-{_slugify(asset_class)}",
+            ),
+            "text": (
+                "Resolution of security mapping discrepancy for security charge at "
+                f"position {position} (asset class: {asset_class})."
+            ),
+        })
 
     return gaps, cps
 
@@ -543,6 +612,9 @@ def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> l
         if charge.get("perfection_status") != "Perfected":
             continue
         asset_id = charge.get("secures_asset_id")
+        if not _usable_security_id(asset_id):
+            # An unidentified charge is already reported as a mapping gap (issue #604); there is no asset to name here.
+            continue
         cs_list.append({
             "cs_id": unique_cs_id(_slugify(asset_id)),
             "text": (

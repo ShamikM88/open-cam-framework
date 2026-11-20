@@ -95,6 +95,7 @@ def refuse_unknown_raw_line_items(value, field_names, path="financial inputs"):
     if not isinstance(value, dict):
         return value
     known_fields = set(field_names)
+    problems = []
     for period, raw in value.items():
         if not isinstance(raw, dict):
             continue
@@ -104,10 +105,13 @@ def refuse_unknown_raw_line_items(value, field_names, path="financial inputs"):
                 f"{field!r} (nearest valid: {', '.join(_nearest_valid_names(field, field_names)) or 'none'})"
                 for field in unknown
             )
-            raise UnknownRawLineItemError(
-                f"{path}: period {period!r} has unknown raw line-item name(s): {details}. "
-                f"Known names are the keys of spreading_builder.FIELD_LABELS; nothing was written."
-            )
+            problems.append(f"period {period!r} has unknown raw line-item name(s): {details}")
+    if problems:
+        # Every affected period is named in the one error, not only the first.
+        raise UnknownRawLineItemError(
+            f"{path}: {'; '.join(problems)}. "
+            f"Known names are the keys of spreading_builder.FIELD_LABELS; nothing was written."
+        )
     return value
 
 

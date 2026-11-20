@@ -14,12 +14,8 @@ import pytest
 
 import spreading_check
 from spreading_check import compute, main, plan_fields
-from numeric_validation import (
-    refuse_unknown_raw_line_items,
-    validate_period_keys,
-    validate_period_objects,
-    warn_unknown_raw_line_items,
-)
+import numeric_validation   # the issue #596 helpers are reached as attributes so a base-overlay run still collects
+from numeric_validation import validate_period_keys, validate_period_objects
 from spreading_builder import FIELD_LABELS, PERIOD_KEYS
 from state_manager import read_state, write_state
 
@@ -1096,7 +1092,7 @@ def test_refuse_unknown_raw_line_items_skips_non_dict_period_values():
     must not raise here, so the value is returned unchanged.
     """
     value = {"FY-Current": "not-a-dict"}
-    result = refuse_unknown_raw_line_items(value, list(FIELD_LABELS))
+    result = numeric_validation.refuse_unknown_raw_line_items(value, list(FIELD_LABELS))
     assert result is value
 
 
@@ -1107,7 +1103,7 @@ def test_warn_unknown_raw_line_items_returns_non_dict_values_unchanged():
     returned unchanged without printing anything.
     """
     for value in (None, "n/a", [1, 2]):
-        assert warn_unknown_raw_line_items(value, list(FIELD_LABELS)) is value
+        assert numeric_validation.warn_unknown_raw_line_items(value, list(FIELD_LABELS)) is value
 
 
 def test_warn_unknown_raw_line_items_skips_non_dict_period_values():
@@ -1116,7 +1112,7 @@ def test_warn_unknown_raw_line_items_skips_non_dict_period_values():
     A legacy period whose stored value is not a dict is skipped without a
     warning, matching the refuse-side guard.
     """
-    assert warn_unknown_raw_line_items({"FY-Current": "not-a-dict"}, list(FIELD_LABELS)) == {
+    assert numeric_validation.warn_unknown_raw_line_items({"FY-Current": "not-a-dict"}, list(FIELD_LABELS)) == {
         "FY-Current": "not-a-dict"
     }
 
@@ -1127,11 +1123,31 @@ def test_a_non_text_key_is_refused_cleanly_not_with_a_type_error():
     A mapping built in code with a non-string key gets the normal refusal, not a TypeError.
     """
     with pytest.raises(ValueError, match="unknown raw line-item name") as caught:
-        refuse_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
+        numeric_validation.refuse_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
     assert "7" in str(caught.value) and "nothing was written" in str(caught.value).lower()
     assert not isinstance(caught.value, TypeError)
 
 
 def test_warn_unknown_raw_line_items_handles_a_non_text_key(capsys):
-    warn_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
+    numeric_validation.warn_unknown_raw_line_items({"FY-Current": {7: 100, "revenue": 1}}, list(FIELD_LABELS))
     assert "7" in capsys.readouterr().err
+
+
+def test_one_error_names_the_unknown_names_of_every_period():
+    """Issue #596 (PX624-102 / CG624-3): later periods are not dropped from the single diagnostic."""
+    payload = {"FY-Current": {"cost_of_goods_sold": 1}, "FY+1": {"admin_expense": 2}, "FY-1": {"revenue": 3}}
+    with pytest.raises(ValueError) as caught:
+        numeric_validation.refuse_unknown_raw_line_items(payload, list(FIELD_LABELS))
+    message = str(caught.value)
+    assert "period 'FY-Current'" in message and "cost_of_goods_sold" in message
+    assert "period 'FY+1'" in message and "admin_expense" in message
+    assert "period 'FY-1'" not in message and message.count("nothing was written") == 1
+
+
+def test_plan_fields_can_skip_the_stored_name_warning_for_a_preflight(capsys):
+    existing = {"multi_period_financials": {"FY-Current": {"revenue": 1000, "cost_of_goods_sold": 600}}}
+
+    plan_fields(existing, {"FY+1": {"revenue": 1100}}, warn_stored=False)
+    assert capsys.readouterr().err == ""
+    plan_fields(existing, {"FY+1": {"revenue": 1100}})
+    assert capsys.readouterr().err.count("cost_of_goods_sold") == 1

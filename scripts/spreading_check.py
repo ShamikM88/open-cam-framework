@@ -50,13 +50,15 @@ STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_as
 def plan_fields(
     existing_state: dict[str, Any], multi_period_financials: dict[str, Any] | None = None,
     stress_assumptions: dict[str, Any] | None = None, update_financials_source: bool = True,
+    warn_stored: bool = True,
 ) -> dict[str, Any]:
     """The fields compute() would write for this input against `existing_state`, without reading or writing
     anything: the merge with what the deal already has, the formula evaluation and the downside case. compute()
     is exactly this plus the read and the write; a caller that must know the computation will succeed before it
     does anything irreversible (for example saving a source file first) calls this first. Raises
     ValueError when there is nothing to compute, and whatever the formulas raise for a malformed value.
-    Does not modify `existing_state`."""
+    Does not modify `existing_state`. `warn_stored=False` skips the stderr warning about unknown names already on
+    file, for a preflight that is followed by the real call (issue #596: one warning per run, not one per call)."""
     validate_period_objects(multi_period_financials, path="financial inputs")
     validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
     # Issue #596: refuse an unknown raw line-item name in the incoming payload before the merge,
@@ -67,7 +69,8 @@ def plan_fields(
     existing_multi_period = existing_state.get("multi_period_financials") or {}
     # An existing deal that recorded an unknown name before this rule existed is not locked out:
     # warn once per key and still compute (issue #596).
-    warn_unknown_raw_line_items(existing_multi_period, FIELD_LABELS, path="multi_period_financials on file")
+    if warn_stored:
+        warn_unknown_raw_line_items(existing_multi_period, FIELD_LABELS, path="multi_period_financials on file")
     if existing_state.get("forecast_source") == "analyst-supplied":
         # The forecast on file was supplied by the analyst (issue #124, scripts/supplied_forecast.py) and is not built
         # from raw lines, so this call must neither overwrite a forward year with a recomputation nor stamp the whole

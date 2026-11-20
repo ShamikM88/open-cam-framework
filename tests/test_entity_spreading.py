@@ -690,3 +690,24 @@ def test_compute_entity_warns_about_an_unknown_name_already_on_file_and_still_sp
     assert "cost_of_goods_sold" in captured.err and "FY-Current" in captured.err
     assert "entity_records['synthetic-guarantor'].multi_period_financials" in captured.err
     assert output["financials"]["FY-Current"]["raw"]["revenue"] == 1200
+
+
+def test_the_entity_id_cli_warns_once_about_a_stored_unknown_name_and_keeps_it_on_file(tmp_path, monkeypatch, capsys):
+    """Rule: R-SPREAD-008
+
+    The real `--entity-id` command path: exit status 0, one named warning, the spread JSON printed, key retained.
+    """
+    path, _ = _seed_deal(tmp_path, [_entity()])
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"]["cost_of_goods_sold"] = 5
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    spreading_check.main(["--company", COMPANY, "--proposal", PROPOSAL, "--entity-id", "synthetic-guarantor"])
+
+    captured = capsys.readouterr()
+    assert captured.err.count("cost_of_goods_sold") == 1
+    assert json.loads(captured.out)["financials"]["FY-Current"]["raw"]["revenue"] == 1200
+    kept = read_state(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(tmp_path))
+    assert kept["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"][
+        "cost_of_goods_sold"] == 5

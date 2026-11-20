@@ -39,6 +39,7 @@ from numeric_validation import (
     validate_period_objects,
     validate_raw_line_items,
     validate_stress_assumptions,
+    warn_unknown_raw_line_items,
 )
 from spreading_builder import (
     FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
@@ -819,6 +820,11 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     stress_assumptions_to_persist = (existing_state.get("stress_assumptions") or {} if analyst_forecast
                                      else stress_assumptions or existing_state.get("stress_assumptions") or {})
     if multi_period_financials_for_downside and stress_assumptions_to_persist and not analyst_forecast:
+        if not multi_period_financials:
+            # A stress-only run re-evaluates the stored raw lines without going through plan_fields(), so an unknown
+            # name already on file is named here before the stored data is used (issue #596).
+            warn_unknown_raw_line_items(multi_period_financials_for_downside, FIELD_LABELS,
+                                        path="multi_period_financials on file")
         downside_case = evaluate_downside_case(
             multi_period_financials_for_downside, stress_assumptions_to_persist,
         )

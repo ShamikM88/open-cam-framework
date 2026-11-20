@@ -4699,14 +4699,19 @@ def test_credit_aggregation_computed_accepts_null_figures_and_refuses_non_flat_o
         assert "flat finite number" in _credit_aggregation_problems_for(value)
 
 
-def test_record_entity_record_refuses_an_unknown_raw_line_item_name_and_preserves_bytes(tmp_path):
+@pytest.mark.parametrize("role", ["subsidiary", "parent", "guarantor"])
+def test_record_entity_record_refuses_an_unknown_raw_line_item_name_and_preserves_bytes(tmp_path, role):
     """Rule: R-SPREAD-008
 
-    A misspelt guarantor line must not be read as zero: registration refuses it and writes nothing.
+    A misspelt guarantor line must not be read as zero: registration refuses it, for every role, and writes nothing.
     """
-    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    guarantees = [{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic GUARANTEE-SYN-001"}]
+    path = _seed_entity_registry_state(
+        tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()}, guarantees=guarantees)
     before = path.read_bytes()
-    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record = _entity_record_for_tests("synthetic-opco", role)
+    if role == "guarantor":
+        record["guarantee_ids"] = ["GUARANTEE-SYN-001"]
     record["multi_period_financials"] = {"FY-Current": {"revenue": 200, "cost_of_goods_sold": 90}}
     record["period_ends"] = {"FY-Current": "2025-12-31"}
 

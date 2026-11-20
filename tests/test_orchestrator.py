@@ -3526,3 +3526,62 @@ def test_the_cli_refuses_a_blank_pd_flag_with_one_error_line_and_no_write(projec
     assert result.returncode == 1
     assert result.stderr.splitlines() == ["error: --pd is blank; supply a value or omit the flag; nothing was written."]
     assert state_file.read_bytes() == before
+
+
+def test_a_concurrent_change_to_another_input_is_not_overwritten_by_the_pd_lgd_checkpoint(project_root, monkeypatch):
+    """Issue #599 (PX623-101 / CG623-2): only PD and LGD are merged, under the write lock."""
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
+    real_read_state = orchestrator.read_state
+    interleaved = []
+
+    def read_then_let_another_process_write(*args, **kwargs):
+        result = real_read_state(*args, **kwargs)
+        keys = kwargs.get("keys")
+        if keys and "multi_period_financials" in keys and not interleaved:   # the run's own snapshot read
+            interleaved.append(True)
+            write_state("Example Co", "Term Loan", merge_inputs={"experian_score": 99, "analyst_note": "kept"})
+        return result
+
+    monkeypatch.setattr(orchestrator, "read_state", read_then_let_another_process_write)
+
+    run_pipeline("Example Co", "Term Loan", "1.25%", None, "corporate_credit",
+                 client=MockClient([_compliant_draft(), _approved_json()]))
+
+    assert interleaved
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "1.25%", "lgd": "LGD 6 (45%)", "experian_score": 99, "analyst_note": "kept",
+    }
+
+
+def test_a_newer_review_created_after_the_date_is_chosen_is_never_used_for_the_scores(project_root, monkeypatch):
+    """Issue #599 (PX623-103): the date is chosen once; a newer dated review appearing afterwards changes nothing."""
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", date_str="2026-01-10", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    real_resolve = orchestrator.resolve_date_str
+    calls = []
+
+    def choose_then_let_a_newer_review_appear(*args, **kwargs):
+        chosen = real_resolve(*args, **kwargs)
+        if not calls:
+            calls.append(chosen)
+            write_state("Example Co", "Term Loan", date_str="2026-02-01",
+                        inputs={"pd": "8.50%", "lgd": "LGD 7 (60%)"})
+        return chosen
+
+    monkeypatch.setattr(orchestrator, "resolve_date_str", choose_then_let_a_newer_review_appear)
+    client = MockClient([_compliant_draft(), _approved_json()])
+
+    run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
+
+    assert calls == ["2026-01-10"]
+    prompt_text = chr(10).join(str(m.get("content", "")) for c in client.calls for m in c["messages"])
+    assert "PD: 4.50%" in prompt_text and "PD: 8.50%" not in prompt_text
+    assert read_state("Example Co", "Term Loan", date_str="2026-01-10")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 6 (45%)",
+    }
+    assert read_state("Example Co", "Term Loan", date_str="2026-02-01")["inputs"] == {
+        "pd": "8.50%", "lgd": "LGD 7 (60%)",
+    }

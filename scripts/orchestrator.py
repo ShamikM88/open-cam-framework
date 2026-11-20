@@ -916,11 +916,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
-    inputs_to_persist = existing_state.get("inputs")
-    inputs_to_persist = dict(inputs_to_persist) if isinstance(inputs_to_persist, Mapping) else {}
-    inputs_to_persist.update({"pd": pd_score, "lgd": lgd_score})
+    # Only PD and LGD are merged, into the inputs as they are on disk under the write lock: a change to another
+    # recorded input (for example the bureau score) made since the read above is never overwritten (issue #599).
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
-                inputs=inputs_to_persist,
+                merge_inputs={"pd": pd_score, "lgd": lgd_score},
                 financials=financials, ratios=ratios, collateral=collateral, **collateral_analysis_write,
                 financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,

@@ -32,7 +32,7 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any, Literal, NotRequired, Self, TypedDict, overload
@@ -1698,9 +1698,14 @@ def read_state(
 
 def write_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
+    merge_inputs: Mapping[str, Any] | None = None,
     **fields: Any,
 ) -> dict[str, Any]:
     """Merge `fields` into this deal's state.json (if any) and write it back.
+
+    `merge_inputs` updates only the named keys of the recorded `inputs` object, read and written under the same
+    lock as the rest of the write, so a concurrent change to another input is never overwritten by a stale copy
+    (issue #599). Do not pass `inputs=` as well.
 
     Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
     reusing an existing dated folder for this company/proposal when
@@ -1725,6 +1730,8 @@ def write_state(
     """
     # Reject invalid dates before any path handling or directory creation.
     date_str = _validate_explicit_state_date(date_str)
+    if merge_inputs is not None and "inputs" in fields:
+        raise StateShapeError("Refusing to write state.json: pass either inputs or merge_inputs, not both.")
 
     # Reject invalid numeric values before path creation or state mutation.
     try:
@@ -1747,7 +1754,9 @@ def write_state(
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     with _FileLock(path):
-        return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
+        if merge_inputs is None:
+            return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
+        return _merge_and_write(path, company, proposal, date_str, base_dir, fields, merge_inputs=merge_inputs)
 
 
 def _check_schema_version_is_writable(recorded: object, path: str) -> None:
@@ -1770,7 +1779,7 @@ def _check_schema_version_is_writable(recorded: object, path: str) -> None:
 
 def _merge_and_write(
     path: str, company: str, proposal: str, date_str: str, base_dir: str | os.PathLike[str] | None,
-    fields: dict[str, Any],
+    fields: dict[str, Any], merge_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The actual read-modify-write, factored out so both write_state() and
     append_review_trail() can hold one _FileLock across their *entire*
@@ -1788,6 +1797,11 @@ def _merge_and_write(
     state["date"] = date_str
     state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
+    if merge_inputs is not None:
+        current_inputs = state.get("inputs")
+        merged_inputs = dict(current_inputs) if isinstance(current_inputs, dict) else {}
+        merged_inputs.update(merge_inputs)
+        state["inputs"] = merged_inputs
     try:
         validate_finite_state_numbers(state, path=path)
     except NonFiniteNumberError as exc:

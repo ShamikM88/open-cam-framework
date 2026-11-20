@@ -4697,3 +4697,31 @@ def test_credit_aggregation_computed_accepts_null_figures_and_refuses_non_flat_o
     for bad in (True, float("inf"), "1", {"FY-Current": 1}, [1]):
         value["FY-Current"]["computed"] = {"financials": {}, "ratios": {"dscr": bad}}
         assert "flat finite number" in _credit_aggregation_problems_for(value)
+
+
+def test_write_state_merge_inputs_updates_only_the_named_keys_under_the_lock(tmp_path):
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                inputs={"pd": "1%", "experian_score": 41, "note": "x"})
+
+    written = write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                          merge_inputs={"pd": "2%", "lgd": "LGD 3"})
+
+    assert written["inputs"] == {"pd": "2%", "experian_score": 41, "note": "x", "lgd": "LGD 3"}
+
+
+def test_write_state_merge_inputs_creates_inputs_when_none_are_recorded(tmp_path):
+    written = write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                          merge_inputs={"pd": "2%"})
+
+    assert written["inputs"] == {"pd": "2%"}
+
+
+def test_write_state_merge_inputs_refuses_inputs_passed_together_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError, match="either inputs or merge_inputs"):
+        write_state("Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+                    inputs={"pd": "1%"}, merge_inputs={"pd": "2%"})
+
+    assert path.read_bytes() == before

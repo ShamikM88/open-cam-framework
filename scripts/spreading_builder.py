@@ -573,8 +573,8 @@ def _prior_operating_working_capital(multi_period_data: Mapping[str, Any] | None
     data = multi_period_data or {}
     prior: dict[str, float | None] = {}
     for index, period in enumerate(PERIOD_KEYS):
-        if period not in data:
-            continue
+        if not isinstance(data.get(period), dict):
+            continue        # absent, or a null "not recorded" placeholder: not a period to evaluate
         if index == 0:
             prior[period] = None
         else:
@@ -890,6 +890,7 @@ def evaluate_downside_case(
     multi_period_data: dict[str, Any] | None,
     stress_assumptions: Mapping[str, Any] | None,
     forward_periods: Collection[str] = DEFAULT_FORWARD_PERIODS,
+    prior_exclude: Collection[str] = (),
 ) -> dict[str, Any]:
     """Build the downside (stressed) case for every forward period present
     in `multi_period_data`, by applying apply_stress_shocks() to that
@@ -911,11 +912,19 @@ def evaluate_downside_case(
     validate_finite_numbers(multi_period_data, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
     multi_period_data = multi_period_data or {}
+    # Only periods recorded as an object of raw lines are shocked: a null placeholder is "not recorded" and must not
+    # become a fictitious downside year (issue #597).
     shocked_inputs = {
         period: apply_stress_shocks(multi_period_data[period], stress_assumptions)
         for period in forward_periods
-        if period in multi_period_data
+        if isinstance(multi_period_data.get(period), dict)
     }
+    # The prior comparator reads only the shocked periods and the period before each, and never a period named in
+    # `prior_exclude` (the historical periods of an analyst-supplied deal: a leftover framework raw period is not the
+    # authoritative prior, maintainer decision on #597), so an unrelated old value cannot break or feed the stress run.
+    needed = set(shocked_inputs)
+    needed |= {PERIOD_KEYS[PERIOD_KEYS.index(p) - 1] for p in shocked_inputs if PERIOD_KEYS.index(p) > 0}
+    prior_data = {p: v for p, v in multi_period_data.items() if p in needed and p not in set(prior_exclude)}
     # The prior-period operating working capital each shocked forward year's
     # fcf_after_working_capital delta reads is the BASE case's (issue #520):
     # the shock transforms a period's own figures, never its prior-period
@@ -925,7 +934,7 @@ def evaluate_downside_case(
     # forward periods).
     return evaluate_financial_model(
         shocked_inputs,
-        prior_operating_working_capital=_prior_operating_working_capital(multi_period_data),
+        prior_operating_working_capital=_prior_operating_working_capital(prior_data),
     )
 
 
@@ -976,6 +985,7 @@ def _write_financial_spreading(
     supplied_downside_values: Mapping[str, Mapping[str, Any]] | None = None,
     blank_downside_periods: Collection[str] | None = None,
     derived_downside_fields: Mapping[str, Collection[str]] | None = None,
+    withheld_prior_periods: Collection[str] | None = None,
 ) -> None:
     ws = wb.active
     ws.title = "Financial Spreading"
@@ -993,9 +1003,16 @@ def _write_financial_spreading(
             row_values: list[Any] = [label]
             for col in PERIOD_COLS:
                 if formula_template:
-                    row_values.append(_formula_or_supplied(
+                    cell_value = _formula_or_supplied(
                         label, formula_template, row_of, col, supplied_values, supplied_downside_values,
-                        blank_downside_periods, derived_rows))
+                        blank_downside_periods, derived_rows)
+                    # The state withholds a forward year's FCF after working capital when its prior period is
+                    # analyst-supplied (issue #597); the workbook must not compute it from the supplied column.
+                    column_period = COL_TO_PERIOD_KEY.get(col) or DOWNSIDE_COL_TO_PERIOD_KEY.get(col)
+                    if (label == "FCF after Working Capital" and column_period in (withheld_prior_periods or ())
+                            and isinstance(cell_value, str) and cell_value.startswith("=")):
+                        cell_value = "N/A"
+                    row_values.append(cell_value)
                 else:
                     value = None
                     field = label_to_field.get(label)
@@ -1288,6 +1305,7 @@ def export_to_xlsx(
     derived_downside_fields: Mapping[str, Collection[str]] | None = None,
     group_basis: Mapping[str, Any] | None = None,
     credit_aggregation: Sequence[Sequence[Any]] | None = None,
+    withheld_prior_periods: Collection[str] | None = None,
 ) -> None:
     """Build the financial spreading + collateral workbook.
 
@@ -1328,7 +1346,8 @@ def export_to_xlsx(
                                 downside_financial_data=downside_financial_data, supplied_values=supplied_values,
                                 supplied_downside_values=supplied_downside_values,
                                 blank_downside_periods=blank_downside_periods,
-                                derived_downside_fields=derived_downside_fields)
+                                derived_downside_fields=derived_downside_fields,
+                                withheld_prior_periods=withheld_prior_periods)
     _write_collateral_sheet(wb, collateral_data=collateral_data, collateral_analysis=collateral_analysis)
     if group_basis is not None:
         _write_group_basis_sheet(wb, group_basis)

@@ -579,7 +579,10 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Edge rules:** the earliest supplied period, any period whose immediately preceding period key is not
   present in the supplied data, and any period whose prior period records none of the five OWC lines
   (present, non-null), is N/A (`None` in state, "N/A" in the workbook) — never zero: a fabricated
-  prior OWC would make the delta a fabricated number. An omitted OWC line reads as 0 (the file-wide
+  prior OWC would make the delta a fabricated number. A `null` period is "not recorded", not a period (it is
+  never evaluated, shocked or read as a prior). On a deal whose `financials_source` is analyst-supplied the
+  historical framework raw periods are never read as the prior, so the first forward year is N/A in the base case,
+  the downside case and the workbook (the export writes "N/A" in that cell; maintainer decision on #597). An omitted OWC line reads as 0 (the file-wide
   omitted-defaults rule), so an omitted line is not N/A. The downside case's delta equals the base case's
   delta (the shock transforms a period's own figures, never its prior-period comparison); in the workbook a
   downside column therefore reads the base period the downside case compares with (FY+1 (Downside) against

@@ -1148,3 +1148,67 @@ def test_leftover_framework_history_is_not_the_prior_of_a_forward_year_on_an_ana
 
     assert state["financials"]["FY+1"]["fcf_after_working_capital"] is None
     assert state["ratios"]["FY+1"]["cash_flow_dscr"] is None
+
+
+_STRESS = {"revenue_haircut_pct": 10}
+
+
+def test_the_downside_never_reads_leftover_framework_history_on_an_analyst_supplied_deal(tmp_path, monkeypatch):
+    """Issue #597 (PX625-104, maintainer decision): base and downside both leave the prior unavailable."""
+    monkeypatch.chdir(tmp_path)
+    write_state("Acme Corp", "Fleet Loan", financials_source="analyst-supplied",
+                analyst_supplied_financials={"FY-Current": {"revenue": 1}},
+                multi_period_financials={"FY-Current": dict(_FY_CURRENT)})
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                    stress_assumptions=_STRESS, update_financials_source=False)
+
+    assert state["financials"]["FY+1"]["fcf_after_working_capital"] is None
+    assert state["downside_case"]["financials"]["FY+1"]["fcf_after_working_capital"] is None
+    assert state["downside_case"]["ratios"]["FY+1"]["cash_flow_dscr"] is None
+
+
+def test_a_null_successor_does_not_become_a_downside_year(tmp_path, monkeypatch):
+    """Issue #597 (PX625-105): the shocked targets are recorded periods only."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)},
+            stress_assumptions=_STRESS)
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY+1"] = None
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": {"trade_debtors": 120}},
+                    update_financials_source=False)
+
+    assert "FY+1" not in (state.get("downside_case") or {}).get("financials", {})
+    assert "FY+1" not in state["financials"]
+
+
+def test_an_unrelated_bad_line_in_a_comparator_period_does_not_block_a_forward_only_update(tmp_path, monkeypatch):
+    """Issue #597 (PX625-106): a compare-only period is checked on the five working-capital lines it supplies."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT)})
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY-Current"]["revenue"] = "bad"
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY+1": dict(_FY_PLUS_1)},
+                    update_financials_source=False)
+
+    assert state["financials"]["FY+1"]["fcf_after_working_capital"] == 270
+
+
+def test_an_irrelevant_old_value_that_overflows_does_not_break_a_stress_run(tmp_path, monkeypatch):
+    """Issue #597 (PX625-106): the stress prior lookup is bounded to the shocked periods and their predecessors."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT), "FY+1": dict(_FY_PLUS_1)})
+    _store_a_huge_int(tmp_path, "FY-1")
+
+    state = compute("Acme Corp", "Fleet Loan", stress_assumptions=_STRESS, update_financials_source=False)
+
+    assert state["downside_case"]["financials"]["FY+1"]["fcf_after_working_capital"] is not None

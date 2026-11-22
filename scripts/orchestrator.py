@@ -42,7 +42,7 @@ from numeric_validation import (
 from spreading_builder import (
     FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
 )
-from spreading_check import plan_fields
+from spreading_check import plan_fields, prior_periods_to_ignore
 from state_manager import (
     DEALS_DIR,
     sanitize_path_component,
@@ -816,6 +816,7 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     if multi_period_financials_for_downside and stress_assumptions_to_persist and not analyst_forecast:
         downside_case = evaluate_downside_case(
             multi_period_financials_for_downside, stress_assumptions_to_persist,
+            prior_exclude=prior_periods_to_ignore(existing_state),
         )
     else:
         downside_case = existing_state.get("downside_case") or {}

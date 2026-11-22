@@ -24,7 +24,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from spreading_builder import (
-    FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, _prior_operating_working_capital,
+    FIELD_LABELS, FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, PERIOD_KEYS, _OWC_LINES as OWC_LINES,
+    _prior_operating_working_capital,
     evaluate_downside_case, evaluate_financial_model,
 )
 from numeric_validation import (
@@ -45,6 +46,16 @@ class FinancialSourceModeError(ValueError):
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
+
+
+def prior_periods_to_ignore(existing_state: dict[str, Any]) -> tuple[str, ...]:
+    """The periods whose framework raw lines must never be read as a prior-period comparator.
+
+    On a deal whose `financials_source` is analyst-supplied the historical figures are the analyst's own, so a
+    leftover framework raw historical period is not authoritative (maintainer decision on #597); every other deal
+    ignores nothing. Shared by the base case, the downside case and the cached headless stress rerun.
+    """
+    return tuple(HISTORICAL_PERIOD_KEYS) if existing_state.get("financials_source") == "analyst-supplied" else ()
 
 
 def plan_fields(
@@ -145,15 +156,21 @@ def plan_fields(
             for period in needed_periods
             if isinstance(merged_multi_period.get(period), dict)
         }
-        if existing_state.get("financials_source") == "analyst-supplied":
-            # The authoritative history is the analyst-supplied store (maintainer decision on #597): a leftover
-            # framework raw historical period is never read as the prior, so a forward year whose previous
-            # period is analyst-supplied keeps its prior unavailable (N/A with a reason), never a blended figure.
-            prior_data = {period: raw for period, raw in prior_data.items() if period in FORWARD_PERIOD_KEYS}
+        prior_exclusions = prior_periods_to_ignore(existing_state)
+        # The authoritative history of an analyst-supplied deal is the analyst-supplied store (maintainer decision on
+        # #597): a leftover framework raw historical period is never read as the prior, so a forward year whose
+        # previous period is analyst-supplied keeps its prior unavailable (N/A with a reason), never a blended figure.
+        prior_data = {period: raw for period, raw in prior_data.items() if period not in prior_exclusions}
         # The comparators go through the same raw-input contract as incoming figures before any arithmetic, so a
-        # boolean, a string or an oversized number is one clean FinancialInputError (caught by both CLIs).
+        # boolean, a string or an oversized number is one clean FinancialInputError (caught by both CLIs). A period
+        # that is only a comparator is checked on the five lines that are actually read, so an unrelated bad line
+        # elsewhere in it does not block the update; a period being evaluated is validated in full by the evaluator.
+        comparator_lines = {
+            period: {line: raw[line] for line in OWC_LINES if line in raw}
+            for period, raw in prior_data.items() if period not in periods_to_evaluate
+        }
         try:
-            validate_raw_line_items(prior_data, FIELD_LABELS, path="recorded operating working capital")
+            validate_raw_line_items(comparator_lines, FIELD_LABELS, path="recorded operating working capital")
             prior_owc = _prior_operating_working_capital(prior_data)
         except OverflowError as exc:
             raise InvalidFinancialInputError(
@@ -178,7 +195,8 @@ def plan_fields(
         merged_stress_assumptions.update(stress_assumptions)
     stress_assumptions = merged_stress_assumptions
     if stress_assumptions:
-        downside_case = evaluate_downside_case(merged_multi_period, stress_assumptions)
+        downside_case = evaluate_downside_case(
+            merged_multi_period, stress_assumptions, prior_exclude=prior_periods_to_ignore(existing_state))
         if downside_case.get("financials") or downside_case.get("ratios"):
             fields["downside_case"] = downside_case
             fields["stress_assumptions"] = stress_assumptions

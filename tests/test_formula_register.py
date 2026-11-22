@@ -377,15 +377,15 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "spreading_builder:describe_undefined_ratio": "b53954b321e5073d",
     "spreading_builder:evaluate_financial_model": "ad7d7d60eef71ab0",
     "spreading_builder:apply_stress_shocks": "219bcb8383f01754",
-    "spreading_builder:evaluate_downside_case": "a2dc0beb4f67c46b",
+    "spreading_builder:evaluate_downside_case": "4e3b24191f894752",
     "spreading_builder:_column_headers": "2d844b9a66aa3c3a",
-    "spreading_builder:_write_financial_spreading": "5d0ad93f82c6b64a",
+    "spreading_builder:_write_financial_spreading": "c6224017bb2e08cf",
     "spreading_builder:_write_collateral_sheet": "5f9b338f77736cd1",
     "supplied_forecast:build_downside": "db2bd0b22dcbab55",
     "covenant_cushion:ebitda_break_even": "79a9709c24bc66c3",
     "covenant_cushion:bracket_and_bisect": "aa5ca4f6184fb0e4",
     "covenant_cushion:_scenario_search": "cea853891d9088a5",
-    "spreading_builder:_prior_operating_working_capital": "977e009f56e75171",
+    "spreading_builder:_prior_operating_working_capital": "5df1552eab73df56",
     "transcription_check:cross_foot": "8f5648c198969ab3",
 }
 

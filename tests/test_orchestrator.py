@@ -43,7 +43,6 @@ from orchestrator import (
     _default_client,
     _ground_truth_figures,
     _load_multi_period_financials,
-    _resolve_pd_lgd_inputs,
     _normalize_category,
     _resolve_maker_checker_config,
     _values_match,
@@ -3340,6 +3339,12 @@ def test_run_pipeline_refuses_a_malformed_credit_aggregation_before_any_model_ca
 # overrides that individual field.
 # ---------------------------------------------------------------------------
 
+def _resolve_pd_lgd_inputs(*args, **kwargs):
+    """The private resolver, imported per call so the public-entry regressions below stay collectable without it."""
+    import orchestrator
+    return orchestrator._resolve_pd_lgd_inputs(*args, **kwargs)
+
+
 def test_headless_pipeline_uses_recorded_pd_lgd_and_preserves_bureau_score(project_root):
     write_state(
         "Example Co", "Term Loan",
@@ -3565,8 +3570,9 @@ def test_a_newer_review_created_after_the_date_is_chosen_is_never_used_for_the_s
 
     def choose_then_let_a_newer_review_appear(*args, **kwargs):
         chosen = real_resolve(*args, **kwargs)
-        if not calls:
-            calls.append(chosen)
+        first = not calls
+        calls.append(chosen)           # every selection is counted, so a second one cannot hide
+        if first:
             write_state("Example Co", "Term Loan", date_str="2026-02-01",
                         inputs={"pd": "8.50%", "lgd": "LGD 7 (60%)"})
         return chosen
@@ -3576,7 +3582,7 @@ def test_a_newer_review_created_after_the_date_is_chosen_is_never_used_for_the_s
 
     run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", client=client)
 
-    assert calls == ["2026-01-10"]
+    assert calls == ["2026-01-10"]   # exactly one selection, and it was the original date
     prompt_text = chr(10).join(str(m.get("content", "")) for c in client.calls for m in c["messages"])
     assert "PD: 4.50%" in prompt_text and "PD: 8.50%" not in prompt_text
     assert read_state("Example Co", "Term Loan", date_str="2026-01-10")["inputs"] == {
@@ -3585,3 +3591,48 @@ def test_a_newer_review_created_after_the_date_is_chosen_is_never_used_for_the_s
     assert read_state("Example Co", "Term Loan", date_str="2026-02-01")["inputs"] == {
         "pd": "8.50%", "lgd": "LGD 7 (60%)",
     }
+
+
+def test_an_explicit_pd_never_overwrites_a_newer_lgd_and_a_changed_fallback_refuses_the_write(project_root, monkeypatch):
+    """Issue #599 (PX623-105 / CG623-5): only the flag given is written; a fallback score read from the record must
+    still be the recorded one at the checkpoint, otherwise nothing is written and the run stops."""
+    import orchestrator
+    from state_manager import InputsChangedError
+
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
+    real_read_state = orchestrator.read_state
+    interleaved = []
+
+    def read_then_let_another_writer_change_lgd(*args, **kwargs):
+        result = real_read_state(*args, **kwargs)
+        keys = kwargs.get("keys")
+        if keys and "multi_period_financials" in keys and not interleaved:
+            interleaved.append(True)
+            write_state("Example Co", "Term Loan", merge_inputs={"lgd": "LGD 7 (60%)"})
+        return result
+
+    monkeypatch.setattr(orchestrator, "read_state", read_then_let_another_writer_change_lgd)
+
+    with pytest.raises(InputsChangedError, match="recorded input 'lgd' changed after it was read"):
+        run_pipeline("Example Co", "Term Loan", "1.25%", None, "corporate_credit",
+                     client=MockClient([_compliant_draft(), _approved_json()]))
+
+    assert read_state("Example Co", "Term Loan")["inputs"] == {
+        "pd": "4.50%", "lgd": "LGD 7 (60%)", "experian_score": 41,
+    }
+
+
+def test_the_near_match_note_is_part_of_the_one_missing_risk_error_not_a_separate_warning(project_root):
+    """Issue #599 (PX623-106 / CG623-6): no "Continuing" warning is printed before the run stops."""
+    write_state("Example Co", "Term Loan", date_str="2026-01-10", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    script = Path(__file__).resolve().parents[1] / "scripts" / "orchestrator.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--company", "Example Co", "--proposal", "term-loan"],
+        cwd=Path.cwd(), capture_output=True, text=True, check=False, timeout=60,
+    )
+
+    assert result.returncode == 1
+    lines = result.stderr.splitlines()
+    assert len(lines) == 1 and lines[0].startswith("error: no recorded or supplied PD/LGD inputs")
+    assert "Continuing" not in result.stderr and "near match" in lines[0] and "Term Loan" in lines[0]

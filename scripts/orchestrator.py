@@ -645,20 +645,32 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # The near-miss advisory is best effort: if the company folder cannot be listed, the
         # run continues exactly as it did before the lookup existed.
         lookup = {"record_found": True, "near_misses": []}
+    near_match_note = None
     if not lookup["record_found"] and lookup["near_misses"]:
         suggestions = ", ".join(
             f"{item['proposal']!r} ({item['date']})" for item in lookup["near_misses"]
         )
-        print(
-            f"warning: no saved deal record for {proposal!r} under {company!r}; "
-            f"normalized near match(es): {suggestions}. Continuing with current behaviour.",
-            file=sys.stderr,
+        near_match_note = (
+            f"no saved deal record for {proposal!r} under {company!r}; normalized near match(es): {suggestions}"
         )
     date_str = resolve_date_str(company, proposal, new_review=new_review)
     # Resolve PD and LGD once, from the same dated state this run will save into, before any write or model call.
-    pd_score, lgd_score = _resolve_pd_lgd_inputs(
-        company, proposal, pd_score, lgd_score, new_review=new_review, date_str=date_str,
-    )
+    # Only the flags actually given are written back; a fallback read from the record is checked, not rewritten.
+    explicit_risk_inputs = {
+        key: value for key, value in (("pd", pd_score), ("lgd", lgd_score)) if value is not None
+    }
+    try:
+        pd_score, lgd_score = _resolve_pd_lgd_inputs(
+            company, proposal, pd_score, lgd_score, new_review=new_review, date_str=date_str,
+        )
+    except RiskInputsError as exc:
+        if near_match_note:
+            raise RiskInputsError(f"{exc} Note: {near_match_note}.") from exc
+        raise
+    if near_match_note:
+        print(f"warning: {near_match_note}. Continuing with current behaviour.", file=sys.stderr)
+    resolved_risk_inputs = {"pd": pd_score, "lgd": lgd_score}
+    relied_on_risk_inputs = {k: v for k, v in resolved_risk_inputs.items() if k not in explicit_risk_inputs}
     new_state_file = state_path(company, proposal, date_str=date_str)
     company_dir = os.path.dirname(os.path.dirname(new_state_file))
     if new_review and os.path.isdir(company_dir) and not os.path.isfile(new_state_file):
@@ -916,10 +928,12 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
-    # Only PD and LGD are merged, into the inputs as they are on disk under the write lock: a change to another
-    # recorded input (for example the bureau score) made since the read above is never overwritten (issue #599).
+    # Only the PD and LGD flags actually given are merged, into the inputs as they are on disk under the write lock,
+    # so a change to another recorded input (for example the bureau score) is never overwritten. A score read from
+    # the record is not rewritten: it must still equal what this run used for its prompts, or the write is refused
+    # and nothing is saved (issue #599).
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
-                merge_inputs={"pd": pd_score, "lgd": lgd_score},
+                merge_inputs=explicit_risk_inputs, expect_inputs=relied_on_risk_inputs,
                 financials=financials, ratios=ratios, collateral=collateral, **collateral_analysis_write,
                 financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,

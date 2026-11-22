@@ -125,6 +125,10 @@ class StateError(ValueError):
     exit status 1 instead of a traceback; it is still a ValueError for any caller that already catches that."""
 
 
+class InputsChangedError(StateError):
+    """A recorded input a caller relied on changed before its write; nothing was written (issue #599)."""
+
+
 class SchemaVersionError(StateError):
     """write_state() refused to write because the file's recorded schema_version is newer than this code supports
     (it would have been silently downgraded) or is not a MAJOR.MINOR.PATCH string (it cannot be compared, so
@@ -1698,14 +1702,16 @@ def read_state(
 
 def write_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
-    merge_inputs: Mapping[str, Any] | None = None,
+    merge_inputs: Mapping[str, Any] | None = None, expect_inputs: Mapping[str, Any] | None = None,
     **fields: Any,
 ) -> dict[str, Any]:
     """Merge `fields` into this deal's state.json (if any) and write it back.
 
     `merge_inputs` updates only the named keys of the recorded `inputs` object, read and written under the same
     lock as the rest of the write, so a concurrent change to another input is never overwritten by a stale copy
-    (issue #599). Do not pass `inputs=` as well.
+    (issue #599). `expect_inputs` names recorded inputs the caller relied on but is not writing: under the same lock
+    each must still equal the value the caller read, otherwise `InputsChangedError` is raised and nothing is written.
+    Do not pass `inputs=` as well.
 
     Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
     reusing an existing dated folder for this company/proposal when
@@ -1754,9 +1760,10 @@ def write_state(
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     with _FileLock(path):
-        if merge_inputs is None:
+        if merge_inputs is None and expect_inputs is None:
             return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
-        return _merge_and_write(path, company, proposal, date_str, base_dir, fields, merge_inputs=merge_inputs)
+        return _merge_and_write(path, company, proposal, date_str, base_dir, fields,
+                                merge_inputs=merge_inputs, expect_inputs=expect_inputs)
 
 
 def _check_schema_version_is_writable(recorded: object, path: str) -> None:
@@ -1780,6 +1787,7 @@ def _check_schema_version_is_writable(recorded: object, path: str) -> None:
 def _merge_and_write(
     path: str, company: str, proposal: str, date_str: str, base_dir: str | os.PathLike[str] | None,
     fields: dict[str, Any], merge_inputs: Mapping[str, Any] | None = None,
+    expect_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The actual read-modify-write, factored out so both write_state() and
     append_review_trail() can hold one _FileLock across their *entire*
@@ -1792,6 +1800,14 @@ def _merge_and_write(
     # No file yet (state == {}) has no version either; that is a fresh deal, not a malformed one. An existing file's
     # missing key already reads back as LEGACY_SCHEMA_VERSION; an explicit null stays None and is refused below.
     _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION), path)
+    if expect_inputs:
+        recorded = state.get("inputs")
+        recorded = recorded if isinstance(recorded, dict) else {}
+        for key, expected in expect_inputs.items():
+            if recorded.get(key) != expected:
+                raise InputsChangedError(
+                    f"recorded input {key!r} changed after it was read ({expected!r} -> {recorded.get(key)!r}); "
+                    "nothing was written. Rerun the command.")
     state["company"] = company
     state["proposal"] = proposal
     state["date"] = date_str

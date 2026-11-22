@@ -4725,3 +4725,24 @@ def test_write_state_merge_inputs_refuses_inputs_passed_together_without_writing
                     inputs={"pd": "1%"}, merge_inputs={"pd": "2%"})
 
     assert path.read_bytes() == before
+
+
+def test_write_state_expect_inputs_refuses_a_changed_input_and_writes_nothing(tmp_path):
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), inputs={"pd": "1%", "lgd": "LGD 3"})
+    path = Path(state_path("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path)))
+    before = path.read_bytes()
+
+    with pytest.raises(state_manager.InputsChangedError, match="recorded input 'lgd' changed after it was read"):
+        write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), marker="x",
+                    merge_inputs={"pd": "2%"}, expect_inputs={"lgd": "LGD 4"})
+
+    assert path.read_bytes() == before
+
+
+def test_write_state_expect_inputs_passes_when_the_relied_on_input_is_unchanged(tmp_path):
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), inputs={"pd": "1%", "lgd": "LGD 3"})
+
+    written = write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                          merge_inputs={"pd": "2%"}, expect_inputs={"lgd": "LGD 3"})
+
+    assert written["inputs"] == {"pd": "2%", "lgd": "LGD 3"}

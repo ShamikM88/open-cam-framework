@@ -224,7 +224,7 @@ ENTITY_SPREAD_REVIEW_LABEL = "not yet reviewed by an analyst"
 ENTITY_SPREAD_SOURCE = "scripts/spreading_check.py --entity-id"
 
 
-def entity_spread_view(record: dict[str, Any]) -> dict[str, Any]:
+def entity_spread_view(record: dict[str, Any], warn_stored: bool = True) -> dict[str, Any]:
     """Return only entity-period results whose inputs and evaluated outputs are current.
 
     The fingerprint is the settled period-local input contract. The existing
@@ -267,6 +267,11 @@ def entity_spread_view(record: dict[str, Any]) -> dict[str, Any]:
         and isinstance(fingerprints, dict)
     ):
         try:
+            if warn_stored:
+                # The stored lines are recomputed here (covenant policy, the cushion report), so an unknown name already
+                # on file is named once per call; compute_entity passes warn_stored=False after warning itself (#596).
+                warn_unknown_raw_line_items(
+                    raw, FIELD_LABELS, path=f"entity_records[{record.get('entity_id')!r}].multi_period_financials")
             evaluated = evaluate_financial_model(raw)
             for period in sorted(raw):
                 entity_id = record.get("entity_id")
@@ -329,6 +334,9 @@ def compute_entity(
     # Issue #596: a record on file may carry an unknown name recorded before the registration refusal existed;
     # it is not locked out, but each unknown key is named so a misspelt line is not silently read as zero.
     warn_unknown_raw_line_items(raw, FIELD_LABELS, path=f"entity_records[{entity_id!r}].multi_period_financials")
+    # The analyst-supplied store is never computed here, but a misspelt name in it is named too (names only).
+    warn_unknown_raw_line_items(
+        supplied, FIELD_LABELS, path=f"entity_records[{entity_id!r}].analyst_supplied_financials")
 
     evaluated = evaluate_financial_model(raw)
     fingerprints = {
@@ -342,7 +350,7 @@ def compute_entity(
         timestamp, ENTITY_SPREAD_SOURCE, base_dir=base_dir,
     )
     saved_record = updated["entity_records"][entity_id]
-    view = entity_spread_view(saved_record)
+    view = entity_spread_view(saved_record, warn_stored=False)
     if view["stale_periods"]:
         raise ValueError(
             f"Entity {entity_id!r} spread was saved but one or more periods are stale: "

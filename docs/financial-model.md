@@ -81,9 +81,11 @@ A deal that already has an unknown name on file in `multi_period_financials` —
 is not locked out: the call still computes. Every path that reads the stored lines to compute prints one stderr
 warning per unknown key naming the period and the key, so the analyst can correct it: a spreading run
 (`--financials` or `--spread`), a transcription commit (once, not once per preflight), the headless orchestrator
-(with new figures or stress-only) and the guarantor `--entity-id` spread. The same refusal applies to a new
-guarantor entity record at registration, and the stored name stays on file until it is corrected. One refusal names
-the unknown keys of every affected period, not only the first.
+(with new figures or stress-only), the covenant cushion report, a covenant policy read that recomputes a stored
+guarantor spread, and the guarantor `--entity-id` spread (which also names a misspelt key in the analyst-supplied
+store, names only, never computing it). The same refusal applies to a new guarantor entity record at registration,
+and the stored name stays on file until it is corrected. One refusal names the unknown keys of every affected period
+and of both raw stores, not only the first.
 
 ## Worked example
 

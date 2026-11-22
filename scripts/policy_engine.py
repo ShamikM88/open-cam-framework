@@ -37,6 +37,7 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 from collections.abc import Iterable
+import unicodedata
 from typing import Any, Literal, NotRequired, TypedDict
 
 from financial_conventions import PERCENT_TYPE_RATIOS
@@ -335,9 +336,17 @@ _ASSET_CLASS_LABEL_MAX = 80
 
 
 def _usable_security_id(value: Any) -> bool:
-    """True only for a non-blank text ID. A blank, whitespace-only, numeric, boolean or structured value is not an
-    identifier: it cannot join an asset to a charge, so the entry is reported as unidentified (issue #604)."""
-    return isinstance(value, str) and bool(value.strip())
+    """True only for text with at least one visible character and no invalid Unicode scalar.
+
+    A blank, whitespace-only, numeric, boolean or structured value is not an identifier, and neither is text made only
+    of control or format characters (a zero-width space, a NUL) or containing an isolated surrogate that cannot be
+    encoded: it cannot join an asset to a charge, so the entry is reported as unidentified (issue #604).
+    """
+    if not isinstance(value, str):
+        return False
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        return False
+    return any(unicodedata.category(ch)[0] not in "CZ" for ch in value)
 
 
 def _evaluate_security(

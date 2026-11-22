@@ -866,7 +866,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `perfection_status` is not "Perfected" ("Unperfected Security"), a charge whose `ranking` is not "First"
   ("Subordinate Ranking"), a charge referencing an asset absent from the collateral records ("Dangling
   Reference"), a collateral entry with no usable `asset_id` ("Unidentified Collateral Asset") and a charge with no
-  usable `secures_asset_id` ("Unidentified Security Charge"). A usable ID is a non-blank text string: a missing,
+  usable `secures_asset_id` ("Unidentified Security Charge"). A usable ID is text with at least one visible character and no invalid Unicode scalar: a missing,
   blank, whitespace-only, numeric, boolean or structured value is not an identifier and never joins an asset to a
   charge
 - **Unit and storage:** a list of human-readable gap strings plus one Conditions Precedent per gap (see F-043)

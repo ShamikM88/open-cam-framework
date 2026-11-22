@@ -2475,3 +2475,37 @@ def test_the_asset_class_label_is_cleaned_and_capped_in_gaps_and_condition_ids()
     (cp_id,) = [cp["cp_id"] for cp in result["required_conditions_precedent"]
                 if cp["cp_id"].startswith("SEC-MAPPING-UNIDENTIFIED-ASSET-1-")]
     assert len(cp_id) < 160
+
+
+@pytest.mark.parametrize("bad_id", ["​", "\x00", "⁠​", "\ud800", "A\udfff", " ​\n"])
+def test_an_invisible_or_invalid_unicode_id_is_unidentified_and_produces_policy_output(bad_id):
+    """Control-only, format-only and invalid-scalar IDs never join an asset to a charge (PX622-105 / CG622-3).
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": bad_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": bad_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert [gap.split(":")[0] for gap in result["security_gaps"]] == [
+        "Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert not any(cs["cs_id"].startswith("CS-SEC-REPERFECT") for cs in result["required_conditions_subsequent"])
+
+
+def test_an_ordinary_id_with_surrounding_whitespace_or_a_zero_width_joiner_still_identifies_the_asset():
+    """Only text with no visible character is unusable; ordinary IDs are untouched.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "A-1"}, {"asset_id": " B 2 "}],
+        "security_package": [
+            {"secures_asset_id": "A-1", "perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": " B 2 ", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    }
+
+    assert evaluate_deal_policy(state)["security_gaps"] == []

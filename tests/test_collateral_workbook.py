@@ -341,3 +341,25 @@ def test_a_text_value_in_a_collateral_figure_column_is_text_not_a_formula(tmp_pa
         cell = ws.cell(row=2, column=column)
         assert cell.value == expected and cell.data_type == "s", column
     assert ws.cell(row=2, column=8).data_type == "f"   # the builder's own ratio formula stays a formula
+
+
+def test_text_in_persisted_state_is_text_through_the_real_state_adapter(tmp_path):
+    """Issue #600 (PX620-104): the same check through the adapter the export uses, not the builder alone."""
+    state = {
+        "collateral": [{"asset_class": "=HYPERLINK(\"http://example.invalid\",\"x\")", "perfection_status": "=1+1",
+                        "exposure": 1, "collateral_value": 1}],
+        "financials": {"FY-Current": {"raw": {"revenue": "=2+2", "cost_of_sales": 400}}},
+        "financials_source": "framework-computed",
+    }
+    out_path = tmp_path / "from_state.xlsx"
+
+    export_to_xlsx("Test Co", str(out_path), **workbook_inputs_from_state(state))
+
+    workbook = openpyxl.load_workbook(out_path)
+    collateral = workbook["Collateral & Exposure"]
+    assert collateral["A2"].data_type == "s" and collateral["I2"].data_type == "s"
+    spreading = workbook["Financial Spreading"]
+    revenue_row = next(r for r in range(1, spreading.max_row + 1) if spreading.cell(row=r, column=1).value == "Revenue")
+    assert spreading.cell(row=revenue_row, column=4).value == "=2+2"
+    assert spreading.cell(row=revenue_row, column=4).data_type == "s"
+    assert collateral["H2"].data_type == "f"      # the builder's own ratio formula is still a formula

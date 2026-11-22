@@ -317,14 +317,20 @@ whole-period membership and uniform accounting policies must be attested to show
   amount. Both sides must identify the same loan. Confirmed maturity mismatches are printed, not reclassified.
   Capitalised interest is part of the principal only if both sides carry it at the same amount. No other
   elimination is made. The existing total-debt definition, including `overdraft` and `loan_notes`, is unchanged.
-- **Exact arithmetic and input checks:** amounts are scaled to whole numbers before the unchanged evaluator, so
-  exact cancellation (0.1 - 0.3 + 0.2) gives exactly zero EBITDA and its ratios are not available; no epsilon is
-  used, and an amount too large or too precise to scale exactly is refused. An entity record's numbers are parsed
+- **Exact arithmetic and input checks:** every aggregated line stays an exact fraction until the output boundary and
+  is scaled to whole numbers (Python integers, exact at any size) before the unchanged evaluator, so exact
+  cancellation (0.1 - 0.3 + 0.2, or 0.08 - 0.08 across participants) gives exactly zero EBITDA and its ratios are not
+  available, and a large balance never erases a small one on the same line; no epsilon is used, and only an amount
+  beyond 10^300 once scaled is refused. An unknown raw line-item name in any participant is refused (naming the
+  participant and the line), never dropped from the group total. A journal involving the borrower needs a borrower
+  declaration of its own: one declaration backs one loan, so a second journal against an already used declaration is
+  an integrity refusal. An entity record's numbers are parsed
   without rounding at registration (a value such as `20.000000000000001` is refused). Each attestation's
   `period_months` must agree with its dates (a span within 7 days of that many months of 30.4375 days, so 52- and
   53-week years pass), otherwise the run is refused. A participant's negative cash withholds the cash outputs with
-  its name; an intragroup schedule larger than the participant's recorded line withholds EBITDA; and a second
-  support row for a debt already covered needs `overlap_confirmed: true`, otherwise the memo is `unknown`.
+  its name; an intragroup schedule larger than the participant's recorded line withholds EBITDA; and every
+  support row for a debt covered more than once must carry `overlap_confirmed: true` (the result does not depend on
+  the order of the rows), otherwise the memo is `unknown`.
 - **Refusals:** duplicated loan IDs, cumulative cap violations, malformed inputs or inadmissible control
   refuse the whole invocation, which writes nothing. Every presented journal counts against the declared cap on its
   line, including one that is later refused on matching, so listing more principal than the participant declared

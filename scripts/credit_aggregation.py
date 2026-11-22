@@ -3,6 +3,7 @@ import argparse
 import hashlib
 import json
 import sys
+from collections.abc import Mapping
 from decimal import Decimal, DecimalException
 from typing import Any, TypedDict, cast
 
@@ -310,7 +311,7 @@ def computed_output_digest(input_fingerprint: str, financials: dict[str, Any], r
     })
 
 
-def _canonical_digest(payload: dict[str, Any]) -> str:
+def _canonical_digest(payload: Mapping[str, object]) -> str:
     """One SHA-256 over canonical JSON, lowercase hex: deterministic for identical inputs."""
     try:
         canonical = json.dumps(

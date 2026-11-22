@@ -129,5 +129,9 @@ def test_a_malformed_credit_aggregation_is_refused_by_the_summary_export_and_rea
 def test_the_committee_summary_collection_path_renders_the_real_status(deal):
     _, data = committee_summary.collect(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(deal))
     text = committee_summary.render_markdown(data)
-    assert "## Credit aggregation (not a consolidation)" in text and str(LEVERAGE) in text
+    heading = "## Credit aggregation (not a consolidation)"
+    assert heading in text
+    # Scoped to the aggregation section: the same value is also printed in the Covenants section (Cubic, CU628).
+    section = text.split(heading, 1)[1].split(chr(10) + "## ", 1)[0]
+    assert str(LEVERAGE) in section
     assert data["policy"]["covenant_results"][0]["view_source"] == "credit_aggregation"

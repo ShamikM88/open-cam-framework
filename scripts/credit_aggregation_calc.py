@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import date
 from fractions import Fraction
 from math import gcd, isfinite
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 LABEL = "credit aggregation, not accounting-reviewed"
 VARIANT_SUFFIX = "_excluding_other_income"
@@ -53,7 +53,7 @@ DEBTORS = {"current_debt", "long_term_debt"}
 DEBT_LINES = ("current_debt", "overdraft", "long_term_debt", "loan_notes")
 # The declared length in months must agree with the declared dates (maintainer decision on #472): the span is checked
 # against whole months of 30.4375 days with a tolerance that keeps 52- and 53-week years valid.
-MAX_EXACT_INTEGER = 2 ** 53
+MAX_SCALED_AMOUNT = 10 ** 300      # a sanity bound so a ratio cannot overflow a float, not a precision limit
 DAYS_PER_MONTH = 30.4375
 PERIOD_TOLERANCE_DAYS = 7
 INCOME_LINES = {"revenue", "other_income"}
@@ -138,7 +138,9 @@ def _perimeter(request: dict[str, Any], raw: dict[str, Any]) -> tuple[dict[str, 
     for key, att in answers.items():
         path = f"attestations[{key}]"
         a = obj(att, path, PERIMETER_KEYS | {"evidence"}, GATE_KEYS)
-        evidence = obj(a["evidence"], f"{path}.evidence", set(a) - {"evidence"}, GATE_KEYS)
+        # A gate answer left null counts as not supplied: it withholds the metrics and needs no evidence reference.
+        supplied = {k for k in a if k != "evidence" and not (k in GATE_KEYS and a[k] is None)}
+        evidence = obj(a["evidence"], f"{path}.evidence", supplied, GATE_KEYS)
         for field, ref in evidence.items():
             text(ref, f"{path}.evidence.{field}")
         confirmed(a["standalone"], f"{path}.standalone")
@@ -256,6 +258,7 @@ def _apply_journals(request, sides, caps, raw):
     applied, refused = [], []
     seen_journals, seen_loans = set(), set()
     used = defaultdict(Fraction)
+    claimed_borrower = set()      # borrower declarations already used by a journal: one declaration backs one loan
     for j in array(request["journals"], "journals"):
         j = obj(j, "journal", JOURNAL_KEYS)
         jid = text(j["journal_id"], "journal_id")
@@ -278,9 +281,12 @@ def _apply_journals(request, sides, caps, raw):
         left, right = sides.get((lender, loan)), sides.get((debtor, loan))
         if BORROWER in (lender, debtor):
             counterpart = debtor if lender == BORROWER else lender
-            if not any(owner == BORROWER and d["counterparty_entity_id"] == counterpart
-                       for (owner, _), d in sides.items()):
-                raise ValueError(f"journal {jid} has no deal-borrower declaration")
+            candidates = [key for key, d in sides.items()
+                          if key[0] == BORROWER and d["counterparty_entity_id"] == counterpart
+                          and key not in claimed_borrower]
+            if not candidates:
+                raise ValueError(f"journal {jid} has no unclaimed deal-borrower declaration for {counterpart}")
+            claimed_borrower.add((BORROWER, loan) if (BORROWER, loan) in candidates else candidates[0])
         for entity, line in ((lender, lend_line), (debtor, debt_line)):
             if (entity, line) in caps:
                 used[entity, line] += amount
@@ -319,8 +325,10 @@ def _ebitda_gate(answers, raw):
         mode = a.get("ebitda_intragroup")
         check_choice(mode, ("none", "offset", "offset_other_income_only", "not_offset", None), "ebitda_intragroup")
         modes[key] = mode
-        unoffset[key] = number(a.get("unoffset_other_income_amount", 0), "unoffset_other_income_amount", minimum=0)
-        rows = array(a.get("schedule", []), f"{key}.schedule")
+        unoffset_answer = a.get("unoffset_other_income_amount")
+        unoffset[key] = number(0 if unoffset_answer is None else unoffset_answer, "unoffset_other_income_amount",
+                               minimum=0)
+        rows = array([] if a.get("schedule") is None else a["schedule"], f"{key}.schedule")
         for row in rows:
             r = obj(row, f"{key}.schedule row", {"counterparty", "line", "amount"})
             cp = text(r["counterparty"], "schedule counterparty")
@@ -336,7 +344,7 @@ def _ebitda_gate(answers, raw):
     if any(mode in (None, "not_offset") or answers[key]["no_intragroup_stock_or_asset_profit"] is not True
            for key, mode in modes.items()):
         return False, "Intragroup EBITDA offsets or absence of intragroup profit in assets were not attested."
-    if any(mode == "offset_other_income_only" and "unoffset_other_income_amount" not in answers[key]
+    if any(mode == "offset_other_income_only" and answers[key].get("unoffset_other_income_amount") is None
            for key, mode in modes.items()):
         return False, "The unoffset other income amount was not stated."
     if any((a.get("schedule") or unoffset[key]) if mode == "none" else not a.get("schedule")
@@ -370,6 +378,7 @@ def _left_out_memo(request, participants, debt):
     if not isinstance(left_out, dict) or set(left_out) & participants:
         raise ValueError("left_out must be an object keyed by non-participant IDs")
     covered, problem = {}, None
+    statements = defaultdict(list)      # debt_id -> every (entity, amount, overlap_confirmed) statement about it
     for entity, item in sorted(left_out.items()):
         text(entity, "left_out entity ID")
         item = obj(item, f"left_out[{entity}]", {"reason", "external_debt", "support"})
@@ -385,6 +394,7 @@ def _left_out_memo(request, participants, debt):
                 raise ValueError("left-out support must be provided by a participant")
             check_choice(r["type"], ("guarantee", "security"), "support type")
             text(r["evidence"], "support evidence")
+            check_choice(r.get("overlap_confirmed", False), (True, False), "overlap_confirmed")
             identifier = r["debt_id"]
             amount = r["covered_principal"]
             if identifier is not None:
@@ -395,19 +405,25 @@ def _left_out_memo(request, participants, debt):
                 amount = number(amount, "covered principal", minimum=0)
                 if identifier is None:
                     problem = f"overlap cannot be established for {entity} without an attested debt_id"
-                elif identifier in covered:
-                    if covered[identifier] != amount or debts.setdefault(identifier, amount) != amount:
-                        problem = f"conflicting covered principal for {entity} debt {identifier}"
-                    elif r.get("overlap_confirmed") is not True:
-                        # A second statement about one debt is the same covered principal only if the analyst says so
-                        # (maintainer decision on #472); equal amounts alone could be two disjoint slices.
-                        problem = f"overlap of covered principal on debt {identifier} is not attested for {entity}"
                 else:
-                    covered[identifier] = amount
-                    debts.setdefault(identifier, amount)
+                    statements[identifier].append((entity, amount, r.get("overlap_confirmed", False)))
+                    if debts.setdefault(identifier, amount) != amount:
+                        problem = f"conflicting covered principal for {entity} debt {identifier}"
         entity_total = sum(debts.values())
         if isinstance(external, Fraction) and entity_total > external:
             problem = f"covered principal conflicts with external debt for {entity}"
+    # A debt covered by more than one statement is the same covered principal only if EVERY statement attests the
+    # overlap and the amounts agree: the rule reads the whole set, never the order of the rows (maintainer decision on
+    # #472, PX628-108 / PX628-111): equal amounts alone could be two disjoint slices.
+    for identifier, rows in sorted(statements.items()):
+        amounts = {amount for _, amount, _ in rows}
+        if len(amounts) > 1:
+            problem = f"conflicting covered principal for debt {identifier}"
+        elif len(rows) > 1 and not all(flag for _, _, flag in rows):
+            unattested = ", ".join(sorted({entity for entity, _, flag in rows if not flag}))
+            problem = f"overlap of covered principal on debt {identifier} is not attested for {unattested}"
+        else:
+            covered[identifier] = next(iter(amounts))
     for row in array(request["participant_guarantees"], "participant_guarantees"):
         r = obj(row, "participant guarantee", {"provider", "beneficiary", "amount", "evidence"})
         provider, beneficiary = (text(r[k], f"guarantee {k}") for k in ("provider", "beneficiary"))
@@ -419,57 +435,134 @@ def _left_out_memo(request, participants, debt):
     return {"value": "unknown" if problem else json_number(debt + sum(covered.values())), "reason": problem}
 
 
-def calculate_period(period, request, inputs, legal_names):
+# A registered accounting basis and a declared framework are compared by family; values outside this table are not
+# judged (PX628-115): only two recognised, different families are a contradiction.
+BASIS_FAMILIES = {
+    "uk gaap": "UK GAAP", "frs 101": "UK GAAP", "frs 102": "UK GAAP", "frs 105": "UK GAAP",
+    "ifrs": "IFRS", "ifrs for smes": "IFRS", "us gaap": "US GAAP", "u.s. gaap": "US GAAP",
+}
+
+
+def _check_declared_frameworks(request: dict[str, Any], inputs: dict[str, Any]) -> None:
+    for key, item in inputs.items():
+        source = item.get("source")
+        registered = source.get("accounting_basis") if isinstance(source, dict) else None
+        attestation = request["attestations"].get(key) if isinstance(request.get("attestations"), dict) else None
+        declared = attestation.get("framework") if isinstance(attestation, dict) else None
+        if not isinstance(registered, str) or not isinstance(declared, str):
+            continue
+        registered_family = BASIS_FAMILIES.get(registered.strip().casefold())
+        declared_family = BASIS_FAMILIES.get(declared.strip().casefold())
+        if registered_family and declared_family and registered_family != declared_family:
+            raise ValueError(
+                f"{key}: the registered accounting basis {registered!r} contradicts the declared framework "
+                f"{declared!r}; reconcile the record or the attestation")
+
+
+class PeriodResult(TypedDict):
+    """The calculated, stored result of one period (the `computed` object); the producer and every consumer share it.
+
+    The nested records keep a mapping type: their inner shapes are owned by this module and validated by
+    `state_manager` (`computed_figures_problem`). `output_digest` is added by the caller after the digest is computed.
+    """
+
+    financials: dict[str, Any]
+    ratios: dict[str, Any]
+    withheld: dict[str, str]
+    adjusted_raw: dict[str, int | float]
+    label: str
+    limitations: list[str]
+    metric_label: str | None
+    participant_table: list[dict[str, Any]]
+    eliminations_applied: list[dict[str, Any]]
+    refused_journals: list[dict[str, Any]]
+    debt_before: int | float
+    debt_eliminated: int | float
+    debt_eliminated_pct: float | None
+    debt_lines: dict[str, dict[str, int | float]]
+    debt_memo: dict[str, Any]
+    cash: dict[str, int | float | None]
+    group_net_debt: int | float | None
+    attestations: dict[str, Any]
+    left_out: dict[str, Any]
+    skipped_chain_entities: dict[str, Any]
+    participant_guarantees: list[Any]
+    output_digest: NotRequired[str]
+
+
+def calculate_period(period: str, request: dict[str, Any], inputs: dict[str, Any],
+                     legal_names: dict[str, str | None]) -> PeriodResult:
     from spreading_builder import FIELD_LABELS, evaluate_financial_model
 
+    # A misspelt line (long_term_debt_typo) must never be silently dropped from the group total (PX628-110 / CG628-11).
+    for key, item in inputs.items():
+        unknown = sorted((line for line in item["raw_period"] if line not in FIELD_LABELS), key=str)
+        if unknown:
+            raise ValueError(
+                f"{key}: unknown raw line-item name(s) {', '.join(repr(line) for line in unknown)} in {period}; "
+                "known names are the keys of spreading_builder.FIELD_LABELS; nothing was written")
+    _check_declared_frameworks(request, inputs)
     raw = {}
     for key, item in inputs.items():
         raw[key] = {line: number(value, f"{key}.{line}") for line, value in item["raw_period"].items()
-                    if line in FIELD_LABELS and value is not None}
+                    if value is not None}
 
     def combined():
-        return {line: json_number(sum((r.get(line, Fraction()) for r in raw.values()), Fraction()))
+        # Exact aggregate of every participant's line (maintainer decision on #472, PX628-109 / PX628-113): amounts
+        # stay exact fractions all the way to the evaluator and are converted only at the output boundary.
+        return {line: sum((r.get(line, Fraction()) for r in raw.values()), Fraction())
                 for line in sorted(set().union(*raw.values()))}
+
+    def printed(amounts):
+        return {line: json_number(value) for line, value in amounts.items()}
 
     def evaluate(figures):
         # Exact arithmetic (maintainer decision on #472): the unchanged evaluator works in binary floating point, so
         # 0.1 - 0.3 + 0.2 would leave a tiny positive EBITDA instead of exact zero. Every amount is therefore scaled
-        # by one common factor to a whole number (exact in a float below 2**53), evaluated, and the two money
+        # by one common factor to a whole integer (a Python integer, exact at any size), evaluated, and the two money
         # figures it exposes are scaled back; the ratios are scale-free. No epsilon is used.
-        exact = {line: number(value, f"figure {line}") for line, value in figures.items()}
+        exact = {line: value if isinstance(value, Fraction) else number(value, f"figure {line}")
+                 for line, value in figures.items()}
         scale = 1
         for value in exact.values():
             scale = scale * value.denominator // gcd(scale, value.denominator)
         scaled = {line: value * scale for line, value in exact.items()}
-        if any(abs(value) >= MAX_EXACT_INTEGER for value in scaled.values()):
+        if any(abs(value) >= MAX_SCALED_AMOUNT for value in scaled.values()):
             raise ValueError("an amount is too large or too precise to be evaluated exactly")
         result = evaluate_financial_model({period: {line: int(value) for line, value in scaled.items()}})
         financials = dict(result["financials"][period])
+        exact_money = {}
         for money in ("total_debt", "ebitda"):
             if financials.get(money) is not None:
-                financials[money] = json_number(Fraction(str(financials[money])) / scale)
-        return financials, result["ratios"][period]
+                exact_money[money] = Fraction(str(financials[money])) / scale
+                financials[money] = json_number(exact_money[money])
+        return financials, result["ratios"][period], exact_money
 
     answers, perimeter_reason = _perimeter(request, raw)
     sides, caps = _declarations(request, inputs, raw, legal_names)
     before = combined()
     debt_before = evaluate(before)[0]["total_debt"]
     applied, refused = _apply_journals(request, sides, caps, raw)
-    adjusted = combined()
+    adjusted_exact = combined()
+    adjusted = printed(adjusted_exact)
     variant, ebitda_reason = _ebitda_gate(answers, raw)
     ebitda_reason = perimeter_reason or ebitda_reason
     negative_cash = sorted(key for key, lines in raw.items() if lines.get("cash", 0) < 0)
     cash_attested = all(a.get("cash_no_group_balance") is True for a in answers.values())
     cash_ok = cash_attested and not negative_cash
-    restricted = json_number(sum((number(a["restricted_cash_amount"], "restricted cash") for a in answers.values()), Fraction()))
-    cash = adjusted.get("cash", 0)
-    unrestricted = json_number(number(cash, "cash") - number(restricted, "restricted cash")) if cash_ok else None
+    restricted_exact = sum((number(a["restricted_cash_amount"], "restricted cash") for a in answers.values()),
+                           Fraction())
+    restricted = json_number(restricted_exact)
+    cash_exact = adjusted_exact.get("cash", Fraction())
+    unrestricted_exact = cash_exact - restricted_exact if cash_ok else None
+    unrestricted = json_number(cash_exact - restricted_exact) if cash_ok else None
     interest_ok = all(a.get("no_intragroup_interest") is True for a in answers.values())
-    ev_fin, ev_rat = evaluate(adjusted)
-    if variant or (cash_ok and restricted):
-        ev_fin, ev_rat = evaluate(adjusted | ({"other_income": 0} if variant else {}) |
-                                  ({"cash": unrestricted} if cash_ok else {}))
+    ev_fin, ev_rat, ev_exact = evaluate(adjusted_exact)
+    if variant or (cash_ok and restricted_exact):
+        ev_fin, ev_rat, ev_exact = evaluate(adjusted_exact | ({"other_income": Fraction()} if variant else {}) |
+                                            ({"cash": unrestricted_exact} if cash_ok else {}))
     debt = ev_fin["total_debt"]
+    debt_exact = ev_exact["total_debt"]
     fin = dict.fromkeys(k for k in ev_fin if k != "raw")
     ratios = dict.fromkeys(ev_rat)
     withheld = {k: "Outside the closed v1 metric list; other group adjustments are not made."
@@ -484,10 +577,12 @@ def calculate_period(period, request, inputs, legal_names):
         store, source = (fin, ev_fin) if metric == "ebitda" else (ratios, ev_rat)
         reason = ebitda_reason
         if metric == "net_debt_to_ebitda" and not cash_ok:
-            reason = reason or (
+            # Both gates' reasons are kept when both fail, so fixing one does not hide the other (PX628-117).
+            cash_reason = (
                 "Qualifying cash free of group or related-party balances was not attested." if not cash_attested else
                 f"Cash is negative for {', '.join(negative_cash)}; an overdraft belongs in the debt lines, not in "
                 "qualifying cash.")
+            reason = f"{reason} {cash_reason}" if reason else cash_reason
         if metric.endswith("interest_cover") and not interest_ok:
             reason = reason or "Absence of intragroup interest was not attested."
         if not reason and source[metric] is None:
@@ -503,11 +598,11 @@ def calculate_period(period, request, inputs, legal_names):
             withheld.pop(key, None)
     table = []
     for key, values in raw.items():
-        p_raw = {line: json_number(value) for line, value in values.items()}
-        figures, _ = evaluate(p_raw | ({"other_income": 0} if variant else {}))
+        p_raw = dict(values)
+        figures, _, _ = evaluate(p_raw | ({"other_income": Fraction()} if variant else {}))
         table.append({"participant": key, "legal_entity": legal_names[key], "status": answers[key]["status"],
                       "ownership_pct": answers[key]["ownership_pct"], "total_debt": figures["total_debt"],
-                      "cash": p_raw.get("cash", 0), "ebitda": None if ebitda_reason else figures["ebitda"]})
+                      "cash": json_number(p_raw.get("cash", Fraction())), "ebitda": None if ebitda_reason else figures["ebitda"]})
     eliminated = json_number(sum((number(j["amount"], "eliminated principal") for j in applied), Fraction()))
     return {
         "financials": fin, "ratios": ratios, "withheld": withheld, "adjusted_raw": adjusted,
@@ -515,11 +610,12 @@ def calculate_period(period, request, inputs, legal_names):
         "participant_table": table, "eliminations_applied": applied, "refused_journals": refused,
         "debt_before": debt_before, "debt_eliminated": eliminated,
         "debt_eliminated_pct": eliminated / debt_before * 100 if debt_before > 0 else None,
-        "debt_lines": {k: {"before": before.get(k, 0), "after": adjusted.get(k, 0)} for k in DEBT_LINES},
-        "debt_memo": _left_out_memo(request, set(raw), number(debt, "total debt")),
-        "cash": {"total": cash if cash_ok else None, "restricted": restricted, "unrestricted": unrestricted},
-        "group_net_debt": json_number(number(debt, "total debt") - number(unrestricted, "unrestricted cash"))
-        if cash_ok else None,
+        "debt_lines": {k: {"before": json_number(before.get(k, Fraction())), "after": adjusted.get(k, 0)}
+                       for k in DEBT_LINES},
+        "debt_memo": _left_out_memo(request, set(raw), debt_exact),
+        "cash": {"total": json_number(cash_exact) if cash_ok else None, "restricted": restricted,
+                 "unrestricted": unrestricted},
+        "group_net_debt": json_number(debt_exact - unrestricted_exact) if cash_ok else None,
         "attestations": answers, "left_out": request["left_out"], "skipped_chain_entities": request["skipped_chain_entities"],
         "participant_guarantees": request["participant_guarantees"],
     }

@@ -303,7 +303,7 @@ def test_a_matching_refused_journal_still_counts_against_the_line_cap(tmp_path):
     # Maintainer decision on #472 (CU628-2): every presented journal counts against the declared cap, so listing
     # more principal than the participant declared is an integrity refusal even if a journal is refused on matching.
     file = seed(tmp_path)
-    file["periods"][P]["journals"].append(journal(journal_id="J2", loan_id="L-undeclared", amount=20))
+    file["periods"][P]["journals"].append(journal(journal_id="J2", loan_id="L-undeclared", debtor=O, amount=20))
     path = _state_file(tmp_path)
     before = path.read_bytes()
 
@@ -427,7 +427,7 @@ def test_debt_memo_counts_attested_external_principal_once(tmp_path, coverage, a
             "reason": "Outside synthetic scope", "external_debt": 100,
             "support": [{"participant": (B, H)[i], "type": ("guarantee", "security")[i],
                          "debt_id": debt, "covered_principal": value, "evidence": REF,
-                         **({"overlap_confirmed": True} if debt is not None and debt in [d for d, _ in coverage[:i]]
+                         **({"overlap_confirmed": True} if debt is not None and [d for d, _ in coverage].count(debt) > 1
                             else {})}
                         for i, (debt, value) in enumerate(coverage)],
         }
@@ -445,7 +445,7 @@ def test_one_attested_debt_id_is_not_counted_twice_across_left_out_entities(tmp_
                 "reason": "Outside synthetic scope", "external_debt": 100,
                 "support": [{"participant": participant, "type": "guarantee", "debt_id": "same-joint-debt",
                              "covered_principal": amount, "evidence": REF,
-                             **({"overlap_confirmed": True} if entity == "joint-debtor-b" else {})}],
+                             "overlap_confirmed": True}],
             }
     assert run(tmp_path, change)["debt_memo"]["value"] == expected
 
@@ -515,7 +515,8 @@ def test_equal_partial_support_on_one_debt_is_unknown_unless_the_overlap_is_atte
     assert memo["value"] == "unknown" and "overlap of covered principal on debt D1 is not attested" in memo["reason"]
 
 
-@pytest.mark.parametrize("start", ["2025-10-01", "2025-07-01"], ids=["three-months", "six-months"])
+@pytest.mark.parametrize("start", ["2025-10-01", "2025-07-01", "2024-12-24"],
+                         ids=["three-months", "six-months", "just-over-53-weeks"])
 def test_a_declared_length_that_contradicts_the_dates_is_an_integrity_refusal(tmp_path, start):
     # Maintainer decision on #472 (PX628-102 / CG628-2): twelve months declared over a shorter span is refused.
     file = seed(tmp_path)
@@ -527,7 +528,11 @@ def test_a_declared_length_that_contradicts_the_dates_is_an_integrity_refusal(tm
     assert _state_file(tmp_path).read_bytes() == before
 
 
-@pytest.mark.parametrize(("start", "months"), [("2024-12-29", 12), ("2025-01-01", 12), ("2025-04-01", 9)])
+@pytest.mark.parametrize(("start", "months"), [
+    ("2025-01-02", 12),     # 364 days: a 52-week year ending on the common date
+    ("2024-12-26", 12),     # 371 days: a 53-week year
+    ("2025-01-01", 12), ("2025-04-01", 9),
+], ids=["52-weeks", "53-weeks", "calendar-year", "nine-months"])
 def test_a_52_or_53_week_year_and_whole_months_pass_the_length_check(tmp_path, start, months):
     c = run(tmp_path, lambda p: [a.update(period_start=start, period_months=months) for a in p["attestations"].values()])
     assert c["financials"]["total_debt"] == 390
@@ -575,10 +580,10 @@ def test_exact_zero_ebitda_stays_zero_and_its_ratios_are_not_available(tmp_path)
     assert c["financials"]["total_debt"] == 390
 
 
-def test_the_calculation_scales_amounts_exactly_and_refuses_an_amount_too_precise_to_evaluate(tmp_path):
+def test_the_calculation_refuses_an_amount_too_large_to_evaluate_exactly(tmp_path):
     file = seed(tmp_path)
     state = _read_full(tmp_path)
-    state["financials"][P]["raw"]["revenue"] = 1.0000000000000002e15   # needs more than 2**53 once scaled
+    state["financials"][P]["raw"]["revenue"] = 1e305
     state["financials"][P]["raw"]["cost_of_sales"] = 0.1
     _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
     before = _state_file(tmp_path).read_bytes()
@@ -597,3 +602,123 @@ def test_a_legacy_state_without_a_company_is_current_straight_after_the_write(tm
     after = _read_full(tmp_path)
     assert after["company"] == COMPANY
     assert ca.aggregation_period_status(after, P)["status"] == "current"
+
+
+def test_cancellation_across_participants_is_exact_zero_ebitda(tmp_path):
+    # PX628-109 / PX628-113 / CG628-10 / Cubic: the aggregate of a line is exact, so 0.08 - 0.08 + 1e-17 - 1e-17 is 0.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    pnl = {"revenue": 0, "cost_of_sales": 0, "admin_expenses": 0, "other_income": 0, "depreciation": 0,
+           "amortisation": 0, "exceptional_costs": 0}
+    state["financials"][P]["raw"].update(pnl | {"revenue": 0.08, "cost_of_sales": 0.08})
+    state["entity_records"][O]["multi_period_financials"][P].update(pnl | {"revenue": 1e-17, "admin_expenses": 1e-17})
+    state["entity_records"][H]["multi_period_financials"][P].update(pnl)
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert c["financials"]["ebitda"] == 0
+    assert c["ratios"]["gross_leverage"] is None and "zero or negative" in c["withheld"]["gross_leverage"]
+
+
+def test_a_large_balance_does_not_erase_a_small_one_on_the_same_line(tmp_path):
+    # PX628-109 (second part) / Cubic: 900719925474099 plus 0.01 used to lose the 0.01 in a float before evaluation.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    pnl = {"revenue": 0, "cost_of_sales": 0, "admin_expenses": 0, "other_income": 0, "depreciation": 0,
+           "amortisation": 0, "exceptional_costs": 0}
+    state["financials"][P]["raw"].update(pnl | {"revenue": 900719925474099, "cost_of_sales": 900719925474099})
+    state["entity_records"][O]["multi_period_financials"][P].update(pnl | {"revenue": 0.01})
+    state["entity_records"][H]["multi_period_financials"][P].update(pnl)
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert c["financials"]["ebitda"] == 0.01 and c["ratios"]["gross_leverage"] is not None
+
+
+def test_an_unknown_raw_line_name_is_refused_naming_participant_and_line(tmp_path):
+    # PX628-110 / CG628-11: long_term_debt_typo must not shrink total debt silently.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    lines = state["entity_records"][O]["multi_period_financials"][P]
+    lines["long_term_debt_typo"] = lines.pop("long_term_debt")
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match=rf"{O}: unknown raw line-item name\(s\) 'long_term_debt_typo'"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+def test_a_second_journal_cannot_reuse_an_already_claimed_borrower_declaration(tmp_path):
+    # PX628-114: one borrower declaration backs one loan; a sibling journal with neither side is an integrity refusal.
+    file = seed(tmp_path)
+    file["periods"][P]["journals"].append(journal(journal_id="J2", loan_id="L2", amount=5))
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="J2 has no unclaimed deal-borrower declaration"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+def test_a_registered_basis_that_contradicts_the_declared_framework_is_refused(tmp_path):
+    # PX628-115: a registered IFRS source with a declared FRS 102 framework is not "uniform".
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["source"]["accounting_basis"] = "IFRS"
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="contradicts the declared framework"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+@pytest.mark.parametrize("gate_key", ["ebitda_intragroup", "cash_no_group_balance", "no_intragroup_interest"])
+def test_every_supplied_gate_answer_needs_its_evidence_reference(tmp_path, gate_key):
+    # CG628-9 was checked and is not a defect: the evidence map must name every supplied answer, gate keys included.
+    file = seed(tmp_path)
+    file["periods"][P]["attestations"][O]["evidence"].pop(gate_key)
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match=rf"evidence is missing: {gate_key}"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
+@pytest.mark.parametrize("order", [(True, False), (False, True)], ids=["confirmed-first", "confirmed-last"])
+def test_the_overlap_result_does_not_depend_on_the_order_of_the_rows(tmp_path, order):
+    # PX628-111: one row attesting the overlap is not enough; every statement about the debt must, in any order.
+    def change(p):
+        p["left_out"]["synthetic-left-out"] = {
+            "reason": "Outside synthetic scope", "external_debt": 100,
+            "support": [{"participant": participant, "type": "guarantee", "debt_id": "D1", "covered_principal": 40,
+                         "evidence": REF, "overlap_confirmed": flag} for participant, flag in zip((B, H), order, strict=True)],
+        }
+    memo = run(tmp_path, change)["debt_memo"]
+    assert memo["value"] == "unknown" and "not attested for" in memo["reason"]
+
+
+def test_overlap_confirmed_must_be_true_or_false(tmp_path):
+    file = seed(tmp_path)
+    file["periods"][P]["left_out"]["synthetic-left-out"] = {
+        "reason": "Outside synthetic scope", "external_debt": 100,
+        "support": [{"participant": B, "type": "guarantee", "debt_id": "D1", "covered_principal": 40,
+                     "evidence": REF, "overlap_confirmed": "yes"}],
+    }
+    with pytest.raises(ca.AggregationError, match="overlap_confirmed"):
+        calculate(tmp_path, file)
+
+
+@pytest.mark.parametrize("answer", ["schedule", "unoffset_other_income_amount"])
+def test_a_null_gate_answer_withholds_the_metrics_instead_of_refusing_the_run(tmp_path, answer):
+    # PX628-112: the documented contract says a missing or null gate answer withholds; it does not reject.
+    c = run(tmp_path, change_att(answer, None))
+    assert c["financials"]["total_debt"] == 390 and c["financials"]["ebitda"] == 800
+
+
+def test_both_gate_reasons_are_kept_when_the_ebitda_and_cash_gates_fail_together(tmp_path):
+    # PX628-117: a negative-cash reason does not disappear behind a failed EBITDA gate.
+    file = seed(tmp_path)
+    file["periods"][P]["attestations"][O]["ebitda_intragroup"] = "not_offset"
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["multi_period_financials"][P]["cash"] = -10
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    reason = _read_full(tmp_path)["credit_aggregation"][P]["computed"]["withheld"]["net_debt_to_ebitda"]
+    assert "not attested" in reason and "Cash is negative" in reason

@@ -321,10 +321,15 @@ whole-period membership and uniform accounting policies must be attested to show
   is scaled to whole numbers (Python integers, exact at any size) before the unchanged evaluator, so exact
   cancellation (0.1 - 0.3 + 0.2, or 0.08 - 0.08 across participants) gives exactly zero EBITDA and its ratios are not
   available, and a large balance never erases a small one on the same line; no epsilon is used, and only an amount
-  beyond 10^300 once scaled is refused. An unknown raw line-item name in any participant is refused (naming the
+  at or above 10^300 once scaled is refused. An unknown raw line-item name in any participant is refused (naming the
   participant and the line), never dropped from the group total. A journal involving the borrower needs a borrower
-  declaration of its own: one declaration backs one loan, so a second journal against an already used declaration is
-  an integrity refusal. An entity record's numbers are parsed
+  declaration for that counterparty (none at all is an integrity refusal); only the declaration for the journal's own
+  loan is claimed, so a journal whose loan_id has none is a recorded matching refusal and never consumes another
+  loan's declaration, whatever the order of the journals. A recorded `null` cash is unavailable, not an attested
+  zero: the cash outputs are withheld with the participant named. A registered accounting basis and a declared
+  framework contradict each other when they are different named standards (FRS 102 and FRS 105, say) other than the
+  accepted equivalents (UK GAAP with an FRS standard, IFRS with FRS 101). The state is read without rounding for the
+  calculation, so a hand-edited number that binary floating point would round (`20.000000000000001`) is refused. An entity record's numbers are parsed
   without rounding at registration (a value such as `20.000000000000001` is refused). Each attestation's
   `period_months` must agree with its dates (a span within 7 days of that many months of 30.4375 days, so 52- and
   53-week years pass), otherwise the run is refused. A participant's negative cash withholds the cash outputs with

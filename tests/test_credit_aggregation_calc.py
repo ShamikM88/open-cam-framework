@@ -648,12 +648,29 @@ def test_an_unknown_raw_line_name_is_refused_naming_participant_and_line(tmp_pat
     assert _state_file(tmp_path).read_bytes() == before
 
 
-def test_a_second_journal_cannot_reuse_an_already_claimed_borrower_declaration(tmp_path):
-    # PX628-114: one borrower declaration backs one loan; a sibling journal with neither side is an integrity refusal.
+@pytest.mark.parametrize("mismatched_first", [True, False], ids=["mismatch-first", "valid-first"])
+def test_a_journal_with_no_declaration_for_its_loan_is_a_matching_refusal_in_either_order(tmp_path, mismatched_first):
+    # CG628-12 / PX628-114: a journal whose loan_id has no borrower declaration never consumes another loan's
+    # declaration, so the valid journal applies and the other is recorded as refused, whatever the order.
     file = seed(tmp_path)
-    file["periods"][P]["journals"].append(journal(journal_id="J2", loan_id="L2", amount=5))
+    mismatched = journal(journal_id="J2", loan_id="L2", amount=5)
+    journals = file["periods"][P]["journals"]
+    if mismatched_first:
+        journals.insert(0, mismatched)
+    else:
+        journals.append(mismatched)
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert [e["journal_id"] for e in c["eliminations_applied"]] == ["J1"]
+    assert [r["journal_id"] for r in c["refused_journals"]] == ["J2"]
+    assert "does not match two confirmed declarations" in c["refused_journals"][0]["reason"]
+
+
+def test_a_journal_naming_the_borrower_with_no_declaration_for_that_counterparty_is_an_integrity_refusal(tmp_path):
+    file = seed(tmp_path)
+    file["periods"][P]["declarations"] = []
     before = _state_file(tmp_path).read_bytes()
-    with pytest.raises(ca.AggregationError, match="J2 has no unclaimed deal-borrower declaration"):
+    with pytest.raises(ca.AggregationError, match="has no deal-borrower declaration"):
         calculate(tmp_path, file)
     assert _state_file(tmp_path).read_bytes() == before
 
@@ -701,8 +718,10 @@ def test_overlap_confirmed_must_be_true_or_false(tmp_path):
         "support": [{"participant": B, "type": "guarantee", "debt_id": "D1", "covered_principal": 40,
                      "evidence": REF, "overlap_confirmed": "yes"}],
     }
+    before = _state_file(tmp_path).read_bytes()
     with pytest.raises(ca.AggregationError, match="overlap_confirmed"):
         calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
 
 
 @pytest.mark.parametrize("answer", ["schedule", "unoffset_other_income_amount"])
@@ -722,3 +741,75 @@ def test_both_gate_reasons_are_kept_when_the_ebitda_and_cash_gates_fail_together
     calculate(tmp_path, file)
     reason = _read_full(tmp_path)["credit_aggregation"][P]["computed"]["withheld"]["net_debt_to_ebitda"]
     assert "not attested" in reason and "Cash is negative" in reason
+
+
+def test_a_recorded_null_cash_is_unavailable_not_an_attested_zero(tmp_path):
+    # PX628-120: null is the established spelling of unavailable; the cash outputs are withheld, the participant named.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["multi_period_financials"][P]["cash"] = None
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert c["cash"]["total"] is None and c["cash"]["unrestricted"] is None and c["group_net_debt"] is None
+    assert O in c["withheld"]["net_debt_to_ebitda"] and "unavailable (null)" in c["withheld"]["net_debt_to_ebitda"]
+    assert c["financials"]["total_debt"] == 390          # the debt-only outputs are unaffected
+
+
+def test_unattested_and_negative_cash_reasons_are_both_kept(tmp_path):
+    # PX628-122: two independent cash failures keep both reasons, naming the negative participant.
+    file = seed(tmp_path)
+    file["periods"][P]["attestations"][B]["cash_no_group_balance"] = False
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["multi_period_financials"][P]["cash"] = -10
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    reason = _read_full(tmp_path)["credit_aggregation"][P]["computed"]["withheld"]["net_debt_to_ebitda"]
+    assert "not attested" in reason and "Cash is negative for" in reason and O in reason
+
+
+@pytest.mark.parametrize(("registered", "declared", "refused"), [
+    ("FRS 105", "FRS 102", True), ("FRS 102", "FRS 105", True), ("IFRS", "FRS 102", True),
+    ("UK GAAP", "FRS 102", False), ("IFRS", "FRS 101", False), ("FRS 102", "FRS 102", False),
+])
+def test_specific_accounting_standards_contradict_unless_they_are_the_accepted_equivalents(
+        tmp_path, registered, declared, refused):
+    # PX628-121: FRS 105 versus FRS 102 is a contradiction; the umbrella UK GAAP and IFRS/FRS 101 are equivalences.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["source"]["accounting_basis"] = registered
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    for attestation in file["periods"][P]["attestations"].values():
+        attestation["framework"] = declared
+    if refused:
+        before = _state_file(tmp_path).read_bytes()
+        with pytest.raises(ca.AggregationError, match="contradicts the declared framework"):
+            calculate(tmp_path, file)
+        assert _state_file(tmp_path).read_bytes() == before
+    else:
+        calculate(tmp_path, file)
+        assert _read_full(tmp_path)["credit_aggregation"][P]["computed"]["financials"]["total_debt"] == 390
+
+
+def test_a_hand_edited_number_that_binary_floating_point_would_round_is_refused_before_calculating(tmp_path):
+    # PX628-101 residual: the stored state is read without rounding for this calculation.
+    file = seed(tmp_path)
+    path = _state_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert '"amount": 20,' in text
+    path.write_text(text.replace('"amount": 20,', '"amount": 20.000000000000001,', 1), encoding="utf-8")
+    before = path.read_bytes()
+    from state_manager import StateError
+    with pytest.raises(StateError, match="exceeds the precision of the state JSON format"):
+        calculate(tmp_path, file)
+    assert path.read_bytes() == before
+
+
+def test_the_scaled_amount_boundary_is_at_or_above_ten_to_the_300(tmp_path):
+    # CG628-14: the documented boundary and the code agree: 1e300 is refused.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["financials"][P]["raw"]["revenue"] = 1e300
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    with pytest.raises(ca.AggregationError, match="too large or too precise"):
+        calculate(tmp_path, file)

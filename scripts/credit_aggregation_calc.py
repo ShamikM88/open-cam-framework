@@ -281,12 +281,13 @@ def _apply_journals(request, sides, caps, raw):
         left, right = sides.get((lender, loan)), sides.get((debtor, loan))
         if BORROWER in (lender, debtor):
             counterpart = debtor if lender == BORROWER else lender
-            candidates = [key for key, d in sides.items()
-                          if key[0] == BORROWER and d["counterparty_entity_id"] == counterpart
-                          and key not in claimed_borrower]
-            if not candidates:
-                raise ValueError(f"journal {jid} has no unclaimed deal-borrower declaration for {counterpart}")
-            claimed_borrower.add((BORROWER, loan) if (BORROWER, loan) in candidates else candidates[0])
+            if not any(key[0] == BORROWER and d["counterparty_entity_id"] == counterpart
+                       for key, d in sides.items()):
+                raise ValueError(f"journal {jid} has no deal-borrower declaration for {counterpart}")
+            # Only the declaration for this journal's own loan is claimed. A journal whose loan_id has none is a
+            # matching refusal below, and it never consumes another loan's declaration (CG628-12 / PX628-114).
+            if (BORROWER, loan) in sides:
+                claimed_borrower.add((BORROWER, loan))
         for entity, line in ((lender, lend_line), (debtor, debt_line)):
             if (entity, line) in caps:
                 used[entity, line] += amount
@@ -438,9 +439,15 @@ def _left_out_memo(request, participants, debt):
 # A registered accounting basis and a declared framework are compared by family; values outside this table are not
 # judged (PX628-115): only two recognised, different families are a contradiction.
 BASIS_FAMILIES = {
-    "uk gaap": "UK GAAP", "frs 101": "UK GAAP", "frs 102": "UK GAAP", "frs 105": "UK GAAP",
-    "ifrs": "IFRS", "ifrs for smes": "IFRS", "us gaap": "US GAAP", "u.s. gaap": "US GAAP",
+    "uk gaap": "UK GAAP", "frs 101": "FRS 101", "frs 102": "FRS 102", "frs 105": "FRS 105",
+    "ifrs": "IFRS", "ifrs for smes": "IFRS for SMEs", "us gaap": "US GAAP", "u.s. gaap": "US GAAP",
 }
+# Named standards that may be recorded under the other label without a contradiction: the umbrella UK GAAP covers
+# each FRS standard, and FRS 101 applies IFRS recognition and measurement (decision on #472). Two different specific
+# standards (FRS 102 and FRS 105, say) are a contradiction.
+COMPATIBLE_BASES = frozenset(frozenset(pair) for pair in (
+    ("UK GAAP", "FRS 101"), ("UK GAAP", "FRS 102"), ("UK GAAP", "FRS 105"), ("IFRS", "FRS 101"),
+))
 
 
 def _check_declared_frameworks(request: dict[str, Any], inputs: dict[str, Any]) -> None:
@@ -453,7 +460,8 @@ def _check_declared_frameworks(request: dict[str, Any], inputs: dict[str, Any]) 
             continue
         registered_family = BASIS_FAMILIES.get(registered.strip().casefold())
         declared_family = BASIS_FAMILIES.get(declared.strip().casefold())
-        if registered_family and declared_family and registered_family != declared_family:
+        if (registered_family and declared_family and registered_family != declared_family
+                and frozenset((registered_family, declared_family)) not in COMPATIBLE_BASES):
             raise ValueError(
                 f"{key}: the registered accounting basis {registered!r} contradicts the declared framework "
                 f"{declared!r}; reconcile the record or the attestation")
@@ -549,7 +557,10 @@ def calculate_period(period: str, request: dict[str, Any], inputs: dict[str, Any
     ebitda_reason = perimeter_reason or ebitda_reason
     negative_cash = sorted(key for key, lines in raw.items() if lines.get("cash", 0) < 0)
     cash_attested = all(a.get("cash_no_group_balance") is True for a in answers.values())
-    cash_ok = cash_attested and not negative_cash
+    # A recorded `null` cash is "unavailable", not an attested zero (PX628-120): the cash outputs are withheld.
+    unavailable_cash = sorted(key for key, item in inputs.items() if "cash" in item["raw_period"]
+                              and item["raw_period"]["cash"] is None)
+    cash_ok = cash_attested and not negative_cash and not unavailable_cash
     restricted_exact = sum((number(a["restricted_cash_amount"], "restricted cash") for a in answers.values()),
                            Fraction())
     restricted = json_number(restricted_exact)
@@ -578,10 +589,16 @@ def calculate_period(period: str, request: dict[str, Any], inputs: dict[str, Any
         reason = ebitda_reason
         if metric == "net_debt_to_ebitda" and not cash_ok:
             # Both gates' reasons are kept when both fail, so fixing one does not hide the other (PX628-117).
-            cash_reason = (
-                "Qualifying cash free of group or related-party balances was not attested." if not cash_attested else
-                f"Cash is negative for {', '.join(negative_cash)}; an overdraft belongs in the debt lines, not in "
-                "qualifying cash.")
+            cash_parts = []
+            if not cash_attested:
+                cash_parts.append("Qualifying cash free of group or related-party balances was not attested.")
+            if negative_cash:
+                cash_parts.append(f"Cash is negative for {', '.join(negative_cash)}; an overdraft belongs in the "
+                                  "debt lines, not in qualifying cash.")
+            if unavailable_cash:
+                cash_parts.append(f"Cash is recorded as unavailable (null) for {', '.join(unavailable_cash)}; "
+                                  "an unavailable amount is not an attested zero.")
+            cash_reason = " ".join(cash_parts)
             reason = f"{reason} {cash_reason}" if reason else cash_reason
         if metric.endswith("interest_cover") and not interest_ok:
             reason = reason or "Absence of intragroup interest was not attested."

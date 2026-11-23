@@ -700,9 +700,11 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
             rows.append(["Reason", status["reason"]])
         computed = entry.get("computed")
         if status.get("status") == "current" and isinstance(computed, dict):
-            rows.extend(aggregation_result_rows(computed))
+            rows.extend([[cell if cell is not None else "N/A" for cell in row] if len(row) > 1 else row
+                         for row in aggregation_result_rows(computed)])
             if participants := aggregation_participant_rows(computed):
-                rows.extend([[], list(AGGREGATION_PARTICIPANT_HEADERS), *participants])
+                rows.extend([[], list(AGGREGATION_PARTICIPANT_HEADERS),
+                             *[["N/A" if cell is None else cell for cell in row] for row in participants]])
     return rows
 
 
@@ -793,7 +795,7 @@ def _record_aggregation(
         )
     with _FileLock(path):
         state = read_state(company, proposal, date_str=record_date, base_dir=base_dir,
-                           keys=STATE_KEYS_READ)
+                           keys=STATE_KEYS_READ, exact_numbers=calculate)
         if state is None:
             raise AggregationError(
                 f"Refusing to record credit_aggregation: state.json at {path!r} no longer exists; "

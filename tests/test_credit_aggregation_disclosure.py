@@ -82,6 +82,6 @@ def test_actual_xlsx_and_covenant_keep_variant_separate(tmp_path):
     assert book.sheetnames[-1] == "Credit aggregation"
     sheet_rows = list(book["Credit aggregation"].values)
     rows = {row[0]: row[1] for row in sheet_rows}
-    assert LABEL in rows and rows[metric] == 390 / 800 and rows["gross_leverage"] is None
+    assert LABEL in rows and rows[metric] == 390 / 800 and rows["gross_leverage"] == "N/A"
     assert ("Participant", "Legal entity", "Status", "Ownership (%)", "Post-elimination debt", "Cash", "EBITDA") in sheet_rows
     assert (B, COMPANY, "obligor", 100, 210, 50, 500) in sheet_rows

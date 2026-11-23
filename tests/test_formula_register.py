@@ -370,7 +370,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "policy_engine:_period_dict": "a1a4da69cf17df81",
     "policy_engine:evaluate_resolved_covenant": "487c3612483a5382",
     "policy_engine:evaluate_deal_policy": "c8d4f76f969b59a7",
-    "credit_aggregation_calc:calculate_period": "c65badd3a366b570",
+    "credit_aggregation_calc:calculate_period": "39e5d7f9adcccb9f",
     "covenant_basis:resolve_covenant_view": "d184f0bf76d7b0ef",
     "covenant_basis:resolve_covenant_views": "07d0b1dcadb75ea5",
     "policy_engine:evaluate_single_covenant": "163771ed0ae9b371",

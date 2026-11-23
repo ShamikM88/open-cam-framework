@@ -1680,8 +1680,12 @@ def state_path(
 def read_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
     keys: Iterable[str] | dict[str, str] | None = (),
+    exact_numbers: bool = False,
 ) -> dict[str, Any] | None:
     """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
+
+    `exact_numbers=True` refuses a number token that binary floating point would round (a hand-edited
+    `20.000000000000001`), for a caller that matches amounts exactly (the credit-aggregation calculation, issue #472).
 
     Raises ValueError (not a raw json.JSONDecodeError) if the file exists
     but is corrupted -- most likely left partial by an interrupted write --
@@ -1713,8 +1717,8 @@ def read_state(
         return None
     with open(path, encoding="utf-8") as f:
         try:
-            state: dict[str, Any] = json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
+            state: dict[str, Any] = json.load(f, parse_float=_exact_json_float if exact_numbers else None)
+        except (ValueError, RecursionError) as e:
             # Not valid UTF-8 JSON (a UTF-16 file from PowerShell's `>`, say) or nested absurdly deep: the file's
             # fault, reported like any other unusable state rather than as a traceback.
             detail = e if isinstance(e, json.JSONDecodeError) else f"{type(e).__name__}: {str(e)[:80]}"

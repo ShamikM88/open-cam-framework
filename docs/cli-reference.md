@@ -131,8 +131,9 @@ See [State manager](#state-manager).
   missing, and a blank flag (for example an unset CI variable) is refused rather than replaced by a recorded value.
   PD and LGD are resolved once, from the same dated state the run saves into, so a review started in between cannot
   mix two records. Only a flag actually given is written back, under the state lock; a score read from the record is
-  checked, not rewritten, and if another writer changed it after it was read the run stops with one `error:` line and
-  nothing is saved. When the proposal name only nearly matches a saved deal and no scores are available, the near-match
+  checked, not rewritten (the check keeps the JSON type, so `0` and `false` differ), and if another writer changed it
+  after it was read, or today's review it was read from was removed, the run stops with one `error:` line and
+  nothing is saved or created. When the proposal name only nearly matches a saved deal and no scores are available, the near-match
   note is part of that one error line, not a separate warning. With `--new-review` the new dated review starts empty and nothing is copied from the earlier one, so pass
   both `--pd` and `--lgd` the first time; a rerun on the same day resumes that day's existing `state.json` and can
   use the PD and LGD it already recorded, unless a flag overrides one. Existing `inputs` fields such as `experian_score` are preserved when a flag updates PD or LGD.

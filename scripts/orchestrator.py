@@ -45,6 +45,7 @@ from spreading_builder import (
 from spreading_check import plan_fields
 from state_manager import (
     DEALS_DIR,
+    InputsChangedError,
     sanitize_path_component,
     StateError,
     state_path,
@@ -672,6 +673,11 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     resolved_risk_inputs = {"pd": pd_score, "lgd": lgd_score}
     relied_on_risk_inputs = {k: v for k, v in resolved_risk_inputs.items() if k not in explicit_risk_inputs}
     new_state_file = state_path(company, proposal, date_str=date_str)
+    if new_review and relied_on_risk_inputs and not os.path.isfile(new_state_file):
+        # The scores were read from today's existing review, which has since vanished: never start a new empty record
+        # on top of a fallback that was relied on (PX623-113 / CG623-10).
+        raise InputsChangedError(
+            "today's review was removed after its recorded PD/LGD were read; nothing was written. Rerun the command.")
     company_dir = os.path.dirname(os.path.dirname(new_state_file))
     if new_review and os.path.isdir(company_dir) and not os.path.isfile(new_state_file):
         # Start a new annual review through the shared state-manager primitive.

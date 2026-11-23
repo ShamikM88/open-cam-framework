@@ -3636,3 +3636,27 @@ def test_the_near_match_note_is_part_of_the_one_missing_risk_error_not_a_separat
     lines = result.stderr.splitlines()
     assert len(lines) == 1 and lines[0].startswith("error: no recorded or supplied PD/LGD inputs")
     assert "Continuing" not in result.stderr and "near match" in lines[0] and "Term Loan" in lines[0]
+
+
+def test_a_same_day_review_removed_after_its_scores_were_read_is_not_recreated_empty(project_root, monkeypatch):
+    """PX623-113 / CG623-10: the relied-on fallback vanished; nothing is created and no model is called."""
+    import shutil
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    state_file = next((project_root / "deals").rglob("state.json"))
+    real_resolve = orchestrator._resolve_pd_lgd_inputs
+
+    def resolve_then_remove_the_folder(*args, **kwargs):
+        result = real_resolve(*args, **kwargs)
+        shutil.rmtree(state_file.parent)
+        return result
+
+    monkeypatch.setattr(orchestrator, "_resolve_pd_lgd_inputs", resolve_then_remove_the_folder)
+    client = MockClient([])
+
+    with pytest.raises(StateError, match="today's review was removed"):
+        run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", new_review=True, client=client)
+
+    assert client.call_count == 0
+    assert not list((project_root / "deals").rglob("state.json"))

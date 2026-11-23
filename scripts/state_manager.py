@@ -1784,6 +1784,17 @@ def _check_schema_version_is_writable(recorded: object, path: str) -> None:
             "instead; nothing was changed.")
 
 
+def _same_json_value(left: object, right: object) -> bool:
+    """Equality that keeps the JSON type: 0 is not False, 1 is not True, 1 is not 1.0, recursively in containers."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_same_json_value(left[k], right[k]) for k in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_same_json_value(a, b) for a, b in zip(left, right, strict=True))
+    return left == right
+
+
 def _merge_and_write(
     path: str, company: str, proposal: str, date_str: str, base_dir: str | os.PathLike[str] | None,
     fields: dict[str, Any], merge_inputs: Mapping[str, Any] | None = None,
@@ -1804,7 +1815,7 @@ def _merge_and_write(
         recorded = state.get("inputs")
         recorded = recorded if isinstance(recorded, dict) else {}
         for key, expected in expect_inputs.items():
-            if recorded.get(key) != expected:
+            if key not in recorded or not _same_json_value(recorded[key], expected):
                 raise InputsChangedError(
                     f"recorded input {key!r} changed after it was read ({expected!r} -> {recorded.get(key)!r}); "
                     "nothing was written. Rerun the command.")
@@ -1815,6 +1826,10 @@ def _merge_and_write(
     state.update(fields)
     if merge_inputs is not None:
         current_inputs = state.get("inputs")
+        if current_inputs is not None and not isinstance(current_inputs, dict):
+            raise StateShapeError(
+                f'Refusing to write state.json: "inputs" must be an object, found {_json_type(current_inputs)}; '
+                "nothing was written.")
         merged_inputs = dict(current_inputs) if isinstance(current_inputs, dict) else {}
         merged_inputs.update(merge_inputs)
         state["inputs"] = merged_inputs

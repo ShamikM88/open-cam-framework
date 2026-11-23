@@ -334,6 +334,24 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
 
 _ASSET_CLASS_LABEL_MAX = 80
 
+# Code points that are letters, marks or symbols by category but draw nothing on their own (Unicode
+# Default_Ignorable_Code_Point plus the Hangul and Khmer fillers): a text made only of these is not visible.
+_DEFAULT_IGNORABLE = frozenset(
+    {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x3164, 0xFFA0}
+    | set(range(0x180B, 0x1811)) | set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0))
+)
+
+
+def _has_visible_character(text: str) -> bool:
+    """True when at least one code point is a letter, number, punctuation or symbol that actually draws.
+
+    A combining mark alone has nothing to attach to, and a default-ignorable or filler character is blank, so neither
+    makes a text visible; a mark attached to a visible letter (a legitimate accented ID) still does (issue #604).
+    """
+    return any(
+        unicodedata.category(ch)[0] in "LNPS" and ord(ch) not in _DEFAULT_IGNORABLE for ch in text
+    )
+
 
 def _usable_security_id(value: Any) -> bool:
     """True only for text with at least one visible character and no invalid Unicode scalar.
@@ -346,7 +364,7 @@ def _usable_security_id(value: Any) -> bool:
         return False
     if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
         return False
-    return any(unicodedata.category(ch)[0] not in "CZ" for ch in value)
+    return _has_visible_character(value)
 
 
 def _evaluate_security(
@@ -468,7 +486,7 @@ def _evaluate_security(
                 ch if (ch.isprintable() and not 0xD800 <= ord(ch) <= 0xDFFF) else " " for ch in asset_class
             )
             cleaned = " ".join(cleaned.split())[:_ASSET_CLASS_LABEL_MAX]
-            if cleaned:
+            if cleaned and _has_visible_character(cleaned):
                 return cleaned
         return "not recorded"
 

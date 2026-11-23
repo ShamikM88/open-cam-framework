@@ -2509,3 +2509,37 @@ def test_an_ordinary_id_with_surrounding_whitespace_or_a_zero_width_joiner_still
     }
 
     assert evaluate_deal_policy(state)["security_gaps"] == []
+
+
+@pytest.mark.parametrize("bad_id", ["͏", "️", "ᅟ", "ㅤ", "́", "͏️ᅟ"])
+def test_a_default_ignorable_or_mark_only_id_is_unidentified(bad_id):
+    """A filler, variation selector, grapheme joiner or lone combining mark draws nothing, so it is not an ID.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": bad_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": bad_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert [gap.split(":")[0] for gap in result["security_gaps"]] == [
+        "Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert not any(cs["cs_id"].startswith("CS-SEC-REPERFECT") for cs in result["required_conditions_subsequent"])
+
+
+def test_an_accented_id_and_a_label_with_no_visible_character_behave_as_expected():
+    """A mark attached to a visible letter is still an ID; a label of only invisible code points reads not recorded.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "Café-1"}, {"asset_class": "͏️"}],
+        "security_package": [{"secures_asset_id": "Café-1", "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    gaps = evaluate_deal_policy(state)["security_gaps"]
+
+    assert gaps == ["Unidentified Collateral Asset: position 2 (asset class: not recorded) has no asset_id; "
+                    "security mapping cannot be verified."]

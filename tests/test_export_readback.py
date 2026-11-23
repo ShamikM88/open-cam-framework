@@ -1738,3 +1738,23 @@ def test_408_main_serializes_non_json_report_values_with_default_str(capsys, mon
         "--company", "Synthetic Co", "--proposal", "Synthetic Fleet Loan"
     ]) == 0
     assert capsys.readouterr().out == '{\n  "status": "match",\n  "when": "2026-01-02 03:04:00"\n}\n'
+
+
+def test_a_formula_cell_is_not_a_match_for_the_same_text_written_as_text(tmp_path):
+    """Issue #600 (PX620-103 / CG620-2): a legacy workbook that stored "=1+1" as a formula must not read back as the
+    text the writer now produces. The cells have equal values; only the cell type differs. Nothing is evaluated."""
+    as_text, as_formula = tmp_path / "as_text.xlsx", tmp_path / "as_formula.xlsx"
+    for path, make_formula in ((as_text, False), (as_formula, True)):
+        workbook = openpyxl.Workbook()
+        cell = workbook.active["A1"]
+        cell.value = "=1+1"
+        if not make_formula:
+            cell.data_type = "s"
+        workbook.save(path)
+
+    findings = export_readback.compare_workbooks(str(as_text), str(as_formula))
+
+    assert [(f["location"], f["kind"], f["expected"], f["actual"]) for f in findings] == [
+        ("Sheet!A1", "formula", False, True)]
+    assert export_readback.compare_workbooks(str(as_text), str(as_text)) == []
+    assert export_readback.compare_workbooks(str(as_formula), str(as_formula)) == []

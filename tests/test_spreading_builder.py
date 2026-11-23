@@ -2428,3 +2428,18 @@ def test_cash_flow_dscr_is_suppliable_in_analyst_supplied_columns(tmp_path):
     assert ws[f"E{row}"].value == 0.75
     # An analyst-supplied deal that omits it (FY+2, column F) gets a blank cell, never a formula.
     assert ws[f"F{row}"].value is None
+
+
+def test_the_downside_turns_an_overflowing_prior_into_a_clean_input_error(monkeypatch):
+    """Issue #597 (round 4): an OverflowError while reading the comparator is one InvalidFinancialInputError."""
+    import spreading_builder
+    from numeric_validation import InvalidFinancialInputError
+
+    def overflow(_data):
+        raise OverflowError("int too large to convert to float")
+
+    monkeypatch.setattr(spreading_builder, "_prior_operating_working_capital", overflow)
+    data = {"FY-Current": {"trade_debtors": 100}, "FY+1": {"revenue": 1000, "trade_debtors": 120}}
+
+    with pytest.raises(InvalidFinancialInputError, match="outside the supported numeric range"):
+        spreading_builder.evaluate_downside_case(data, {"revenue_haircut_pct": 10})

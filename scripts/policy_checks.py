@@ -38,11 +38,11 @@ CATEGORY_SUFFIX_RE = re.compile(r"\s+risk\s*$", re.IGNORECASE)
 class UnderwriterOutput(TypedDict):
     """The fixed envelope parse_underwriter_output() returns; the parsed JSON inside each field stays dynamic."""
 
-    cp_ids_included: list[Any]
-    cs_ids_included: list[Any]
+    cp_ids_included: list[str]
+    cs_ids_included: list[str]
     risk_categories_covered: dict[str, Any]
     reported_figures: dict[str, Any]
-    downside_breaches_acknowledged: list[Any]
+    downside_breaches_acknowledged: list[str]
     sources: list[Any]
     financials_source_disclosed: bool
     credit_policy_considered: bool
@@ -73,10 +73,12 @@ def parse_underwriter_output(draft_text: str | None) -> UnderwriterOutput:
     fails every downstream policy check safely (as "nothing included" /
     "no category covered" / "nothing reported" / "nothing acknowledged" /
     "no sources cited" / "not disclosed") rather than raising or silently
-    skipping enforcement. This includes a field being present but the wrong
-    *type* -- e.g. `risk_categories_covered` as a JSON list instead of an
-    object -- not just a field being absent, since check_draft_compliance()
-    assumes these exact types.
+    skipping enforcement. For the three acknowledgement ID lists, only
+    string members are retained: a non-text member is dropped individually
+    and never counts as an acknowledgement. This includes a field being
+    present but the wrong *type* -- e.g. `risk_categories_covered` as a
+    JSON list instead of an object -- not just a field being absent, since
+    check_draft_compliance() assumes these exact types.
     """
     for match in reversed(list(FENCED_JSON_RE.finditer(draft_text or ""))):
         try:
@@ -102,14 +104,21 @@ def parse_underwriter_output(draft_text: str | None) -> UnderwriterOutput:
             downside_breaches_acknowledged = payload.get("downside_breaches_acknowledged")
             sources = payload.get("sources")
             return {
-                "cp_ids_included": cp_ids_included if isinstance(cp_ids_included, list) else [],
-                "cs_ids_included": cs_ids_included if isinstance(cs_ids_included, list) else [],
+                "cp_ids_included": (
+                    [entry for entry in cp_ids_included if isinstance(entry, str)]
+                    if isinstance(cp_ids_included, list) else []
+                ),
+                "cs_ids_included": (
+                    [entry for entry in cs_ids_included if isinstance(entry, str)]
+                    if isinstance(cs_ids_included, list) else []
+                ),
                 "risk_categories_covered": (
                     risk_categories_covered if isinstance(risk_categories_covered, dict) else {}
                 ),
                 "reported_figures": reported_figures if isinstance(reported_figures, dict) else {},
                 "downside_breaches_acknowledged": (
-                    downside_breaches_acknowledged if isinstance(downside_breaches_acknowledged, list) else []
+                    [entry for entry in downside_breaches_acknowledged if isinstance(entry, str)]
+                    if isinstance(downside_breaches_acknowledged, list) else []
                 ),
                 "sources": sources if isinstance(sources, list) else [],
                 "financials_source_disclosed": payload.get("financials_source_disclosed") is True,

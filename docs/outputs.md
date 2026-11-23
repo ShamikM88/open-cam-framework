@@ -83,6 +83,13 @@ error: the exit status and the output files are unchanged. A populated section p
 
 `scripts/spreading_builder.py` always writes two base sheets; a valid `group_basis` adds a third sheet described below.
 
+**Text is text, never a formula (issue #600).** Every string cell the builder writes that comes from the deal record — an
+asset class, a perfection status, group-basis metadata, a supplied forward-year value — is stored with data type `"s"`
+(inline text), never as a formula, so a value that begins with `=` (for example `=HYPERLINK(...)` or `=1+1`) is shown
+as typed instead of being evaluated by Excel when the file is opened. Only the builder's own formula templates (the
+subtotals, ratios and totals it computes from raw cells) are stored as formulas; nothing an analyst or model supplied
+is ever evaluated.
+
 **Financial Spreading** has one row per line item and one column per period: `Metric`, `FY-2`, `FY-1`, `FY-Current`,
 `FY+1`, `FY+2`, `FY+3`, then `FY+1 (Downside)`, `FY+2 (Downside)`, `FY+3 (Downside)`. It runs from Profit & Loss
 (Revenue down to Net Profit), through the Balance Sheet, to the key ratios and the working-capital days. Raw inputs

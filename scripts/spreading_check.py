@@ -182,7 +182,12 @@ def plan_fields(
         merged_financials.update(model_data["financials"])
         merged_ratios = dict(existing_state.get("ratios") or {})
         merged_ratios.update(model_data["ratios"])
-
+        # A year recorded as null is "not recorded": figures calculated for it earlier must not stay live as if it
+        # were (PX625-109 / CG625-5). Only a period explicitly null in the raw store is dropped; others are untouched.
+        not_recorded = [p for p in PERIOD_KEYS if p in merged_multi_period and merged_multi_period[p] is None]
+        for period in not_recorded:
+            merged_financials.pop(period, None)
+            merged_ratios.pop(period, None)
         fields["financials"] = merged_financials
         fields["ratios"] = merged_ratios
         fields["multi_period_financials"] = merged_multi_period
@@ -197,7 +202,11 @@ def plan_fields(
     if stress_assumptions:
         downside_case = evaluate_downside_case(
             merged_multi_period, stress_assumptions, prior_exclude=prior_periods_to_ignore(existing_state))
-        if downside_case.get("financials") or downside_case.get("ratios"):
+        has_not_recorded_year = any(
+            p in merged_multi_period and merged_multi_period[p] is None for p in FORWARD_PERIOD_KEYS)
+        if downside_case.get("financials") or downside_case.get("ratios") or (
+                has_not_recorded_year and existing_state.get("downside_case")):
+            # A downside year that is now null in the raw store is replaced by the recomputed case, not kept.
             fields["downside_case"] = downside_case
             fields["stress_assumptions"] = stress_assumptions
 

@@ -10,7 +10,9 @@ from openpyxl.chart.series import SeriesLabel
 from openpyxl.styles import Font
 
 from collateral_check import stored_analysis_is_current
-from numeric_validation import validate_finite_numbers, validate_period_keys, validate_raw_line_items
+from numeric_validation import (
+    InvalidFinancialInputError, validate_finite_numbers, validate_period_keys, validate_raw_line_items,
+)
 
 # Forward periods used both here (workbook columns) and by
 # evaluate_downside_case() below -- defined once, at the top, so the two
@@ -925,6 +927,13 @@ def evaluate_downside_case(
     needed = set(shocked_inputs)
     needed |= {PERIOD_KEYS[PERIOD_KEYS.index(p) - 1] for p in shocked_inputs if PERIOD_KEYS.index(p) > 0}
     prior_data = {p: v for p, v in multi_period_data.items() if p in needed and p not in set(prior_exclude)}
+    # The comparator lines the stress run reads go through the raw-input contract (a boolean, a string or an oversized
+    # number is one InvalidFinancialInputError) on every path that reaches this function, including a stress-only
+    # call and a cached headless rerun (PX625-108 / CG625-4). The shocked periods are validated by the evaluator.
+    validate_raw_line_items(
+        {p: {line: raw[line] for line in _OWC_LINES if line in raw}
+         for p, raw in prior_data.items() if isinstance(raw, dict) and p not in shocked_inputs},
+        FIELD_LABELS, path="recorded operating working capital")
     # The prior-period operating working capital each shocked forward year's
     # fcf_after_working_capital delta reads is the BASE case's (issue #520):
     # the shock transforms a period's own figures, never its prior-period
@@ -932,10 +941,12 @@ def evaluate_downside_case(
     # the base map explicitly is also what stops the shocked FY+1 from
     # treating FY+1 as its own prior (the shocked-inputs dict contains only
     # forward periods).
-    return evaluate_financial_model(
-        shocked_inputs,
-        prior_operating_working_capital=_prior_operating_working_capital(prior_data),
-    )
+    try:
+        prior = _prior_operating_working_capital(prior_data)
+    except OverflowError as exc:
+        raise InvalidFinancialInputError(
+            "financial inputs: operating working capital is outside the supported numeric range") from exc
+    return evaluate_financial_model(shocked_inputs, prior_operating_working_capital=prior)
 
 
 def _column_headers(

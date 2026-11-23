@@ -633,7 +633,8 @@ forward year whose previous period is analyst-supplied stays N/A with a reason, 
 blended from the other store (on a deal whose `financials_source` is analyst-supplied, a leftover framework
 historical period is never read as the prior, in the base case, the downside case and the workbook alike: the
 exported FCF after working capital for the first forward year reads `N/A`), a `null` period is "not recorded" and
-is never evaluated as a successor or shocked as a downside year, the five working-capital lines it reads go through
+is never evaluated as a successor or shocked as a downside year (and a year that is later recorded as `null`
+drops the base and downside figures calculated for it earlier, so they cannot stay live as current), the five working-capital lines it reads go through
 the same raw-input contract as incoming figures (a boolean, a string or an oversized number is one `error:` line,
 while an unrelated bad line in a comparator-only period does not block the update), the stress run reads only the
 shocked periods and the period before each, and older periods are not recomputed on every call. See the note on

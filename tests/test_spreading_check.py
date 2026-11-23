@@ -1212,3 +1212,42 @@ def test_an_irrelevant_old_value_that_overflows_does_not_break_a_stress_run(tmp_
     state = compute("Acme Corp", "Fleet Loan", stress_assumptions=_STRESS, update_financials_source=False)
 
     assert state["downside_case"]["financials"]["FY+1"]["fcf_after_working_capital"] is not None
+
+
+@pytest.mark.parametrize("bad", [True, "100"], ids=["boolean", "string"])
+def test_a_stress_only_call_validates_the_recorded_comparator_lines_before_any_arithmetic(tmp_path, monkeypatch, bad):
+    """Issue #597 (PX625-108 / CG625-4): the downside shares the comparator validation, with no state mutation."""
+    from numeric_validation import FinancialInputError
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": dict(_FY_CURRENT), "FY+1": dict(_FY_PLUS_1)})
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY-Current"]["trade_debtors"] = bad
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(FinancialInputError, match="trade_debtors"):
+        compute("Acme Corp", "Fleet Loan", stress_assumptions=_STRESS, update_financials_source=False)
+
+    assert path.read_bytes() == before
+
+
+def test_a_year_recorded_as_null_no_longer_keeps_its_old_calculated_figures(tmp_path, monkeypatch):
+    """Issue #597 (PX625-109 / CG625-5): null means not recorded; base and downside figures for it are dropped."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-1": dict(_FY1), "FY-Current": dict(_FY_CURRENT), "FY+1": dict(_FY_PLUS_1)},
+            stress_assumptions=_STRESS)
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert "FY+1" in stored["financials"] and "FY+1" in stored["downside_case"]["financials"]
+    stored["multi_period_financials"]["FY+1"] = None
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    state = compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": {"trade_debtors": 120}},
+                    update_financials_source=False)
+
+    assert "FY+1" not in state["financials"] and "FY+1" not in state["ratios"]
+    assert "FY+1" not in state["downside_case"]["financials"] and "FY+1" not in state["downside_case"]["ratios"]
+    assert "FY-Current" in state["financials"]

@@ -1980,7 +1980,7 @@ def test_sb_formula_or_supplied_blanks_unsupported_derived_downside_rows():
     from spreading_builder import _formula_or_supplied, _row_layout
 
     row_of, _ordered = _row_layout(SECTIONS)
-    result = _formula_or_supplied(
+    result, is_supplied = _formula_or_supplied(
         "Gross Profit",
         "={Revenue}-{Cost of Goods Sold}",
         row_of,
@@ -1991,6 +1991,7 @@ def test_sb_formula_or_supplied_blanks_unsupported_derived_downside_rows():
         {"FY+1": {"Revenue"}},
     )
     assert result is None
+    assert is_supplied is False
 
 
 def test_sb_sum_or_none_returns_exact_sum_only_when_every_figure_is_present():
@@ -2443,3 +2444,57 @@ def test_the_downside_turns_an_overflowing_prior_into_a_clean_input_error(monkey
 
     with pytest.raises(InvalidFinancialInputError, match="outside the supported numeric range"):
         spreading_builder.evaluate_downside_case(data, {"revenue_haircut_pct": 10})
+
+
+# ---------------------------------------------------------------------------
+# Text cells, never formulas (issue #600): a group-basis value and a supplied
+# value that begin with "=" are stored as text.
+# ---------------------------------------------------------------------------
+
+def test_a_group_basis_value_beginning_with_equals_is_text_not_a_formula(tmp_path):
+    """Issue #600: reporting_entity on the "Group basis" sheet is written unchanged today; a value
+    that begins with "=" must be stored as text (data type "s"), never as a formula (data type "f")."""
+    group_basis = {
+        "basis": "Synthetic consolidation",
+        "reporting_entity": "=2+2",
+        "entities_covered": ["Synthetic Group Ltd"],
+        "source": {"document": "Synthetic consolidated accounts", "accounting_basis": "IFRS", "date": "2026-10-04"},
+        "period_end": "2026-06-30",
+        "periods": ["FY-2", "FY-1", "FY-Current"],
+        "figures_basis": "Consolidated",
+        "perimeter_confirmed": True,
+        "perimeter_confirmed_on": "2026-11-01",
+    }
+    out_path = tmp_path / "group_basis_text.xlsx"
+    export_to_xlsx("Synthetic Group Ltd", str(out_path), group_basis=group_basis)
+    ws = openpyxl.load_workbook(out_path)["Group basis"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    cell = ws.cell(row=label_to_row["Reporting entity"], column=2)
+    assert cell.value == "=2+2"
+    assert cell.data_type == "s"
+
+
+def test_a_supplied_value_beginning_with_equals_is_text_not_a_formula(tmp_path):
+    """Issue #600: `_formula_or_supplied()` returns a supplied value unchanged today; a value
+    that begins with "=" must be stored as text (data type "s"), never as a formula (data type "f")."""
+    out_path = tmp_path / "supplied_text.xlsx"
+    export_to_xlsx("Test Co", str(out_path),
+                   financial_data={"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)},
+                   supplied_values={"FY+1": {"EBITDA (before exceptionals, incl. other income)": "=1+1"}})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["EBITDA (before exceptionals, incl. other income)"]
+    cell = ws[f"E{row}"]  # column E is FY+1
+    assert cell.value == "=1+1"
+    assert cell.data_type == "s"
+
+
+def test_a_raw_line_item_string_beginning_with_equals_is_text_not_a_formula(tmp_path):
+    """Issue #600 (maintainer decision): a string in a raw-figure cell, from a hand-edited record, is text."""
+    out_path = tmp_path / "raw_text.xlsx"
+    export_to_xlsx("Test Co", str(out_path), financial_data={"FY-Current": {"revenue": '=HYPERLINK("http://x.invalid")'}})
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    cell = ws.cell(row=label_to_row["Revenue"], column=4)   # the FY-Current column
+    assert cell.value == '=HYPERLINK("http://x.invalid")'
+    assert cell.data_type == "s"

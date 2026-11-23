@@ -1151,3 +1151,15 @@ def test_plan_fields_can_skip_the_stored_name_warning_for_a_preflight(capsys):
     assert capsys.readouterr().err == ""
     plan_fields(existing, {"FY+1": {"revenue": 1100}})
     assert capsys.readouterr().err.count("cost_of_goods_sold") == 1
+
+
+def test_the_stored_name_warning_accepts_mappings_not_only_dicts(capsys):
+    """Issue #596 (PX624-114): a programmatic caller may pass read-only mappings."""
+    from types import MappingProxyType
+    stored = MappingProxyType({"FY-Current": MappingProxyType({"revenue": 1, "cost_of_goods_sold": 2})})
+
+    numeric_validation.warn_unknown_raw_line_items(stored, list(FIELD_LABELS), path="multi_period_financials on file")
+
+    assert capsys.readouterr().err.count("cost_of_goods_sold") == 1
+    with pytest.raises(ValueError, match="cost_of_goods_sold"):
+        numeric_validation.refuse_unknown_raw_line_items(stored, list(FIELD_LABELS))

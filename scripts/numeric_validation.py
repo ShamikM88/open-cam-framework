@@ -1,4 +1,5 @@
 import difflib
+from collections.abc import Mapping
 import math
 import sys
 
@@ -92,12 +93,12 @@ def refuse_unknown_raw_line_items(value, field_names, path="financial inputs"):
     valid name. No underscore-prefixed or other metadata keys are allowed (maintainer decision on
     issue #596, option A); every name in the payload must be a known field name.
     """
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return value
     known_fields = set(field_names)
     problems = []
     for period, raw in value.items():
-        if not isinstance(raw, dict):
+        if not isinstance(raw, Mapping):
             continue
         unknown = sorted((field for field in raw if field not in known_fields), key=str)
         if unknown:
@@ -122,11 +123,11 @@ def warn_unknown_raw_line_items(value, field_names, path="financial inputs"):
     it still computes, and each unknown key is named so the analyst can correct it. The warning is printed
     when the stored periods are read, so it can appear before a later check refuses the same call.
     """
-    if not isinstance(value, dict):
+    if not isinstance(value, Mapping):
         return value
     known_fields = set(field_names)
     for period, raw in value.items():
-        if not isinstance(raw, dict):
+        if not isinstance(raw, Mapping):
             continue
         for field in sorted((field for field in raw if field not in known_fields), key=str):
             print(

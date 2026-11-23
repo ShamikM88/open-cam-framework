@@ -53,7 +53,9 @@ from spreading_builder import (
     evaluate_financial_model,
 )
 from spreading_builder import FIELD_LABELS as RAW_FIELD_LABELS
-from numeric_validation import STRESS_KEYS, StressAssumptionsError, validate_stress_assumptions
+from numeric_validation import (
+    STRESS_KEYS, StressAssumptionsError, validate_stress_assumptions, warn_unknown_raw_line_items,
+)
 from state_manager import StateError, StateShapeError, read_state, state_path, write_state
 
 RAW_FIELDS = tuple(RAW_FIELD_LABELS)
@@ -401,6 +403,9 @@ def plan(existing, supplied, stress_in, note):
     financials = _merge(existing.get("financials"), sub_by_period)
     ratios = _merge(existing.get("ratios"), rat_by_period)
     lines = _merge(existing.get("analyst_supplied_financials"), line_by_period)
+    # The framework-derived downside recomputes these stored lines: an unknown name already on file is named once and
+    # the computation continues (issue #596; PX624-112 / CG624-9).
+    warn_unknown_raw_line_items(lines, RAW_FIELD_LABELS, path="analyst_supplied_financials on file")
     stress = dict(existing.get("stress_assumptions") or {})
     stress.update(stress_in or {})
     for key in STRESS_KEYS:

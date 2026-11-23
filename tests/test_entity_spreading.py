@@ -721,16 +721,18 @@ def test_the_guarantor_policy_read_names_an_unknown_stored_name_once_and_keeps_c
     monkeypatch.chdir(tmp_path)
     spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
     stored = json.loads(path.read_text(encoding="utf-8"))
-    record = stored["entity_records"]["synthetic-guarantor"]
-    record["multi_period_financials"]["FY-Current"]["cost_of_goods_sold"] = 5
+    stored["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"][
+        "cost_of_goods_sold"] = 5
+    covenant = {"metric": "dscr", "type": "minimum", "threshold": 1.0, "basis": "guarantor_group",
+                "basis_entity_id": "synthetic-guarantor"}
     capsys.readouterr()
 
-    view = spreading_check.entity_spread_view(record)
+    # The real policy resolver (PX624-113 / CG624-8), not the helper: it names the key once and keeps computing.
+    view = covenant_basis.resolve_covenant_view(stored, covenant)
 
     assert capsys.readouterr().err.count("cost_of_goods_sold") == 1
-    assert isinstance(view["stale_periods"], list)
-    assert covenant_basis is not None
-    spreading_check.entity_spread_view(record, warn_stored=False)
+    assert "ratios" in view and view.get("unresolvable_reason") is None
+    spreading_check.entity_spread_view(stored["entity_records"]["synthetic-guarantor"], warn_stored=False)
     assert capsys.readouterr().err == ""
 
 

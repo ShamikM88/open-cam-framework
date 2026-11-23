@@ -68,6 +68,11 @@ def _values_equal(expected: object, actual: object) -> bool:
     return type(expected) is type(actual) and expected == actual
 
 
+def _is_formula(cell: object) -> bool:
+    """True for a cell openpyxl holds as a formula (data type "f"), False for text, numbers and anything else."""
+    return getattr(cell, "data_type", None) == "f"
+
+
 def _finding(artifact: str, location: str, kind: str, expected: object, actual: object) -> dict[str, object]:
     return {"artifact": artifact, "location": location, "kind": kind, "expected": expected, "actual": actual}
 
@@ -155,6 +160,10 @@ def _compare_sheets(name: str, expected: "openpyxl.worksheet.worksheet.Worksheet
             location = f"{name}!{want.coordinate}"
             if not _values_equal(want.value, have.value):
                 findings.append(_finding("workbook", location, "value", want.value, have.value))
+            elif _is_formula(want) != _is_formula(have):
+                # The text "=1+1" and the formula =1+1 read back with the same value; only the cell type tells them
+                # apart, and a formula where the export wrote text is exactly what must not match (issue #600).
+                findings.append(_finding("workbook", location, "formula", _is_formula(want), _is_formula(have)))
             for kind, read in CELL_PROPERTIES:
                 want_property, have_property = read(want), read(have)
                 if not _values_equal(want_property, have_property):

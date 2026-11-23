@@ -293,7 +293,8 @@ selection `deal_export.py` uses) and the expected document from the approved Mar
 `<Company>_<Proposal>_Spreading.xlsx` and `<Company>_<Proposal>_CAM.docx` in the dated folder.
 
 - **Workbook:** sheet names, order and visibility; defined names; every cell's value (formulas as text, numbers within
-  1e-9, so an overwritten formula or an edited input is found) and its number format, font (name, size, colour,
+  1e-9, so an overwritten formula or an edited input is found; a formula where the export wrote the same characters as
+  text is reported as a `formula` difference, without evaluating either) and its number format, font (name, size, colour,
   bold, italic, underline, strike), fill, borders and alignment; row and column visibility, row heights and column
   widths; merged cells, freeze panes, sheet protection; each chart's type, position and the cell ranges it plots;
   and how many data validations and conditional formats a sheet has. Cached formula results are not evaluated, and a

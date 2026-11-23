@@ -321,7 +321,7 @@ whole-period membership and uniform accounting policies must be attested to show
   is scaled to whole numbers (Python integers, exact at any size) before the unchanged evaluator, so exact
   cancellation (0.1 - 0.3 + 0.2, or 0.08 - 0.08 across participants) gives exactly zero EBITDA and its ratios are not
   available, and a large balance never erases a small one on the same line; no epsilon is used, and only an amount
-  at or above 10^300 once scaled is refused. An unknown raw line-item name in any participant is refused (naming the
+  at or above 10^300 once scaled is refused. Stored and printed figures are JSON doubles, so amounts are exact only up to about 9 x 10^15 (the maintainer's ruling on #472: no real balance sheet is that large); beyond that a cent, or a ratio decision at its limit, can be lost to double precision. An unknown raw line-item name in any participant is refused (naming the
   participant and the line), never dropped from the group total. A journal involving the borrower needs a borrower
   declaration for that counterparty (none at all is an integrity refusal); only the declaration for the journal's own
   loan is claimed, so a journal whose loan_id has none is a recorded matching refusal and never consumes another

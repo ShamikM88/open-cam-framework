@@ -175,6 +175,16 @@ def test_underwriter_prompt_per_asset_metric_vocabulary_is_the_ground_truth_voca
     assert named == set(COLLATERAL_GROUND_TRUTH_METRICS)
 
 
+def test_underwriter_prompt_appends_the_exact_guarantor_wording_to_reported_figures(underwriter_prompt):
+    approved_wording = (
+        'When a covenant result has `basis: "guarantor_group"`, use only the guarantor identified by its `basis_entity_id`. If you cite one of that guarantor\'s figures, declare it in `reported_figures` under `guarantor_group::<URL-encoded basis_entity_id>::<metric>` for FY-Current, or the same key with `_<period>` appended to the metric for another period. Never declare a guarantor figure under the bare borrower metric key or substitute another guarantor. If the result or period is UNRESOLVABLE, do not declare a numeric figure.'
+    )
+    (bullet,) = (
+        line for line in underwriter_prompt.splitlines() if line.startswith("   - `reported_figures`:")
+    )
+    assert bullet.endswith("as a fraction (for example, 0.75 = 75%). " + approved_wording)
+
+
 def test_underwriter_prompt_has_a_parent_ubo_support_guideline(underwriter_prompt):
     """Regression guard for issue #96: templates/cam/asset_finance_cam.md's
     Ultimate Parent section promises "Guideline 12: Parent/UBO Support

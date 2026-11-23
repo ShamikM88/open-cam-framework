@@ -1043,6 +1043,33 @@ def test_ground_truth_namespaces_only_numeric_fresh_guarantor_values_and_keeps_b
     assert prefix + "label" not in truth
     assert prefix + "raw" not in truth
 
+
+def test_declared_guarantor_and_borrower_figures_are_compared_to_their_own_values():
+    guarantor_key = "guarantor_group::Synthetic%20Guarantor%2FOpCo::dscr"
+    truth = ground_truth_figures(
+        {},
+        {"FY-Current": {"dscr": 1.8}},
+        [],
+        resolved_views=[
+            {
+                "basis": "guarantor_group",
+                "basis_entity_id": "Synthetic Guarantor/OpCo",
+                "ratios": {"FY-Current": {"dscr": 3.2}},
+            },
+        ],
+    )
+
+    def audit(figures):
+        draft = _compliant_draft(reported_figures=figures)
+        return check_draft_compliance(draft, _policy_state(), truth)
+
+    assert audit({guarantor_key: 3.2, "dscr": 1.8}) == []
+    assert audit({guarantor_key: 1.8, "dscr": 3.2}) == [
+        f"Narrative/Ground-Truth Mismatch: reported {guarantor_key} 1.8 vs computed 3.2",
+        "Narrative/Ground-Truth Mismatch: reported dscr 3.2 vs computed 1.8",
+    ]
+
+
 def test_ground_truth_skips_malformed_downside_periods_and_non_mapping_guarantor_views():
     truth = ground_truth_figures(
         None,

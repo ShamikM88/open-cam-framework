@@ -335,9 +335,10 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
 _ASSET_CLASS_LABEL_MAX = 80
 
 # Code points that are letters, marks or symbols by category but draw nothing on their own (Unicode
-# Default_Ignorable_Code_Point plus the Hangul and Khmer fillers): a text made only of these is not visible.
+# Default_Ignorable_Code_Point plus the Hangul and Khmer fillers and the Braille blank, a symbol whose cell has no
+# dots): a text made only of these is not visible.
 _DEFAULT_IGNORABLE = frozenset(
-    {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x3164, 0xFFA0}
+    {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0}
     | set(range(0x180B, 0x1811)) | set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0))
 )
 

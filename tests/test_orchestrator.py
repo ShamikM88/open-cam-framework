@@ -3478,6 +3478,41 @@ def test_a_new_review_does_not_borrow_the_earlier_reviews_inputs(project_root):
     assert {path: path.read_bytes() for path in (project_root / "deals").rglob("state.json")} == before
 
 
+def test_a_review_removed_between_the_existence_checks_is_not_recreated_empty(project_root, monkeypatch):
+    """PX623-114 / CG623-11: one existence check decides, so a folder removed right after it is never recreated."""
+    import shutil
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"})
+    state_file = next((project_root / "deals").rglob("state.json"))
+    real_isfile = orchestrator.os.path.isfile
+    real_resolve = orchestrator._resolve_pd_lgd_inputs
+    seen = {"armed": False, "removed": False}
+
+    def resolve_then_arm(*args, **kwargs):
+        result = real_resolve(*args, **kwargs)
+        seen["armed"] = True
+        return result
+
+    def isfile_then_remove(path):
+        result = real_isfile(path)
+        if seen["armed"] and not seen["removed"] and result and os.path.abspath(path) == os.path.abspath(state_file):
+            seen["removed"] = True
+            shutil.rmtree(state_file.parent)   # gone right after the first check has answered True
+        return result
+
+    monkeypatch.setattr(orchestrator, "_resolve_pd_lgd_inputs", resolve_then_arm)
+    monkeypatch.setattr(orchestrator.os.path, "isfile", isfile_then_remove)
+    client = MockClient([])
+
+    with pytest.raises(StateError):
+        run_pipeline("Example Co", "Term Loan", None, None, "corporate_credit", new_review=True, client=client)
+
+    monkeypatch.undo()
+    assert seen["removed"] and client.call_count == 0
+    assert not list((project_root / "deals").rglob("state.json"))
+
+
 def test_run_pipeline_called_without_scores_uses_the_recorded_ones_and_never_saves_null(project_root):
     write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
     client = MockClient([_compliant_draft(), _approved_json()])
@@ -3489,6 +3524,11 @@ def test_run_pipeline_called_without_scores_uses_the_recorded_ones_and_never_sav
     }
     prompt_text = chr(10).join(str(m.get("content", "")) for c in client.calls for m in c["messages"])
     assert "PD: 4.50%" in prompt_text and "PD: None" not in prompt_text
+    # CG623-12 / PX623-109: both recorded values reach the Maker and the Checker separately.
+    assert len(client.calls) == 2
+    for call in client.calls:
+        text = chr(10).join(str(m.get("content", "")) for m in call["messages"]) + str(call.get("system", ""))
+        assert "PD: 4.50%" in text and "LGD 6 (45%)" in text
 
 
 def test_run_pipeline_refuses_missing_scores_before_any_write_or_model_call(project_root):

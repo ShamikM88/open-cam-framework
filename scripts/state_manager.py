@@ -879,6 +879,9 @@ def record_group_basis(
 
 
 
+NUMERIC_PRECISION_PROBLEM_KEY = "_numeric_precision_problem"
+
+
 def _exact_json_float(text: str) -> float:
     """Parse one JSON number, refusing one that binary floating point cannot hold exactly.
 
@@ -1717,7 +1720,8 @@ def read_state(
         return None
     with open(path, encoding="utf-8") as f:
         try:
-            state: dict[str, Any] = json.load(f, parse_float=_exact_json_float if exact_numbers else None)
+            text = f.read()
+            state: dict[str, Any] = json.loads(text, parse_float=_exact_json_float if exact_numbers else None)
         except (ValueError, RecursionError) as e:
             # Not valid UTF-8 JSON (a UTF-16 file from PowerShell's `>`, say) or nested absurdly deep: the file's
             # fault, reported like any other unusable state rather than as a traceback.
@@ -1735,6 +1739,15 @@ def read_state(
         ) from exc
     validate_state(state, keys=keys, path=path)
     state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
+    if not exact_numbers and isinstance(state.get("credit_aggregation"), dict):
+        # A deal with a recorded aggregation is read on the same exact-number terms as the calculation: a hand-edited
+        # number that binary floating point would round does not stop the read, but it is recorded under a private key
+        # so the freshness check withholds the figures instead of recomputing from a silently rounded input
+        # (PX628-124). The key appears only when such a number is present and is never written back.
+        try:
+            json.loads(text, parse_float=_exact_json_float)
+        except ValueError as exc:
+            state[NUMERIC_PRECISION_PROBLEM_KEY] = str(exc)
     return state
 
 

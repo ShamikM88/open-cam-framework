@@ -338,7 +338,7 @@ whole-period membership and uniform accounting policies must be attested to show
   the order of the rows), otherwise the memo is `unknown`.
 - **Refusals:** duplicated loan IDs, cumulative cap violations, malformed inputs or inadmissible control
   refuse the whole invocation, which writes nothing. Every presented journal counts against the declared cap on its
-  line, including one that is later refused on matching, so listing more principal than the participant declared
+  line (and on the line its declaration records for that loan, so naming other lines does not avoid the cap), including one that is later refused on matching, so listing more principal than the participant declared
   is an integrity refusal (maintainer decision on #472). A matching failure, such as different carrying amounts
   or an ineligible maturity or line pairing, is recorded with its reason and leaves the loan in debt.
   Group net debt (total debt less unrestricted qualifying cash) is a printed memo figure whenever the cash gate

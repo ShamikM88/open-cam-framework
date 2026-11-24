@@ -10,6 +10,7 @@ from typing import Any, TypedDict, cast
 from credit_aggregation_calc import LABEL, LIMITATIONS, MEMO_LABEL
 from numeric_validation import validate_finite_numbers
 from state_manager import (
+    NUMERIC_PRECISION_PROBLEM_KEY,
     computed_figures_problem,
     StateError,
     _FileLock,
@@ -538,6 +539,13 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
         }
     manifest = entry.get("manifest")
     fingerprint = entry.get("input_fingerprint")
+    precision_problem = state.get(NUMERIC_PRECISION_PROBLEM_KEY) if isinstance(state, dict) else None
+    if precision_problem:
+        return {
+            "status": "stale",
+            "reason": f"the recorded credit aggregation inputs for {period!r} no longer validate: {precision_problem}",
+            "input_fingerprint": fingerprint if isinstance(fingerprint, str) else None,
+        }
     if not isinstance(manifest, dict) or not isinstance(fingerprint, str):
         return {
             "status": "stale",

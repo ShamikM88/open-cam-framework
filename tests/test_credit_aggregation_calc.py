@@ -313,6 +313,31 @@ def test_a_matching_refused_journal_still_counts_against_the_line_cap(tmp_path):
     assert path.read_bytes() == before
 
 
+def test_a_journal_naming_other_lines_still_charges_the_declared_cap(tmp_path):
+    # CG628-15: J1 names valid but different lines and is refused on matching; it still charges the declared
+    # lines, so a second matched journal that would push the total past the cap is an integrity refusal.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    holder_two = side(f"Synthetic {H} Ltd", B, "other_fixed_assets", "receivable", period=P,
+                      loan_id="L2", separate_loan_confirmed=True)
+    state["entity_records"][H]["intercompany_lines"][0]["separate_loan_confirmed"] = True
+    state["entity_records"][H]["intercompany_lines"].append(holder_two)
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    request = file["periods"][P]
+    request["declarations"] = [
+        side(COMPANY, H, "current_debt", "payable", separate_loan_confirmed=True),
+        side(COMPANY, H, "current_debt", "payable", loan_id="L2", separate_loan_confirmed=True),
+    ]
+    request["journals"] = [
+        journal(journal_id="J1", loan_id="L1", lender_line="other_current_assets", debtor_line="long_term_debt"),
+        journal(journal_id="J2", loan_id="L2"),
+    ]
+    before = _state_file(tmp_path).read_bytes()
+    with pytest.raises(ca.AggregationError, match="cumulative cap exceeded"):
+        calculate(tmp_path, file)
+    assert _state_file(tmp_path).read_bytes() == before
+
+
 def test_clean_case_recomputes_from_adjusted_raw_not_summed_ratios(tmp_path):
     c = run(tmp_path)
     assert {key: c["adjusted_raw"][key] for key in ("current_debt", "other_fixed_assets", "long_term_debt",
@@ -754,6 +779,9 @@ def test_a_recorded_null_cash_is_unavailable_not_an_attested_zero(tmp_path):
     assert c["cash"]["total"] is None and c["cash"]["unrestricted"] is None and c["group_net_debt"] is None
     assert O in c["withheld"]["net_debt_to_ebitda"] and "unavailable (null)" in c["withheld"]["net_debt_to_ebitda"]
     assert c["financials"]["total_debt"] == 390          # the debt-only outputs are unaffected
+    # PX628-125: the participant table says unavailable for that participant, and zero stays zero for the others.
+    cash_by_participant = {row["participant"]: row["cash"] for row in c["participant_table"]}
+    assert cash_by_participant[O] is None and cash_by_participant[H] == 30
 
 
 def test_unattested_and_negative_cash_reasons_are_both_kept(tmp_path):

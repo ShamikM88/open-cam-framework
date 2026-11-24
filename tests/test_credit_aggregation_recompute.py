@@ -7,6 +7,7 @@ import pytest
 import credit_aggregation as ca
 from state_manager import StateError, validate_state
 from test_credit_aggregation import _read_full
+from test_credit_aggregation import _state_file
 from test_credit_aggregation_calc import B, H, O, P, calculate, run, seed
 
 
@@ -89,3 +90,20 @@ def test_an_invalid_period_on_a_live_intercompany_line_never_looks_current(tmp_p
     status = ca.aggregation_period_status(state, P)
     assert status["status"] == "stale"
     assert "intercompany" in status["reason"]
+
+
+def test_an_ordinary_read_withholds_a_hand_edited_number_that_binary_floating_point_would_round(tmp_path):
+    # PX628-124: the calculation refuses such a number; a reader must not silently round it and report "current".
+    from state_manager import read_state
+    from test_credit_aggregation import COMPANY, PROPOSAL
+    file = seed(tmp_path)
+    calculate(tmp_path, file)
+    assert ca.aggregation_period_status(read_state(COMPANY, PROPOSAL, base_dir=tmp_path), P)["status"] == "current"
+    path = _state_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    assert '"amount": 20,' in text
+    path.write_text(text.replace('"amount": 20,', '"amount": 20.000000000000001,', 1), encoding="utf-8")
+
+    status = ca.aggregation_period_status(read_state(COMPANY, PROPOSAL, base_dir=tmp_path), P)
+
+    assert status["status"] == "stale" and "exceeds the precision" in status["reason"]

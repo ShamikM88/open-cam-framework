@@ -187,10 +187,10 @@ The calculator copies each period's file entry into `input` and mirrors its `jou
 the canonical input; the calculation fingerprint binds that digest, the B2a fingerprint and participants' legal
 identities. `computed` holds flat `financials` and `ratios` (finite numbers or `null`), `adjusted_raw`, applied
 and refused journals, `participant_table`, `withheld` reasons, label and limitations, debt and cash details,
-the supported-debt memo and the evidence disclosures. The amount format is JSON numbers representable without
+the supported-debt memo and the evidence disclosures. A participant whose recorded cash is `null` has `null` cash in `participant_table` (unavailable, shown as N/A), never zero. The amount format is JSON numbers representable without
 decimal rounding in state. Schema remains `1.3.0`.
 
-**Recompute on read:** `aggregation_period_status()` validates the live scope and fingerprints, checks the
+**Recompute on read:** a read of a state that carries an aggregation also checks the stored numbers on the same exact terms as the calculation; a hand-edited number that binary floating point would round makes `aggregation_period_status()` report `stale` with the precision reason instead of recomputing from the rounded value. `aggregation_period_status()` validates the live scope and fingerprints, checks the
 cheap `output_digest` (computed figures bound to the calculation fingerprint), then compares the entire
 stored output with `recompute_period()`. A digest-only stub or an edited result with a newly calculated
 digest is not `current`. Unkeyed digests and deterministic recomputation check consistency, not who supplied

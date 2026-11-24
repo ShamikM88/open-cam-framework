@@ -288,7 +288,12 @@ def _apply_journals(request, sides, caps, raw):
             # matching refusal below, and it never consumes another loan's declaration (CG628-12 / PX628-114).
             if (BORROWER, loan) in sides:
                 claimed_borrower.add((BORROWER, loan))
-        for entity, line in ((lender, lend_line), (debtor, debt_line)):
+        # Every presented journal is charged against the participant's declared line for this loan as well as the
+        # line it names, so a journal that names other (valid) lines and is later refused on matching cannot leave
+        # the declared cap uncharged (CG628-15).
+        charged = {(lender, lend_line), (debtor, debt_line)}
+        charged |= {(entity, d["line_key"]) for entity, d in ((lender, left), (debtor, right)) if d is not None}
+        for entity, line in sorted(charged):
             if (entity, line) in caps:
                 used[entity, line] += amount
                 if used[entity, line] > caps[entity, line]:
@@ -619,7 +624,8 @@ def calculate_period(period: str, request: dict[str, Any], inputs: dict[str, Any
         figures, _, _ = evaluate(p_raw | ({"other_income": Fraction()} if variant else {}))
         table.append({"participant": key, "legal_entity": legal_names[key], "status": answers[key]["status"],
                       "ownership_pct": answers[key]["ownership_pct"], "total_debt": figures["total_debt"],
-                      "cash": json_number(p_raw.get("cash", Fraction())), "ebitda": None if ebitda_reason else figures["ebitda"]})
+                      "cash": None if key in unavailable_cash else json_number(p_raw.get("cash", Fraction())),
+                      "ebitda": None if ebitda_reason else figures["ebitda"]})
     eliminated = json_number(sum((number(j["amount"], "eliminated principal") for j in applied), Fraction()))
     return {
         "financials": fin, "ratios": ratios, "withheld": withheld, "adjusted_raw": adjusted,

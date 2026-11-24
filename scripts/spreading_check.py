@@ -165,9 +165,11 @@ def plan_fields(
         # boolean, a string or an oversized number is one clean FinancialInputError (caught by both CLIs). A period
         # that is only a comparator is checked on the five lines that are actually read, so an unrelated bad line
         # elsewhere in it does not block the update; a period being evaluated is validated in full by the evaluator.
+        # A period that is both evaluated and the next period's prior is checked too: its working capital is read for
+        # the successor before the evaluator validates it (PX625-110 / CG625-7).
         comparator_lines = {
             period: {line: raw[line] for line in OWC_LINES if line in raw}
-            for period, raw in prior_data.items() if period not in periods_to_evaluate
+            for period, raw in prior_data.items()
         }
         try:
             validate_raw_line_items(comparator_lines, FIELD_LABELS, path="recorded operating working capital")
@@ -184,8 +186,7 @@ def plan_fields(
         merged_ratios.update(model_data["ratios"])
         # A year recorded as null is "not recorded": figures calculated for it earlier must not stay live as if it
         # were (PX625-109 / CG625-5). Only a period explicitly null in the raw store is dropped; others are untouched.
-        not_recorded = [p for p in PERIOD_KEYS if p in merged_multi_period and merged_multi_period[p] is None]
-        for period in not_recorded:
+        for period in _not_recorded_periods(merged_multi_period, existing_state):
             merged_financials.pop(period, None)
             merged_ratios.pop(period, None)
         fields["financials"] = merged_financials
@@ -193,6 +194,16 @@ def plan_fields(
         fields["multi_period_financials"] = merged_multi_period
         if update_financials_source:
             fields["financials_source"] = "framework-computed"
+    else:
+        # A stress-only refresh drops the base figures of a year recorded as null too, so a period that is "not
+        # recorded" never keeps live figures in the saved state or the printed result (PX625-111 / CG625-8).
+        stale = [
+            p for p in _not_recorded_periods(merged_multi_period, existing_state)
+            if p in (existing_state.get("financials") or {}) or p in (existing_state.get("ratios") or {})
+        ]
+        if stale:
+            fields["financials"] = {k: v for k, v in (existing_state.get("financials") or {}).items() if k not in stale}
+            fields["ratios"] = {k: v for k, v in (existing_state.get("ratios") or {}).items() if k not in stale}
 
     existing_stress_assumptions = existing_state.get("stress_assumptions") or {}
     merged_stress_assumptions = dict(existing_stress_assumptions)
@@ -216,6 +227,15 @@ def plan_fields(
             "stress assumptions (existing or given) produced a downside case."
         )
     return fields
+
+
+def _not_recorded_periods(merged_multi_period: dict[str, Any], existing_state: dict[str, Any]) -> list[str]:
+    """Periods recorded as null in the framework raw store, other than a period the analyst supplied."""
+    supplied = existing_state.get("analyst_supplied_financials") or {}
+    return [
+        p for p in PERIOD_KEYS
+        if p in merged_multi_period and merged_multi_period[p] is None and p not in supplied
+    ]
 
 
 def compute(

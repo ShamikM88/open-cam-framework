@@ -580,7 +580,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
   present in the supplied data, and any period whose prior period records none of the five OWC lines
   (present, non-null), is N/A (`None` in state, "N/A" in the workbook) — never zero: a fabricated
   prior OWC would make the delta a fabricated number. A `null` period is "not recorded", not a period (it is
-  never evaluated, shocked or read as a prior). On a deal whose `financials_source` is analyst-supplied the
+  never evaluated, shocked or read as a prior; its base and downside figures are dropped on any later update, including a stress-only one). The five OWC lines of every period read as a prior are checked before any arithmetic, including a period that is itself being evaluated or shocked, so a malformed one is one named input error. On a deal whose `financials_source` is analyst-supplied the
   historical framework raw periods are never read as the prior, so the first forward year is N/A in the base case,
   the downside case and the workbook (the export writes "N/A" in that cell; maintainer decision on #597). An omitted OWC line reads as 0 (the file-wide
   omitted-defaults rule), so an omitted line is not N/A. The downside case's delta equals the base case's

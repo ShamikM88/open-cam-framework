@@ -932,7 +932,7 @@ def evaluate_downside_case(
     # call and a cached headless rerun (PX625-108 / CG625-4). The shocked periods are validated by the evaluator.
     validate_raw_line_items(
         {p: {line: raw[line] for line in _OWC_LINES if line in raw}
-         for p, raw in prior_data.items() if isinstance(raw, dict) and p not in shocked_inputs},
+         for p, raw in prior_data.items() if isinstance(raw, dict)},
         FIELD_LABELS, path="recorded operating working capital")
     # The prior-period operating working capital each shocked forward year's
     # fcf_after_working_capital delta reads is the BASE case's (issue #520):
@@ -1022,7 +1022,7 @@ def _write_financial_spreading(
                     # analyst-supplied (issue #597); the workbook must not compute it from the supplied column.
                     column_period = COL_TO_PERIOD_KEY.get(col) or DOWNSIDE_COL_TO_PERIOD_KEY.get(col)
                     if (label == "FCF after Working Capital" and column_period in (withheld_prior_periods or ())
-                            and isinstance(value, str) and value.startswith("=")):
+                            and not is_supplied and isinstance(value, str) and value.startswith("=")):
                         value = "N/A"
                     row_values.append(value)
                     if is_supplied:

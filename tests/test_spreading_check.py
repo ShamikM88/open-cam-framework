@@ -1251,3 +1251,64 @@ def test_a_year_recorded_as_null_no_longer_keeps_its_old_calculated_figures(tmp_
     assert "FY+1" not in state["financials"] and "FY+1" not in state["ratios"]
     assert "FY+1" not in state["downside_case"]["financials"] and "FY+1" not in state["downside_case"]["ratios"]
     assert "FY-Current" in state["financials"]
+
+
+@pytest.mark.parametrize("bad", [True, "100"], ids=["boolean", "string"])
+def test_a_period_that_is_both_evaluated_and_the_next_periods_prior_is_validated_first(tmp_path, monkeypatch, bad):
+    """PX625-110 / CG625-7: an evaluated period that feeds its successor's prior is a clean input error, not a TypeError."""
+    from numeric_validation import FinancialInputError
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": dict(_FY_CURRENT), "FY+1": dict(_FY_PLUS_1)})
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY-Current"]["trade_debtors"] = bad
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(FinancialInputError, match="trade_debtors"):
+        compute("Acme Corp", "Fleet Loan", multi_period_financials={"FY-Current": {"revenue": 120}},
+                update_financials_source=False)
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("bad", [True, "100"], ids=["boolean", "string"])
+def test_a_shocked_period_that_is_also_the_next_periods_prior_is_validated_first(tmp_path, monkeypatch, bad):
+    """PX625-110 / CG625-7: the downside twin: FY+1 is shocked and is FY+2's prior."""
+    from numeric_validation import FinancialInputError
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": dict(_FY_CURRENT), "FY+1": dict(_FY_PLUS_1),
+                                     "FY+2": dict(_FY_PLUS_1)})
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["multi_period_financials"]["FY+1"]["trade_debtors"] = bad
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(FinancialInputError, match="trade_debtors"):
+        compute("Acme Corp", "Fleet Loan", stress_assumptions=_STRESS, update_financials_source=False)
+    assert path.read_bytes() == before
+
+
+def test_a_stress_only_refresh_drops_the_base_figures_of_a_year_recorded_as_null(tmp_path, monkeypatch):
+    """PX625-111 / CG625-8: base and downside figures of a null year go, in the result and in the saved state."""
+    monkeypatch.chdir(tmp_path)
+    compute("Acme Corp", "Fleet Loan",
+            multi_period_financials={"FY-Current": dict(_FY_CURRENT), "FY+1": dict(_FY_PLUS_1),
+                                     "FY+2": dict(_FY_PLUS_1)},
+            stress_assumptions=_STRESS)
+    path = next((tmp_path / "deals" / "Acme Corp").glob("Fleet Loan_*/state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    assert "FY+1" in stored["financials"] and "FY+1" in stored["ratios"]
+    stored["multi_period_financials"]["FY+1"] = None
+    path.write_text(json.dumps(stored), encoding="utf-8")
+
+    state = compute("Acme Corp", "Fleet Loan", stress_assumptions={"revenue_haircut_pct": 10},
+                    update_financials_source=False)
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    for view in (state, saved):
+        assert "FY+1" not in view["financials"] and "FY+1" not in view["ratios"]
+        assert "FY+1" not in view["downside_case"]["financials"]
+        assert "FY-Current" in view["financials"] and "FY+2" in view["financials"]

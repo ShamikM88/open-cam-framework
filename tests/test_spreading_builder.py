@@ -2498,3 +2498,21 @@ def test_a_raw_line_item_string_beginning_with_equals_is_text_not_a_formula(tmp_
     cell = ws.cell(row=label_to_row["Revenue"], column=4)   # the FY-Current column
     assert cell.value == '=HYPERLINK("http://x.invalid")'
     assert cell.data_type == "s"
+
+
+def test_a_supplied_fcf_string_is_kept_as_text_even_for_a_withheld_period(tmp_path):
+    """PX625-112 / CG625-6: the withheld override only replaces a generated formula, never a supplied value."""
+    out_path = tmp_path / "withheld_supplied_text.xlsx"
+    export_to_xlsx(
+        "Test Co", str(out_path),
+        financial_data={"FY-Current": dict(CASH_FLOW_DSCR_CURRENT)},
+        supplied_values={"FY+1": {"FCF after Working Capital": "=1+1"}},
+        supplied_downside_values={"FY+1": {"FCF after Working Capital": "=3+1"}},
+        withheld_prior_periods=["FY+1"],
+    )
+    ws = openpyxl.load_workbook(out_path)["Financial Spreading"]
+    label_to_row = {ws.cell(row=r, column=1).value: r for r in range(1, ws.max_row + 1)}
+    row = label_to_row["FCF after Working Capital"]
+    cells = [c for c in ws[row] if c.value in ("=1+1", "=3+1")]
+    assert sorted(c.value for c in cells) == ["=1+1", "=3+1"]
+    assert all(c.data_type == "s" for c in cells)

@@ -447,7 +447,14 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
     validate_stress_assumptions(stress)
     # The break-even and shock searches recompute the stored raw lines, so a name that is not a field already on file is
     # named once here, outside the scenario loops, and the computation continues (issue #596).
-    warn_unknown_raw_line_items(state.get("multi_period_financials"), FIELD_LABELS, path="multi_period_financials on file")
+    # Only the periods a borrower-basis covenant actually recomputes are scanned: an empty covenant list or a
+    # guarantor-only report never reads the borrower's raw store, so it names nothing (PX624-115 / CG624-10).
+    if any(isinstance(c, Mapping) and c.get("basis") != "guarantor_group" for c in covenants):
+        stored = state.get("multi_period_financials")
+        if isinstance(stored, Mapping):
+            used = set(_report_periods(ratios))
+            stored = {period: raw for period, raw in stored.items() if period in used}
+        warn_unknown_raw_line_items(stored, FIELD_LABELS, path="multi_period_financials on file")
     recorded_view = "consolidated" if isinstance(state.get("group_basis"), Mapping) else "borrower"
     resolved_views = resolve_covenant_views(state, covenants)
 

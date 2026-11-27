@@ -841,3 +841,23 @@ def test_the_scaled_amount_boundary_is_at_or_above_ten_to_the_300(tmp_path):
     _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
     with pytest.raises(ca.AggregationError, match="too large or too precise"):
         calculate(tmp_path, file)
+
+
+def test_a_total_a_json_number_cannot_hold_exactly_is_named_not_rounded_silently(tmp_path):
+    # CG628-17: 1.2345678901234567 + 0.00000000000000001 is exact as a decimal but not as a float; the stored figure is
+    # rounded, so the line is named in adjusted_raw_rounded while the evaluation stayed exact. A representable line is not.
+    file = seed(tmp_path)
+    state = _read_full(tmp_path)
+    state["entity_records"][O]["multi_period_financials"][P]["cash"] = 1.2345678901234567
+    state["entity_records"][H]["multi_period_financials"][P]["cash"] = 1e-17
+    _state_file(tmp_path).write_text(json.dumps(state), encoding="utf-8")
+    calculate(tmp_path, file)
+    c = _read_full(tmp_path)["credit_aggregation"][P]["computed"]
+    assert "cash" in c["adjusted_raw_rounded"]
+    assert "long_term_debt" not in c["adjusted_raw_rounded"]
+
+
+def test_a_clean_period_names_no_rounded_line(tmp_path):
+    file = seed(tmp_path)
+    calculate(tmp_path, file)
+    assert _read_full(tmp_path)["credit_aggregation"][P]["computed"]["adjusted_raw_rounded"] == []

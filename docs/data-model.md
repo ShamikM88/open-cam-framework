@@ -185,7 +185,7 @@ The UTF-8 file has one `periods` object. Each historical period repeats the B2a 
 
 The calculator copies each period's file entry into `input` and mirrors its `journals`. Its `input_digest` binds
 the canonical input; the calculation fingerprint binds that digest, the B2a fingerprint and participants' legal
-identities. `computed` holds flat `financials` and `ratios` (finite numbers or `null`), `adjusted_raw`, applied
+identities. `computed` holds flat `financials` and `ratios` (finite numbers or `null`), `adjusted_raw` and `adjusted_raw_rounded` (the adjusted lines whose exact decimal total a JSON number cannot hold, so storing it rounded; the evaluation itself stayed exact), applied
 and refused journals, `participant_table`, `withheld` reasons, label and limitations, debt and cash details,
 the supported-debt memo and the evidence disclosures. A participant whose recorded cash is `null` has `null` cash in `participant_table` (unavailable, shown as N/A), never zero. The amount format is JSON numbers representable without
 decimal rounding in state. Schema remains `1.3.0`.

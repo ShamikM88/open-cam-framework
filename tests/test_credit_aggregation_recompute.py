@@ -107,3 +107,22 @@ def test_an_ordinary_read_withholds_a_hand_edited_number_that_binary_floating_po
     status = ca.aggregation_period_status(read_state(COMPANY, PROPOSAL, base_dir=tmp_path), P)
 
     assert status["status"] == "stale" and "exceeds the precision" in status["reason"]
+
+
+def test_an_unrelated_write_cannot_persist_a_rounded_number_or_the_private_marker(tmp_path):
+    # CG628-16: the read-time marker is private and a number binary floating point would round is never reserialized.
+    from state_manager import StateShapeError, write_state
+    from test_credit_aggregation import COMPANY, PROPOSAL
+    file = seed(tmp_path)
+    calculate(tmp_path, file)
+    write_state(COMPANY, PROPOSAL, base_dir=tmp_path, note="clean write")
+    assert "_numeric_precision_problem" not in _state_file(tmp_path).read_text(encoding="utf-8")
+    path = _state_file(tmp_path)
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text.replace('"amount": 20,', '"amount": 20.000000000000001,', 1), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError, match="exceeds the precision"):
+        write_state(COMPANY, PROPOSAL, base_dir=tmp_path, note="unrelated")
+
+    assert path.read_bytes() == before

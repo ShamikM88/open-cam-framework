@@ -347,7 +347,7 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
 # The credit-aggregation record's period labels mirror _GROUP_BASIS_PERIOD_KEYS (issue #472, B2a).
 _CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
 _AGGREGATION_COMPUTED_EXTRAS: dict[str, type | tuple[type, ...]] = {
-    "adjusted_raw": dict, "eliminations_applied": list, "refused_journals": list, "participant_table": list,
+    "adjusted_raw": dict, "adjusted_raw_rounded": list, "eliminations_applied": list, "refused_journals": list, "participant_table": list,
     "withheld": dict, "limitations": list, "label": str, "metric_label": (str, type(None)),
     "debt_before": (int, float), "debt_eliminated": (int, float), "debt_eliminated_pct": (int, float, type(None)),
     "debt_lines": dict, "debt_memo": dict, "cash": dict, "group_net_debt": (int, float, type(None)),
@@ -1835,6 +1835,11 @@ def _merge_and_write(
     to acquire a lock its own caller is already holding).
     """
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
+    # The private read-time marker is never stored. A number the read would have rounded is refused here, so an
+    # unrelated write cannot reserialize it rounded (CG628-16).
+    precision_problem = state.pop(NUMERIC_PRECISION_PROBLEM_KEY, None)
+    if precision_problem is not None:
+        raise StateShapeError(f"Refusing to write state.json: {precision_problem}. Correct the number; no state was changed.")
     # No file yet (state == {}) has no version either; that is a fresh deal, not a malformed one. An existing file's
     # missing key already reads back as LEGACY_SCHEMA_VERSION; an explicit null stays None and is refused below.
     _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION), path)

@@ -1351,6 +1351,7 @@ nothing; nothing here is stored in state.
   `credit_aggregation[period].computed.ratios` keys suffixed `_excluding_other_income`
 - **Workbook rows:** separately named metrics in the Credit aggregation sheet, with the full EBITDA basis disclosure
 - **Policy outputs:** `covenant_results`, for explicitly named ratio metrics on the credit aggregation basis (F-038)
+- **Output rounding:** the evaluation is exact; a stored adjusted line whose exact decimal total a binary JSON number cannot hold is rounded, and `adjusted_raw_rounded` names it (CG628-17).
 - **Implemented in:** `scripts/credit_aggregation_calc.py` — `calculate_period()` using
   `scripts/spreading_builder.py` — `evaluate_financial_model()`
 - **Basis:** [B2b v4.1 Section A.6](https://github.com/ShamikM88/open-cam-framework/issues/472#issuecomment-7002491959)

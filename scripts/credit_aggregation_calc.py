@@ -2,6 +2,7 @@
 
 from collections import Counter, defaultdict
 from datetime import date
+from decimal import Decimal
 from fractions import Fraction
 from math import gcd, isfinite
 from typing import Any, NotRequired, TypedDict
@@ -483,6 +484,7 @@ class PeriodResult(TypedDict):
     ratios: dict[str, Any]
     withheld: dict[str, str]
     adjusted_raw: dict[str, int | float]
+    adjusted_raw_rounded: list[str]
     label: str
     limitations: list[str]
     metric_label: str | None
@@ -558,6 +560,10 @@ def calculate_period(period: str, request: dict[str, Any], inputs: dict[str, Any
     applied, refused = _apply_journals(request, sides, caps, raw)
     adjusted_exact = combined()
     adjusted = printed(adjusted_exact)
+    # A JSON number is a binary float: an exact decimal total it cannot hold is stored rounded, so the lines affected are
+    # named instead of being rounded silently (CG628-17). The evaluation itself stayed exact.
+    adjusted_rounded = sorted(line for line, value in adjusted_exact.items()
+                              if value.denominator != 1 and Fraction(Decimal(repr(float(value)))) != value)
     variant, ebitda_reason = _ebitda_gate(answers, raw)
     ebitda_reason = perimeter_reason or ebitda_reason
     negative_cash = sorted(key for key, lines in raw.items() if lines.get("cash", 0) < 0)
@@ -629,6 +635,7 @@ def calculate_period(period: str, request: dict[str, Any], inputs: dict[str, Any
     eliminated = json_number(sum((number(j["amount"], "eliminated principal") for j in applied), Fraction()))
     return {
         "financials": fin, "ratios": ratios, "withheld": withheld, "adjusted_raw": adjusted,
+        "adjusted_raw_rounded": adjusted_rounded,
         "label": LABEL, "limitations": list(LIMITATIONS), "metric_label": VARIANT_LABEL if variant else None,
         "participant_table": table, "eliminations_applied": applied, "refused_journals": refused,
         "debt_before": debt_before, "debt_eliminated": eliminated,

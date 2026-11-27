@@ -4699,6 +4699,81 @@ def test_credit_aggregation_computed_accepts_null_figures_and_refuses_non_flat_o
         assert "flat finite number" in _credit_aggregation_problems_for(value)
 
 
+def test_write_state_merge_inputs_updates_only_the_named_keys_under_the_lock(tmp_path):
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                inputs={"pd": "1%", "experian_score": 41, "note": "x"})
+
+    written = write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                          merge_inputs={"pd": "2%", "lgd": "LGD 3"})
+
+    assert written["inputs"] == {"pd": "2%", "experian_score": 41, "note": "x", "lgd": "LGD 3"}
+
+
+def test_write_state_merge_inputs_creates_inputs_when_none_are_recorded(tmp_path):
+    written = write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                          merge_inputs={"pd": "2%"})
+
+    assert written["inputs"] == {"pd": "2%"}
+
+
+def test_write_state_merge_inputs_refuses_inputs_passed_together_without_writing(tmp_path):
+    path = _seed_entity_registry_state(tmp_path)
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError, match="either inputs or merge_inputs"):
+        write_state("Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01", base_dir=str(tmp_path),
+                    inputs={"pd": "1%"}, merge_inputs={"pd": "2%"})
+
+    assert path.read_bytes() == before
+
+
+def test_write_state_expect_inputs_refuses_a_changed_input_and_writes_nothing(tmp_path):
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), inputs={"pd": "1%", "lgd": "LGD 3"})
+    path = Path(state_path("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path)))
+    before = path.read_bytes()
+
+    with pytest.raises(state_manager.InputsChangedError, match="recorded input 'lgd' changed after it was read"):
+        write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), marker="x",
+                    merge_inputs={"pd": "2%"}, expect_inputs={"lgd": "LGD 4"})
+
+    assert path.read_bytes() == before
+
+
+def test_write_state_expect_inputs_passes_when_the_relied_on_input_is_unchanged(tmp_path):
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), inputs={"pd": "1%", "lgd": "LGD 3"})
+
+    written = write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                          merge_inputs={"pd": "2%"}, expect_inputs={"lgd": "LGD 3"})
+
+    assert written["inputs"] == {"pd": "2%", "lgd": "LGD 3"}
+
+
+@pytest.mark.parametrize(("recorded", "now"), [(0, False), (1, True), (1, 1.0), ({"a": 0}, {"a": False}), ([1], [True])],
+                         ids=["zero-false", "one-true", "int-float", "nested-dict", "nested-list"])
+def test_write_state_expect_inputs_keeps_the_json_type(tmp_path, recorded, now):
+    """PX623-112 / CG623-8: a changed JSON type is a change, even when Python equality says they match."""
+    write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path), inputs={"pd": now})
+
+    with pytest.raises(state_manager.InputsChangedError):
+        write_state("Acme", "Loan", date_str="2026-01-01", base_dir=str(tmp_path),
+                    merge_inputs={"lgd": "LGD 3"}, expect_inputs={"pd": recorded})
+
+
+def test_write_state_merge_inputs_refuses_a_non_object_inputs_and_keeps_the_bytes(tmp_path):
+    """CG623-9: the public merge path does not replace a malformed container."""
+    path = _seed_entity_registry_state(tmp_path)
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["inputs"] = ["not", "an", "object"]
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    before = path.read_bytes()
+
+    with pytest.raises(StateShapeError, match='"inputs" must be an object'):
+        write_state("Synthetic Group Ltd", "Synthetic Group Facility", date_str="2026-01-01",
+                    base_dir=str(tmp_path), merge_inputs={"pd": "1%"})
+
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize("role", ["subsidiary", "parent", "guarantor"])
 def test_record_entity_record_refuses_an_unknown_raw_line_item_name_and_preserves_bytes(tmp_path, role):
     """Rule: R-SPREAD-008

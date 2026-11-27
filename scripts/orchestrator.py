@@ -47,6 +47,7 @@ from spreading_builder import (
 from spreading_check import plan_fields, prior_periods_to_ignore
 from state_manager import (
     DEALS_DIR,
+    InputsChangedError,
     sanitize_path_component,
     StateError,
     state_path,
@@ -133,7 +134,7 @@ MAX_REVIEW_ITERATIONS = 3
 STATE_KEYS_READ = ("steps_completed", "financials", "ratios", "financials_source", "collateral", "collateral_analysis",
                    "multi_period_financials", "stress_assumptions", "downside_case", "covenants",
                    "security_package", "guarantees", "review_trail",   # review_trail: append_review_trail() reads it
-                   "credit_aggregation", "analyst_supplied_financials")
+                   "credit_aggregation", "analyst_supplied_financials", "inputs")
 
 
 def _completion_kwargs(model):
@@ -559,6 +560,60 @@ def _build_grounding_context(company, proposal, pd_score, lgd_score, model_data,
     return "\n".join(parts)
 
 
+class RiskInputsError(ValueError):
+    """PD or LGD is unavailable, or an explicit PD/LGD flag was blank (issue #599)."""
+
+
+def _risk_input_unavailable(value: Any) -> bool:
+    """True for None and for a blank or whitespace-only string; any other value is a judgement to keep."""
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _resolve_pd_lgd_inputs(
+    company: str,
+    proposal: str,
+    pd_override: Any | None = None,
+    lgd_override: Any | None = None,
+    new_review: bool = False,
+    date_str: str | None = None,
+) -> tuple[Any, Any]:
+    """Resolve explicit risk-input overrides or the selected deal's recorded values.
+
+    An omitted flag falls back only to its matching key in the selected deal's
+    inputs object. No synthetic defaults are invented. Missing inputs stop the
+    headless command before it can create a review folder, write state or call
+    a model. A blank or whitespace-only recorded value counts as missing, and a
+    blank explicit flag (for example an unset CI variable) is refused rather than
+    silently replaced by a recorded value. Other values pass through unchanged;
+    format validation remains outside this function because PD and LGD are
+    human-owned judgements. `date_str` lets the caller reuse the dated state it
+    already selected, so the values and the state they are saved into always
+    come from the same record.
+    """
+    for flag, override in (("--pd", pd_override), ("--lgd", lgd_override)):
+        if override is not None and _risk_input_unavailable(override):
+            raise RiskInputsError(f"{flag} is blank; supply a value or omit the flag; nothing was written.")
+    if date_str is None:
+        date_str = resolve_date_str(company, proposal, new_review=new_review)
+    existing_state = read_state(company, proposal, date_str=date_str, keys=("inputs",)) or {}
+    recorded_inputs = existing_state.get("inputs")
+    if not isinstance(recorded_inputs, Mapping):
+        recorded_inputs = {}
+
+    pd_score = pd_override if pd_override is not None else recorded_inputs.get("pd")
+    lgd_score = lgd_override if lgd_override is not None else recorded_inputs.get("lgd")
+    missing = [
+        label for label, value in (("PD", pd_score), ("LGD", lgd_score))
+        if _risk_input_unavailable(value)
+    ]
+    if missing:
+        raise RiskInputsError(
+            "no recorded or supplied PD/LGD inputs "
+            f"(missing: {', '.join(missing)}); nothing was written."
+        )
+    return pd_score, lgd_score
+
+
 def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   multi_period_financials=None, collateral_data=None, stress_assumptions=None,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
@@ -597,19 +652,43 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
         # The near-miss advisory is best effort: if the company folder cannot be listed, the
         # run continues exactly as it did before the lookup existed.
         lookup = {"record_found": True, "near_misses": []}
+    near_match_note = None
     if not lookup["record_found"] and lookup["near_misses"]:
         suggestions = ", ".join(
             f"{item['proposal']!r} ({item['date']})" for item in lookup["near_misses"]
         )
-        print(
-            f"warning: no saved deal record for {proposal!r} under {company!r}; "
-            f"normalized near match(es): {suggestions}. Continuing with current behaviour.",
-            file=sys.stderr,
+        near_match_note = (
+            f"no saved deal record for {proposal!r} under {company!r}; normalized near match(es): {suggestions}"
         )
     date_str = resolve_date_str(company, proposal, new_review=new_review)
+    # Resolve PD and LGD once, from the same dated state this run will save into, before any write or model call.
+    # Only the flags actually given are written back; a fallback read from the record is checked, not rewritten.
+    explicit_risk_inputs = {
+        key: value for key, value in (("pd", pd_score), ("lgd", lgd_score)) if value is not None
+    }
+    try:
+        pd_score, lgd_score = _resolve_pd_lgd_inputs(
+            company, proposal, pd_score, lgd_score, new_review=new_review, date_str=date_str,
+        )
+    except RiskInputsError as exc:
+        if near_match_note:
+            raise RiskInputsError(f"{exc} Note: {near_match_note}.") from exc
+        raise
+    if near_match_note:
+        print(f"warning: {near_match_note}. Continuing with current behaviour.", file=sys.stderr)
+    resolved_risk_inputs = {"pd": pd_score, "lgd": lgd_score}
+    relied_on_risk_inputs = {k: v for k, v in resolved_risk_inputs.items() if k not in explicit_risk_inputs}
     new_state_file = state_path(company, proposal, date_str=date_str)
+    # One existence check decides both the refusal and the start, so the folder cannot vanish between two checks and
+    # be recreated empty on top of a fallback that was relied on (PX623-114 / CG623-11).
+    state_exists = os.path.isfile(new_state_file)
+    if new_review and relied_on_risk_inputs and not state_exists:
+        # The scores were read from today's existing review, which has since vanished: never start a new empty record
+        # on top of a fallback that was relied on (PX623-113 / CG623-10).
+        raise InputsChangedError(
+            "today's review was removed after its recorded PD/LGD were read; nothing was written. Rerun the command.")
     company_dir = os.path.dirname(os.path.dirname(new_state_file))
-    if new_review and os.path.isdir(company_dir) and not os.path.isfile(new_state_file):
+    if new_review and os.path.isdir(company_dir) and not state_exists:
         # Start a new annual review through the shared state-manager primitive.
         # If today's state already exists, this is a rerun after failure: resume it
         # without reselecting or changing its existing prior_review_date.
@@ -870,8 +949,14 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # Checkpoint the grounded figures before either agent is called: see
     # CLAUDE.md's "Context Window & State Management Protocol" -- these
     # numbers must exist on disk, not only in the prompts about to be sent.
+    # Only the PD and LGD flags actually given are merged, into the inputs as they are on disk under the write lock,
+    # so a change to another recorded input (for example the bureau score) is never overwritten. A score read from
+    # the record is not rewritten: it must still equal what this run used for its prompts, or the write is refused
+    # and nothing is saved (issue #599).
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
-                inputs={"pd": pd_score, "lgd": lgd_score},
+                merge_inputs=explicit_risk_inputs, expect_inputs=relied_on_risk_inputs,
+                # A resumed same-day review must still be there when it is written, whichever PD/LGD flags were given.
+                require_existing=bool(new_review and state_exists),
                 financials=financials, ratios=ratios, collateral=collateral, **collateral_analysis_write,
                 financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,
@@ -976,8 +1061,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
-    parser.add_argument("--pd", default="0.20%")
-    parser.add_argument("--lgd", default="LGD 3 (15%)")
+    parser.add_argument("--pd", default=None, help="Override recorded PD; otherwise use saved inputs.pd for this deal")
+    parser.add_argument("--lgd", default=None, help="Override recorded LGD; otherwise use saved inputs.lgd for this deal")
     parser.add_argument("--type", default="corporate_credit")
     parser.add_argument("--financials",
                          help="Path to a JSON file of multi-period raw financials, dict-keyed by "
@@ -1026,6 +1111,6 @@ if __name__ == "__main__":
                      collateral_data=collateral_data,
                      stress_assumptions=stress_assumptions,
                      new_review=args.new_review)
-    except (StateError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
+    except (StateError, RiskInputsError, MissingCredentialsError, EmptyModelResponseError, ModelResponseTruncatedError,
             FinancialInputError, StressAssumptionsError, TemplateContentError) as exc:
         sys.exit(f"error: {exc}")

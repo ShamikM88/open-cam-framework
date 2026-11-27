@@ -148,7 +148,7 @@ statements, a company's own filings/website, a recognized credit bureau or ratin
 report, or another primary document you supply. Neither agent should ever estimate or invent a
 figure it cannot source. Where no external rating system or in-house scoring tool (e.g. a
 Moody's/bureau integration) is wired up, PD/LGD grades are **user-supplied inputs** (via the
-`--pd` / `--lgd` flags) and are labelled as such in the output — the framework does not pretend
+`--pd` / `--lgd` flags, or the PD and LGD already recorded in the selected deal's `state.json` when a flag is omitted) and are labelled as such in the output — the framework does not pretend
 to have scored the risk itself.
 
 ## Slash commands and the agents

@@ -22,7 +22,7 @@ shortened):
   "date": "2026-10-04",
   "schema_version": "1.3.0",
   "deal_type": "asset_finance",
-  "inputs": {"pd": "0.20%", "lgd": "LGD 3 (15%)"},
+  "inputs": {"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41},
   "steps_completed": ["spread", "project"],
   "financials_source": "framework-computed",
   "multi_period_financials": {"FY-Current": {"revenue": 5000, "cost_of_sales": 3000, "...": "..."}},

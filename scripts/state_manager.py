@@ -32,7 +32,7 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from types import TracebackType
 from typing import Any, Literal, NotRequired, Self, TypedDict, overload
@@ -123,6 +123,10 @@ class StateError(ValueError):
     """A problem with a state.json file's CONTENT (as opposed to a bug in the code reading it): corrupt JSON, the wrong
     shape, a version this code must not overwrite. Every CLI that touches state turns it into one `error:` line and
     exit status 1 instead of a traceback; it is still a ValueError for any caller that already catches that."""
+
+
+class InputsChangedError(StateError):
+    """A recorded input a caller relied on changed before its write; nothing was written (issue #599)."""
 
 
 class SchemaVersionError(StateError):
@@ -1713,9 +1717,18 @@ def read_state(
 
 def write_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
-    **fields: Any,
+    merge_inputs: Mapping[str, Any] | None = None, expect_inputs: Mapping[str, Any] | None = None,
+    require_existing: bool = False, **fields: Any,
 ) -> dict[str, Any]:
     """Merge `fields` into this deal's state.json (if any) and write it back.
+
+    `merge_inputs` updates only the named keys of the recorded `inputs` object, read and written under the same
+    lock as the rest of the write, so a concurrent change to another input is never overwritten by a stale copy
+    (issue #599). `expect_inputs` names recorded inputs the caller relied on but is not writing: under the same lock
+    each must still equal the value the caller read, otherwise `InputsChangedError` is raised and nothing is written.
+    Do not pass `inputs=` as well. `require_existing=True` makes the write refuse, under the same lock, when the
+    state file is not there: a caller that resumed an existing review must never recreate it empty if it vanished
+    after the caller looked (`InputsChangedError`, nothing written; CG623-13).
 
     Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
     reusing an existing dated folder for this company/proposal when
@@ -1740,6 +1753,8 @@ def write_state(
     """
     # Reject invalid dates before any path handling or directory creation.
     date_str = _validate_explicit_state_date(date_str)
+    if merge_inputs is not None and "inputs" in fields:
+        raise StateShapeError("Refusing to write state.json: pass either inputs or merge_inputs, not both.")
 
     # Reject invalid numeric values before path creation or state mutation.
     try:
@@ -1762,7 +1777,13 @@ def write_state(
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     with _FileLock(path):
-        return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
+        if require_existing and not os.path.isfile(path):
+            raise InputsChangedError(
+                "the review being resumed was removed after it was found; nothing was written. Rerun the command.")
+        if merge_inputs is None and expect_inputs is None:
+            return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
+        return _merge_and_write(path, company, proposal, date_str, base_dir, fields,
+                                merge_inputs=merge_inputs, expect_inputs=expect_inputs)
 
 
 def _check_schema_version_is_writable(recorded: object, path: str) -> None:
@@ -1783,9 +1804,21 @@ def _check_schema_version_is_writable(recorded: object, path: str) -> None:
             "instead; nothing was changed.")
 
 
+def _same_json_value(left: object, right: object) -> bool:
+    """Equality that keeps the JSON type: 0 is not False, 1 is not True, 1 is not 1.0, recursively in containers."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(_same_json_value(left[k], right[k]) for k in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(_same_json_value(a, b) for a, b in zip(left, right, strict=True))
+    return left == right
+
+
 def _merge_and_write(
     path: str, company: str, proposal: str, date_str: str, base_dir: str | os.PathLike[str] | None,
-    fields: dict[str, Any],
+    fields: dict[str, Any], merge_inputs: Mapping[str, Any] | None = None,
+    expect_inputs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The actual read-modify-write, factored out so both write_state() and
     append_review_trail() can hold one _FileLock across their *entire*
@@ -1798,11 +1831,28 @@ def _merge_and_write(
     # No file yet (state == {}) has no version either; that is a fresh deal, not a malformed one. An existing file's
     # missing key already reads back as LEGACY_SCHEMA_VERSION; an explicit null stays None and is refused below.
     _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION), path)
+    if expect_inputs:
+        recorded = state.get("inputs")
+        recorded = recorded if isinstance(recorded, dict) else {}
+        for key, expected in expect_inputs.items():
+            if key not in recorded or not _same_json_value(recorded[key], expected):
+                raise InputsChangedError(
+                    f"recorded input {key!r} changed after it was read ({expected!r} -> {recorded.get(key)!r}); "
+                    "nothing was written. Rerun the command.")
     state["company"] = company
     state["proposal"] = proposal
     state["date"] = date_str
     state["schema_version"] = SCHEMA_VERSION
     state.update(fields)
+    if merge_inputs is not None:
+        current_inputs = state.get("inputs")
+        if current_inputs is not None and not isinstance(current_inputs, dict):
+            raise StateShapeError(
+                f'Refusing to write state.json: "inputs" must be an object, found {_json_type(current_inputs)}; '
+                "nothing was written.")
+        merged_inputs = dict(current_inputs) if isinstance(current_inputs, dict) else {}
+        merged_inputs.update(merge_inputs)
+        state["inputs"] = merged_inputs
     try:
         validate_finite_state_numbers(state, path=path)
     except NonFiniteNumberError as exc:

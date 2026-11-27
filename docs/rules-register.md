@@ -122,6 +122,7 @@ independently proven by the gate.
 - `R-EXPORT-008`
 - `R-STATE-005`
 - `R-STATE-006`
+- `R-SPREAD-008`
 
 ## Policy engine and checks (POL)
 
@@ -423,6 +424,18 @@ independently proven by the gate.
 - **Implemented in:** `scripts/spreading_check.py::plan_fields`
 - **Status:** Not covered
 - **Tracking:** [Issue #530](https://github.com/ShamikM88/open-cam-framework/issues/530) (test citation and verification).
+
+### R-SPREAD-008 — an unknown raw line-item name is refused, never read as zero
+
+- **Claim:** An incoming raw line item whose name is not one of the framework's field names is refused
+  before anything is written, with one error naming the period, the key and the nearest valid name; an
+  unknown name already on file is warned about and still computed. A new guarantor entity record is refused
+  the same way at registration (`state_manager.record_entity_record`), and a stored one is warned about when it is
+  spread (`spreading_check.compute_entity`).
+- **Source:** [Raw line-item names](financial-model.md#raw-line-item-names).
+- **Implemented in:** `scripts/numeric_validation.py::refuse_unknown_raw_line_items`
+- **Status:** Covered
+- **Tracking:** —
 
 ## Export and rendered output (EXPORT)
 

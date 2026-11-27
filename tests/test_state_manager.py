@@ -4731,3 +4731,47 @@ def test_record_entity_record_still_accepts_a_number_that_round_trips_exactly(tm
         perimeter_confirmed=True, date_str="2026-10-27", base_dir=str(tmp_path))
 
     assert result["recorded"] is True
+
+
+@pytest.mark.parametrize("role", ["subsidiary", "parent", "guarantor"])
+def test_record_entity_record_refuses_an_unknown_raw_line_item_name_and_preserves_bytes(tmp_path, role):
+    """Rule: R-SPREAD-008
+
+    A misspelt guarantor line must not be read as zero: registration refuses it, for every role, and writes nothing.
+    """
+    guarantees = [{"guarantee_id": "GUARANTEE-SYN-001", "provider": "Synthetic GUARANTEE-SYN-001"}]
+    path = _seed_entity_registry_state(
+        tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()}, guarantees=guarantees)
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", role)
+    if role == "guarantor":
+        record["guarantee_ids"] = ["GUARANTEE-SYN-001"]
+    record["multi_period_financials"] = {"FY-Current": {"revenue": 200, "cost_of_goods_sold": 90}}
+    record["period_ends"] = {"FY-Current": "2025-12-31"}
+
+    with pytest.raises(state_manager.StateError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    message = str(caught.value)
+    assert message.startswith("Refusing to register entity_record: entity_record 'synthetic-opco': ")
+    assert "period 'multi_period_financials / FY-Current'" in message
+    assert "'cost_of_goods_sold'" in message and "cost_of_sales" in message and "nothing was written" in message
+    assert path.read_bytes() == before
+
+
+def test_record_entity_record_names_the_unknown_keys_of_both_raw_stores_in_one_error(tmp_path):
+    """Issue #596 (PX624-109 / CG624-7): a mixed-basis record is not diagnosed one store at a time."""
+    path = _seed_entity_registry_state(tmp_path, entity_records={"synthetic-parent": _entity_record_for_tests()})
+    before = path.read_bytes()
+    record = _entity_record_for_tests("synthetic-opco", "subsidiary")
+    record["multi_period_financials"] = {"FY-1": {"revenue": 200, "cost_of_goods_sold": 90}}
+    record["analyst_supplied_financials"] = {"FY-Current": {"admin_expense": 5}}
+    record["period_ends"] = {"FY-1": "2024-12-31", "FY-Current": "2025-12-31"}
+
+    with pytest.raises(state_manager.StateError) as caught:
+        _register_entity_record_for_tests(tmp_path, record)
+
+    message = str(caught.value)
+    assert "multi_period_financials / FY-1" in message and "cost_of_goods_sold" in message
+    assert "analyst_supplied_financials / FY-Current" in message and "admin_expense" in message
+    assert message.count("nothing was written") == 1 and path.read_bytes() == before

@@ -56,7 +56,7 @@ from collections.abc import Callable, Mapping
 
 from policy_engine import DEFAULT_COVENANT_BASIS, evaluate_resolved_covenant, evaluate_single_covenant
 from covenant_basis import resolve_covenant_views
-from numeric_validation import validate_raw_line_items, validate_stress_assumptions
+from numeric_validation import validate_raw_line_items, validate_stress_assumptions, warn_unknown_raw_line_items
 from spreading_builder import FIELD_LABELS, apply_stress_shocks, evaluate_financial_model
 from state_manager import (StateError, find_deal, read_state, sanitize_path_component,
                            state_path, validate_iso_date_str, validate_state)
@@ -445,6 +445,16 @@ def compute_from_state(state: Mapping[str, object]) -> dict[str, object]:
     # report refuses with its reason instead of searching as though nothing had been recorded.
     # Only an absent shock key defaults to zero.
     validate_stress_assumptions(stress)
+    # The break-even and shock searches recompute the stored raw lines, so a name that is not a field already on file is
+    # named once here, outside the scenario loops, and the computation continues (issue #596).
+    # Only the periods a borrower-basis covenant actually recomputes are scanned: an empty covenant list or a
+    # guarantor-only report never reads the borrower's raw store, so it names nothing (PX624-115 / CG624-10).
+    if any(isinstance(c, Mapping) and c.get("basis") != "guarantor_group" for c in covenants):
+        stored = state.get("multi_period_financials")
+        if isinstance(stored, Mapping):
+            used = set(_report_periods(ratios))
+            stored = {period: raw for period, raw in stored.items() if period in used}
+        warn_unknown_raw_line_items(stored, FIELD_LABELS, path="multi_period_financials on file")
     recorded_view = "consolidated" if isinstance(state.get("group_basis"), Mapping) else "borrower"
     resolved_views = resolve_covenant_views(state, covenants)
 

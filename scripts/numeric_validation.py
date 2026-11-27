@@ -1,3 +1,5 @@
+import difflib
+from collections.abc import Mapping
 import math
 import sys
 
@@ -8,6 +10,10 @@ class FinancialInputError(ValueError):
 
 class NonFiniteNumberError(FinancialInputError):
     """A financial input or computed value contains NaN or infinity."""
+
+
+class UnknownRawLineItemError(FinancialInputError):
+    """A raw line item is not one of the framework's field names."""
 
 
 class StressAssumptionsError(ValueError):
@@ -69,12 +75,77 @@ class InvalidFinancialInputError(FinancialInputError):
     """A recognised raw line item is not a finite JSON number or null."""
 
 
+def _nearest_valid_names(unknown, field_names):
+    """The closest known field names to `unknown`, for the refusal message (empty when none is close).
+
+    A key that is not text (possible only when a caller builds the mapping in code, never from JSON) is
+    compared by its text form, so the refusal stays a clean input error.
+    """
+    return difflib.get_close_matches(str(unknown), field_names, n=3, cutoff=0.5)
+
+
+def refuse_unknown_raw_line_items(value, field_names, path="financial inputs"):
+    """Refuse every raw line item that is not one of the framework's field names (issue #596).
+
+    An unknown name in a payload was previously silently ignored and the real field read as zero,
+    so one misspelt key changed every dependent subtotal and ratio. This refuses the payload
+    before anything is written, naming the period and each unknown key and suggesting the nearest
+    valid name. No underscore-prefixed or other metadata keys are allowed (maintainer decision on
+    issue #596, option A); every name in the payload must be a known field name.
+    """
+    if not isinstance(value, Mapping):
+        return value
+    known_fields = set(field_names)
+    problems = []
+    for period, raw in value.items():
+        if not isinstance(raw, Mapping):
+            continue
+        unknown = sorted((field for field in raw if field not in known_fields), key=str)
+        if unknown:
+            details = "; ".join(
+                f"{field!r} (nearest valid: {', '.join(_nearest_valid_names(field, field_names)) or 'none'})"
+                for field in unknown
+            )
+            problems.append(f"period {period!r} has unknown raw line-item name(s): {details}")
+    if problems:
+        # Every affected period is named in the one error, not only the first.
+        raise UnknownRawLineItemError(
+            f"{path}: {'; '.join(problems)}. "
+            f"Known names are the keys of spreading_builder.FIELD_LABELS; nothing was written."
+        )
+    return value
+
+
+def warn_unknown_raw_line_items(value, field_names, path="financial inputs"):
+    """Print one stderr warning per unknown raw line item already on file (issue #596).
+
+    An existing deal that recorded an unknown name before this rule existed is not locked out:
+    it still computes, and each unknown key is named so the analyst can correct it. The warning is printed
+    when the stored periods are read, so it can appear before a later check refuses the same call.
+    """
+    if not isinstance(value, Mapping):
+        return value
+    known_fields = set(field_names)
+    for period, raw in value.items():
+        if not isinstance(raw, Mapping):
+            continue
+        for field in sorted((field for field in raw if field not in known_fields), key=str):
+            print(
+                f"warning: {path}: period {period!r} has unknown raw line-item name {field!r} "
+                "already on file; it is ignored by the formulas and is kept as recorded. "
+                "Known names are the keys of spreading_builder.FIELD_LABELS.",
+                file=sys.stderr,
+            )
+    return value
+
+
 def validate_raw_line_items(value, field_names, path="financial inputs"):
     """Reject non-JSON-numeric values for known raw line-item fields.
 
     Null remains the established spelling of an unavailable input. Unknown
-    keys are deliberately ignored here because callers may carry metadata
-    alongside the framework's recognised raw fields.
+    keys are refused by `refuse_unknown_raw_line_items()` (issue #596) before
+    anything is written; this function validates the values of the known
+    fields.
     """
     if not isinstance(value, dict):
         return value

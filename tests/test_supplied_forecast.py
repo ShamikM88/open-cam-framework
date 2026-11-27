@@ -1087,3 +1087,19 @@ def test_percent_type_ratios_at_ten_or_below_do_not_warn(capsys):
 
     assert capsys.readouterr().err == ""
     assert supplied["forecast"]["FY+1"]["ratios"] == {"gearing": 10, "fcf_conversion_pct": 0.87}
+
+
+def test_a_derived_downside_names_an_unknown_stored_line_once_and_still_computes(deal, capsys):
+    """Issue #596 (PX624-112 / CG624-9): the supplied-forecast path recomputes stored lines, so it warns first."""
+    record(forecast={"FY+1": reconciled_year()}, stress=STRESS)
+    path = next(deal.rglob("state.json"))
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["analyst_supplied_financials"]["FY+1"]["cost_of_goods_sold"] = 5
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    capsys.readouterr()
+
+    record(forecast={"FY+1": reconciled_year()}, stress=STRESS)
+
+    err = capsys.readouterr().err
+    assert err.count("cost_of_goods_sold") == 1 and "analyst_supplied_financials on file" in err
+    assert "FY+1" in state()["downside_case"]["financials"]

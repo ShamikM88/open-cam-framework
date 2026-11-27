@@ -198,6 +198,7 @@ class WorkbookInputs(TypedDict):
     derived_downside_fields: Any
     group_basis: Any
     credit_aggregation: list[list[Any]] | None
+    withheld_prior_periods: list[str] | None
 
 
 def workbook_inputs_from_state(state: dict[str, Any]) -> WorkbookInputs:
@@ -219,6 +220,9 @@ def workbook_inputs_from_state(state: dict[str, Any]) -> WorkbookInputs:
         "derived_downside_fields": derived_downside_fields or None,
         "group_basis": state.get("group_basis"),
         "credit_aggregation": aggregation_sheet_rows(state),
+        # On an analyst-supplied deal the first forward year's prior period is the analyst's, which the state
+        # withholds as a prior comparator (maintainer decision on #597); the workbook shows it as N/A as well.
+        "withheld_prior_periods": ["FY+1"] if state.get("financials_source") == "analyst-supplied" else None,
     }
 
 

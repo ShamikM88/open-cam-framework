@@ -988,3 +988,27 @@ def test_guarantor_cushion_lists_the_recorded_forward_period_of_an_ineligible_gu
         assert entry["result"]["actual"] is None
         assert entry["result"]["reason"]
         assert entry["result"]["basis_entity_id"] == entity_id
+
+
+def test_a_report_with_no_covenants_or_only_a_guarantor_covenant_names_no_borrower_line(capsys):
+    """PX624-115 / CG624-10: the borrower's raw store is only warned about when a borrower covenant reads it."""
+    raws = {"FY-Current": _raw(revenue=50.0, typo=2.0)}
+    compute_from_state(_state([], raws=raws))
+    assert "typo" not in capsys.readouterr().err
+
+    guarantor = {"metric": "dscr", "type": "minimum", "threshold": 1.25, "basis": "guarantor_group"}
+    compute_from_state(_state([guarantor], raws=raws))
+    assert "typo" not in capsys.readouterr().err
+
+
+def test_the_cushion_report_names_an_unknown_stored_name_once_and_still_computes(capsys):
+    """Issue #596 (PX624-106 / CG624-5 / PX624-110): the stored lines are recomputed, so the name is warned about."""
+    raws = {"FY-Current": _raw(cost_of_goods_sold=600.0), "FY+1": _raw(interest_expensee=5.0)}
+    state = _state([{"metric": "dscr", "type": "minimum", "threshold": 1.25}], raws=raws)
+
+    report = compute_from_state(state)
+
+    err = capsys.readouterr().err
+    assert err.count("cost_of_goods_sold") == 1 and err.count("interest_expensee") == 1
+    assert "FY-Current" in err and "FY+1" in err
+    assert report["covenants"][0]["periods"]

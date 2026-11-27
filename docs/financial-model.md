@@ -67,6 +67,26 @@ the recorded actual ratio or its threshold exceeds 10, because it looks like a p
 fraction. It does not compare that likely unit mismatch as a `PASS` or `FAIL`. Existing N/A rules take precedence:
 a ratio with a zero or negative denominator remains N/A and its covenant remains UNRESOLVABLE for that reason.
 
+### Raw line-item names
+
+The valid raw line-item names are the keys of `scripts/spreading_builder.py`'s `FIELD_LABELS` (for example
+`revenue`, `cost_of_sales`, `admin_expenses`, `interest_paid` — not `cost_of_goods_sold`, `admin_expense` or
+`interest`). A payload carrying a name that is not one of them is refused before anything is written: one
+`error:` line names the period and each unknown key and, when a close match exists, suggests the nearest valid name, and nothing is written
+to `state.json` (issue #596, rule R-SPREAD-008). No underscore-prefixed or other metadata keys are allowed —
+every name in a payload must be a known field name. An omitted known field still reads as zero, as before; only
+the name is checked, never the value's presence.
+
+A deal that already has an unknown name on file in `multi_period_financials` — recorded before this rule existed —
+is not locked out: the call still computes. Every path that reads the stored lines to compute prints one stderr
+warning per unknown key naming the period and the key, so the analyst can correct it: a spreading run
+(`--financials` or `--spread`), a transcription commit (once, not once per preflight), the headless orchestrator
+(with new figures or stress-only), the covenant cushion report, the supplied-forecast path that derives a downside from stored analyst-supplied lines, a covenant policy read that
+recomputes a stored guarantor spread, and the guarantor `--entity-id` spread (which also names a misspelt key in the analyst-supplied
+store, names only, never computing it). The same refusal applies to a new guarantor entity record at registration,
+and the stored name stays on file until it is corrected. One refusal names the unknown keys of every affected period
+and of both raw stores, not only the first.
+
 ## Worked example
 
 `FY-Current` of the synthetic deal ([`financials_input.json`](examples/synthetic_co/financials_input.json)):
@@ -625,6 +645,22 @@ skips independent recomputation entirely (see issue #55):
 ```
 python scripts/spreading_check.py --company "Acme Corp" --proposal "Fleet Loan" --financials "deals/Acme Corp/Fleet Loan_financials_input.json"
 ```
+**Which periods are evaluated (issue #597).** A call evaluates the periods it touches plus the
+period that follows each of them, when that successor is on file and framework-computed, with the
+prior-working-capital map built from the merged store — so a forward-only call reads the prior
+period already on file (its `fcf_after_working_capital` and `cash_flow_dscr` are recorded from the
+whole deal, not as N/A), and a correction to one period recomputes the next. No formula changes: a
+forward year whose previous period is analyst-supplied stays N/A with a reason, never a figure
+blended from the other store (on a deal whose `financials_source` is analyst-supplied, a leftover framework
+historical period is never read as the prior, in the base case, the downside case and the workbook alike: the
+exported FCF after working capital for the first forward year reads `N/A`), a `null` period is "not recorded" and
+is never evaluated as a successor or shocked as a downside year (and a year that is later recorded as `null`
+drops the base and downside figures calculated for it earlier, so they cannot stay live as current), the five working-capital lines it reads go through
+the same raw-input contract as incoming figures (a boolean, a string or an oversized number is one `error:` line,
+while an unrelated bad line in a comparator-only period does not block the update), the stress run reads only the
+shocked periods and the period before each, and older periods are not recomputed on every call. See the note on
+F-064 in the [formula register](formula-register.md#f-064--fcf-after-working-capital).
+
 `update_financials_source` (CLI: `--no-update-financials-source` to disable) gates whether a
 fresh computation stamps `financials_source: "framework-computed"` -- `financials_source` is a
 whole-deal flag `/spread` owns the decision for, not per-period, so `/project`'s own call always

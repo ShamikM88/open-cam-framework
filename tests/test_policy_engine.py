@@ -2545,6 +2545,25 @@ def test_an_accented_id_and_a_label_with_no_visible_character_behave_as_expected
                     "security mapping cannot be verified."]
 
 
+@pytest.mark.parametrize("blank_id", ["𓑁", "𓑂", "𓑁𓑂", " 𓑁 "])
+def test_an_egyptian_hieroglyph_blank_is_unidentified_whatever_the_python_unicode_version(blank_id):
+    """U+13441 and U+13442 draw empty space; Unicode 16 calls them letters, older Pythons call them unassigned (CG622-8).
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": blank_id, "asset_class": blank_id}],
+        "security_package": [{"secures_asset_id": blank_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+    gaps = evaluate_deal_policy(state)["security_gaps"]
+    assert [gap.split(":")[0] for gap in gaps] == ["Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert "asset class: not recorded" in gaps[0]
+    # On Python 3.11 (Unicode 14) these are unassigned and excluded by accident; on Unicode 16 they are letters.
+    # Pinning the explicit exclusion is what keeps the answer the same on both (red without the fix on a new Python).
+    from policy_engine import _DEFAULT_IGNORABLE
+    assert {0x13441, 0x13442} <= _DEFAULT_IGNORABLE
+
+
 @pytest.mark.parametrize("blank_id", ["⠀", "⠀⠀", " ⠀ "])
 def test_a_braille_blank_id_is_unidentified_but_a_visible_braille_character_is_an_id(blank_id):
     """The Braille blank is a symbol that draws no dots, so it never joins an asset to a charge (PX622-108 / CG622-4).

@@ -34,6 +34,7 @@ import tempfile
 import time
 from collections.abc import Iterable
 from datetime import date, datetime
+from decimal import Decimal, DecimalException
 from types import TracebackType
 from typing import Any, Literal, NotRequired, Self, TypedDict, overload
 
@@ -66,7 +67,7 @@ class EntityPerimeter(TypedDict):
 
 
 class EntityIntercompanyLine(TypedDict):
-    """An identified raw line and counterparty, recorded but not eliminated in step 1."""
+    """An identified raw line; B2b checks the optional declaration fields on use."""
 
     period: str
     line_key: str
@@ -74,6 +75,11 @@ class EntityIntercompanyLine(TypedDict):
     direction: str
     amount: int | float
     confirmed: bool
+    loan_id: NotRequired[str]
+    legal_entity: NotRequired[str]
+    evidence: NotRequired[dict[str, str]]
+    of_which_owed_to_group: NotRequired[int | float]
+    separate_loan_confirmed: NotRequired[bool]
 
 
 class EntityRecord(TypedDict):
@@ -340,6 +346,13 @@ def _entity_record_date_problem(value: object, path: str) -> str | None:
 
 # The credit-aggregation record's period labels mirror _GROUP_BASIS_PERIOD_KEYS (issue #472, B2a).
 _CREDIT_AGGREGATION_PERIOD_KEYS = _GROUP_BASIS_PERIOD_KEYS
+_AGGREGATION_COMPUTED_EXTRAS: dict[str, type | tuple[type, ...]] = {
+    "adjusted_raw": dict, "adjusted_raw_rounded": list, "eliminations_applied": list, "refused_journals": list, "participant_table": list,
+    "withheld": dict, "limitations": list, "label": str, "metric_label": (str, type(None)),
+    "debt_before": (int, float), "debt_eliminated": (int, float), "debt_eliminated_pct": (int, float, type(None)),
+    "debt_lines": dict, "debt_memo": dict, "cash": dict, "group_net_debt": (int, float, type(None)),
+    "attestations": dict, "left_out": dict, "skipped_chain_entities": dict, "participant_guarantees": list,
+}
 
 
 def computed_figures_problem(computed: object) -> str | None:
@@ -352,7 +365,8 @@ def computed_figures_problem(computed: object) -> str | None:
     if (not isinstance(computed, dict) or not isinstance(computed.get("financials"), dict)
             or not isinstance(computed.get("ratios"), dict)):
         return 'must be an object with "financials" and "ratios" objects'
-    unexpected = sorted(set(computed) - {"financials", "ratios", "output_digest"})
+    extras = set(computed) - {"financials", "ratios", "output_digest"}
+    unexpected = sorted(extras - _AGGREGATION_COMPUTED_EXTRAS.keys())
     if unexpected:
         return "has unexpected key(s): " + ", ".join(repr(key) for key in unexpected)
     digest = computed.get("output_digest")
@@ -372,6 +386,10 @@ def computed_figures_problem(computed: object) -> str | None:
             if not finite:
                 return (f"{group}[{name!r}] must be a flat finite number or null per metric, not a nested "
                         "object, boolean or non-finite value")
+    if extras:
+        for key, shape in _AGGREGATION_COMPUTED_EXTRAS.items():
+            if key not in computed or isinstance(computed[key], bool) or not isinstance(computed[key], shape):
+                return f"{key} is missing or has the wrong shape for a calculated aggregation"
     return None
 
 
@@ -398,7 +416,8 @@ def _credit_aggregation_problems(value: object) -> list[str]:
         if not isinstance(entry, dict):
             problems.append(f"{path} must be an object")
             continue
-        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"})
+        calculation_keys = {"input", "input_digest", "journals"}
+        unexpected = sorted(set(entry) - {"manifest", "input_fingerprint", "computed"} - calculation_keys)
         if unexpected:
             problems.append(f"{path} has unexpected key(s): " + ", ".join(repr(key) for key in unexpected))
 
@@ -423,6 +442,13 @@ def _credit_aggregation_problems(value: object) -> list[str]:
             computed_problem = computed_figures_problem(computed)
             if computed_problem is not None:
                 problems.append(f"{path}.computed {computed_problem}")
+        if calculation_keys & entry.keys():
+            digest = entry.get("input_digest")
+            if (not isinstance(entry.get("input"), dict) or not isinstance(entry.get("journals"), list)
+                    or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+                problems.append(f"{path} requires a confirmed input object, journals list and SHA-256 input_digest")
+            if not isinstance(computed, dict) or not _AGGREGATION_COMPUTED_EXTRAS.keys() <= computed.keys():
+                problems.append(f"{path} requires a calculated computed object when calculation inputs are stored")
     return problems
 
 
@@ -853,6 +879,21 @@ def record_group_basis(
 
 
 
+NUMERIC_PRECISION_PROBLEM_KEY = "_numeric_precision_problem"
+
+
+def _exact_json_float(text: str) -> float:
+    """Parse one JSON number, refusing one that binary floating point cannot hold exactly.
+
+    `20.000000000000001` would silently become `20.0`; a carrying amount rounded that way can then match another
+    amount it does not equal (issue #472). A number that round-trips exactly parses as before.
+    """
+    value = float(text)
+    if Decimal(text) != Decimal(str(value)):
+        raise ValueError(f"number {text} exceeds the precision of the state JSON format and would be rounded")
+    return value
+
+
 def record_entity_record(
     company: str, proposal: str, entity_record_file: str, perimeter_confirmed: bool = False,
     date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None,
@@ -889,9 +930,9 @@ def record_entity_record(
     try:
         with open(entity_record_file, encoding="utf-8") as handle:
             try:
-                supplied: Any = json.load(handle)
+                supplied: Any = json.load(handle, parse_float=_exact_json_float)
                 record: EntityRecord = supplied
-            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+            except (ValueError, DecimalException, RecursionError) as exc:
                 raise StateError(
                     f"Cannot read entity-record file {entity_record_file!r} as UTF-8 JSON: {exc}"
                 ) from exc
@@ -1657,8 +1698,12 @@ def state_path(
 def read_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
     keys: Iterable[str] | dict[str, str] | None = (),
+    exact_numbers: bool = False,
 ) -> dict[str, Any] | None:
     """Return the parsed state.json dict for this deal, or None if it doesn't exist yet.
+
+    `exact_numbers=True` refuses a number token that binary floating point would round (a hand-edited
+    `20.000000000000001`), for a caller that matches amounts exactly (the credit-aggregation calculation, issue #472).
 
     Raises ValueError (not a raw json.JSONDecodeError) if the file exists
     but is corrupted -- most likely left partial by an interrupted write --
@@ -1690,8 +1735,9 @@ def read_state(
         return None
     with open(path, encoding="utf-8") as f:
         try:
-            state: dict[str, Any] = json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as e:
+            text = f.read()
+            state: dict[str, Any] = json.loads(text, parse_float=_exact_json_float if exact_numbers else None)
+        except (ValueError, RecursionError) as e:
             # Not valid UTF-8 JSON (a UTF-16 file from PowerShell's `>`, say) or nested absurdly deep: the file's
             # fault, reported like any other unusable state rather than as a traceback.
             detail = e if isinstance(e, json.JSONDecodeError) else f"{type(e).__name__}: {str(e)[:80]}"
@@ -1708,6 +1754,15 @@ def read_state(
         ) from exc
     validate_state(state, keys=keys, path=path)
     state.setdefault("schema_version", LEGACY_SCHEMA_VERSION)
+    if not exact_numbers and isinstance(state.get("credit_aggregation"), dict):
+        # A deal with a recorded aggregation is read on the same exact-number terms as the calculation: a hand-edited
+        # number that binary floating point would round does not stop the read, but it is recorded under a private key
+        # so the freshness check withholds the figures instead of recomputing from a silently rounded input
+        # (PX628-124). The key appears only when such a number is present and is never written back.
+        try:
+            json.loads(text, parse_float=_exact_json_float)
+        except ValueError as exc:
+            state[NUMERIC_PRECISION_PROBLEM_KEY] = str(exc)
     return state
 
 
@@ -1795,6 +1850,11 @@ def _merge_and_write(
     to acquire a lock its own caller is already holding).
     """
     state = read_state(company, proposal, date_str=date_str, base_dir=base_dir) or {}
+    # The private read-time marker is never stored. A number the read would have rounded is refused here, so an
+    # unrelated write cannot reserialize it rounded (CG628-16).
+    precision_problem = state.pop(NUMERIC_PRECISION_PROBLEM_KEY, None)
+    if precision_problem is not None:
+        raise StateShapeError(f"Refusing to write state.json: {precision_problem}. Correct the number; no state was changed.")
     # No file yet (state == {}) has no version either; that is a fresh deal, not a malformed one. An existing file's
     # missing key already reads back as LEGACY_SCHEMA_VERSION; an explicit null stays None and is refused below.
     _check_schema_version_is_writable(state.get("schema_version", LEGACY_SCHEMA_VERSION), path)

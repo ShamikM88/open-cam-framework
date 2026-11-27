@@ -1,26 +1,24 @@
 """Integration of the credit aggregation through the real freshness check (issue #472, CG587-1 to CG587-4).
 
-Nothing here stubs `aggregation_period_status`: a deal is recorded through the real B2a path, a flat `computed`
-object is added by hand (B2b does not exist yet), and the policy check, summary, workbook rows and the public
-read paths are exercised on it.
+Nothing here stubs `aggregation_period_status`: a deal is calculated through B2b, and the policy check, summary,
+workbook rows and public read paths are exercised on it.
 """
-import copy
 import json
 
 import pytest
 
 import committee_summary
 import credit_aggregation
+import covenant_cushion
 import deal_export
 import export_readback
 import policy_check
 from state_manager import StateError
 
-from test_credit_aggregation import (  # noqa: E402 (sibling test module providing the B2a fixtures)
-    COMPANY, DATE, PROPOSAL, _read_full, _record, _seed_two_entity_deal, _state_file,
-)
+from test_credit_aggregation import COMPANY, DATE, PROPOSAL, _read_full, _state_file
+from test_credit_aggregation_calc import run
 
-COMPUTED = {"financials": {"ebitda": 500.0, "total_debt": 900.0}, "ratios": {"gross_leverage": 1.8}}
+LEVERAGE = 390 / 800
 COVENANT = {"metric": "gross_leverage", "type": "maximum", "threshold": 3.0, "basis": "consolidated"}
 
 
@@ -31,12 +29,8 @@ def _write(tmp_path, state):
 @pytest.fixture
 def deal(tmp_path):
     """A recorded, fresh, calculated aggregation with a consolidated covenant, as state.json holds it."""
-    _seed_two_entity_deal(tmp_path)
-    _record(tmp_path)
+    run(tmp_path)
     state = _read_full(tmp_path)
-    entry = state["credit_aggregation"]["FY-Current"]
-    entry["computed"] = {**copy.deepcopy(COMPUTED), "output_digest": credit_aggregation.computed_output_digest(
-        entry["input_fingerprint"], COMPUTED["financials"], COMPUTED["ratios"])}
     state["covenants"] = [dict(COVENANT)]
     state["ratios"] = {"FY-Current": {"gross_leverage": 5.0}}
     _write(tmp_path, state)
@@ -45,11 +39,15 @@ def deal(tmp_path):
 
 def test_the_policy_check_entry_point_routes_a_consolidated_covenant_to_a_fresh_aggregation(deal):
     result = policy_check.compute_from_state(_read_full(deal))["policy_state"]["covenant_results"][0]
-    assert result["status"] == "PASS" and result["actual"] == 1.8
+    assert result["status"] == "PASS" and result["actual"] == LEVERAGE
     assert result["view_source"] == "credit_aggregation" and result["input_fingerprint"]
 
 
 def test_a_changed_input_makes_the_policy_check_covenant_unresolvable_not_borrower_based(deal):
+    """Rule: R-POL-023
+
+    A covered source changes, so the stored period is stale: the covenant is UNRESOLVABLE, never borrower-based.
+    """
     state = _read_full(deal)
     state["financials"]["FY-Current"]["raw"]["cash"] += 1     # a covered source changes: the fingerprint is stale
     result = policy_check.compute_from_state(state)["policy_state"]["covenant_results"][0]
@@ -57,10 +55,39 @@ def test_a_changed_input_makes_the_policy_check_covenant_unresolvable_not_borrow
     assert "fingerprint" in result["reason"] or "no longer" in result["reason"]
 
 
+def test_cushion_discloses_the_current_aggregation_without_stressing_borrower_inputs(deal):
+    state = _read_full(deal)
+    state["multi_period_financials"] = {"FY-Current": state["financials"]["FY-Current"]["raw"]}
+    period = covenant_cushion.compute_from_state(state)["covenants"][0]["periods"][0]
+    assert period["result"]["actual"] == LEVERAGE
+    assert period["result"]["view_label"] == "credit aggregation, not accounting-reviewed"
+    assert period["result"]["view_limitations"] and period["shocks"] is None
+    assert period["break_even_ebitda"]["break_even_ebitda"] is None
+
+
+def test_cushion_reports_fy_current_for_an_aggregation_covenant_even_when_the_borrower_has_no_ratios(deal):
+    # CU628-8 (maintainer decision): the period list does not depend on the borrower's recorded ratios.
+    state = _read_full(deal)
+    state["multi_period_financials"] = {"FY-Current": state["financials"]["FY-Current"]["raw"]}
+    state["ratios"] = {}
+    periods = covenant_cushion.compute_from_state(state)["covenants"][0]["periods"]
+    assert [entry["period"] for entry in periods] == ["FY-Current"]
+    assert periods[0]["result"]["actual"] == LEVERAGE
+    assert periods[0]["result"]["view_source"] == "credit_aggregation"
+
+
+def test_review_policy_gate_rejects_an_aggregation_metric_that_is_withheld(deal):
+    state = _read_full(deal)
+    state["covenants"][0]["metric"] = "dscr"
+    result = policy_check.compute_from_state(state)
+    assert not result["compliant"]
+    assert any("Covenant UNRESOLVABLE: dscr" in line and "scheduled principal" in line for line in result["reasons"])
+
+
 def test_the_summary_and_workbook_rows_show_figures_only_while_the_period_is_current(deal):
     state = _read_full(deal)
     rows = credit_aggregation.aggregation_sheet_rows(state)
-    assert any(row[:1] == ["gross_leverage"] and row[1:] == [1.8] for row in rows)
+    assert any(row[:1] == ["gross_leverage"] and row[1:] == [LEVERAGE] for row in rows)
     state["financials"]["FY-Current"]["raw"]["cash"] += 1
     stale_rows = credit_aggregation.aggregation_sheet_rows(state)
     assert not any(row[:1] == ["gross_leverage"] for row in stale_rows)
@@ -102,5 +129,9 @@ def test_a_malformed_credit_aggregation_is_refused_by_the_summary_export_and_rea
 def test_the_committee_summary_collection_path_renders_the_real_status(deal):
     _, data = committee_summary.collect(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(deal))
     text = committee_summary.render_markdown(data)
-    assert "## Credit aggregation (not a consolidation)" in text and "1.8" in text
+    heading = "## Credit aggregation (not a consolidation)"
+    assert heading in text
+    # Scoped to the aggregation section: the same value is also printed in the Covenants section (Cubic, CU628).
+    section = text.split(heading, 1)[1].split(chr(10) + "## ", 1)[0]
+    assert str(LEVERAGE) in section
     assert data["policy"]["covenant_results"][0]["view_source"] == "credit_aggregation"

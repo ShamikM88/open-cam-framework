@@ -786,11 +786,13 @@ the entry says so and it is listed under [Known differences](#known-differences)
   `basis` and `basis_entity_id` (null when the ID is missing); borrower and case-A result shapes remain unchanged.
   A `consolidated` covenant may instead read a case-B credit aggregation (issue #472): when the state records a
   `credit_aggregation` and no `group_basis`, it is tested only on a period whose recorded inputs still reproduce
-  their fingerprint and whose `computed` object is well shaped and carries a matching `output_digest`; a stale,
-  invalid, uncalculated or malformed period is UNRESOLVABLE with that period's reason, never borrower figures. When
+  their fingerprint and whose entire `computed` object matches deterministic recomputation after the `output_digest` check;
+  a withheld metric or a stale, invalid, uncalculated or malformed period is UNRESOLVABLE with its reason, never
+  borrower figures. When
   both a `group_basis` and a `credit_aggregation` are recorded, a covenant is UNRESOLVABLE in the current,
   forward and downside results alike. An aggregation result carries `view_source` and the period's
-  `input_fingerprint` beside `basis`; borrower, case-A and guarantor result shapes are unchanged.
+  `input_fingerprint`, `view_label` and `view_limitations` beside `basis`, and `view_metric_label` for an
+  available excluding-other-income view. Borrower, case-A and guarantor result shapes are unchanged.
   A result names its `basis` when the covenant stated one or the recorded view is not the borrower's; an ordinary
   deal's results keep their earlier shape
 - **State keys:** `covenants[].basis`, `covenants[].basis_entity_id`, `group_basis`, `credit_aggregation`,
@@ -798,7 +800,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Workbook rows:** —
 - **Policy outputs:** `covenant_results`
 - **Implemented in:** `scripts/covenant_basis.py` — `resolve_covenant_view()` and `resolve_covenant_views()`;
-  `scripts/policy_engine.py` — `_evaluate_resolved_covenant()`, `_evaluate_covenant()` and
+  `scripts/policy_engine.py` — `evaluate_resolved_covenant()`, `_evaluate_covenant()` and
   `evaluate_deal_policy()` (with `_period_dict()` for the existing denominator explanation)
 - **Basis:** house convention (issue #169 equality and N/A rules)
 - **Status:** Implemented, not yet reviewed by an analyst
@@ -843,7 +845,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Workbook rows:** —
 - **Policy outputs:** `downside_covenant_breaches`
 - **Implemented in:** `scripts/policy_engine.py` — `_evaluate_downside_covenants()` (borrower/case-A path),
-  `_evaluate_resolved_covenant()` and `evaluate_deal_policy()` (C4 guarantor downside disclosure)
+  `evaluate_resolved_covenant()` and `evaluate_deal_policy()` (C4 guarantor downside disclosure)
 - **Basis:** house convention (issue #169 / #124 rules carried into the stress)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -865,7 +867,7 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Workbook rows:** —
 - **Policy outputs:** `forward_covenant_results`
 - **Implemented in:** `scripts/policy_engine.py` — `_evaluate_forward_covenants()` (borrower/case-A path),
-  `_evaluate_resolved_covenant()` and `evaluate_deal_policy()` (C4 guarantor periods)
+  `evaluate_resolved_covenant()` and `evaluate_deal_policy()` (C4 guarantor periods)
 - **Basis:** house convention (issue #176)
 - **Status:** Implemented, not yet reviewed by an analyst
 
@@ -1345,6 +1347,27 @@ nothing; nothing here is stored in state.
 - **Policy outputs:** —
 - **Implemented in:** `scripts/collateral_check.py` — `stressed_collateral_value()`, `apply_rv_realisation_stress()` and `_stressed_output()`; the key is accepted by `scripts/numeric_validation.py` — `validate_stress_assumptions()`
 - **Basis:** maintainer decisions 12-13 on #549 (comment 6617969057): residual-only stress with the lower-of split, one deal-level scenario, report-only outputs; the corrected worked example supersedes the issue body's whole-collateral haircut (comment 6597670645)
+- **Status:** Implemented, not yet reviewed by an analyst
+
+### F-068 — Aggregation EBITDA excluding other income
+
+- **Name:** EBITDA excluding other income (all other income of every participant removed, intragroup and external)
+- **Formula:** recompute [F-006](#f-006--ebitda) on the loan-adjusted raw sum with every participant's
+  `other_income` set to zero. Its separately named leverage and cover ratios use the same input basis and existing
+  evaluator arithmetic (F-022, F-023, F-026, F-027); [F-020](#f-020--total-debt-interest-bearing) is unchanged.
+- **Unit and storage:** currency EBITDA and unrounded ratio multiples, in the per-period aggregation output.
+- **Edge rules:** historical 12-month standalone scope only. The schedule must reconcile, with any unoffset
+  intragroup amount \(U\) solely in `other_income`, and each participant's `other_income - U` must be nonnegative.
+  No retained intragroup stock/asset profit; all other EBITDA, interest and cash gates still apply. Never show
+  a number for ordinary EBITDA or its ratios alongside the variant: those keys are recorded as null with the withheld reason; a non-positive ratio denominator is N/A.
+- **State keys:** `credit_aggregation[period].computed.financials.ebitda_excluding_other_income` and
+  `credit_aggregation[period].computed.ratios` keys suffixed `_excluding_other_income`
+- **Workbook rows:** separately named metrics in the Credit aggregation sheet, with the full EBITDA basis disclosure
+- **Policy outputs:** `covenant_results`, for explicitly named ratio metrics on the credit aggregation basis (F-038)
+- **Output rounding:** the evaluation is exact; a stored adjusted line whose exact decimal total a binary JSON number cannot hold is rounded, and `adjusted_raw_rounded` names it (CG628-17).
+- **Implemented in:** `scripts/credit_aggregation_calc.py` — `calculate_period()` using
+  `scripts/spreading_builder.py` — `evaluate_financial_model()`
+- **Basis:** [B2b v4.1 Section A.6](https://github.com/ShamikM88/open-cam-framework/issues/472#issuecomment-7002491959)
 - **Status:** Implemented, not yet reviewed by an analyst
 
 ## Known differences

@@ -100,6 +100,7 @@ independently proven by the gate.
 - `R-POL-019`
 - `R-POL-020`
 - `R-POL-021`
+- `R-POL-023`
 - `R-STATE-001`
 - `R-STATE-002`
 - `R-STATE-003`
@@ -306,6 +307,14 @@ independently proven by the gate.
 - **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
 - **Status:** Not covered
 - **Tracking:** [Issue #473](https://github.com/ShamikM88/open-cam-framework/issues/473)
+
+### R-POL-023 — A consolidated covenant reads a credit aggregation only while it is current
+
+- **Claim:** A `consolidated` covenant on a deal with no case-A `group_basis` reads a case-B credit aggregation only when the period's stored result equals a deterministic recomputation from the live inputs; a stale, invalid, uncalculated or withheld figure makes the result UNRESOLVABLE with its reason, with no borrower fallback, and a deal carrying both sources selects neither.
+- **Source:** [A consolidated covenant can read a credit aggregation](financial-model.md#covenants).
+- **Implemented in:** `scripts/covenant_basis.py::resolve_covenant_view`
+- **Status:** Covered
+- **Tracking:** —
 
 ## State persistence and validation (STATE)
 

@@ -49,6 +49,8 @@ def _consolidated_view(state: Mapping[str, Any]) -> dict[str, Any] | None:
         "recorded_periods": sorted(str(period) for period in recorded) if isinstance(recorded, Mapping) else [],
         "period_reasons": {},
         "input_fingerprints": {},
+        "withheld": {},
+        "metric_labels": {},
         "unresolvable_reason": None,
     }
     if not isinstance(recorded, Mapping):
@@ -76,6 +78,8 @@ def _consolidated_view(state: Mapping[str, Any]) -> dict[str, Any] | None:
             continue
         view["financials"][period] = dict(computed["financials"])
         view["ratios"][period] = dict(computed["ratios"])
+        view["withheld"][period] = computed.get("withheld", {})
+        view["metric_labels"][period] = computed.get("metric_label")
         view["eligible_raw_periods"].append(period)
     return view
 

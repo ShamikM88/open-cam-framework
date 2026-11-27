@@ -1,26 +1,16 @@
-"""Case-B credit aggregation, step B2a: validate and resolve the analyst-confirmed inputs.
-
-This module records the *contract* the accounting-gated B2b step (eliminations and
-calculation) will later fill: for each requested period it persists a manifest
-(participants, period-end evidence, confirmed scope) and one SHA-256 input
-fingerprint under the new top-level ``credit_aggregation`` key. It computes
-nothing: no elimination, no subtotal, no ratio. A recorded period's optional
-``computed`` object (``{"financials": {...}, "ratios": {...}}`` in the same shape
-as the borrower's top-level ``financials[period]`` / ``ratios[period]``) is written
-by B2b only; until it exists every consumer treats the period as UNRESOLVABLE with
-a reason (see ``aggregation_period_status``).
-
-Deterministic and dependency-free: importable without the anthropic SDK, like
-state_manager.py, whose locked read-validate-write path this mirrors.
-"""
+"""Case-B credit aggregation: confirm scope, calculate principal-only, and verify on read."""
 import argparse
 import hashlib
 import json
 import sys
-from typing import Any
+from collections.abc import Mapping
+from decimal import Decimal, DecimalException
+from typing import Any, TypedDict, cast
 
+from credit_aggregation_calc import LABEL, LIMITATIONS, MEMO_LABEL
 from numeric_validation import validate_finite_numbers
 from state_manager import (
+    NUMERIC_PRECISION_PROBLEM_KEY,
     computed_figures_problem,
     StateError,
     _FileLock,
@@ -29,6 +19,27 @@ from state_manager import (
     read_state,
     sanitize_path_component,
 )
+
+
+class RecordReport(TypedDict):
+    """What recording one request prints and returns (the `--request-file` CLI path)."""
+
+    recorded: bool
+    periods: list[str]
+    state_path: str
+
+
+class CalculationReport(RecordReport):
+    """What `--calculate` prints and returns: the recorded report plus each period's stored figures.
+
+    `results[period]` is the period's persisted `computed` object without `adjusted_raw`; its inner shape is
+    owned by `credit_aggregation_calc` and validated by `state_manager`, so it stays a mapping here.
+    """
+
+    calculated: bool
+    label: str
+    limitations: list[str]
+    results: dict[str, dict[str, Any]]
 
 
 class AggregationError(StateError):
@@ -55,6 +66,8 @@ RESERVED_BORROWER = "@borrower"
 # The request's exact per-period key set. Unknown keys are refused, never ignored.
 PERIOD_REQUEST_KEYS = ("participants", "borrower_period_end", "borrower_period_end_evidence",
                        "scope_confirmed")
+CALCULATION_INPUT_KEYS = {*PERIOD_REQUEST_KEYS, "attestations", "declarations", "journals",
+                          "left_out", "skipped_chain_entities", "participant_guarantees"}
 
 # The state keys the read-validate-write path validates (forecast_source is read from the
 # returned full state but is not a STATE_SHAPES key, so it is deliberately not validated here).
@@ -288,12 +301,8 @@ COMPUTED_OUTPUT_CONTRACT = "open-cam-credit-aggregation-output/v1"
 def computed_output_digest(input_fingerprint: str, financials: dict[str, Any], ratios: dict[str, Any]) -> str:
     """The SHA-256 a ``computed`` object must carry as ``output_digest`` (issue #472, CG587-11).
 
-    It is a consistency checksum: it binds the computed figures to the exact input fingerprint they were
-    calculated from, so an accidental or uncoordinated edit of a figure, or figures calculated for other inputs,
-    is not read as current. It does NOT authenticate who produced the figures: the helper is public and unkeyed,
-    so anyone who edits ``state.json`` can recompute it (CG587-15). Proving provenance needs the B2b design's
-    deterministic recompute on read (decision recorded on issue #472). The B2b writer must call this helper;
-    nothing else may fill ``computed``.
+    The calculation fingerprint binds the journal input digest as well as the raw inputs. The checksum is
+    unkeyed: it is a cheap edit check, not authentication, and cannot substitute for recomputation.
     """
     return _canonical_digest({
         "contract": COMPUTED_OUTPUT_CONTRACT,
@@ -303,7 +312,7 @@ def computed_output_digest(input_fingerprint: str, financials: dict[str, Any], r
     })
 
 
-def _canonical_digest(payload: dict[str, Any]) -> str:
+def _canonical_digest(payload: Mapping[str, object]) -> str:
     """One SHA-256 over canonical JSON, lowercase hex: deterministic for identical inputs."""
     try:
         canonical = json.dumps(
@@ -431,6 +440,68 @@ def resolve_request(state: dict[str, Any], request: object) -> dict[str, dict[st
     return records
 
 
+def _calculation_source(
+    state: dict[str, Any], period: str, request: object,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, str | None]]:
+    """Resolve the historical period without trusting any stored computed figures."""
+    from credit_aggregation_calc import obj
+
+    if period not in HISTORICAL_PERIOD_KEYS:
+        raise AggregationError(f"{period!r}: calculation is limited to historical periods")
+    try:
+        body = obj(request, f"{period} journal input", CALCULATION_INPUT_KEYS)
+        scope = {key: body[key] for key in PERIOD_REQUEST_KEYS}
+        record = resolve_request(state, {"periods": {period: scope}})[period]
+        manifest = record["manifest"]
+        scope["participants"] = manifest["participants"]
+        payload = _period_payload(state, period, scope)
+        for key in manifest["scope_confirmations"]:
+            lines = state["entity_records"][key]["intercompany_lines"]
+            if any(not isinstance(line, dict) or not isinstance(line.get("period"), str)
+                   or line["period"] not in PERIOD_KEYS for line in lines):
+                raise AggregationError(f"participant {key!r} has an intercompany line with an invalid period")
+        names = {key: state.get("company") if key == RESERVED_BORROWER
+                 else state["entity_records"][key].get("legal_name") for key in manifest["participants"]}
+    except (ValueError, OverflowError, TypeError, RecursionError) as exc:
+        raise AggregationError(f"{period}: {exc}") from exc
+    return record, payload["inputs"], names
+
+
+def _calculation_fingerprint(record: dict[str, Any], input_digest: str, names: dict[str, str | None]) -> str:
+    return _canonical_digest({
+        "contract": "open-cam-credit-aggregation-calculation/v1",
+        "scope_fingerprint": record["input_fingerprint"], "input_digest": input_digest, "legal_names": names,
+    })
+
+
+def _calculate_record(state: dict[str, Any], period: str, request: Any) -> dict[str, Any]:
+    from credit_aggregation_calc import calculate_period
+
+    record, inputs, names = _calculation_source(state, period, request)
+    try:
+        computed = calculate_period(period, request, inputs, names)
+        input_digest = _canonical_digest(request)
+        fingerprint = _calculation_fingerprint(record, input_digest, names)
+        computed["output_digest"] = computed_output_digest(fingerprint, computed["financials"], computed["ratios"])
+        _reject_non_finite_numbers(computed, f"{period} computed output")
+        if problem := computed_figures_problem(computed):
+            raise AggregationError(problem)
+        _canonical_digest(computed)  # also check canonical UTF-8 for disclosures, not just figures
+    except (ValueError, OverflowError, TypeError, RecursionError) as exc:
+        raise AggregationError(f"{period}: {exc}") from exc
+    return {**record, "input_fingerprint": fingerprint, "input": request, "input_digest": input_digest,
+            "journals": request["journals"], "computed": computed}
+
+
+def recompute_period(state: dict[str, Any], period: str) -> dict[str, Any]:
+    """Rebuild exactly one period from recorded input and live raw stores, without writing."""
+    recorded = state.get("credit_aggregation")
+    entry = recorded.get(period) if isinstance(recorded, dict) else None
+    if not isinstance(entry, dict) or "input" not in entry:
+        raise AggregationError(f"{period}: no confirmed calculation input is recorded")
+    return _calculate_record(state, period, entry["input"])["computed"]
+
+
 def _computed_digest_problem(computed: object, fingerprint: str) -> str | None:
     """Why a ``computed`` object's output digest is missing or wrong, or None (shape is checked separately)."""
     if not isinstance(computed, dict) or computed_figures_problem(computed) is not None:
@@ -451,8 +522,8 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
     """The read-side contract every consumer of a recorded period must use.
 
     Recomputes the period's fingerprint from the live state and the stored manifest
-    and reports one of: ``current`` (the fingerprint matches and a well-shaped
-    ``computed`` is present), ``not_calculated`` (the fingerprint matches but B2b has
+    and reports one of: ``current`` (both fingerprint and recomputation match),
+    ``not_calculated`` (the fingerprint matches but B2b has
     not computed the period), ``stale`` (the recorded inputs no longer validate, or
     the fingerprint differs), ``invalid`` (the recorded ``computed`` object is
     malformed) or ``absent`` (nothing is recorded for the period). A consumer never
@@ -468,6 +539,13 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
         }
     manifest = entry.get("manifest")
     fingerprint = entry.get("input_fingerprint")
+    precision_problem = state.get(NUMERIC_PRECISION_PROBLEM_KEY) if isinstance(state, dict) else None
+    if precision_problem:
+        return {
+            "status": "stale",
+            "reason": f"the recorded credit aggregation inputs for {period!r} no longer validate: {precision_problem}",
+            "input_fingerprint": fingerprint if isinstance(fingerprint, str) else None,
+        }
     if not isinstance(manifest, dict) or not isinstance(fingerprint, str):
         return {
             "status": "stale",
@@ -480,15 +558,26 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
         "borrower_period_end_evidence": manifest.get("period_end_evidence"),
         "scope_confirmed": True,
     }
+    confirmed_input = entry.get("input")
     try:
-        records = resolve_request(state, {"periods": {period: rebuilt_request}})
+        if confirmed_input is None:
+            rebuilt = resolve_request(state, {"periods": {period: rebuilt_request}})[period]
+            expected_fingerprint = rebuilt["input_fingerprint"]
+        else:
+            rebuilt, _, names = _calculation_source(state, period, confirmed_input)
+            digest = _canonical_digest(confirmed_input)
+            if (entry.get("input_digest") != digest or not isinstance(entry.get("journals"), list)
+                    or _canonical_digest({"journals": entry["journals"]})
+                    != _canonical_digest({"journals": confirmed_input["journals"]})):
+                raise AggregationError("the journal input digest or stored journals do not match")
+            expected_fingerprint = _calculation_fingerprint(rebuilt, digest, names)
     except AggregationError as exc:
         return {
             "status": "stale",
             "reason": f"the recorded credit aggregation inputs for {period!r} no longer validate: {exc}",
             "input_fingerprint": fingerprint,
         }
-    if records[period]["input_fingerprint"] != fingerprint:
+    if expected_fingerprint != fingerprint:
         return {
             "status": "stale",
             "reason": (
@@ -497,7 +586,7 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
             ),
             "input_fingerprint": fingerprint,
         }
-    if records[period]["manifest"] != manifest:
+    if rebuilt["manifest"] != manifest:
         return {
             "status": "stale",
             "reason": (
@@ -507,12 +596,11 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
             "input_fingerprint": fingerprint,
         }
     computed = entry.get("computed")
-    if computed is None:
+    if computed is None and confirmed_input is None:
         return {
             "status": "not_calculated",
             "reason": (
-                f"credit aggregation period {period!r} is recorded but not calculated; the accounting "
-                "step (B2b) has not computed it"
+                f"credit aggregation period {period!r} is recorded but not calculated; no B2b result is stored"
             ),
             "input_fingerprint": fingerprint,
         }
@@ -523,12 +611,18 @@ def aggregation_period_status(state: dict[str, Any], period: str) -> dict[str, A
             "reason": f"the recorded computed object for {period!r} cannot be trusted: {digest_problem}",
             "input_fingerprint": fingerprint,
         }
-    if computed_figures_problem(computed) is not None:
+    if not isinstance(computed, dict) or computed_figures_problem(computed) is not None:
         return {
             "status": "invalid",
             "reason": f"the recorded computed object for {period!r} is malformed",
             "input_fingerprint": fingerprint,
         }
+    try:
+        if _canonical_digest(computed) != _canonical_digest(recompute_period(state, period)):
+            raise AggregationError("the stored computed output differs from deterministic recomputation")
+    except AggregationError as exc:
+        return {"status": "invalid", "reason": f"credit aggregation {period!r}: {exc}",
+                "input_fingerprint": fingerprint}
     return {"status": "current", "reason": None, "input_fingerprint": fingerprint}
 
 
@@ -536,6 +630,48 @@ AGGREGATION_SHEET_DISCLOSURE = (
     "Credit aggregation of the borrower and the entities the analyst confirmed, never a statutory consolidation. "
     "It does not cover equity, goodwill, non-controlling interests or other material adjustments."
 )
+AGGREGATION_PARTICIPANT_HEADERS = (
+    "Participant", "Legal entity", "Status", "Ownership (%)", "Post-elimination debt", "Cash", "EBITDA",
+)
+
+
+def aggregation_participant_rows(computed: dict[str, Any]) -> list[list[Any]]:
+    """One row per participant, with separate numeric cells for balances and flows."""
+    fields = ("participant", "legal_entity", "status", "ownership_pct", "total_debt", "cash", "ebitda")
+    return [[item[field] for field in fields] for item in computed.get("participant_table", [])]
+
+
+def aggregation_result_rows(computed: dict[str, Any]) -> list[list[Any]]:
+    """Present the same verified figure/disclosure rows in the summary and workbook."""
+    rows = [[name, value] for group in ("financials", "ratios")
+            for name, value in sorted(computed[group].items()) if name != "raw"]
+    if "debt_lines" not in computed:  # manifest-only B2a fixtures do not contain B2b detail
+        return rows
+    rows = [
+        [MEMO_LABEL, computed["debt_memo"]["value"]], ["Supported debt memo reason", computed["debt_memo"]["reason"]],
+        ["Total debt before eliminations", computed["debt_before"]],
+        ["Total debt after eliminations", computed["financials"]["total_debt"]],
+        ["Amount eliminated", computed["debt_eliminated"]], ["Percentage eliminated", computed["debt_eliminated_pct"]],
+        ["Total qualifying cash", computed["cash"]["total"]], ["Restricted cash", computed["cash"]["restricted"]],
+        ["Unrestricted cash", computed["cash"]["unrestricted"]], ["Group net debt", computed["group_net_debt"]],
+    ] + rows
+    if computed["metric_label"]:
+        rows.insert(0, ["EBITDA basis", computed["metric_label"]])
+    for line, values in computed["debt_lines"].items():
+        for moment, value in values.items():
+            rows.append([f"Debt line {line} ({moment})", value])
+    for key, caption in (("eliminations_applied", "Elimination"), ("refused_journals", "Refused journal"),
+                         ("participant_guarantees", "Participant guarantee")):
+        rows.extend([caption, json.dumps(item, sort_keys=True, ensure_ascii=False)] for item in computed[key])
+    for key, title in (("attestations", "Attestation"), ("left_out", "Left-out entity"),
+                       ("skipped_chain_entities", "Skipped chain entity")):
+        for entity, record in sorted(computed[key].items()):
+            for field, value in sorted(record.items()):
+                values = value if isinstance(value, list) and value else [value]
+                rows.extend([f"{title} {entity}: {field}", json.dumps(item, sort_keys=True, ensure_ascii=False)]
+                            for item in values)
+    rows.extend([f"Withheld: {metric}", reason] for metric, reason in sorted(computed["withheld"].items()))
+    return rows
 
 
 def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
@@ -548,7 +684,7 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
     recorded = state.get("credit_aggregation") if isinstance(state, dict) else None
     if not isinstance(recorded, dict) or not recorded:
         return None
-    rows: list[list[Any]] = [[AGGREGATION_SHEET_DISCLOSURE]]
+    rows: list[list[Any]] = [[LABEL], *[[item] for item in LIMITATIONS], [AGGREGATION_SHEET_DISCLOSURE]]
     for period in PERIOD_KEYS:
         entry = recorded.get(period)
         if not isinstance(entry, dict):
@@ -572,17 +708,18 @@ def aggregation_sheet_rows(state: dict[str, Any]) -> list[list[Any]] | None:
             rows.append(["Reason", status["reason"]])
         computed = entry.get("computed")
         if status.get("status") == "current" and isinstance(computed, dict):
-            for group in ("financials", "ratios"):
-                for name, value in sorted(computed[group].items()):
-                    if name != "raw":
-                        rows.append([name, value])
+            rows.extend([[cell if cell is not None else "N/A" for cell in row] if len(row) > 1 else row
+                         for row in aggregation_result_rows(computed)])
+            if participants := aggregation_participant_rows(computed):
+                rows.extend([[], list(AGGREGATION_PARTICIPANT_HEADERS),
+                             *[["N/A" if cell is None else cell for cell in row] for row in participants]])
     return rows
 
 
 def record_credit_aggregation(
     company: str, proposal: str, request_file: str,
     base_dir: str | None = None,
-) -> dict[str, Any]:
+) -> RecordReport:
     """Validate one aggregation request and persist it under ``credit_aggregation``.
 
     The read/check/write uses the same per-deal lock and shared atomic
@@ -592,6 +729,47 @@ def record_credit_aggregation(
     drops any earlier ``computed`` for it, which the new inputs have invalidated)
     while periods not named in the request are preserved.
     """
+    return cast(RecordReport, _record_aggregation(company, proposal, request_file, base_dir, calculate=False))
+
+
+def calculate_credit_aggregation(
+    company: str, proposal: str, journals_file: str, base_dir: str | None = None,
+) -> CalculationReport:
+    """Calculate every confirmed period before a single locked write."""
+    return cast(CalculationReport, _record_aggregation(company, proposal, journals_file, base_dir, calculate=True))
+
+
+def _unique_json_object(items: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in items:
+        if key in result:
+            raise AggregationError(f"duplicate JSON key {key!r} in calculation input")
+        result[key] = value
+    return result
+
+
+def _unrounded_json_float(value: str) -> float:
+    result = float(value)
+    if Decimal(value) != Decimal(str(result)):
+        raise AggregationError("calculation input number exceeds the precision of the state JSON format")
+    return result
+
+
+def _resolve_calculation(state: dict[str, Any], request: object) -> dict[str, dict[str, Any]]:
+    from credit_aggregation_calc import obj
+
+    try:
+        periods = obj(request, "calculation input", {"periods"})["periods"]
+        if not isinstance(periods, dict) or not periods:
+            raise ValueError("calculation periods must be a non-empty object")
+        return {period: _calculate_record(state, period, item) for period, item in sorted(periods.items())}
+    except ValueError as exc:
+        raise AggregationError(str(exc)) from exc
+
+
+def _record_aggregation(
+    company: str, proposal: str, request_file: str, base_dir: str | None, *, calculate: bool,
+) -> RecordReport | CalculationReport:
     company = sanitize_path_component(company, "company")
     proposal = sanitize_path_component(proposal, "proposal")
     found = find_deal(company, proposal, base_dir=base_dir)
@@ -604,8 +782,9 @@ def record_credit_aggregation(
     try:
         with open(request_file, encoding="utf-8") as handle:
             try:
-                request: Any = json.load(handle)
-            except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
+                request: Any = json.load(handle, object_pairs_hook=_unique_json_object if calculate else None,
+                                         parse_float=_unrounded_json_float if calculate else None)
+            except (ValueError, DecimalException, RecursionError) as exc:
                 raise AggregationError(
                     f"Cannot read aggregation request file {request_file!r} as UTF-8 JSON: {exc}"
                 ) from exc
@@ -624,13 +803,17 @@ def record_credit_aggregation(
         )
     with _FileLock(path):
         state = read_state(company, proposal, date_str=record_date, base_dir=base_dir,
-                           keys=STATE_KEYS_READ)
+                           keys=STATE_KEYS_READ, exact_numbers=calculate)
         if state is None:
             raise AggregationError(
                 f"Refusing to record credit_aggregation: state.json at {path!r} no longer exists; "
                 "nothing was created."
             )
-        records = resolve_request(state, request)
+        # The write below stamps the deal's own company name into state.json, and every later read fingerprints the
+        # borrower's legal name from it, so the calculation must use that same identity now, even for a legacy state
+        # that has no `company` yet (or a different one); otherwise the period would be stale straight after writing.
+        state["company"] = company
+        records = _resolve_calculation(state, request) if calculate else resolve_request(state, request)
         existing = state.get("credit_aggregation")
         merged: dict[str, Any] = dict(existing) if isinstance(existing, dict) else {}
         merged.update(records)
@@ -639,28 +822,40 @@ def record_credit_aggregation(
         _merge_and_write(path, company, proposal, record_date, base_dir,
                          {"credit_aggregation": merged})
 
-    return {"recorded": True, "periods": sorted(records), "state_path": path}
+    if calculate:
+        return CalculationReport(
+            recorded=True, periods=sorted(records), state_path=path,
+            calculated=True, label=LABEL, limitations=list(LIMITATIONS), results={
+                period: {key: value for key, value in entry["computed"].items() if key != "adjusted_raw"}
+                for period, entry in records.items()
+            })
+    return RecordReport(recorded=True, periods=sorted(records), state_path=path)
 
 
 if __name__ == "__main__":
     from textio import configure_stdio
     configure_stdio()
     parser = argparse.ArgumentParser(
-        description="Record case-B credit aggregation inputs (B2a) on an existing deal: validate one "
-                    "analyst-confirmed request file and persist each period's manifest and input "
-                    "fingerprint under the credit_aggregation key. Computes nothing; the accounting step "
-                    "(B2b) is separate and gated."
+        description="Record a confirmed case-B perimeter or calculate principal-only historical "
+                    "credit aggregation on an existing deal."
     )
     parser.add_argument("--company", required=True)
     parser.add_argument("--proposal", required=True)
-    parser.add_argument("--request-file", required=True,
-                        help="UTF-8 JSON object: {\"periods\": {\"<period>\": {participants, "
-                             "borrower_period_end, borrower_period_end_evidence, scope_confirmed}}}")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--request-file", help="UTF-8 JSON scope request; records scope without calculating")
+    mode.add_argument("--journals-file", help="saved, analyst-confirmed UTF-8 JSON calculation input")
+    parser.add_argument("--calculate", action="store_true", help=f"calculate {LABEL}; requires --journals-file")
     args = parser.parse_args()
+    if args.calculate != (args.journals_file is not None):
+        parser.error("--calculate and --journals-file must be used together")
 
+    report: RecordReport
     try:
-        report = record_credit_aggregation(args.company, args.proposal, args.request_file)
+        if args.calculate:
+            report = calculate_credit_aggregation(args.company, args.proposal, args.journals_file)
+        else:
+            report = record_credit_aggregation(args.company, args.proposal, args.request_file)
     except StateError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print("error:", " ".join(str(exc).splitlines()), file=sys.stderr)
         sys.exit(1)
     print(json.dumps(report, indent=2))

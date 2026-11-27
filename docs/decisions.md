@@ -312,15 +312,16 @@ so in its Related line) when a later decision supersedes it.
 - **Choice.** Three cases, built in this order. **Case A:** the borrower supplies group accounts that are already
   consolidated; the framework records and discloses the basis (reporting entity, entities covered, source, a single
   period end, whether the figures were supplied or recomputed) and does no new arithmetic: no eliminations, no new
-  formula. **Case B:** the framework combines entity statements using analyst-supplied eliminations (a later, separately
-  reviewed, domain-risk step). **Case C:** a guarantor or parent is spread on its own, with no combination.
+  formula. **Case B:** the framework combines entity statements using analyst-confirmed eliminations (a separately
+  reviewed, domain-risk step; the first limited version, loan principal only, is the B2b implementation below). **Case C:** a guarantor or parent is spread on its own, with no combination.
   Vocabulary: a group figure the framework derives is a **credit aggregation**, never a statutory or IFRS
   consolidation, until investment and equity, goodwill, non-controlling interests and the other material adjustments
   are covered. The perimeter is confirmed by the analyst and never inferred from an ownership percentage. Period ends
   must match among the entities one aggregation uses (a mismatch there is refused, never aligned by guesswork); the
   check belongs to the aggregation step, not to registering an entity record, and a standalone guarantor (case C) may
   have a different year-end (decision of 2026-10-28, [#472](https://github.com/ShamikM88/open-cam-framework/issues/472#issuecomment-6464570816)).
-  A covenant will carry an explicit basis (borrower,
+  The [B2b implementation](financial-model.md#credit-aggregation-case-b-b2a-and-b2b) limits case B to historical
+  standalone accounts and loan principal, not a statutory consolidation. A covenant will carry an explicit basis (borrower,
   consolidated, guarantor group), defaulting to borrower. An input keyed by entity is refused: the evaluator and its
   callers accept only the framework's period labels (`FY-2`, `FY-1`, `FY-Current`, `FY+1`, `FY+2`, `FY+3`) and name
   the first unexpected key in one error line.
@@ -405,10 +406,13 @@ so in its Related line) when a later decision supersedes it.
   validates only (no subtotals, ratios, eliminations or covenant routing, no new formula). Period-end agreement is
   not enforced when an entity is registered: it is checked only among the entities one aggregation uses, in the
   later aggregation step, so a standalone guarantor may have a different year-end.
+  For B2b, see the [confirmed journal input and recomputation contract](data-model.md#b2b-journal-input-and-stored-result);
+  the case-B calculation attaches to the shared record without rewriting it.
 - **Why.** The recorded reasons are one source of truth per figure and no hidden choice between two claimed
   consolidated views; recording first keeps the judgement-heavy arithmetic for a separately reviewed step.
 - **Consequences.** The decisions authorise no merge and no edit to the agent prompts, commands, skills or the CAM
-  template; the accounting review before the elimination engine is still required.
+  template. The B2b [v4.1 sign-off](https://github.com/ShamikM88/open-cam-framework/issues/472#issuecomment-7002491959)
+  accepts independent model reviews as a stand-in for this step only; this is not an accounting review.
 - **Related.** #472 (comments of 2026-10-26 and 2026-10-28), #473, #48, D19, PR #494 (step 1).
 
 ## D23. Group accounts, case C: a guarantor is an entity record, and a covenant names one
@@ -430,7 +434,8 @@ so in its Related line) when a later decision supersedes it.
   decided; they are decided when the presentation step starts, with the exact text recorded on the issue. A new
   deterministic "strength" measure needs its own agreement and a Proposed register entry, and a credit or accounting
   reviewer verifies which statement lines and bases the evaluator may use for guarantors before the spreading step.
-- **Related.** #473 (comment of 2026-10-26), #472, D19, D22.
+- **Related.** #473 (comment of 2026-10-26), #472, D19, D22. B2b [case-B covenant routing](financial-model.md#covenants)
+  remains separate from the standalone guarantor view.
 
 ## D24. Mutation survivors: behaviour gets tests, help text is accepted
 

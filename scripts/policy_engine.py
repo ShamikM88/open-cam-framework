@@ -44,6 +44,7 @@ from numeric_validation import validate_finite_numbers
 from spreading_builder import FORWARD_PERIOD_KEYS, describe_undefined_ratio
 from state_manager import JsonValue
 from covenant_basis import resolve_covenant_views
+from credit_aggregation_calc import LABEL, LIMITATIONS, VARIANT_SUFFIX
 
 SLUG_RE = re.compile(r"[^A-Z0-9]+")
 
@@ -70,6 +71,9 @@ class CovenantResult(TypedDict):
     basis_entity_id: NotRequired[str | None]
     view_source: NotRequired[Literal["credit_aggregation"]]
     input_fingerprint: NotRequired[str | None]
+    view_label: NotRequired[str]
+    view_limitations: NotRequired[list[str]]
+    view_metric_label: NotRequired[str]
 
 
 class ForwardCovenantResult(CovenantResult):
@@ -743,10 +747,10 @@ def _period_dict(financials: object, period: str) -> dict[str, Any] | None:
     value = financials.get(period) if isinstance(financials, dict) else None
     return value if isinstance(value, dict) else None
 
-def _evaluate_resolved_covenant(
+def evaluate_resolved_covenant(
     covenant: dict[str, Any], view: dict[str, Any], period: str,
 ) -> CovenantResult:
-    """Evaluate one guarantor covenant against its exact resolved period."""
+    """Evaluate one guarantor or aggregation covenant against its exact resolved period."""
     view_basis = view.get("basis") or "guarantor_group"
     is_aggregation = view.get("view_source") == "credit_aggregation"
     reason = view.get("unresolvable_reason")
@@ -773,7 +777,11 @@ def _evaluate_resolved_covenant(
         )
     if is_aggregation:
         fingerprints = view.get("input_fingerprints")
-        return {
+        withheld = view.get("withheld", {}).get(period, {})
+        metric = result["metric"]
+        if not reason and isinstance(metric, str) and metric in withheld and result["status"] == "UNRESOLVABLE":
+            result["reason"] = withheld[metric]
+        disclosed: CovenantResult = {
             "metric": result["metric"],
             "type": result["type"],
             "threshold": result["threshold"],
@@ -784,7 +792,13 @@ def _evaluate_resolved_covenant(
             "reason": result["reason"],
             "view_source": "credit_aggregation",
             "input_fingerprint": fingerprints.get(period) if isinstance(fingerprints, dict) else None,
+            "view_label": LABEL,
+            "view_limitations": list(LIMITATIONS),
         }
+        variant_label = view.get("metric_labels", {}).get(period)
+        if isinstance(metric, str) and metric.endswith(VARIANT_SUFFIX) and isinstance(variant_label, str):
+            disclosed["view_metric_label"] = variant_label
+        return disclosed
     return {
         "metric": result["metric"],
         "type": result["type"],
@@ -863,7 +877,7 @@ def evaluate_deal_policy(
     covenant_results: list[CovenantResult] = []
     for covenant, view in zip(covenants, resolved_views, strict=True):
         if covenant.get("basis") == "guarantor_group" or view.get("view_source") == "credit_aggregation":
-            covenant_results.append(_evaluate_resolved_covenant(covenant, view, "FY-Current"))
+            covenant_results.append(evaluate_resolved_covenant(covenant, view, "FY-Current"))
         else:
             covenant_results.append(
                 _evaluate_covenant(covenant, ratios, _period_dict(base_financials, "FY-Current"), recorded_view)
@@ -886,7 +900,7 @@ def evaluate_deal_policy(
             for period in sorted(downside_periods & recorded_periods):
                 if period not in FORWARD_PERIOD_KEYS:
                     continue
-                base_result = _evaluate_resolved_covenant(covenant, view, period)
+                base_result = evaluate_resolved_covenant(covenant, view, period)
                 if base_result["status"] != "PASS":
                     continue
                 breach: DownsideBreach = {
@@ -909,7 +923,7 @@ def evaluate_deal_policy(
                 downside_covenant_breaches.append(breach)
 
     forward_covenant_results: list[ForwardCovenantResult]
-    if not has_guarantor_basis:
+    if not has_guarantor_basis and not any(view.get("view_source") == "credit_aggregation" for view in resolved_views):
         forward_covenant_results = _evaluate_forward_covenants(
             covenants, all_ratios, base_financials, recorded_view,
         )
@@ -922,13 +936,16 @@ def evaluate_deal_policy(
                 if covenant.get("basis") == "guarantor_group":
                     if period not in set(view.get("recorded_periods") or []):
                         continue
-                    result = _evaluate_resolved_covenant(covenant, view, period)
+                    result = evaluate_resolved_covenant(covenant, view, period)
                 else:
                     if not isinstance(borrower_period_ratios, dict) or not borrower_period_ratios:
                         continue
-                    result = _evaluate_covenant(
-                        covenant, borrower_period_ratios, _period_dict(base_financials, period), recorded_view,
-                    )
+                    if view.get("view_source") == "credit_aggregation":
+                        result = evaluate_resolved_covenant(covenant, view, period)
+                    else:
+                        result = _evaluate_covenant(
+                            covenant, borrower_period_ratios, _period_dict(base_financials, period), recorded_view,
+                        )
                 forward_result: ForwardCovenantResult = {
                     **result,
                     "year": period,

@@ -710,7 +710,7 @@ def preflight(staged, company, proposal):
                                  "saved. Fix or restore it by hand.")
     if staged["mode"] == "framework-computed":
         try:
-            plan_fields(existing, recorded_lines(staged))
+            plan_fields(existing, recorded_lines(staged), warn_stored=False)   # the final plan warns once
         except Exception as exc:       # whatever the formulas raise for a malformed stored value
             raise TranscriptionError(
                 f"refused: the figures cannot be computed against this deal's stored state "

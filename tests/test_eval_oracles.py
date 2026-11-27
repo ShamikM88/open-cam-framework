@@ -295,9 +295,12 @@ def test_self_check_requires_the_named_oracle_to_be_the_one_that_fails(dataset):
 # ---- build_context fidelity beyond trivial deals ---------------------------------------------
 
 def kitchen_sink_case():
+    # The raw names are the framework's field names (issue #596): `interest_paid`, `tax_paid` and
+    # the balance-sheet lines below were previously silently read as zero because they were not.
     raw = {"revenue": 1000000, "cost_of_sales": 600000, "admin_expenses": 200000, "depreciation": 50000,
-           "amortisation": 0, "other_income": 0, "interest_expense": 40000, "tax": 20000, "cash": 80000,
-           "current_assets": 300000, "current_liabilities": 200000, "total_debt": 400000, "total_equity": 350000}
+           "amortisation": 0, "other_income": 0, "interest_paid": 40000, "tax_paid": 20000, "cash": 80000,
+           "other_current_assets": 300000, "other_current_liabilities": 200000, "long_term_debt": 400000,
+           "share_capital": 350000}
     forward = {**raw, "revenue": 1100000}
     return {"mode": "maker", "config_files": {"credit_policy": ""}, "deal": {
         "company": "Synthetic Borrower Kitchen", "proposal": "Synthetic Facility Kitchen",

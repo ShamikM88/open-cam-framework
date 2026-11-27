@@ -157,14 +157,24 @@ def test_canary_oracle_scans_only_the_review_notes_in_a_checker_case(dataset):
 # Context and scripted outputs.
 # ---------------------------------------------------------------------------
 
-def test_default_structured_satisfies_every_deterministic_check_for_every_case(dataset):
+def test_default_structured_is_compliant_except_for_recorded_security_gaps(dataset):
+    unmapped_collateral_cases = {"contradiction-valuation-vs-accounts", "inj-collateral-description"}
     for case in dataset["cases"]:
         if case["mode"] != "maker":
             continue
         ctx = build_context(case)
         run = build_scripted_output(case, {"draft_body": "# Memo"}, ctx)
         result = eval_oracles.ORACLES["compliance"](run, case, ctx, {})
-        assert result[0], f"{case['id']}: {result[1]}"
+        if case["id"] in unmapped_collateral_cases:
+            # The default block acknowledges the CP, but cannot repair the
+            # missing asset ID in the recorded deal.
+            assert result == (
+                False,
+                "Unidentified Collateral Asset: position 1 (asset class: HGV) "
+                "has no asset_id; security mapping cannot be verified.",
+            ), case["id"]
+        else:
+            assert result[0], f"{case['id']}: {result[1]}"
 
 
 def test_every_dataset_case_passes_its_own_scripted_self_check(dataset):

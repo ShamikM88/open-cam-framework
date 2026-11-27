@@ -37,6 +37,7 @@ Subsequent tracking, mirroring the existing Conditions Precedent pattern.
 import hashlib
 import re
 from collections.abc import Iterable
+import unicodedata
 from typing import Any, Literal, NotRequired, TypedDict
 
 from financial_conventions import PERCENT_TYPE_RATIOS
@@ -331,6 +332,44 @@ def _unique_id(prefix: str, base_slug: str, used_ids: set[str]) -> str:
     return candidate
 
 
+_ASSET_CLASS_LABEL_MAX = 80
+
+# Code points that are letters, marks or symbols by category but draw nothing on their own (Unicode
+# Default_Ignorable_Code_Point plus the Hangul and Khmer fillers, the Braille blank, a symbol whose cell has no dots,
+# and the two Egyptian hieroglyph blanks, which Unicode 16 assigns as letters although they render as empty space):
+# a text made only of these is not visible. They are listed by code point so the answer does not depend on which
+# Unicode version the running Python carries (CG622-8).
+_DEFAULT_IGNORABLE = frozenset(
+    {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x2800, 0x3164, 0xFFA0, 0x13441, 0x13442}
+    | set(range(0x180B, 0x1811)) | set(range(0xFE00, 0xFE10)) | set(range(0xE0100, 0xE01F0))
+)
+
+
+def _has_visible_character(text: str) -> bool:
+    """True when at least one code point is a letter, number, punctuation or symbol that actually draws.
+
+    A combining mark alone has nothing to attach to, and a default-ignorable or filler character is blank, so neither
+    makes a text visible; a mark attached to a visible letter (a legitimate accented ID) still does (issue #604).
+    """
+    return any(
+        unicodedata.category(ch)[0] in "LNPS" and ord(ch) not in _DEFAULT_IGNORABLE for ch in text
+    )
+
+
+def _usable_security_id(value: Any) -> bool:
+    """True only for text with at least one visible character and no invalid Unicode scalar.
+
+    A blank, whitespace-only, numeric, boolean or structured value is not an identifier, and neither is text made only
+    of control or format characters (a zero-width space, a NUL) or containing an isolated surrogate that cannot be
+    encoded: it cannot join an asset to a charge, so the entry is reported as unidentified (issue #604).
+    """
+    if not isinstance(value, str):
+        return False
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        return False
+    return _has_visible_character(value)
+
+
 def _evaluate_security(
     collateral: Iterable[dict[str, Any]], security_package: Iterable[dict[str, Any]],
 ) -> tuple[list[str], list[ConditionPrecedent]]:
@@ -347,14 +386,19 @@ def _evaluate_security(
     An asset (or a single charge on it) can independently fail perfection
     and ranking; each failure gets its own gap entry and its own CP.
     """
+    collateral_entries = list(collateral)
+    security_entries = list(security_package)
     collateral_by_id = {
-        asset.get("asset_id"): asset for asset in collateral if asset.get("asset_id")
+        asset.get("asset_id"): asset for asset in collateral_entries if _usable_security_id(asset.get("asset_id"))
     }
     charges_by_asset_id: dict[Any, list[dict[str, Any]]] = {}
-    for charge in security_package:
+    unidentified_charges: list[tuple[int, dict[str, Any]]] = []
+    for position, charge in enumerate(security_entries, start=1):
         asset_id = charge.get("secures_asset_id")
-        if asset_id:
+        if _usable_security_id(asset_id):
             charges_by_asset_id.setdefault(asset_id, []).append(charge)
+        else:
+            unidentified_charges.append((position, charge))
 
     gaps: list[str] = []
     cps: list[ConditionPrecedent] = []
@@ -427,6 +471,61 @@ def _evaluate_security(
                     f"{secures_asset_id}."
                 ),
             })
+
+    # These records were previously filtered out of the ID joins above. Keep
+    # them separate from the identified-item loops so every result already
+    # produced for an identified asset or charge retains its exact value and
+    # order (the policy payload is a typed contract pinned byte for byte).
+    def asset_class_label(entry: dict[str, Any]) -> str:
+        """A short, safe label for an unidentified entry's asset class (maintainer decision on #604).
+
+        The class is analyst-supplied free text that now appears in a gap, a condition-precedent text and a CP ID,
+        so control characters, line breaks and invalid scalar values (an isolated surrogate cannot be encoded)
+        are removed, whitespace is collapsed and the length is capped. An unusable class reads "not recorded".
+        """
+        asset_class = entry.get("asset_class")
+        if isinstance(asset_class, str):
+            cleaned = "".join(
+                ch if (ch.isprintable() and not 0xD800 <= ord(ch) <= 0xDFFF) else " " for ch in asset_class
+            )
+            cleaned = " ".join(cleaned.split())[:_ASSET_CLASS_LABEL_MAX]
+            if cleaned and _has_visible_character(cleaned):
+                return cleaned
+        return "not recorded"
+
+    for position, asset in enumerate(collateral_entries, start=1):
+        if _usable_security_id(asset.get("asset_id")):
+            continue
+        asset_class = asset_class_label(asset)
+        gaps.append(
+            f"Unidentified Collateral Asset: position {position} (asset class: {asset_class}) "
+            "has no asset_id; security mapping cannot be verified."
+        )
+        cps.append({
+            "cp_id": unique_cp_id(
+                "SEC-MAPPING", f"UNIDENTIFIED-ASSET-{position}-{_slugify(asset_class)}",
+            ),
+            "text": (
+                "Resolution of security mapping discrepancy for collateral asset at "
+                f"position {position} (asset class: {asset_class})."
+            ),
+        })
+
+    for position, charge in unidentified_charges:
+        asset_class = asset_class_label(charge)
+        gaps.append(
+            f"Unidentified Security Charge: position {position} (asset class: {asset_class}) "
+            "has no secures_asset_id; it cannot be mapped to a collateral asset."
+        )
+        cps.append({
+            "cp_id": unique_cp_id(
+                "SEC-MAPPING", f"UNIDENTIFIED-CHARGE-{position}-{_slugify(asset_class)}",
+            ),
+            "text": (
+                "Resolution of security mapping discrepancy for security charge at "
+                f"position {position} (asset class: {asset_class})."
+            ),
+        })
 
     return gaps, cps
 
@@ -543,6 +642,9 @@ def _security_reconfirmation_cs(security_package: Iterable[dict[str, Any]]) -> l
         if charge.get("perfection_status") != "Perfected":
             continue
         asset_id = charge.get("secures_asset_id")
+        if not _usable_security_id(asset_id):
+            # An unidentified charge is already reported as a mapping gap (issue #604); there is no asset to name here.
+            continue
         cs_list.append({
             "cs_id": unique_cs_id(_slugify(asset_id)),
             "text": (

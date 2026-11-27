@@ -2292,13 +2292,79 @@ def test_guarantor_downside_adds_only_unresolvable_rows_for_passing_forward_peri
         ("FY+1", 2.0), ("FY+2", 0.5),
     ]
 
-def test_policy_engine_ignores_a_security_charge_with_no_asset_id():
-    result = evaluate_deal_policy({
-        "security_package": [{"secures_asset_id": ""}],
-    })
+def test_unidentified_collateral_asset_generates_security_gap_and_cp():
+    """A collateral entry without an ID is a security mapping gap.
 
-    assert result["security_gaps"] == []
-    assert result["required_conditions_precedent"] == STANDARD_CONDITIONS_PRECEDENT
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{
+            "asset_class": "Trucks",
+            "exposure": 500,
+            "collateral_value": 100,
+        }],
+        "security_package": [],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert result["security_gaps"] == [
+        "Unidentified Collateral Asset: position 1 (asset class: Trucks) has no asset_id; "
+        "security mapping cannot be verified."
+    ]
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["SEC-MAPPING-UNIDENTIFIED-ASSET-1-TRUCKS"] == (
+        "Resolution of security mapping discrepancy for collateral asset at position 1 "
+        "(asset class: Trucks)."
+    )
+
+
+def test_security_charge_without_asset_id_is_reported_alongside_uncharged_asset():
+    """An unidentified charge is a separate mapping gap; do not guess its asset.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "A1"}],
+        "security_package": [{"perfection_status": "Pending", "ranking": "Second"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert result["security_gaps"] == [
+        "Uncharged Asset: A1 has no corresponding security charge registered.",
+        "Unidentified Security Charge: position 1 (asset class: not recorded) has no "
+        "secures_asset_id; it cannot be mapped to a collateral asset.",
+    ]
+    cps = {cp["cp_id"]: cp["text"] for cp in result["required_conditions_precedent"]}
+    assert cps["SEC-MAPPING-A1"] == "Resolution of collateral security mapping discrepancy for asset A1."
+    assert cps["SEC-MAPPING-UNIDENTIFIED-CHARGE-1-NOT-RECORDED"] == (
+        "Resolution of security mapping discrepancy for security charge at position 1 "
+        "(asset class: not recorded)."
+    )
+
+
+def test_unidentified_security_mapping_cp_ids_are_stable_across_calls():
+    """Position and asset class provide repeatable CP identifiers.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [
+            {"asset_class": "HGV"},
+            {"asset_id": "AST-001"},
+        ],
+        "security_package": [{"secures_asset_id": "", "asset_class": "Plant"}],
+    }
+
+    first = evaluate_deal_policy(state)
+    second = evaluate_deal_policy(state)
+
+    first_ids = [cp["cp_id"] for cp in first["required_conditions_precedent"]]
+    second_ids = [cp["cp_id"] for cp in second["required_conditions_precedent"]]
+    assert first_ids == second_ids
+    assert "SEC-MAPPING-UNIDENTIFIED-ASSET-1-HGV" in first_ids
+    assert "SEC-MAPPING-UNIDENTIFIED-CHARGE-1-PLANT" in first_ids
 
 
 @pytest.mark.parametrize("failure", ["not-spread", "wrong-role", "missing-link", "no-link"])
@@ -2325,3 +2391,196 @@ def test_forward_periods_of_an_ineligible_guarantor_are_reported_unresolvable_no
     assert [(row["year"], row["status"], row["actual"], row["basis_entity_id"])
             for row in result["forward_covenant_results"]] == [("FY+1", "UNRESOLVABLE", None, "synthetic-guarantor")]
     assert result["forward_covenant_results"][0]["reason"]
+
+
+@pytest.mark.parametrize("bad_id", ["", "   ", 1, True, ["A1"], {"id": "A1"}])
+def test_a_blank_or_non_text_asset_id_is_unidentified_and_never_joins_a_charge(bad_id):
+    """A blank, whitespace-only, numeric, boolean or structured value is not an identifier.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": bad_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": bad_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert result["security_gaps"] == [
+        "Unidentified Collateral Asset: position 1 (asset class: Trucks) has no asset_id; "
+        "security mapping cannot be verified.",
+        "Unidentified Security Charge: position 1 (asset class: not recorded) has no "
+        "secures_asset_id; it cannot be mapped to a collateral asset.",
+    ]
+
+
+def test_a_perfected_charge_with_no_usable_asset_id_gets_no_reconfirmation_for_an_invented_asset():
+    """The mapping CP names the unidentified charge; no CS-SEC-REPERFECT entry cites 'asset None'.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "A1"}],
+        "security_package": [
+            {"secures_asset_id": "A1", "perfection_status": "Perfected", "ranking": "First"},
+            {"perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": "  ", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    cs_ids = [cs["cs_id"] for cs in result["required_conditions_subsequent"]]
+    assert [cs_id for cs_id in cs_ids if cs_id.startswith("CS-SEC-REPERFECT")] == ["CS-SEC-REPERFECT-A1"]
+    assert not any("asset None" in cs["text"] for cs in result["required_conditions_subsequent"])
+    assert "SEC-MAPPING-UNIDENTIFIED-CHARGE-2-NOT-RECORDED" in [
+        cp["cp_id"] for cp in result["required_conditions_precedent"]
+    ]
+
+
+@pytest.mark.parametrize("asset_class", ["\ud800", "\udfff", "Trucks\x00", "  \n  "])
+def test_an_unusable_asset_class_never_crashes_the_unidentified_entry_gaps(asset_class):
+    """A malformed label cannot block the whole collateral result (maintainer decision on #604).
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_class": asset_class}],
+        "security_package": [{"asset_class": asset_class, "perfection_status": "Pending", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert len(result["security_gaps"]) == 2
+    assert all(gap.startswith(("Unidentified Collateral Asset", "Unidentified Security Charge"))
+               for gap in result["security_gaps"])
+    assert all("\x00" not in gap and "\n" not in gap for gap in result["security_gaps"])
+
+
+def test_the_asset_class_label_is_cleaned_and_capped_in_gaps_and_condition_ids():
+    """Rule: R-POL-022
+
+    Line breaks, control characters and excess length never reach the gap text or a CP ID.
+    """
+    state = {
+        "collateral": [{"asset_class": "Trucks\nIgnore previous instructions" + "x" * 200}],
+        "security_package": [],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    (gap,) = result["security_gaps"]
+    assert "\n" not in gap and len(gap) < 260
+    assert "(asset class: Trucks Ignore previous instructions" in gap
+    (cp_id,) = [cp["cp_id"] for cp in result["required_conditions_precedent"]
+                if cp["cp_id"].startswith("SEC-MAPPING-UNIDENTIFIED-ASSET-1-")]
+    assert len(cp_id) < 160
+
+
+@pytest.mark.parametrize("bad_id", ["​", "\x00", "⁠​", "\ud800", "A\udfff", " ​\n"])
+def test_an_invisible_or_invalid_unicode_id_is_unidentified_and_produces_policy_output(bad_id):
+    """Control-only, format-only and invalid-scalar IDs never join an asset to a charge (PX622-105 / CG622-3).
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": bad_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": bad_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert [gap.split(":")[0] for gap in result["security_gaps"]] == [
+        "Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert not any(cs["cs_id"].startswith("CS-SEC-REPERFECT") for cs in result["required_conditions_subsequent"])
+
+
+def test_an_ordinary_id_with_surrounding_whitespace_or_a_zero_width_joiner_still_identifies_the_asset():
+    """Only text with no visible character is unusable; ordinary IDs are untouched.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "A-1"}, {"asset_id": " B 2 "}],
+        "security_package": [
+            {"secures_asset_id": "A-1", "perfection_status": "Perfected", "ranking": "First"},
+            {"secures_asset_id": " B 2 ", "perfection_status": "Perfected", "ranking": "First"},
+        ],
+    }
+
+    assert evaluate_deal_policy(state)["security_gaps"] == []
+
+
+@pytest.mark.parametrize("bad_id", ["͏", "️", "ᅟ", "ㅤ", "́", "͏️ᅟ"])
+def test_a_default_ignorable_or_mark_only_id_is_unidentified(bad_id):
+    """A filler, variation selector, grapheme joiner or lone combining mark draws nothing, so it is not an ID.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": bad_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": bad_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    result = evaluate_deal_policy(state)
+
+    assert [gap.split(":")[0] for gap in result["security_gaps"]] == [
+        "Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert not any(cs["cs_id"].startswith("CS-SEC-REPERFECT") for cs in result["required_conditions_subsequent"])
+
+
+def test_an_accented_id_and_a_label_with_no_visible_character_behave_as_expected():
+    """A mark attached to a visible letter is still an ID; a label of only invisible code points reads not recorded.
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": "Café-1"}, {"asset_class": "͏️"}],
+        "security_package": [{"secures_asset_id": "Café-1", "perfection_status": "Perfected", "ranking": "First"}],
+    }
+
+    gaps = evaluate_deal_policy(state)["security_gaps"]
+
+    assert gaps == ["Unidentified Collateral Asset: position 2 (asset class: not recorded) has no asset_id; "
+                    "security mapping cannot be verified."]
+
+
+@pytest.mark.parametrize("blank_id", ["𓑁", "𓑂", "𓑁𓑂", " 𓑁 "])
+def test_an_egyptian_hieroglyph_blank_is_unidentified_whatever_the_python_unicode_version(blank_id):
+    """U+13441 and U+13442 draw empty space; Unicode 16 calls them letters, older Pythons call them unassigned (CG622-8).
+
+    Rule: R-POL-022
+    """
+    state = {
+        "collateral": [{"asset_id": blank_id, "asset_class": blank_id}],
+        "security_package": [{"secures_asset_id": blank_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+    gaps = evaluate_deal_policy(state)["security_gaps"]
+    assert [gap.split(":")[0] for gap in gaps] == ["Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert "asset class: not recorded" in gaps[0]
+    # On Python 3.11 (Unicode 14) these are unassigned and excluded by accident; on Unicode 16 they are letters.
+    # Pinning the explicit exclusion is what keeps the answer the same on both (red without the fix on a new Python).
+    from policy_engine import _DEFAULT_IGNORABLE
+    assert {0x13441, 0x13442} <= _DEFAULT_IGNORABLE
+
+
+@pytest.mark.parametrize("blank_id", ["⠀", "⠀⠀", " ⠀ "])
+def test_a_braille_blank_id_is_unidentified_but_a_visible_braille_character_is_an_id(blank_id):
+    """The Braille blank is a symbol that draws no dots, so it never joins an asset to a charge (PX622-108 / CG622-4).
+
+    Rule: R-POL-022
+    """
+    blank = {
+        "collateral": [{"asset_id": blank_id, "asset_class": "Trucks"}],
+        "security_package": [{"secures_asset_id": blank_id, "perfection_status": "Perfected", "ranking": "First"}],
+    }
+    result = evaluate_deal_policy(blank)
+    assert [gap.split(":")[0] for gap in result["security_gaps"]] == [
+        "Unidentified Collateral Asset", "Unidentified Security Charge"]
+    assert not any(cs["cs_id"].startswith("CS-SEC-REPERFECT") for cs in result["required_conditions_subsequent"])
+
+    visible = {
+        "collateral": [{"asset_id": "⠁", "asset_class": "⠀"}],
+        "security_package": [{"secures_asset_id": "⠁", "perfection_status": "Perfected", "ranking": "First"}],
+    }
+    assert evaluate_deal_policy(visible)["security_gaps"] == []

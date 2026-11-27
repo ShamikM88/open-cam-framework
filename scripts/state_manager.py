@@ -1703,7 +1703,7 @@ def read_state(
 def write_state(
     company: str, proposal: str, date_str: str | None = None, base_dir: str | os.PathLike[str] | None = None, new_review: bool = False,
     merge_inputs: Mapping[str, Any] | None = None, expect_inputs: Mapping[str, Any] | None = None,
-    **fields: Any,
+    require_existing: bool = False, **fields: Any,
 ) -> dict[str, Any]:
     """Merge `fields` into this deal's state.json (if any) and write it back.
 
@@ -1711,7 +1711,9 @@ def write_state(
     lock as the rest of the write, so a concurrent change to another input is never overwritten by a stale copy
     (issue #599). `expect_inputs` names recorded inputs the caller relied on but is not writing: under the same lock
     each must still equal the value the caller read, otherwise `InputsChangedError` is raised and nothing is written.
-    Do not pass `inputs=` as well.
+    Do not pass `inputs=` as well. `require_existing=True` makes the write refuse, under the same lock, when the
+    state file is not there: a caller that resumed an existing review must never recreate it empty if it vanished
+    after the caller looked (`InputsChangedError`, nothing written; CG623-13).
 
     Creates deals/<Company>/<Proposal>_<Date>/ if it doesn't exist yet --
     reusing an existing dated folder for this company/proposal when
@@ -1760,6 +1762,9 @@ def write_state(
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     with _FileLock(path):
+        if require_existing and not os.path.isfile(path):
+            raise InputsChangedError(
+                "the review being resumed was removed after it was found; nothing was written. Rerun the command.")
         if merge_inputs is None and expect_inputs is None:
             return _merge_and_write(path, company, proposal, date_str, base_dir, fields)
         return _merge_and_write(path, company, proposal, date_str, base_dir, fields,

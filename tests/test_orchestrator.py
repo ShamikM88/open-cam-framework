@@ -3513,6 +3513,42 @@ def test_a_review_removed_between_the_existence_checks_is_not_recreated_empty(pr
     assert not list((project_root / "deals").rglob("state.json"))
 
 
+def test_a_resumed_review_removed_after_the_check_is_not_recreated_unlinked_with_explicit_scores(project_root, monkeypatch):
+    """CG623-13: with both PD and LGD given, nothing is relied on, yet a resumed same-day review that vanishes
+    after the existence check is still refused rather than recreated with no prior-review link."""
+    import shutil
+    import orchestrator
+
+    write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)"}, prior_review_date="2025-01-01")
+    state_file = next((project_root / "deals").rglob("state.json"))
+    real_isfile = orchestrator.os.path.isfile
+    real_resolve = orchestrator._resolve_pd_lgd_inputs
+    seen = {"armed": False, "removed": False}
+
+    def resolve_then_arm(*args, **kwargs):
+        result = real_resolve(*args, **kwargs)
+        seen["armed"] = True
+        return result
+
+    def isfile_then_remove(path):
+        result = real_isfile(path)
+        if seen["armed"] and not seen["removed"] and result and os.path.abspath(path) == os.path.abspath(state_file):
+            seen["removed"] = True
+            shutil.rmtree(state_file.parent)
+        return result
+
+    monkeypatch.setattr(orchestrator, "_resolve_pd_lgd_inputs", resolve_then_arm)
+    monkeypatch.setattr(orchestrator.os.path, "isfile", isfile_then_remove)
+
+    with pytest.raises(StateError, match="removed after it was found"):
+        run_pipeline("Example Co", "Term Loan", "4.50%", "LGD 6 (45%)", "corporate_credit", new_review=True,
+                     client=MockClient([_compliant_draft(), _approved_json()]))
+
+    monkeypatch.undo()
+    assert seen["removed"]
+    assert not list((project_root / "deals").rglob("state.json"))
+
+
 def test_run_pipeline_called_without_scores_uses_the_recorded_ones_and_never_saves_null(project_root):
     write_state("Example Co", "Term Loan", inputs={"pd": "4.50%", "lgd": "LGD 6 (45%)", "experian_score": 41})
     client = MockClient([_compliant_draft(), _approved_json()])

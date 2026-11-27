@@ -943,6 +943,8 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     # and nothing is saved (issue #599).
     write_state(company, proposal, deal_type=deal_type, date_str=date_str,
                 merge_inputs=explicit_risk_inputs, expect_inputs=relied_on_risk_inputs,
+                # A resumed same-day review must still be there when it is written, whichever PD/LGD flags were given.
+                require_existing=bool(new_review and state_exists),
                 financials=financials, ratios=ratios, collateral=collateral, **collateral_analysis_write,
                 financials_source=financials_source, financials_source_note=financials_source_note,
                 downside_case=downside_case, stress_assumptions=stress_assumptions_to_persist,

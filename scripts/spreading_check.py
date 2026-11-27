@@ -24,9 +24,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from spreading_builder import (
-    FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
+    FIELD_LABELS, FORWARD_PERIOD_KEYS, HISTORICAL_PERIOD_KEYS, PERIOD_KEYS, _OWC_LINES as OWC_LINES,
+    _prior_operating_working_capital,
+    evaluate_downside_case, evaluate_financial_model,
 )
 from numeric_validation import (
+    InvalidFinancialInputError,
     NonFiniteNumberError,
     refuse_unknown_raw_line_items,
     validate_finite_numbers,
@@ -45,6 +48,16 @@ class FinancialSourceModeError(ValueError):
 
 # The state.json keys compute() reads (validated before use: a wrongly-typed one is a StateShapeError naming it).
 STATE_KEYS_READ = ("multi_period_financials", "financials", "ratios", "stress_assumptions")
+
+
+def prior_periods_to_ignore(existing_state: dict[str, Any]) -> tuple[str, ...]:
+    """The periods whose framework raw lines must never be read as a prior-period comparator.
+
+    On a deal whose `financials_source` is analyst-supplied the historical figures are the analyst's own, so a
+    leftover framework raw historical period is not authoritative (maintainer decision on #597); every other deal
+    ignores nothing. Shared by the base case, the downside case and the cached headless stress rerun.
+    """
+    return tuple(HISTORICAL_PERIOD_KEYS) if existing_state.get("financials_source") == "analyst-supplied" else ()
 
 
 def plan_fields(
@@ -120,18 +133,90 @@ def plan_fields(
         # see the docstring above -- so a partial correction's subtotals/
         # ratios are derived from the period's complete recorded figures,
         # not just whichever fields this particular call happened to supply.
-        model_data = evaluate_financial_model(touched_periods)
+        #
+        # Issue #597 (maintainer decision, option A): the periods this call touches plus the
+        # period that follows each of them, when that successor is on file and framework-computed
+        # (the merged store holds only framework-computed raw lines, so a successor absent from it
+        # is not recomputed and never blended with the analyst-supplied store). A forward-only
+        # call then sees the prior period already on file, and a correction to one period
+        # recomputes the next, so every period on file equals one evaluation of the stored raw
+        # figures -- the parity the exported workbook's prior-column references already have.
+        # Older periods are deliberately not recomputed on every call.
+        periods_to_evaluate = dict(touched_periods)
+        for period in touched_periods:
+            successor_index = PERIOD_KEYS.index(period) + 1
+            if successor_index < len(PERIOD_KEYS):
+                successor = PERIOD_KEYS[successor_index]
+                recorded_successor = merged_multi_period.get(successor)
+                # A null placeholder is "not recorded", not a period to evaluate (it would be read as a
+                # zero-input year); only an object of raw line items is a recorded period.
+                if isinstance(recorded_successor, dict) and successor not in periods_to_evaluate:
+                    periods_to_evaluate[successor] = recorded_successor
+        # The prior-working-capital map comes from the merged store, so fcf_after_working_capital
+        # and cash_flow_dscr read the prior period the whole deal has on file, not only the
+        # periods this call happened to touch. No formula changes: a forward year whose previous
+        # period is analyst-supplied is absent from this store, so its prior stays None (N/A with
+        # a reason), never a figure blended from the other store.
+        # Only the periods being evaluated and the period before each are read, so an unrelated older value that
+        # cannot be converted never breaks a forward-only call; a relevant one is a clean input error.
+        needed_periods = set(periods_to_evaluate)
+        for period in periods_to_evaluate:
+            period_index = PERIOD_KEYS.index(period)
+            if period_index > 0:
+                needed_periods.add(PERIOD_KEYS[period_index - 1])
+        prior_data = {
+            period: merged_multi_period[period]
+            for period in needed_periods
+            if isinstance(merged_multi_period.get(period), dict)
+        }
+        prior_exclusions = prior_periods_to_ignore(existing_state)
+        # The authoritative history of an analyst-supplied deal is the analyst-supplied store (maintainer decision on
+        # #597): a leftover framework raw historical period is never read as the prior, so a forward year whose
+        # previous period is analyst-supplied keeps its prior unavailable (N/A with a reason), never a blended figure.
+        prior_data = {period: raw for period, raw in prior_data.items() if period not in prior_exclusions}
+        # The comparators go through the same raw-input contract as incoming figures before any arithmetic, so a
+        # boolean, a string or an oversized number is one clean FinancialInputError (caught by both CLIs). A period
+        # that is only a comparator is checked on the five lines that are actually read, so an unrelated bad line
+        # elsewhere in it does not block the update; a period being evaluated is validated in full by the evaluator.
+        # A period that is both evaluated and the next period's prior is checked too: its working capital is read for
+        # the successor before the evaluator validates it (PX625-110 / CG625-7).
+        comparator_lines = {
+            period: {line: raw[line] for line in OWC_LINES if line in raw}
+            for period, raw in prior_data.items()
+        }
+        try:
+            validate_raw_line_items(comparator_lines, FIELD_LABELS, path="recorded operating working capital")
+            prior_owc = _prior_operating_working_capital(prior_data)
+        except OverflowError as exc:
+            raise InvalidFinancialInputError(
+                "financial inputs: operating working capital is outside the supported numeric range"
+            ) from exc
+        model_data = evaluate_financial_model(periods_to_evaluate, prior_operating_working_capital=prior_owc)
 
         merged_financials = dict(existing_state.get("financials") or {})
         merged_financials.update(model_data["financials"])
         merged_ratios = dict(existing_state.get("ratios") or {})
         merged_ratios.update(model_data["ratios"])
-
+        # A year recorded as null is "not recorded": figures calculated for it earlier must not stay live as if it
+        # were (PX625-109 / CG625-5). Only a period explicitly null in the raw store is dropped; others are untouched.
+        for period in _not_recorded_periods(merged_multi_period, existing_state):
+            merged_financials.pop(period, None)
+            merged_ratios.pop(period, None)
         fields["financials"] = merged_financials
         fields["ratios"] = merged_ratios
         fields["multi_period_financials"] = merged_multi_period
         if update_financials_source:
             fields["financials_source"] = "framework-computed"
+    else:
+        # A stress-only refresh drops the base figures of a year recorded as null too, so a period that is "not
+        # recorded" never keeps live figures in the saved state or the printed result (PX625-111 / CG625-8).
+        stale = [
+            p for p in _not_recorded_periods(merged_multi_period, existing_state)
+            if p in (existing_state.get("financials") or {}) or p in (existing_state.get("ratios") or {})
+        ]
+        if stale:
+            fields["financials"] = {k: v for k, v in (existing_state.get("financials") or {}).items() if k not in stale}
+            fields["ratios"] = {k: v for k, v in (existing_state.get("ratios") or {}).items() if k not in stale}
 
     existing_stress_assumptions = existing_state.get("stress_assumptions") or {}
     merged_stress_assumptions = dict(existing_stress_assumptions)
@@ -139,8 +224,13 @@ def plan_fields(
         merged_stress_assumptions.update(stress_assumptions)
     stress_assumptions = merged_stress_assumptions
     if stress_assumptions:
-        downside_case = evaluate_downside_case(merged_multi_period, stress_assumptions)
-        if downside_case.get("financials") or downside_case.get("ratios"):
+        downside_case = evaluate_downside_case(
+            merged_multi_period, stress_assumptions, prior_exclude=prior_periods_to_ignore(existing_state))
+        has_not_recorded_year = any(
+            p in merged_multi_period and merged_multi_period[p] is None for p in FORWARD_PERIOD_KEYS)
+        if downside_case.get("financials") or downside_case.get("ratios") or (
+                has_not_recorded_year and existing_state.get("downside_case")):
+            # A downside year that is now null in the raw store is replaced by the recomputed case, not kept.
             fields["downside_case"] = downside_case
             fields["stress_assumptions"] = stress_assumptions
 
@@ -150,6 +240,15 @@ def plan_fields(
             "stress assumptions (existing or given) produced a downside case."
         )
     return fields
+
+
+def _not_recorded_periods(merged_multi_period: dict[str, Any], existing_state: dict[str, Any]) -> list[str]:
+    """Periods recorded as null in the framework raw store, other than a period the analyst supplied."""
+    supplied = existing_state.get("analyst_supplied_financials") or {}
+    return [
+        p for p in PERIOD_KEYS
+        if p in merged_multi_period and merged_multi_period[p] is None and p not in supplied
+    ]
 
 
 def compute(

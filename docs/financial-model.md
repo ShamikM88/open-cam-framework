@@ -644,6 +644,22 @@ skips independent recomputation entirely (see issue #55):
 ```
 python scripts/spreading_check.py --company "Acme Corp" --proposal "Fleet Loan" --financials "deals/Acme Corp/Fleet Loan_financials_input.json"
 ```
+**Which periods are evaluated (issue #597).** A call evaluates the periods it touches plus the
+period that follows each of them, when that successor is on file and framework-computed, with the
+prior-working-capital map built from the merged store — so a forward-only call reads the prior
+period already on file (its `fcf_after_working_capital` and `cash_flow_dscr` are recorded from the
+whole deal, not as N/A), and a correction to one period recomputes the next. No formula changes: a
+forward year whose previous period is analyst-supplied stays N/A with a reason, never a figure
+blended from the other store (on a deal whose `financials_source` is analyst-supplied, a leftover framework
+historical period is never read as the prior, in the base case, the downside case and the workbook alike: the
+exported FCF after working capital for the first forward year reads `N/A`), a `null` period is "not recorded" and
+is never evaluated as a successor or shocked as a downside year (and a year that is later recorded as `null`
+drops the base and downside figures calculated for it earlier, so they cannot stay live as current), the five working-capital lines it reads go through
+the same raw-input contract as incoming figures (a boolean, a string or an oversized number is one `error:` line,
+while an unrelated bad line in a comparator-only period does not block the update), the stress run reads only the
+shocked periods and the period before each, and older periods are not recomputed on every call. See the note on
+F-064 in the [formula register](formula-register.md#f-064--fcf-after-working-capital).
+
 `update_financials_source` (CLI: `--no-update-financials-source` to disable) gates whether a
 fresh computation stamps `financials_source: "framework-computed"` -- `financials_source` is a
 whole-deal flag `/spread` owns the decision for, not per-period, so `/project`'s own call always

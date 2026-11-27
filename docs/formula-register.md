@@ -581,7 +581,10 @@ the entry says so and it is listed under [Known differences](#known-differences)
 - **Edge rules:** the earliest supplied period, any period whose immediately preceding period key is not
   present in the supplied data, and any period whose prior period records none of the five OWC lines
   (present, non-null), is N/A (`None` in state, "N/A" in the workbook) — never zero: a fabricated
-  prior OWC would make the delta a fabricated number. An omitted OWC line reads as 0 (the file-wide
+  prior OWC would make the delta a fabricated number. A `null` period is "not recorded", not a period (it is
+  never evaluated, shocked or read as a prior; its base and downside figures are dropped on any later update, including a stress-only one). The five OWC lines of every period read as a prior are checked before any arithmetic, including a period that is itself being evaluated or shocked, so a malformed one is one named input error. On a deal whose `financials_source` is analyst-supplied the
+  historical framework raw periods are never read as the prior, so the first forward year is N/A in the base case,
+  the downside case and the workbook (the export writes "N/A" in that cell; maintainer decision on #597). An omitted OWC line reads as 0 (the file-wide
   omitted-defaults rule), so an omitted line is not N/A. The downside case's delta equals the base case's
   delta (the shock transforms a period's own figures, never its prior-period comparison); in the workbook a
   downside column therefore reads the base period the downside case compares with (FY+1 (Downside) against
@@ -598,6 +601,14 @@ the entry says so and it is listed under [Known differences](#known-differences)
   working capital, which is never on the same transcription)
 - **Basis:** standard definition (issue #520 design note, comment 6536111534)
 - **Status:** Implemented, not yet reviewed by an analyst
+
+  > **Note on which periods are evaluated (issue #597).** The formula itself is unchanged. A
+  > `spreading_check.py` call evaluates the periods it touches plus the period that follows each
+  > of them, when that successor is on file and framework-computed, with the prior-working-capital
+  > map built from the merged store — so a forward-only call reads the prior period already on
+  > file and a correction to one period recomputes the next, matching the workbook's prior-column
+  > references. A forward year whose previous period is analyst-supplied stays N/A with a reason,
+  > never a figure blended from the other store; older periods are not recomputed on every call.
 
 ### F-065 — DSCR (Cash Flow)
 

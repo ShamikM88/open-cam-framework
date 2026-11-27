@@ -152,6 +152,20 @@ The workbook's subtotals and ratios are Excel formulas over the raw input rows, 
 while `state.json` keeps the figures the framework computed. Compare against `state.json` (or re-run `/spread`), not
 against an edited copy.
 
+### `error: financial inputs: period 'FY-Current' has unknown raw line-item name(s)`
+
+A raw line-item name in the payload is not one of the framework's field names — for example
+`cost_of_goods_sold` where the valid name is `cost_of_sales`, or `admin_expense` where it is `admin_expenses`
+(issue #596). Before this rule the unknown name was silently ignored and the real field read as zero, changing
+every dependent subtotal and ratio; now the payload is refused before anything is written. The error names the
+period and each unknown key and suggests the nearest valid name; the full list of valid names is the keys of
+`scripts/spreading_builder.py`'s `FIELD_LABELS` (see the [financial model](financial-model.md#raw-line-item-names)).
+No underscore-prefixed or other metadata keys are allowed. Nothing was written, so correct the names and re-run.
+
+A `warning:` line with the same shape means an unknown name is already on file in this deal's
+`multi_period_financials`, recorded before the rule existed: the deal still computes, and the warning names each
+unknown key so you can correct it.
+
 ### An analyst-supplied forecast
 
 Messages from `supplied_forecast.py` (`/project`'s analyst-supplied mode). Each is one `error:` line, exit status `1`, and nothing has been written.

@@ -665,6 +665,88 @@ def test_compute_entity_refuses_a_registry_entry_that_is_not_an_object_or_has_no
 def test_compute_entity_reports_a_spread_that_is_saved_but_immediately_stale(tmp_path, monkeypatch):
     _seed_deal(tmp_path)
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(spreading_check, "entity_spread_view", lambda record: {"stale_periods": ["FY-1"]})
+    monkeypatch.setattr(spreading_check, "entity_spread_view", lambda record, **kwargs: {"stale_periods": ["FY-1"]})
     with pytest.raises(ValueError, match="saved but one or more periods are stale: FY-1"):
         spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+
+def test_compute_entity_warns_about_an_unknown_name_already_on_file_and_still_spreads(
+        tmp_path, monkeypatch, capsys):
+    """Rule: R-SPREAD-008
+
+    A record on file keeps working; the unknown key is named on stderr.
+    """
+    path, _ = _seed_deal(tmp_path, [_entity()])
+    # Simulate a record stored before the registration refusal existed (registration now refuses the name).
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"][
+        "cost_of_goods_sold"] = 500
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    output = spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+    captured = capsys.readouterr()
+    assert "cost_of_goods_sold" in captured.err and "FY-Current" in captured.err
+    assert "entity_records['synthetic-guarantor'].multi_period_financials" in captured.err
+    assert output["financials"]["FY-Current"]["raw"]["revenue"] == 1200
+
+
+def test_the_entity_id_cli_warns_once_about_a_stored_unknown_name_and_keeps_it_on_file(tmp_path, monkeypatch, capsys):
+    """Rule: R-SPREAD-008
+
+    The real `--entity-id` command path: exit status 0, one named warning, the spread JSON printed, key retained.
+    """
+    path, _ = _seed_deal(tmp_path, [_entity()])
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"]["cost_of_goods_sold"] = 5
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    spreading_check.main(["--company", COMPANY, "--proposal", PROPOSAL, "--entity-id", "synthetic-guarantor"])
+
+    captured = capsys.readouterr()
+    assert captured.err.count("cost_of_goods_sold") == 1
+    assert json.loads(captured.out)["financials"]["FY-Current"]["raw"]["revenue"] == 1200
+    kept = read_state(COMPANY, PROPOSAL, date_str=DATE, base_dir=str(tmp_path))
+    assert kept["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"][
+        "cost_of_goods_sold"] == 5
+
+
+def test_the_guarantor_policy_read_names_an_unknown_stored_name_once_and_keeps_computing(tmp_path, monkeypatch, capsys):
+    """Issue #596 (PX624-108 / CG624-6 / PX624-111): covenant policy recomputes the stored guarantor lines."""
+    import covenant_basis
+
+    path, _ = _seed_deal(tmp_path, [_entity()])
+    monkeypatch.chdir(tmp_path)
+    spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["entity_records"]["synthetic-guarantor"]["multi_period_financials"]["FY-Current"][
+        "cost_of_goods_sold"] = 5
+    covenant = {"metric": "dscr", "type": "minimum", "threshold": 1.0, "basis": "guarantor_group",
+                "basis_entity_id": "synthetic-guarantor"}
+    capsys.readouterr()
+
+    # The real policy resolver (PX624-113 / CG624-8), not the helper: it names the key once and keeps computing.
+    view = covenant_basis.resolve_covenant_view(stored, covenant)
+
+    assert capsys.readouterr().err.count("cost_of_goods_sold") == 1
+    assert "ratios" in view and view.get("unresolvable_reason") is None
+    spreading_check.entity_spread_view(stored["entity_records"]["synthetic-guarantor"], warn_stored=False)
+    assert capsys.readouterr().err == ""
+
+
+def test_the_entity_id_command_also_names_an_unknown_name_in_the_supplied_store(tmp_path, monkeypatch, capsys):
+    """Issue #596 (PX624-107): names only; the supplied figures are never computed."""
+    path, _ = _seed_deal(tmp_path, [_entity()])
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored_record = stored["entity_records"]["synthetic-guarantor"]
+    stored_record["analyst_supplied_financials"] = {"FY+1": {"admin_expense": 3}}
+    stored_record["period_ends"]["FY+1"] = "2026-12-31"
+    path.write_text(json.dumps(stored), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    spreading_check.compute_entity(COMPANY, PROPOSAL, "synthetic-guarantor")
+
+    err = capsys.readouterr().err
+    assert "admin_expense" in err and "analyst_supplied_financials" in err

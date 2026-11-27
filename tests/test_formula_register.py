@@ -345,7 +345,7 @@ FORMULA_DEFINITION_FINGERPRINTS = {
     "collateral_check:_stressed_output": "3b73cd8544883c26",
     "financial_conventions:warn_percent_type_values": "5a756dc02b8391af",
     "numeric_validation:validate_stress_assumptions": "1ab1331c89b292d8",
-    "numeric_validation:validate_raw_line_items": "cc8c5198782fb0a2",
+    "numeric_validation:validate_raw_line_items": "aa87c5ee0ddb76ef",
     "numeric_validation:validate_period_objects": "54cbcf705411906a",
     "numeric_validation:validate_period_keys": "191fcb57c6a4687e",
     "numeric_validation:validate_finite_numbers": "7e2ff92c23c49b92",

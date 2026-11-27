@@ -32,12 +32,14 @@ from numeric_validation import (
     FinancialInputError,
     MalformedCollateralInputError,
     StressAssumptionsError,
+    refuse_unknown_raw_line_items,
     validate_collateral_inputs,
     validate_finite_numbers,
     validate_period_keys,
     validate_period_objects,
     validate_raw_line_items,
     validate_stress_assumptions,
+    warn_unknown_raw_line_items,
 )
 from spreading_builder import (
     FIELD_LABELS, FORWARD_PERIOD_KEYS, PERIOD_KEYS, evaluate_downside_case, evaluate_financial_model,
@@ -562,6 +564,10 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
                   client=None, max_iterations=MAX_REVIEW_ITERATIONS, new_review=False):
     validate_period_objects(multi_period_financials, path="financial inputs")
     validate_period_keys(multi_period_financials, PERIOD_KEYS, path="financial inputs")
+    # Issue #596: refuse an unknown raw line-item name before any model call, naming the period
+    # and the key and suggesting the nearest valid name; no metadata keys are allowed (maintainer
+    # decision, option A).
+    refuse_unknown_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_raw_line_items(multi_period_financials, FIELD_LABELS, path="financial inputs")
     validate_finite_numbers(multi_period_financials, path="financial inputs")
     validate_finite_numbers(stress_assumptions, path="stress assumptions")
@@ -814,6 +820,11 @@ def run_pipeline(company, proposal, pd_score, lgd_score, deal_type,
     stress_assumptions_to_persist = (existing_state.get("stress_assumptions") or {} if analyst_forecast
                                      else stress_assumptions or existing_state.get("stress_assumptions") or {})
     if multi_period_financials_for_downside and stress_assumptions_to_persist and not analyst_forecast:
+        if not multi_period_financials:
+            # A stress-only run re-evaluates the stored raw lines without going through plan_fields(), so an unknown
+            # name already on file is named here before the stored data is used (issue #596).
+            warn_unknown_raw_line_items(multi_period_financials_for_downside, FIELD_LABELS,
+                                        path="multi_period_financials on file")
         downside_case = evaluate_downside_case(
             multi_period_financials_for_downside, stress_assumptions_to_persist,
             prior_exclude=prior_periods_to_ignore(existing_state),
